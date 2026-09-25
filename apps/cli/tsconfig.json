@@ -1,0 +1,5 @@
+{
+  "extends": "@custodes/config/tsconfig.node.json",
+  "compilerOptions": { "lib": ["ES2022", "DOM"] },
+  "include": ["src", "test", "vitest.config.ts", "tsup.config.ts"]
+}

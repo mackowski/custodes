@@ -1,0 +1,14 @@
+name: Bug
+description: Something behaves incorrectly (for security issues use private vulnerability reporting instead)
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes: { label: What happened? }
+    validations: { required: true }
+  - type: textarea
+    id: expected
+    attributes: { label: What did you expect? }
+  - type: input
+    id: attestation
+    attributes: { label: Attestation id (if an agent action is involved) }

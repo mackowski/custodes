@@ -1,0 +1,42 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "custodes-agents",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-15",
+  "compatibility_flags": ["nodejs_compat"],
+  // Agents are reached through the gateway (Access) or by schedule/queue/e-mail, never directly.
+  "workers_dev": false,
+  "preview_urls": false,
+  "observability": { "enabled": true, "head_sampling_rate": 1 },
+  "vars": {
+    "ENVIRONMENT": "prod",
+    "AI_GATEWAY_ACCOUNT_ID": "5f62912564df344533c9563904c77662",
+    "AI_GATEWAY_ID": "custodes",
+    "EMAIL_FROM": "custodes@custodes.work",
+    "EMAIL_DOMAIN": "custodes.work",
+  },
+  // Secrets (wrangler secret put): AI_GATEWAY_TOKEN, APPROVAL_TOKEN_SECRET
+  "durable_objects": {
+    "bindings": [{ "name": "HelloAgent", "class_name": "HelloAgent" }],
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["HelloAgent"] }],
+  "kv_namespaces": [{ "binding": "KILL_SWITCH", "id": "841e2b0dd14d48fbac292217839957a4" }],
+  "services": [{ "binding": "BROKER", "service": "custodes-github-broker" }],
+  "queues": {
+    "consumers": [
+      {
+        "queue": "custodes-inbound",
+        "max_batch_size": 10,
+        "max_retries": 3,
+        "dead_letter_queue": "custodes-inbound-dlq",
+      },
+    ],
+  },
+  "send_email": [
+    {
+      "name": "EMAIL",
+      // Agents may only e-mail the operators. Widen deliberately, per agent, in a reviewed PR.
+      "allowed_destination_addresses": ["jkb.mackowski@gmail.com"],
+    },
+  ],
+}

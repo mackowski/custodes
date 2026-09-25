@@ -1,0 +1,9 @@
+# Every path needs a human review. Security-sensitive paths need the security owner as well.
+*                                   @mackowski
+/workers/github-broker/             @mackowski
+/workers/github-broker/policy/      @mackowski
+/packages/core/                     @mackowski
+/infra/                             @mackowski
+/.github/workflows/                 @mackowski
+/.claude/settings.json              @mackowski
+/.claude/hooks/                     @mackowski

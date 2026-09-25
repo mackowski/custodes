@@ -1,0 +1,8 @@
+{
+  "extends": "@custodes/config/tsconfig.worker.json",
+  "compilerOptions": {
+    "types": ["./worker-configuration.d.ts", "@cloudflare/vitest-pool-workers/types"],
+    "experimentalDecorators": false
+  },
+  "include": ["src", "test", "vitest.config.ts", "worker-configuration.d.ts"]
+}

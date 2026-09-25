@@ -1,0 +1,36 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "custodes-github-broker",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-15",
+  "compatibility_flags": ["nodejs_compat"],
+  // Not reachable from the internet: only via service bindings from gateway and agents.
+  "workers_dev": false,
+  "preview_urls": false,
+  "observability": { "enabled": true, "head_sampling_rate": 1 },
+  "vars": {
+    "ENVIRONMENT": "prod",
+    "VERIFY_URL": "https://custodes.work/verify",
+  },
+  // Per-agent Ed25519 signing keys are generated and held by this Durable Object; private keys never leave it.
+  "durable_objects": { "bindings": [{ "name": "KEYRING", "class_name": "Keyring" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Keyring"] }],
+  "kv_namespaces": [{ "binding": "KILL_SWITCH", "id": "841e2b0dd14d48fbac292217839957a4" }],
+  "d1_databases": [
+    {
+      "binding": "AUDIT",
+      "database_name": "custodes-audit",
+      "database_id": "bdce4844-0c8c-46e4-ab90-8ec98df7234a",
+      "migrations_dir": "migrations",
+    },
+  ],
+  // One GitHub PAT per agent, pushed into Secrets Store by CI from the GitHub secret PAT_<AGENT>.
+  // Binding names must match policy/policy.json tokenBinding.
+  "secrets_store_secrets": [
+    {
+      "binding": "PAT_HELLO",
+      "store_id": "92c5c38062fc4da98fad1fe4f5a8bda1",
+      "secret_name": "github-pat-hello",
+    },
+  ],
+}

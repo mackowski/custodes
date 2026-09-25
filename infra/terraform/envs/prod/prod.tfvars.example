@@ -1,0 +1,8 @@
+account_id                  = "5f62912564df344533c9563904c77662"
+zone_id                     = "116d03a9a3cb930f00a08c1e9ffcfdd8"
+hostname                    = "custodes.work"
+operator_emails             = ["jkb.mackowski@gmail.com"]
+dmarc_report_address        = "jkb.mackowski@gmail.com"
+agents                      = ["hello"]
+access_identity_provider_id = "50ab7e7e-522e-4ebf-91a9-5560fdd1501b"
+email_rules_enabled         = false

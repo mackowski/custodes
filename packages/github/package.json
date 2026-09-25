@@ -1,0 +1,25 @@
+{
+  "name": "@custodes/github",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "GitHub identity abstraction, webhook verification, trailers and the broker client",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@custodes/core": "workspace:*",
+    "@custodes/schema": "workspace:*",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "5.20260919.1",
+    "@custodes/config": "workspace:*",
+    "typescript": "5.9.3",
+    "vitest": "4.1.11"
+  }
+}

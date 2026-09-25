@@ -1,0 +1,38 @@
+name: Agent proposal
+description: Propose a new agent or a new capability for an existing agent
+labels: [agent-proposal]
+body:
+  - type: input
+    id: name
+    attributes: { label: Agent id, placeholder: triage }
+    validations: { required: true }
+  - type: textarea
+    id: job
+    attributes: { label: What should it do, and for which repositories? }
+    validations: { required: true }
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Human involvement
+      options:
+        [
+          'hitl: every side effect needs approval',
+          'hotl: acts within policy, notifies, can be halted',
+        ]
+    validations: { required: true }
+  - type: textarea
+    id: actions
+    attributes:
+      {
+        label: Side effects it needs (GitHub actions,
+        emails),
+        description: 'Least privilege: only what is needed',
+      }
+    validations: { required: true }
+  - type: textarea
+    id: risks
+    attributes:
+      {
+        label: What could go wrong?,
+        description: 'Prompt injection paths, wrong repo, spam, reputational damage',
+      }

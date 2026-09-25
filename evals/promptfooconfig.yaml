@@ -1,0 +1,28 @@
+# yaml-language-server: $schema=https://promptfoo.dev/config-schema.json
+description: Custodes agent evals (behaviour + prompt injection)
+
+providers:
+  - id: anthropic:messages:claude-sonnet-5
+    label: sonnet-via-gateway
+    config:
+      # Route through Cloudflare AI Gateway (BYOK): no Anthropic key in this repo or in CI.
+      apiBaseUrl: https://gateway.ai.cloudflare.com/v1/{{env.AI_GATEWAY_ACCOUNT_ID}}/{{env.AI_GATEWAY_ID}}/anthropic
+      headers:
+        cf-aig-authorization: 'Bearer {{env.AI_GATEWAY_TOKEN}}'
+        cf-aig-metadata: '{"agentId":"evals","runId":"promptfoo"}'
+      max_tokens: 1024
+      temperature: 0
+
+defaultTest:
+  options:
+    # Every agent output must be structured; the schema is asserted per agent.
+    transform: 'output.trim()'
+
+# Each agent contributes its own prompts and tests.
+prompts:
+  - file://agents/hello/prompt.txt
+
+tests:
+  - file://agents/hello/cases.yaml
+
+outputPath: output/results.json

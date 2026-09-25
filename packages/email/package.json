@@ -1,0 +1,24 @@
+{
+  "name": "@custodes/email",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Email templates, inbound authentication checks and approval reply addresses",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@custodes/core": "workspace:*",
+    "@custodes/schema": "workspace:*"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "5.20260919.1",
+    "@custodes/config": "workspace:*",
+    "typescript": "5.9.3",
+    "vitest": "4.1.11"
+  }
+}

@@ -1,0 +1,119 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "extraKnownMarketplaces": {
+    "cloudflare": {
+      "source": {
+        "source": "github",
+        "repo": "cloudflare/skills"
+      }
+    }
+  },
+  "enabledPlugins": {
+    "cloudflare@cloudflare": true
+  },
+  "permissions": {
+    "allow": [
+      "Read",
+      "Grep",
+      "Glob",
+      "Bash(pnpm install*)",
+      "Bash(pnpm run *)",
+      "Bash(pnpm -r *)",
+      "Bash(pnpm --filter *)",
+      "Bash(pnpm lint*)",
+      "Bash(pnpm typecheck*)",
+      "Bash(pnpm test*)",
+      "Bash(pnpm build*)",
+      "Bash(pnpm check*)",
+      "Bash(pnpm format*)",
+      "Bash(pnpm changeset*)",
+      "Bash(git status*)",
+      "Bash(git diff*)",
+      "Bash(git log*)",
+      "Bash(git branch*)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(gh pr view *)",
+      "Bash(gh pr diff *)",
+      "Bash(gh issue view *)",
+      "Bash(wrangler types*)",
+      "Bash(wrangler dev*)",
+      "Bash(terraform fmt*)",
+      "Bash(terraform validate*)",
+      "Bash(actionlint*)",
+      "WebFetch(domain:developers.cloudflare.com)",
+      "WebFetch(domain:docs.github.com)",
+      "WebFetch(domain:code.claude.com)",
+      "WebFetch(domain:cheatsheetseries.owasp.org)"
+    ],
+    "deny": [
+      "Read(./**/.dev.vars*)",
+      "Read(./**/*secret*.tfvars)",
+      "Read(./**/backend.hcl)",
+      "Read(./**/secrets/**)",
+      "Read(~/.wrangler/**)",
+      "Read(~/.cloudflared/**)",
+      "Bash(wrangler deploy*)",
+      "Bash(wrangler publish*)",
+      "Bash(wrangler secret *)",
+      "Bash(wrangler secrets-store *)",
+      "Bash(wrangler delete*)",
+      "Bash(wrangler d1 execute * --remote*)",
+      "Bash(terraform apply*)",
+      "Bash(terraform destroy*)",
+      "Bash(git push --force*)",
+      "Bash(git push -f*)",
+      "Bash(curl * -H *Authorization*)",
+      "Bash(gh secret *)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/block-dangerous.sh",
+            "timeout": 10,
+            "statusMessage": "Checking command against the security guardrails"
+          }
+        ]
+      },
+      {
+        "matcher": "Read|Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/block-secrets.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/format-on-edit.sh",
+            "timeout": 60
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/typecheck-on-stop.sh",
+            "timeout": 300,
+            "statusMessage": "Typechecking changed packages"
+          }
+        ]
+      }
+    ]
+  }
+}

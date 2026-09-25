@@ -1,0 +1,26 @@
+{
+  "name": "@custodes/core",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Agent base class, kill switch, approvals, audit records and Ed25519 attestations",
+  "exports": {
+    ".": "./src/index.ts",
+    "./agent": "./src/agent.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@custodes/schema": "workspace:*",
+    "agents": "0.24.0",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "5.20260919.1",
+    "@custodes/config": "workspace:*",
+    "typescript": "5.9.3",
+    "vitest": "4.1.11"
+  }
+}

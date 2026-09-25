@@ -1,0 +1,39 @@
+{
+  "name": "custodes",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Guardian agents for open-source maintainers, hosted on Cloudflare. quis custodiet ipsos custodes",
+  "license": "Apache-2.0",
+  "packageManager": "pnpm@10.34.5",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "lint": "eslint . --max-warnings 0",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "dev": "pnpm --filter ./workers/gateway exec wrangler dev -c wrangler.jsonc -c ../agents/wrangler.jsonc -c ../github-broker/wrangler.jsonc --port 8787 --persist-to ../../.wrangler/state",
+    "dev:agents": "pnpm --filter ./workers/agents exec wrangler dev --port 8788 --persist-to ../../.wrangler/state",
+    "dev:migrate": "pnpm --filter ./workers/github-broker exec wrangler d1 migrations apply AUDIT --local --persist-to ../../.wrangler/state",
+    "types": "pnpm -r --filter './workers/*' run types",
+    "typecheck": "pnpm -r --parallel run typecheck",
+    "test": "pnpm -r run test",
+    "build": "pnpm -r run build",
+    "check": "pnpm types && pnpm format:check && pnpm lint && pnpm typecheck && pnpm test",
+    "actionlint": "actionlint .github/workflows/*.yml",
+    "changeset": "changeset"
+  },
+  "devDependencies": {
+    "@changesets/cli": "3.0.3",
+    "@custodes/config": "workspace:*",
+    "@eslint/js": "10.0.1",
+    "@types/node": "22.20.4",
+    "eslint": "10.11.0",
+    "eslint-config-prettier": "10.1.8",
+    "globals": "17.12.0",
+    "prettier": "3.9.8",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.70.1"
+  }
+}

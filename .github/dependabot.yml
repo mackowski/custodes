@@ -1,0 +1,18 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule: { interval: weekly, day: monday }
+    open-pull-requests-limit: 10
+    groups:
+      cloudflare: { patterns: ['wrangler', 'agents', '@cloudflare/*'] }
+      lint: { patterns: ['eslint*', '@eslint/*', 'typescript-eslint', 'prettier', 'globals'] }
+      test: { patterns: ['vitest', '@vitest/*'] }
+    # Respect the 3-day release-age gate used by pnpm
+    cooldown: { default-days: 3 }
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly, day: monday }
+  - package-ecosystem: terraform
+    directory: /infra/terraform/envs/prod
+    schedule: { interval: weekly, day: monday }

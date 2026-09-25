@@ -1,0 +1,27 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "custodes-gateway",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-15",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true, "head_sampling_rate": 1 },
+  // Single environment. Local development uses the same config with miniflare-backed bindings.
+  "routes": [{ "pattern": "custodes.work", "custom_domain": true }],
+  "vars": {
+    "ENVIRONMENT": "prod",
+    // Cloudflare Zero Trust team: https://ai-custodes.cloudflareaccess.com
+    "ACCESS_TEAM": "ai-custodes",
+    // Application Audience (AUD) tag of the Access application; from `terraform output`.
+    "ACCESS_AUD": "0cb7808f9edd99f93ee4cb7ee333f46eb7ee2ad9cc8abd4a05667344cd8c595e",
+    "EMAIL_DOMAIN": "custodes.work",
+    // Comma-separated senders allowed to approve by e-mail.
+    "APPROVER_EMAILS": "jkb.mackowski@gmail.com",
+  },
+  // Secrets (wrangler secret put): GITHUB_WEBHOOK_SECRET, APPROVAL_TOKEN_SECRET
+  "kv_namespaces": [{ "binding": "KILL_SWITCH", "id": "841e2b0dd14d48fbac292217839957a4" }],
+  "services": [
+    { "binding": "BROKER", "service": "custodes-github-broker" },
+    { "binding": "AGENTS", "service": "custodes-agents" },
+  ],
+  "queues": { "producers": [{ "binding": "INBOUND", "queue": "custodes-inbound" }] },
+}

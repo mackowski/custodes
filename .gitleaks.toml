@@ -1,0 +1,26 @@
+title = "custodes gitleaks config"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "cloudflare-api-token"
+description = "Cloudflare API token"
+regex = '''(?i)cloudflare[_-]?api[_-]?token["'\s:=]+[A-Za-z0-9_-]{40}'''
+
+[[rules]]
+id = "cloudflare-access-service-token-secret"
+description = "Cloudflare Access service token client secret"
+regex = '''(?i)cf[_-]?access[_-]?client[_-]?secret["'\s:=]+[a-f0-9]{64}'''
+
+[[rules]]
+id = "github-fine-grained-pat"
+description = "GitHub fine-grained personal access token"
+regex = '''github_pat_[A-Za-z0-9_]{82}'''
+
+[allowlist]
+paths = [
+  '''pnpm-lock\.yaml''',
+  '''evals/.*fixtures.*''',
+  '''packages/core/test/fixtures/.*''',
+]

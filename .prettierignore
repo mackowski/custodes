@@ -1,0 +1,6 @@
+pnpm-lock.yaml
+dist/
+.wrangler/
+coverage/
+CHANGELOG.md
+infra/terraform/**/*.tf

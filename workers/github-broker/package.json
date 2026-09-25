@@ -1,0 +1,29 @@
+{
+  "name": "@custodes/worker-github-broker",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Single policy enforcement point for every GitHub side effect: policy, kill switch, approvals, audit, attestation",
+  "scripts": {
+    "dev": "wrangler dev",
+    "types": "wrangler types --strict-vars=false",
+    "typecheck": "wrangler types --strict-vars=false >/dev/null 2>&1; tsc -p tsconfig.json",
+    "test": "vitest run",
+    "deploy": "wrangler deploy",
+    "preview": "wrangler versions upload"
+  },
+  "dependencies": {
+    "@custodes/core": "workspace:*",
+    "@custodes/github": "workspace:*",
+    "@custodes/schema": "workspace:*",
+    "hono": "4.13.8",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "0.22.0",
+    "@custodes/config": "workspace:*",
+    "typescript": "5.9.3",
+    "vitest": "4.1.11",
+    "wrangler": "4.136.1"
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "name": "@custodes/cli",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "custodes: operator CLI for the agent fleet (Cloudflare Access protected)",
+  "bin": {
+    "custodes": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "node --experimental-strip-types src/index.ts",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@custodes/core": "workspace:*",
+    "@custodes/schema": "workspace:*",
+    "commander": "15.0.0",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@custodes/config": "workspace:*",
+    "@types/node": "22.20.4",
+    "tsup": "8.5.1",
+    "typescript": "5.9.3",
+    "vitest": "4.1.11"
+  }
+}

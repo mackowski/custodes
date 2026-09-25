@@ -1,0 +1,19 @@
+packages:
+  - packages/*
+  - workers/*
+  - apps/*
+
+# Supply-chain hardening
+minimumReleaseAge: 4320 # 3 days, in minutes: skip freshly published versions
+minimumReleaseAgeExclude:
+  - '@custodes/*'
+strictDepBuilds: true
+onlyBuiltDependencies:
+  - esbuild
+  - workerd
+  - '@cloudflare/workerd-darwin-arm64'
+  - '@cloudflare/workerd-darwin-64'
+  - '@cloudflare/workerd-linux-64'
+  - '@cloudflare/workerd-linux-arm64'
+ignoredBuiltDependencies:
+  - core-js-pure
