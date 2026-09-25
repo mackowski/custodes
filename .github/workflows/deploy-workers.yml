@@ -77,4 +77,5 @@ jobs:
           GITHUB_WEBHOOK_SECRET: ${{ secrets.GH_WEBHOOK_SECRET }} # GitHub forbids secret names starting with GITHUB_
           APPROVAL_TOKEN_SECRET: ${{ secrets.APPROVAL_TOKEN_SECRET }}
       - name: Smoke test
-        run: curl --fail --silent --show-error https://custodes.work/healthz
+        # A freshly created custom domain can take a minute to resolve on the runner; retry with backoff.
+        run: curl --fail --silent --show-error --retry 12 --retry-delay 10 --retry-all-errors https://custodes.work/healthz
