@@ -4,7 +4,14 @@ name: Deploy Workers
 on:
   push:
     branches: [main]
-    paths: ['workers/**', 'packages/**', 'scripts/**', 'pnpm-lock.yaml', '.github/workflows/deploy-workers.yml']
+    paths:
+      [
+        'workers/**',
+        'packages/**',
+        'scripts/**',
+        'pnpm-lock.yaml',
+        '.github/workflows/deploy-workers.yml',
+      ]
   workflow_dispatch:
 permissions: read-all
 concurrency:
