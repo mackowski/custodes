@@ -19,8 +19,19 @@ description = "GitHub fine-grained personal access token"
 regex = '''github_pat_[A-Za-z0-9_]{82}'''
 
 [allowlist]
+description = "Public identifiers and test fixtures that look like secrets but are not"
+regexTarget = "line"
 paths = [
   '''pnpm-lock\.yaml''',
   '''evals/.*fixtures.*''',
   '''packages/core/test/fixtures/.*''',
+  # Unit tests use made-up tokens and addresses; nothing real is ever placed here.
+  '''packages/email/test/.*''',
+]
+regexes = [
+  # Cloudflare resource ids (KV/D1/Secrets Store/account): identifiers, not credentials.
+  '''SECRETS_STORE_ID:\s*[0-9a-f]{32}''',
+  '''"(store_id|database_id|id)":\s*"[0-9a-f]{32}"''',
+  # Access application audience tag: public, embedded in every JWT the app issues.
+  '''"ACCESS_AUD":\s*"[0-9a-f]{64}"''',
 ]
