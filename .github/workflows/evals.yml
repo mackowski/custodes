@@ -7,7 +7,7 @@ on:
 permissions: read-all
 jobs:
   promptfoo:
-    if: github.event.pull_request.head.repo.full_name == github.repository
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: ci
@@ -25,7 +25,7 @@ jobs:
           AI_GATEWAY_ACCOUNT_ID: ${{ vars.AI_GATEWAY_ACCOUNT_ID }}
           AI_GATEWAY_ID: ${{ vars.AI_GATEWAY_ID }}
           AI_GATEWAY_TOKEN: ${{ secrets.AI_GATEWAY_TOKEN }}
-        run: pnpm dlx promptfoo@0.121.0 eval -c promptfooconfig.yaml --no-cache
+        run: pnpm dlx promptfoo@0.123.1 eval -c promptfooconfig.yaml --no-cache
       - uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
         if: always()
         with:

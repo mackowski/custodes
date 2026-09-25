@@ -4,15 +4,34 @@ updates:
     directory: /
     schedule: { interval: weekly, day: monday }
     open-pull-requests-limit: 10
+    # Respect the 3-day release-age gate used by pnpm (minimumReleaseAge: 4320)
+    cooldown: { default-days: 3 }
     groups:
+      # Group order matters: a dependency joins the first group whose pattern matches.
       cloudflare: { patterns: ['wrangler', 'agents', '@cloudflare/*'] }
       lint: { patterns: ['eslint*', '@eslint/*', 'typescript-eslint', 'prettier', 'globals'] }
       test: { patterns: ['vitest', '@vitest/*'] }
-    # Respect the 3-day release-age gate used by pnpm
-    cooldown: { default-days: 3 }
+      # Everything else that is minor/patch lands as one PR; majors stay separate PRs.
+      minor-and-patch:
+        patterns: ['*']
+        update-types: [minor, patch]
+    ignore:
+      # @cloudflare/vitest-pool-workers peers on vitest ^4.1.0; vitest 5 breaks the workerd tests.
+      - dependency-name: vitest
+        update-types: ['version-update:semver-major']
+      - dependency-name: '@vitest/*'
+        update-types: ['version-update:semver-major']
+      # Keep Node types on the runtime major (.node-version = 22.x).
+      - dependency-name: '@types/node'
+        update-types: ['version-update:semver-major']
   - package-ecosystem: github-actions
     directory: /
     schedule: { interval: weekly, day: monday }
+    cooldown: { default-days: 3 }
+    groups:
+      # One PR per week for all action bumps (SHA pins and version comments move together).
+      actions: { patterns: ['*'] }
   - package-ecosystem: terraform
     directory: /infra/terraform/envs/prod
     schedule: { interval: weekly, day: monday }
+    cooldown: { default-days: 3 }

@@ -7,7 +7,11 @@ on:
 permissions: read-all
 jobs:
   review:
-    if: github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft
+    # Same-repo, non-draft, human PRs only: dependabot runs cannot read secrets and dependency bumps do not need a model review.
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      !github.event.pull_request.draft &&
+      github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:

@@ -14,7 +14,7 @@ Run locally:
 
 ```bash
 export AI_GATEWAY_ACCOUNT_ID=... AI_GATEWAY_ID=custodes AI_GATEWAY_TOKEN=...
-cd evals && pnpm dlx promptfoo@0.121.0 eval -c promptfooconfig.yaml
+cd evals && pnpm dlx promptfoo@0.123.1 eval -c promptfooconfig.yaml
 ```
 
 Rules: never weaken an assertion to make a case pass; never delete an injection case; keep each
