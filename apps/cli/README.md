@@ -9,7 +9,7 @@ Interactive (humans):
 
 ```bash
 brew install cloudflared
-cloudflared access login https://custodes.work      # opens the browser once
+cloudflared access login https://custodes.work/admin   # opens the browser once; /admin is the Access app
 export CUSTODES_API_URL=https://custodes.work
 custodes agents list
 ```

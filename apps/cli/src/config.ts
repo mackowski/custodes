@@ -1,7 +1,8 @@
 export interface CliConfig {
   /** Base URL of the gateway, e.g. https://custodes.work */
   apiUrl: string;
-  /** Access application URL used for `cloudflared access token -app=...`; defaults to apiUrl. */
+  /** Access application URL used for `cloudflared access token -app=...`; defaults to `<apiUrl>/admin`,
+   * the primary destination of the Access application. */
   accessAppUrl: string;
   serviceToken?: { clientId: string; clientSecret: string };
   json: boolean;
@@ -14,7 +15,7 @@ export function loadConfig(opts: { json?: boolean; apiUrl?: string }): CliConfig
   const clientSecret = process.env['CF_ACCESS_CLIENT_SECRET'];
   return {
     apiUrl,
-    accessAppUrl: process.env['CUSTODES_ACCESS_APP_URL'] ?? apiUrl,
+    accessAppUrl: process.env['CUSTODES_ACCESS_APP_URL'] ?? `${apiUrl}/admin`,
     ...(clientId && clientSecret ? { serviceToken: { clientId, clientSecret } } : {}),
     json: opts.json ?? false,
   };
