@@ -20,7 +20,7 @@
   "devDependencies": {
     "@cloudflare/workers-types": "5.20260922.1",
     "@custodes/config": "workspace:*",
-    "typescript": "5.9.3",
+    "typescript": "6.0.3",
     "vitest": "4.1.11"
   }
 }
