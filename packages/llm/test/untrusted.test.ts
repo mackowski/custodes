@@ -15,3 +15,20 @@ describe('untrusted', () => {
     expect(clip('abcdef', 3)).toBe('abc\n[... 3 characters truncated ...]');
   });
 });
+
+describe('inertText', () => {
+  it('removes control, zero-width and bidi-override characters and collapses whitespace', async () => {
+    const { inertText } = await import('../src/untrusted.js');
+    const hidden = ['\u0007', '​', '‮', '⁦'].join('');
+    expect(inertText(`safe${hidden}\n\ttext`, 50)).toBe('safe text');
+    expect(inertText('abcdef', 3)).toBe('abc');
+  });
+});
+
+describe('inertText coverage', () => {
+  it('also removes C1 controls, soft hyphen, Arabic letter mark and BOM', async () => {
+    const { inertText } = await import('../src/untrusted.js');
+    const hidden = ['\u0085', '­', '؜', '﻿', '⁠'].join('');
+    expect(inertText(`a${hidden}b`, 20)).toBe('a b');
+  });
+});

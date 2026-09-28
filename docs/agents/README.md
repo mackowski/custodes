@@ -2,9 +2,10 @@
 
 One page per agent. Create pages with `/new-agent`; the template is below.
 
-| Agent             | Mode | Repos                  | Actions       | Status   |
-| ----------------- | ---- | ---------------------- | ------------- | -------- |
-| [hello](hello.md) | hitl | OWASP/CheatSheetSeries | issue.comment | scaffold |
+| Agent               | Mode     | Repos                  | Actions          | Status   |
+| ------------------- | -------- | ---------------------- | ---------------- | -------- |
+| [hello](hello.md)   | hitl     | OWASP/CheatSheetSeries | issue.comment    | scaffold |
+| [triage](triage.md) | readonly | OWASP/CheatSheetSeries | none (read-only) | active   |
 
 ## Template
 

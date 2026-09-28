@@ -13,6 +13,12 @@ export function evaluatePolicy(policy: Policy, req: BrokerRequest): PolicyDecisi
   if (!agent)
     return { allow: false, code: 'unknown_agent', reason: `no policy for agent ${req.agentId}` };
 
+  // Defence in depth: read-only agents normally have no policy entry at all, but if one is added
+  // by mistake it still grants nothing.
+  if (agent.mode === 'readonly') {
+    return { allow: false, code: 'policy_denied', reason: `agent ${req.agentId} is read-only` };
+  }
+
   if (!agent.repos.includes(req.action.repo)) {
     return { allow: false, code: 'policy_denied', reason: `repo ${req.action.repo} not allowed` };
   }

@@ -11,8 +11,9 @@ export const SemVer = z.string().regex(/^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/, 'sem
 /**
  * hitl = human in the loop: every side effect waits for an approval.
  * hotl = human on the loop: acts within policy, logs, notifies; can be halted.
+ * readonly = never requests a GitHub side effect; the broker refuses it unconditionally.
  */
-export const AgentMode = z.enum(['hitl', 'hotl']);
+export const AgentMode = z.enum(['hitl', 'hotl', 'readonly']);
 export type AgentMode = z.infer<typeof AgentMode>;
 
 export const GitHubRepo = z.string().regex(/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/, 'owner/repo');

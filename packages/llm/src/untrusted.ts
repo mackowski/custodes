@@ -22,3 +22,15 @@ export function clip(content: string, maxChars: number): string {
   if (content.length <= maxChars) return content;
   return `${content.slice(0, maxChars)}\n[... ${content.length - maxChars} characters truncated ...]`;
 }
+
+/**
+ * All Unicode control (Cc) and format (Cf) characters. Built from an escaped string so no
+ * formatter can turn the escapes into the invisible characters themselves.
+ */
+// Cc: C0/C1 controls incl. DEL. Cf: zero-width, bidi overrides/isolates, soft hyphen, BOM, etc.
+const INVISIBLE = new RegExp('[\\p{Cc}\\p{Cf}]', 'gu');
+
+/** Makes untrusted or model-generated text inert for plain-text display: one line, no hidden chars. */
+export function inertText(s: string, maxChars: number): string {
+  return s.replace(INVISIBLE, ' ').replace(/\s+/g, ' ').trim().slice(0, maxChars);
+}

@@ -29,3 +29,11 @@ resource "cloudflare_email_routing_catch_all" "agents" {
   matchers = [{ type = "all" }]
   actions  = [{ type = "worker", value = [var.agents_worker_name] }]
 }
+
+# Verified destination addresses. Workers may send to these without Email Sending onboarding
+# (free on any plan); each address receives a one-time verification e-mail that must be clicked.
+resource "cloudflare_email_routing_address" "destination" {
+  for_each   = toset(var.destination_addresses)
+  account_id = var.account_id
+  email      = each.key
+}

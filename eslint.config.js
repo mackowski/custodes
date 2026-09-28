@@ -32,6 +32,8 @@ export default defineConfig(
       'no-implied-eval': 'error',
       'no-new-func': 'error',
       '@typescript-eslint/no-explicit-any': 'error',
+      // this.sql`...` statements are side-effecting tagged templates (Agents SDK SQL).
+      '@typescript-eslint/no-unused-expressions': ['error', { allowTaggedTemplates: true }],
       '@typescript-eslint/no-unused-vars': [
         'error',
         { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },

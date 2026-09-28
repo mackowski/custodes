@@ -14,12 +14,22 @@
     "AI_GATEWAY_ID": "custodes",
     "EMAIL_FROM": "custodes@custodes.work",
     "EMAIL_DOMAIN": "custodes.work",
+    // Recipient of digests. Must be a verified Email Routing destination (infra/terraform email module).
+    "OPERATOR_EMAIL": "jkb.mackowski@gmail.com",
   },
-  // Secrets (wrangler secret put): AI_GATEWAY_TOKEN, APPROVAL_TOKEN_SECRET
+  // Secrets (set by CI on deploy): AI_GATEWAY_TOKEN, APPROVAL_TOKEN_SECRET
   "durable_objects": {
-    "bindings": [{ "name": "HelloAgent", "class_name": "HelloAgent" }],
+    "bindings": [
+      { "name": "HelloAgent", "class_name": "HelloAgent" },
+      { "name": "TriageAgent", "class_name": "TriageAgent" },
+    ],
   },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["HelloAgent"] }],
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["HelloAgent"] },
+    { "tag": "v2", "new_sqlite_classes": ["TriageAgent"] },
+  ],
+  // Must match CRON_TRIAGE_POLL / CRON_TRIAGE_DIGEST in src/index.ts (UTC).
+  "triggers": { "crons": ["17 */4 * * *", "0 7 * * *"] },
   "kv_namespaces": [{ "binding": "KILL_SWITCH", "id": "841e2b0dd14d48fbac292217839957a4" }],
   "services": [{ "binding": "BROKER", "service": "custodes-github-broker" }],
   "queues": {

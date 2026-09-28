@@ -4,3 +4,5 @@ dist/
 coverage/
 CHANGELOG.md
 infra/terraform/**/*.tf
+# promptfoo chat templates: Nunjucks, not literal JSON
+evals/**/prompt.json

@@ -70,3 +70,29 @@ describe('evaluatePolicy', () => {
     ).toMatchObject({ allow: false, code: 'unknown_agent' });
   });
 });
+
+describe('evaluatePolicy for read-only agents', () => {
+  it('denies every action even when the policy lists it', () => {
+    const ro: Policy = {
+      version: 1,
+      agents: {
+        watcher: {
+          tokenBinding: 'PAT_WATCHER',
+          mode: 'readonly',
+          repos: ['OWASP/CheatSheetSeries'],
+          actions: ['issue.comment'],
+          requiresApproval: [],
+          rateLimitPerHour: 60,
+        },
+      },
+    };
+    const req: BrokerRequest = {
+      agentId: 'watcher',
+      agentVersion: '0.1.0',
+      runId: '9d7c1e9e-2b1a-4b6e-9a2e-1f7d1c2b3a44',
+      triggeredBy: { kind: 'schedule' },
+      action: { type: 'issue.comment', repo: 'OWASP/CheatSheetSeries', issue: 1, body: 'x' },
+    };
+    expect(evaluatePolicy(ro, req)).toMatchObject({ allow: false, code: 'policy_denied' });
+  });
+});

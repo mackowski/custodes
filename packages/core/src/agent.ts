@@ -1,4 +1,4 @@
-import { Agent } from 'agents';
+import { Agent, type Connection } from 'agents';
 import {
   type AgentManifest,
   type BrokerAction,
@@ -35,6 +35,14 @@ export abstract class CustodesAgent<
 > extends Agent<Env, State> {
   abstract readonly manifest: AgentManifest;
 
+  /**
+   * Agent state is server-owned. The SDK otherwise lets connected WebSocket clients overwrite it
+   * with cf_agent_state frames; through the gateway that would mean any Access session.
+   */
+  override validateStateChange(_next: State, source: Connection | 'server'): void {
+    if (source !== 'server') throw new Error('agent state is server-owned');
+  }
+
   protected get killSwitch(): KillSwitch {
     return new KillSwitch(this.env.KILL_SWITCH);
   }
@@ -52,6 +60,9 @@ export abstract class CustodesAgent<
     triggeredBy: Trigger,
     opts: { onBehalfOf?: string; approvalId?: string } = {},
   ): Promise<BrokerResponse> {
+    if (this.manifest.mode === 'readonly') {
+      throw new Error(`agent ${this.manifest.id} is read-only and cannot request side effects`);
+    }
     await this.guard();
     const request: BrokerRequest = {
       agentId: this.manifest.id,

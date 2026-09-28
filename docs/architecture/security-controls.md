@@ -20,6 +20,7 @@
 | C16 | AI Gateway: BYOK, auth, logging, limits                                                        | `infra/terraform/modules/ai-gateway`, `AnthropicGateway` headers                                                                                    | manual                                                |
 | C17 | Log hygiene: ids only, never bodies or tokens                                                  | `GitHubApiError`, structured `console.log`                                                                                                          | `api.test.ts`                                         |
 | C18 | No secrets in files: credentials only via environment (CI secrets, macOS Keychain wrapper)     | `scripts/with-secrets.sh`; non-secret backend inlined in `infra/terraform/envs/*/main.tf`; hooks deny `.dev.vars`, `backend.hcl`, `*secret*.tfvars` | `.gitleaks.toml`; hooks exercised in every session    |
+| C19 | Read-only agents cannot request side effects                                                   | `CustodesAgent.act()` throws for `readonly`; no broker policy; `evaluatePolicy` denies `readonly` (ADR 0009)                                        | `policy-eval.test.ts`, `triage.test.ts`               |
 
 ## Broker actions and the PAT permission each needs
 
