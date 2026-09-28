@@ -17,3 +17,7 @@ onlyBuiltDependencies:
   - '@cloudflare/workerd-linux-arm64'
 ignoredBuiltDependencies:
   - core-js-pure
+
+# Security overrides for transitive dev-only dependencies (remove when upstream catches up).
+overrides:
+  sharp: 0.35.4 # GHSA-rgj7-g3m4-5g8c, via @cloudflare/vitest-pool-workers > miniflare
