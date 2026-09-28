@@ -64,6 +64,9 @@ export class AnthropicGateway {
       'anthropic-version': '2023-06-01',
       'cf-aig-authorization': `Bearer ${this.cfg.gatewayToken}`,
       'cf-aig-metadata': JSON.stringify(metadata),
+      // Use only our stored (BYOK) key; if it is missing, fail instead of silently falling back
+      // to Cloudflare Unified Billing credentials.
+      'cf-aig-no-wholesale': 'true',
     };
     if (this.cfg.anthropicApiKey) headers['x-api-key'] = this.cfg.anthropicApiKey;
     const res = await this.fetchImpl(this.url, {
