@@ -54,7 +54,9 @@ export class AnthropicGateway {
 
   constructor(private readonly cfg: GatewayConfig) {
     this.url = `https://gateway.ai.cloudflare.com/v1/${cfg.accountId}/${cfg.gatewayId}/anthropic/v1/messages`;
-    this.fetchImpl = cfg.fetchImpl ?? fetch;
+    // Never store the global fetch as a method: calling it with `this` bound throws
+    // "Illegal invocation" in Workers. Wrap it in a function instead.
+    this.fetchImpl = cfg.fetchImpl ?? ((input, init) => fetch(input, init));
   }
 
   async messages(req: MessagesRequest): Promise<MessagesResponse> {

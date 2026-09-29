@@ -34,3 +34,22 @@ describe('GitHubRest', () => {
     );
   });
 });
+
+describe('GitHubRest default fetch', () => {
+  it('calls the global fetch unbound (a bound call throws "Illegal invocation" in Workers)', async () => {
+    let receiver: unknown = 'not called';
+    vi.stubGlobal('fetch', function (this: unknown) {
+      // eslint-disable-next-line @typescript-eslint/no-this-alias -- the receiver is what this test inspects
+      receiver = this;
+      return Promise.resolve(
+        Response.json({ html_url: 'https://github.com/x/y/issues/1#c' }, { status: 201 }),
+      );
+    });
+    try {
+      await new GitHubRest(id).createIssueComment('x/y', 1, 'hi');
+      expect(receiver).toBeUndefined();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});

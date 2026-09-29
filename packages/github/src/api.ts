@@ -19,7 +19,8 @@ export class GitHubApiError extends Error {
 export class GitHubRest {
   constructor(
     private readonly identity: GitHubIdentity,
-    private readonly fetchImpl: typeof fetch = fetch,
+    // Wrapped, not bare: calling the global fetch as a method throws "Illegal invocation" in Workers.
+    private readonly fetchImpl: typeof fetch = (input, init) => fetch(input, init),
   ) {}
 
   private async call<T>(method: string, path: string, body?: unknown): Promise<T> {

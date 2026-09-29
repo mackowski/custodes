@@ -37,3 +37,35 @@ describe('AnthropicGateway', () => {
     expect(JSON.parse(init?.body as string)).not.toHaveProperty('metadata');
   });
 });
+
+describe('AnthropicGateway default fetch', () => {
+  it('calls the global fetch unbound (a bound call throws "Illegal invocation" in Workers)', async () => {
+    let receiver: unknown = 'not called';
+    vi.stubGlobal('fetch', function (this: unknown) {
+      // eslint-disable-next-line @typescript-eslint/no-this-alias -- the receiver is what this test inspects
+      receiver = this;
+      return Promise.resolve(
+        Response.json({
+          id: 'm',
+          model: 'x',
+          stop_reason: null,
+          content: [],
+          usage: { input_tokens: 0, output_tokens: 0 },
+        }),
+      );
+    });
+    try {
+      const gw = new AnthropicGateway({ accountId: 'a', gatewayId: 'g', gatewayToken: 't' });
+      await gw.messages({
+        model: 'm',
+        system: 's',
+        messages: [],
+        max_tokens: 1,
+        metadata: { agentId: 'x', runId: 'r' },
+      });
+      expect(receiver).toBeUndefined();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
