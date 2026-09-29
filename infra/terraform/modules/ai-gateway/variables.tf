@@ -7,3 +7,7 @@ variable "requests_per_minute" {
   type    = number
   default = 60
 }
+variable "store_id" {
+  type        = string
+  description = "Secrets Store that holds the BYOK provider keys"
+}

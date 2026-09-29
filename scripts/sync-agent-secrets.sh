@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Push each agent's GitHub PAT from the CI environment into Cloudflare Secrets Store.
 #
-# For every agent in workers/github-broker/policy/policy.json, reads the env var PAT_<AGENT_UPPER>
-# (a GitHub secret) and writes it to the Secrets Store entry github-pat-<agent>: PATCH when the
+# For every tokenBinding in workers/github-broker/policy/policy.json (agents and reads), e.g. PAT_HELLO
+# or PAT_READONLY, reads the env var of that name (a GitHub secret) and writes it to the Secrets
+# Store entry github-pat-<suffix> (github-pat-hello, github-pat-readonly): PATCH when the
 # entry exists (Terraform creates it with a placeholder), POST when it does not. Agents whose
 # variable is unset are skipped with a warning, so a missing PAT never blocks a deploy.
 #
@@ -17,12 +18,11 @@ cf() { curl --silent --show-error --fail-with-body -H "Authorization: Bearer ${C
 
 # name -> id map of existing secrets (values are never returned by the API).
 existing=$(cf "${API}?per_page=100" | jq -r '.result[] | "\(.name) \(.id)"')
-agents=$(jq -r '.agents | keys[]' "$POLICY")
+bindings=$(jq -r '[(.agents // {} | .[].tokenBinding), (.reads // {} | .[].tokenBinding)] | unique[]' "$POLICY")
 status=0
-for agent in $agents; do
-  var="PAT_$(echo "$agent" | tr '[:lower:]-' '[:upper:]_')"
+for var in $bindings; do
   value="${!var:-}"
-  name="github-pat-${agent}"
+  name="github-pat-$(echo "${var#PAT_}" | tr '[:upper:]_' '[:lower:]-')"
   if [ -z "$value" ]; then
     echo "::warning::${var} is not set; Secrets Store entry ${name} left unchanged"
     continue

@@ -10,5 +10,11 @@
       "requiresApproval": [],
       "rateLimitPerHour": 5
     }
+  },
+  "reads": {
+    "triage": {
+      "tokenBinding": "PAT_READONLY",
+      "repos": ["OWASP/CheatSheetSeries"]
+    }
   }
 }

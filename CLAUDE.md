@@ -6,7 +6,7 @@ CheatSheetSeries (issue triage, PR review). Security and AI security come first.
 ## Invariants (never break these)
 
 1. Agents never hold GitHub or e-mail credentials. Every GitHub side effect goes through
-   `workers/github-broker` (`this.act()` in agents). If you need a token in `workers/agents`, stop.
+   `workers/github-broker` (`this.act()` in agents), and so does every GitHub read (`/v1/read`). If you need a token in `workers/agents`, stop.
 2. Untrusted text (issues, PRs, e-mails, webhooks) is wrapped with `untrusted()` before any
    prompt; model output goes through `parseStructured()`.
 3. `await this.guard()` before any side effect (kill switch). New agents are `hitl` until evals pass.

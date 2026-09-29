@@ -15,8 +15,17 @@ export const AgentPolicy = z.object({
 });
 export type AgentPolicy = z.infer<typeof AgentPolicy>;
 
+/** Read access through the broker: GET-only, allow-listed resources, with a read-only token. */
+export const ReadPolicy = z.object({
+  /** Secrets Store binding holding a PAT limited to public repositories, read-only. */
+  tokenBinding: z.string().regex(/^[A-Z][A-Z0-9_]*$/),
+  repos: z.array(GitHubRepo).min(1),
+});
+export type ReadPolicy = z.infer<typeof ReadPolicy>;
+
 export const Policy = z.object({
   version: z.literal(1),
   agents: z.record(AgentId, AgentPolicy),
+  reads: z.record(AgentId, ReadPolicy).default({}),
 });
 export type Policy = z.infer<typeof Policy>;

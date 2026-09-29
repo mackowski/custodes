@@ -13,7 +13,8 @@ resource "cloudflare_secrets_store" "this" {
 
 locals {
   # One GitHub PAT per agent. Signing keys are generated inside the broker (Keyring DO), not stored here.
-  secret_names = [for a in var.agents : "github-pat-${a}"]
+  # Plus one read-only PAT (public repositories, no permissions) for agent reads via the broker.
+  secret_names = concat([for a in var.agents : "github-pat-${a}"], ["github-pat-readonly"])
 }
 
 resource "cloudflare_secrets_store_secret" "agent" {

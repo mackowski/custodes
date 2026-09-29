@@ -32,5 +32,11 @@
       "store_id": "92c5c38062fc4da98fad1fe4f5a8bda1",
       "secret_name": "github-pat-hello",
     },
+    // Read-only PAT (public repositories only, no permissions) for agent reads via /v1/read.
+    {
+      "binding": "PAT_READONLY",
+      "store_id": "92c5c38062fc4da98fad1fe4f5a8bda1",
+      "secret_name": "github-pat-readonly",
+    },
   ],
 }

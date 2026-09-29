@@ -1,8 +1,9 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { canonicalJson, sha256Hex } from '@custodes/core';
-import { AgentId, BrokerRequest } from '@custodes/schema';
+import { AgentId, BrokerReadRequest, BrokerRequest } from '@custodes/schema';
 import { act } from './act.js';
+import { read } from './read.js';
 import { keyring, type BrokerEnv } from './env.js';
 
 export { Keyring } from './keyring.js';
@@ -23,6 +24,14 @@ app.post('/v1/act', async (c) => {
   if (!parsed.success)
     return c.json({ ok: false, code: 'invalid', reason: parsed.error.message }, 400);
   return c.json(await act(c.env, parsed.data));
+});
+
+/** GET-only, allow-listed GitHub reads for agents (ADR 0009). */
+app.post('/v1/read', async (c) => {
+  const parsed = BrokerReadRequest.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success)
+    return c.json({ ok: false, code: 'invalid', reason: parsed.error.message }, 400);
+  return c.json(await read(c.env, parsed.data));
 });
 
 const CreateApproval = z.object({

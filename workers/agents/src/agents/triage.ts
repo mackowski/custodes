@@ -4,7 +4,7 @@ import type { AgentManifest } from '@custodes/schema';
 import type { AgentsEnv } from '../env.js';
 import { Assessment } from './triage/assess.js';
 import { renderDigest, type DigestItem } from './triage/digest.js';
-import { PublicGitHubReader, type PublicIssue } from './triage/github.js';
+import { BrokerGitHubReader, type PublicIssue } from './triage/github.js';
 import { runTriage, type TriageStore } from './triage/run.js';
 
 export const TRIAGE_MANIFEST: AgentManifest = {
@@ -100,7 +100,7 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
     });
     try {
       const result = await runTriage(this.repo, since, {
-        reader: new PublicGitHubReader(),
+        reader: new BrokerGitHubReader(this.env.BROKER, this.manifest.id, runId),
         store: this.store(),
         now: () => new Date(),
         complete: async (system, user, issue) => {

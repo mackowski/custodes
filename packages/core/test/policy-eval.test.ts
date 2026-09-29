@@ -4,6 +4,7 @@ import { evaluatePolicy } from '../src/policy-eval.js';
 
 const policy: Policy = {
   version: 1,
+  reads: {},
   agents: {
     triage: {
       tokenBinding: 'PAT_TRIAGE',
@@ -75,6 +76,7 @@ describe('evaluatePolicy for read-only agents', () => {
   it('denies every action even when the policy lists it', () => {
     const ro: Policy = {
       version: 1,
+      reads: {},
       agents: {
         watcher: {
           tokenBinding: 'PAT_WATCHER',

@@ -53,3 +53,22 @@ describe('GitHubRest default fetch', () => {
     }
   });
 });
+
+describe('buildReadPath', () => {
+  it('builds only allow-listed paths from structured input', async () => {
+    const { buildReadPath } = await import('../src/read.js');
+    expect(
+      buildReadPath({ repo: 'OWASP/CheatSheetSeries', resource: 'cheatsheets', query: {} }),
+    ).toBe('/repos/OWASP/CheatSheetSeries/contents/cheatsheets');
+    expect(buildReadPath({ repo: 'o/r', resource: 'labels', query: {} })).toBe(
+      '/repos/o/r/labels?per_page=100',
+    );
+    expect(
+      buildReadPath({
+        repo: 'o/r',
+        resource: 'issues',
+        query: { state: 'open', since: '2026-09-01T00:00:00Z', per_page: 50 },
+      }),
+    ).toBe('/repos/o/r/issues?state=open&since=2026-09-01T00%3A00%3A00Z&per_page=50');
+  });
+});

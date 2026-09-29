@@ -10,7 +10,11 @@ import {
   type RawAssessment,
 } from '../src/agents/triage/assess.js';
 import { renderDigest } from '../src/agents/triage/digest.js';
-import { PublicGitHubReader, type PublicIssue } from '../src/agents/triage/github.js';
+import {
+  BrokerGitHubReader,
+  GitHubReadError,
+  type PublicIssue,
+} from '../src/agents/triage/github.js';
 import { buildUserMessage, SYSTEM_PROMPT } from '../src/agents/triage/prompt.js';
 import { MAX_PER_RUN, runTriage, type TriageDeps } from '../src/agents/triage/run.js';
 
@@ -128,26 +132,55 @@ describe('renderDigest', () => {
   });
 });
 
-describe('PublicGitHubReader', () => {
-  it('sends no credentials, only GETs, and filters out pull requests', async () => {
-    const fetchMock = vi.fn((_url: RequestInfo | URL, _init?: RequestInit) =>
-      Promise.resolve(Response.json([issue(1), { ...issue(2), pull_request: {} }])),
+describe('BrokerGitHubReader', () => {
+  const runId = '9d7c1e9e-2b1a-4b6e-9a2e-1f7d1c2b3a44';
+
+  it('reads through the broker with a named resource, never a URL, and filters out pull requests', async () => {
+    const fetch = vi.fn((_u: string, _i?: RequestInit) =>
+      Promise.resolve(
+        Response.json({ ok: true, data: [issue(1), { ...issue(2), pull_request: {} }] }),
+      ),
     );
-    const reader = new PublicGitHubReader(fetchMock);
+    const reader = new BrokerGitHubReader({ fetch }, 'triage', runId);
     const issues = await reader.listUpdatedIssues(
       'OWASP/CheatSheetSeries',
       '2026-09-01T00:00:00Z',
       10,
     );
     expect(issues.map((i) => i.number)).toEqual([1]);
-    const init = fetchMock.mock.calls[0]?.[1];
-    expect(init?.method).toBe('GET');
-    expect(Object.keys(init?.headers as Record<string, string>)).not.toContain('authorization');
+    const [url, init] = fetch.mock.calls[0] ?? [];
+    expect(url).toBe('https://broker.internal/v1/read');
+    const body = JSON.parse(init?.body as string) as Record<string, unknown>;
+    expect(body).toMatchObject({
+      agentId: 'triage',
+      runId,
+      repo: 'OWASP/CheatSheetSeries',
+      resource: 'issues',
+    });
+    expect(JSON.stringify(body)).not.toContain('api.github.com');
+    expect(Object.keys((init?.headers ?? {}) as Record<string, string>)).not.toContain(
+      'authorization',
+    );
   });
 
-  it('rejects a malformed repository name before building a URL', async () => {
-    const reader = new PublicGitHubReader(vi.fn());
-    await expect(reader.listLabels('../../orgs/x')).rejects.toThrow();
+  it('surfaces broker denials and GitHub rate limits as GitHubReadError', async () => {
+    const fetch = () =>
+      Promise.resolve(
+        Response.json({
+          ok: false,
+          code: 'github_error',
+          reason: 'x',
+          status: 403,
+          rateLimited: true,
+        }),
+      );
+    const err = await new BrokerGitHubReader({ fetch }, 'triage', runId)
+      .listLabels('OWASP/CheatSheetSeries')
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(GitHubReadError);
+    expect((err as GitHubReadError).message).toBe(
+      'read labels failed: github_error (GitHub 403) (rate limited)',
+    );
   });
 });
 

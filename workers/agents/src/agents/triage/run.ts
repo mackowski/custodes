@@ -1,7 +1,7 @@
 import { AgentHaltedError } from '@custodes/core/agent';
 import { parseStructured } from '@custodes/llm';
 import { RawAssessment, validateAssessment, type Assessment } from './assess.js';
-import type { PublicGitHubReader, PublicIssue } from './github.js';
+import type { BrokerGitHubReader, PublicIssue } from './github.js';
 import { buildUserMessage, isSafeName, SYSTEM_PROMPT, type TriageContext } from './prompt.js';
 
 export interface TriageStore {
@@ -12,7 +12,7 @@ export interface TriageStore {
 
 export interface TriageDeps {
   reader: Pick<
-    PublicGitHubReader,
+    BrokerGitHubReader,
     'listUpdatedIssues' | 'listRecentIssueTitles' | 'listLabels' | 'listCheatSheets'
   >;
   /** Sends one prompt to the model and returns its raw text. */

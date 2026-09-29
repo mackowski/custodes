@@ -23,4 +23,6 @@ resource "cloudflare_ai_gateway" "this" {
   logpush            = false
   # Zero Data Retention would disable the request logs we rely on for auditing prompts.
   zdr = false
+  # Secrets Store holding the BYOK provider keys; unsetting it breaks stored-key authentication.
+  store_id = var.store_id
 }

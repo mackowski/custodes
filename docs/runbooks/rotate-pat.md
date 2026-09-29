@@ -16,6 +16,13 @@ from the GitHub token page into a GitHub Environment secret, and CI writes it in
    updates `github-pat-<agent>` in Secrets Store; the broker reads it on the next request.
 5. Revoke the old token on GitHub. Record the rotation date in `docs/agents/<agent>.md`.
 
+## The shared read-only PAT (`PAT_READONLY`)
+
+Used by the broker for agent reads (`/v1/read`). Create a fine-grained token named
+`custodes-readonly` with **Repository access: Public repositories (read-only)** and **no
+permissions** added. Expiry ≤ 90 days. Store it as the repository secret `PAT_READONLY`; the deploy
+syncs it to `github-pat-readonly` in Secrets Store. It can read only what is already public.
+
 ## Attestation signing keys
 
 Nothing to do. The broker generates each agent's Ed25519 key on first use and keeps it in its

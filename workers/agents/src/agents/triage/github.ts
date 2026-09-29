@@ -1,7 +1,5 @@
 import { z } from 'zod';
-import { GitHubRepo } from '@custodes/schema';
-
-const API = 'https://api.github.com';
+import { BrokerReadResponse, type BrokerReadRequest, type ReadQuery } from '@custodes/schema';
 
 /** Only the fields triage uses. Everything here is untrusted third-party content. */
 export const PublicIssue = z.looseObject({
@@ -20,50 +18,62 @@ export type PublicIssue = z.infer<typeof PublicIssue>;
 
 export class GitHubReadError extends Error {
   constructor(
-    readonly status: number,
-    readonly path: string,
-    readonly rateLimitRemaining: string | null,
+    readonly status: number | undefined,
+    readonly resource: string,
+    readonly rateLimited: boolean,
+    code: string,
   ) {
-    super(`GitHub ${status} on ${path}${rateLimitRemaining === '0' ? ' (rate limited)' : ''}`);
+    super(
+      `read ${resource} failed: ${code}${status ? ` (GitHub ${status})` : ''}${rateLimited ? ' (rate limited)' : ''}`,
+    );
     this.name = 'GitHubReadError';
   }
 }
 
+/** The broker service binding (only `fetch` is used). */
+export interface BrokerFetcher {
+  fetch(input: string, init?: RequestInit): Promise<Response>;
+}
+
 /**
- * Unauthenticated, GET-only access to public repository data. There is deliberately no token
- * and no write method: a read-only agent cannot change anything on GitHub even if it tried.
+ * Reads public repository data through the broker's GET-only `/v1/read` endpoint. The agent holds
+ * no GitHub credential; the broker uses a read-only token and builds every URL itself.
  */
-export class PublicGitHubReader {
+export class BrokerGitHubReader {
   constructor(
-    private readonly fetchImpl: typeof fetch = (input, init) => fetch(input, init),
-    private readonly userAgent = 'custodes-triage',
+    private readonly broker: BrokerFetcher,
+    private readonly agentId: string,
+    private readonly runId: string,
   ) {}
 
-  private async get<T extends z.ZodType>(path: string, schema: T): Promise<z.infer<T>> {
-    const res = await this.fetchImpl(`${API}${path}`, {
-      method: 'GET',
-      headers: {
-        accept: 'application/vnd.github+json',
-        'x-github-api-version': '2022-11-28',
-        'user-agent': this.userAgent,
-      },
+  private async read<T extends z.ZodType>(
+    repo: string,
+    resource: BrokerReadRequest['resource'],
+    query: ReadQuery,
+    schema: T,
+  ): Promise<z.infer<T>> {
+    const req: BrokerReadRequest = {
+      agentId: this.agentId,
+      runId: this.runId,
+      repo,
+      resource,
+      query,
+    };
+    const res = await this.broker.fetch('https://broker.internal/v1/read', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(req),
     });
-    if (!res.ok)
-      throw new GitHubReadError(res.status, path, res.headers.get('x-ratelimit-remaining'));
-    return schema.parse(await res.json());
+    const parsed = BrokerReadResponse.parse(await res.json());
+    if (!parsed.ok)
+      throw new GitHubReadError(parsed.status, resource, parsed.rateLimited ?? false, parsed.code);
+    return schema.parse(parsed.data);
   }
 
   /** Open issues (not PRs) updated since `since`, oldest update first, so a capped run resumes cleanly. */
   async listUpdatedIssues(repo: string, since: string, limit: number): Promise<PublicIssue[]> {
-    const r = GitHubRepo.parse(repo);
-    const q = new URLSearchParams({
-      state: 'open',
-      sort: 'updated',
-      direction: 'asc',
-      since,
-      per_page: '100',
-    });
-    const issues = await this.get(`/repos/${r}/issues?${q.toString()}`, z.array(PublicIssue));
+    const q: ReadQuery = { state: 'open', sort: 'updated', direction: 'asc', since, per_page: 100 };
+    const issues = await this.read(repo, 'issues', q, z.array(PublicIssue));
     return issues.filter((i) => i.pull_request === undefined).slice(0, limit);
   }
 
@@ -72,23 +82,18 @@ export class PublicGitHubReader {
     repo: string,
     count: number,
   ): Promise<{ number: number; title: string }[]> {
-    const r = GitHubRepo.parse(repo);
-    const q = new URLSearchParams({
-      state: 'open',
-      sort: 'created',
-      direction: 'desc',
-      per_page: String(count),
-    });
-    const issues = await this.get(`/repos/${r}/issues?${q.toString()}`, z.array(PublicIssue));
+    const q: ReadQuery = { state: 'open', sort: 'created', direction: 'desc', per_page: count };
+    const issues = await this.read(repo, 'issues', q, z.array(PublicIssue));
     return issues
       .filter((i) => i.pull_request === undefined)
       .map((i) => ({ number: i.number, title: i.title }));
   }
 
   async listLabels(repo: string): Promise<string[]> {
-    const r = GitHubRepo.parse(repo);
-    const labels = await this.get(
-      `/repos/${r}/labels?per_page=100`,
+    const labels = await this.read(
+      repo,
+      'labels',
+      { per_page: 100 },
       z.array(z.looseObject({ name: z.string() })),
     );
     return labels.map((l) => l.name);
@@ -96,9 +101,10 @@ export class PublicGitHubReader {
 
   /** File names of the cheat sheets, e.g. `Cross_Site_Scripting_Prevention_Cheat_Sheet.md`. */
   async listCheatSheets(repo: string): Promise<string[]> {
-    const r = GitHubRepo.parse(repo);
-    const entries = await this.get(
-      `/repos/${r}/contents/cheatsheets`,
+    const entries = await this.read(
+      repo,
+      'cheatsheets',
+      {},
       z.array(z.looseObject({ name: z.string(), type: z.string() })),
     );
     return entries.filter((e) => e.type === 'file' && e.name.endsWith('.md')).map((e) => e.name);

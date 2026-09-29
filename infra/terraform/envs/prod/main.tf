@@ -41,6 +41,7 @@ module "ai_gateway" {
   account_id          = var.account_id
   gateway_id          = "custodes"
   requests_per_minute = 60
+  store_id            = module.secrets.store_id
 }
 
 module "access" {
