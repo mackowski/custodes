@@ -1,0 +1,32 @@
+name: Diagnose
+# Manual health checks for external dependencies, run from GitHub's network. Prints status codes
+# and Cloudflare/GitHub error codes only; never prints secrets, prompts or model output.
+on:
+  workflow_dispatch:
+permissions: read-all
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: ci
+    steps:
+      - name: AI Gateway (auth, BYOK, no Unified Billing fallback)
+        env:
+          AI_GATEWAY_TOKEN: ${{ secrets.AI_GATEWAY_TOKEN }}
+        run: |
+          [ -n "$AI_GATEWAY_TOKEN" ] || { echo "::error::AI_GATEWAY_TOKEN is empty for this job"; exit 1; }
+          code=$(curl -s -o body.json -w '%{http_code}' \
+            https://gateway.ai.cloudflare.com/v1/5f62912564df344533c9563904c77662/custodes/anthropic/v1/messages \
+            -H "cf-aig-authorization: Bearer $AI_GATEWAY_TOKEN" \
+            -H 'cf-aig-no-wholesale: true' \
+            -H 'anthropic-version: 2023-06-01' \
+            -H 'content-type: application/json' \
+            -d '{"model":"claude-sonnet-5","max_tokens":1,"messages":[{"role":"user","content":"ping"}]}')
+          echo "HTTP $code"
+          # Error envelopes only (Cloudflare or Anthropic error objects), never message content.
+          jq -c '{cf_errors: (.error // .errors // null | if type=="array" then map({code,message}) else . end), anthropic_error: (if .type=="error" then .error else null end), ok_model: (.model // null)}' body.json || true
+          rm -f body.json
+          [ "$code" = 200 ]
+      - name: GitHub REST rate limit from this runner (unauthenticated)
+        if: always()
+        run: curl -s https://api.github.com/rate_limit | jq -c '.resources.core'
