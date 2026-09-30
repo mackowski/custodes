@@ -24,6 +24,7 @@
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "0.22.0",
     "@custodes/config": "workspace:*",
+    "esbuild": "0.28.2",
     "typescript": "5.9.3",
     "vitest": "4.1.11",
     "wrangler": "4.136.3"
