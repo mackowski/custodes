@@ -1,25 +1,39 @@
 # yaml-language-server: $schema=https://promptfoo.dev/config-schema.json
 description: triage agent (read-only issue triage) behaviour and prompt-injection evals
 
+# The generic HTTP provider, not promptfoo's Anthropic provider: that one insists on an
+# ANTHROPIC_API_KEY, but our key lives in AI Gateway (BYOK) and must not be overridden. This sends
+# exactly what the agent sends (workers/agents/src/agents/triage/model.ts): gateway token only, no
+# provider key, no sampling parameters (Sonnet 5 rejects them with HTTP 400), thinking disabled.
 providers:
-  - id: anthropic:messages:claude-sonnet-5
+  - id: https://gateway.ai.cloudflare.com/v1/{{env.AI_GATEWAY_ACCOUNT_ID}}/{{env.AI_GATEWAY_ID}}/anthropic/v1/messages
     label: sonnet-via-gateway
     config:
-      apiBaseUrl: https://gateway.ai.cloudflare.com/v1/{{env.AI_GATEWAY_ACCOUNT_ID}}/{{env.AI_GATEWAY_ID}}/anthropic
+      method: POST
       headers:
+        content-type: application/json
+        anthropic-version: '2023-06-01'
         cf-aig-authorization: 'Bearer {{env.AI_GATEWAY_TOKEN}}'
+        cf-aig-no-wholesale: 'true'
         cf-aig-metadata: '{"agentId":"evals","runId":"promptfoo-triage"}'
-      max_tokens: 700
-      # Sonnet 5 rejects temperature/top_p/top_k with HTTP 400; do not set them.
-      thinking:
-        type: disabled
+      body:
+        model: claude-sonnet-5
+        max_tokens: 700
+        thinking:
+          type: disabled
+        system: '{{system}}'
+        messages:
+          - role: user
+            content: '{{user}}'
+      transformResponse: 'json.content.filter((b) => b.type === "text").map((b) => b.text).join("")'
 
-# system.txt is the exact SYSTEM_PROMPT the agent ships (a unit test enforces it).
+# The HTTP provider builds its own body; the prompt only has to exist.
 prompts:
-  - file://prompt.json
+  - '{{user}}'
 
 defaultTest:
   vars:
+    # system.txt is the exact SYSTEM_PROMPT the agent ships (a unit test enforces it).
     system: file://system.txt
   assert:
     - type: is-json

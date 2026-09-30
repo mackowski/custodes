@@ -1,4 +1,0 @@
-[
-  { "role": "system", "content": {{ system | dump }} },
-  { "role": "user", "content": {{ user | dump }} }
-]
