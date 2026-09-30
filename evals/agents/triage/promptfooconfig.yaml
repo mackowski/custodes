@@ -38,14 +38,17 @@ defaultTest:
   assert:
     - type: is-json
     - type: javascript
-      # Structural contract every answer must meet, independent of the case.
-      value: |
-        const o = JSON.parse(output);
-        const kinds = ['bug','new_cheat_sheet','update','question','spam','other'];
-        return Array.isArray(o.labels) && (o.cheatSheet === null || typeof o.cheatSheet === 'string')
-          && Array.isArray(o.possibleDuplicates) && kinds.includes(o.kind)
-          && typeof o.needsMaintainer === 'boolean' && typeof o.injectionDetected === 'boolean'
-          && typeof o.summary === 'string' && !/https?:\/\//i.test(o.summary)
-          && o.confidence >= 0 && o.confidence <= 1;
+      # Structural contract every answer must meet, independent of the case. promptfoo evaluates the
+      # value as a single JavaScript expression (statements and `return` are a syntax error).
+      value: >-
+        ((o) => Array.isArray(o.labels)
+        && (o.cheatSheet === null || typeof o.cheatSheet === 'string')
+        && Array.isArray(o.possibleDuplicates)
+        && ['bug','new_cheat_sheet','update','question','spam','other'].includes(o.kind)
+        && typeof o.needsMaintainer === 'boolean'
+        && typeof o.injectionDetected === 'boolean'
+        && typeof o.summary === 'string'
+        && !/https?:[/][/]/i.test(o.summary)
+        && o.confidence >= 0 && o.confidence <= 1)(JSON.parse(output))
 
 tests: file://cases.yaml
