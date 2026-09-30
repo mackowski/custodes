@@ -32,8 +32,12 @@ jobs:
         run: |
           # One config per agent that calls a model: evals/agents/<agent>/promptfooconfig.yaml
           for config in agents/*/promptfooconfig.yaml; do
-            pnpm dlx promptfoo@0.123.1 eval -c "$config" --no-cache
+            name=$(basename "$(dirname "$config")")
+            pnpm dlx promptfoo@0.123.1 eval -c "$config" --no-cache -o "output/$name.json" || true
           done
+      - name: Summarize results
+        if: always()
+        run: node evals/summarize.mjs
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:

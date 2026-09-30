@@ -49,5 +49,3 @@ defaultTest:
           && o.confidence >= 0 && o.confidence <= 1;
 
 tests: file://cases.yaml
-
-outputPath: ../../output/triage.json
