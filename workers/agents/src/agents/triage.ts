@@ -1,9 +1,10 @@
 import { CustodesAgent } from '@custodes/core/agent';
-import { AnthropicGateway, inertText, MODELS } from '@custodes/llm';
+import { AnthropicGateway, inertText } from '@custodes/llm';
 import type { AgentManifest } from '@custodes/schema';
 import type { AgentsEnv } from '../env.js';
 import { Assessment } from './triage/assess.js';
 import { renderDigest, type DigestItem } from './triage/digest.js';
+import { triageRequest } from './triage/model.js';
 import { BrokerGitHubReader, type PublicIssue } from './triage/github.js';
 import { runTriage, type TriageStore } from './triage/run.js';
 
@@ -62,6 +63,12 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
       assessed_at      TEXT NOT NULL,
       digested_at      TEXT
     )`;
+    // Input-specific failures (unparseable or refused output), so one bad issue cannot stall the cursor.
+    this.sql`CREATE TABLE IF NOT EXISTS failures (
+      issue            INTEGER PRIMARY KEY,
+      issue_updated_at TEXT NOT NULL,
+      attempts         INTEGER NOT NULL
+    )`;
   }
 
   private store(): TriageStore {
@@ -71,6 +78,23 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
           n: number;
         }>`SELECT COUNT(*) AS n FROM assessments WHERE issue = ${issue} AND issue_updated_at = ${updatedAt}`[0]
           ?.n === 1,
+      failures: (issue, updatedAt) =>
+        this.sql<{
+          attempts: number;
+        }>`SELECT attempts FROM failures WHERE issue = ${issue} AND issue_updated_at = ${updatedAt}`[0]
+          ?.attempts ?? 0,
+      recordFailure: (issue, updatedAt) => {
+        this
+          .sql`INSERT INTO failures (issue, issue_updated_at, attempts) VALUES (${issue}, ${updatedAt}, 1)
+          ON CONFLICT(issue) DO UPDATE SET
+            attempts = CASE WHEN issue_updated_at = excluded.issue_updated_at THEN attempts + 1 ELSE 1 END,
+            issue_updated_at = excluded.issue_updated_at`;
+        return (
+          this.sql<{
+            attempts: number;
+          }>`SELECT attempts FROM failures WHERE issue = ${issue}`[0]?.attempts ?? 1
+        );
+      },
       save: (issue: PublicIssue, assessment, now) => {
         this
           .sql`INSERT INTO assessments (issue, title, url, issue_updated_at, assessment, assessed_at, digested_at)
@@ -105,14 +129,9 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
         now: () => new Date(),
         complete: async (system, user, issue) => {
           await this.guard(); // re-check between model calls so a halt takes effect mid-run
-          const res = await gateway.messages({
-            model: MODELS.fast,
-            system,
-            messages: [{ role: 'user', content: user }],
-            max_tokens: 700,
-            temperature: 0,
-            metadata: { agentId: this.manifest.id, runId, issue: String(issue) },
-          });
+          const res = await gateway.messages(
+            triageRequest(system, user, { agentId: this.manifest.id, runId, issue: String(issue) }),
+          );
           return AnthropicGateway.text(res);
         },
       });

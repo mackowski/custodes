@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import { AnthropicGateway } from '../src/gateway.js';
+import {
+  AnthropicGateway,
+  GatewayError,
+  ModelOutputError,
+  type MessagesRequest,
+} from '../src/gateway.js';
 
 describe('AnthropicGateway', () => {
   it('authenticates to the gateway, sends no provider key, and forbids Unified Billing fallback', async () => {
@@ -67,5 +72,78 @@ describe('AnthropicGateway default fetch', () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+});
+
+describe('AnthropicGateway request and error handling', () => {
+  const ok = (over: Record<string, unknown> = {}) =>
+    Response.json({
+      id: 'm',
+      model: 'x',
+      stop_reason: 'end_turn',
+      content: [{ type: 'text', text: 'ok' }],
+      usage: { input_tokens: 1, output_tokens: 1 },
+      ...over,
+    });
+  const req: MessagesRequest = {
+    model: 'claude-sonnet-5',
+    system: 's',
+    messages: [],
+    max_tokens: 10,
+    metadata: { agentId: 'triage', runId: 'r' },
+  };
+  const gw = (fetchImpl: typeof fetch) =>
+    new AnthropicGateway({ accountId: 'a', gatewayId: 'g', gatewayToken: 't', fetchImpl });
+
+  it('never sends sampling parameters and forwards thinking control', async () => {
+    const fetchImpl = vi.fn((_u: RequestInfo | URL, _i?: RequestInit) => Promise.resolve(ok()));
+    await gw(fetchImpl).messages({ ...req, thinking: { type: 'disabled' } });
+    const body = JSON.parse(fetchImpl.mock.calls[0]?.[1]?.body as string) as Record<
+      string,
+      unknown
+    >;
+    expect(body).not.toHaveProperty('temperature');
+    expect(body).not.toHaveProperty('top_p');
+    expect(body).not.toHaveProperty('top_k');
+    expect(body['thinking']).toEqual({ type: 'disabled' });
+  });
+
+  it('reports HTTP status and provider error type, but keeps the message out of the type field', async () => {
+    const body = JSON.stringify({
+      type: 'error',
+      error: {
+        type: 'invalid_request_error',
+        message: '`temperature` is deprecated for this model.',
+      },
+    });
+    const err = await gw(() => Promise.resolve(new Response(body, { status: 400 })))
+      .messages(req)
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(GatewayError);
+    expect(err).toMatchObject({ status: 400, errorType: 'invalid_request_error' });
+  });
+
+  it('surfaces refusals and truncation as ModelOutputError', async () => {
+    for (const reason of ['refusal', 'max_tokens'] as const) {
+      const err = await gw(() => Promise.resolve(ok({ stop_reason: reason, content: [] })))
+        .messages(req)
+        .catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(ModelOutputError);
+      expect(err).toMatchObject({ reason });
+    }
+  });
+
+  it('text() skips thinking blocks', () => {
+    const res = {
+      id: 'm',
+      model: 'x',
+      stop_reason: 'end_turn',
+      usage: { input_tokens: 0, output_tokens: 0 },
+      content: [
+        { type: 'thinking', thinking: '' },
+        { type: 'text', text: '{"a":1}' },
+      ],
+    };
+    expect(AnthropicGateway.text(res)).toBe('{"a":1}');
   });
 });

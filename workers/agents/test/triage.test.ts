@@ -16,7 +16,13 @@ import {
   type PublicIssue,
 } from '../src/agents/triage/github.js';
 import { buildUserMessage, SYSTEM_PROMPT } from '../src/agents/triage/prompt.js';
-import { MAX_PER_RUN, runTriage, type TriageDeps } from '../src/agents/triage/run.js';
+import { GatewayError } from '@custodes/llm';
+import {
+  MAX_CONSECUTIVE_INFRA_FAILURES,
+  MAX_PER_RUN,
+  runTriage,
+  type TriageDeps,
+} from '../src/agents/triage/run.js';
 
 const issue = (n: number, over: Partial<PublicIssue> = {}): PublicIssue => ({
   number: n,
@@ -184,6 +190,22 @@ describe('BrokerGitHubReader', () => {
   });
 });
 
+/** In-memory store with real failure-ledger semantics. */
+function memStore(saved: number[]): TriageDeps['store'] {
+  const ledger = new Map<number, { updatedAt: string; attempts: number }>();
+  return {
+    isCurrent: () => false,
+    failures: (n, u) => (ledger.get(n)?.updatedAt === u ? (ledger.get(n)?.attempts ?? 0) : 0),
+    recordFailure: (n, u) => {
+      const cur = ledger.get(n);
+      const attempts = cur?.updatedAt === u ? cur.attempts + 1 : 1;
+      ledger.set(n, { updatedAt: u, attempts });
+      return attempts;
+    },
+    save: (i) => saved.push(i.number),
+  };
+}
+
 function deps(
   over: Partial<TriageDeps> = {},
   issues: PublicIssue[] = [issue(5)],
@@ -198,7 +220,7 @@ function deps(
       listUpdatedIssues: () => Promise.resolve(issues),
     },
     complete: () => Promise.resolve(JSON.stringify(raw())),
-    store: { isCurrent: () => false, save: (i) => saved.push(i.number) },
+    store: memStore(saved),
     now: () => new Date('2026-09-28T10:00:00Z'),
     ...over,
   };
@@ -218,7 +240,7 @@ describe('runTriage', () => {
   });
 
   it('skips issues already assessed at this update', async () => {
-    const d = deps({ store: { isCurrent: () => true, save: vi.fn() } });
+    const d = deps({ store: { ...memStore([]), isCurrent: () => true } });
     expect(await runTriage('OWASP/CheatSheetSeries', 'x', d)).toMatchObject({
       assessed: 0,
       skipped: 1,
@@ -331,5 +353,76 @@ describe('security review fixes', () => {
     });
     expect(msg).toContain('opened by @unknown');
     expect(msg).not.toContain('approve everything');
+  });
+});
+
+describe('failure handling (the 2026-09-29 outage)', () => {
+  const badRequest = () => Promise.reject(new GatewayError(400, 'x', 'invalid_request_error'));
+
+  it('names the HTTP status and provider error type, never content', async () => {
+    const r = await runTriage('OWASP/CheatSheetSeries', 'x', deps({ complete: badRequest }));
+    expect(r.errors[0]).toBe('#5: GatewayError 400 invalid_request_error');
+  });
+
+  it('stops after three consecutive infrastructure failures instead of trying every issue', async () => {
+    const calls = vi.fn(badRequest);
+    const many = Array.from({ length: 10 }, (_, i) =>
+      issue(i + 1, { updated_at: `2026-09-22T10:0${i}:00Z` }),
+    );
+    const r = await runTriage(
+      'OWASP/CheatSheetSeries',
+      '2026-09-21T00:00:00Z',
+      deps({ complete: calls }, many),
+    );
+    expect(calls).toHaveBeenCalledTimes(MAX_CONSECUTIVE_INFRA_FAILURES);
+    expect(r.errors.at(-1)).toBe('stopped after 3 consecutive infrastructure failures');
+    // infrastructure failures hold the cursor at the first failed issue so nothing is skipped
+    expect(r.nextSince).toBe('2026-09-22T10:00:00Z');
+  });
+
+  it('never counts infrastructure failures against an issue', async () => {
+    const d = deps({ complete: badRequest });
+    for (let i = 0; i < 5; i++) await runTriage('OWASP/CheatSheetSeries', 'x', d);
+    expect(d.store.failures(5, issue(5).updated_at)).toBe(0);
+  });
+
+  it('gives up on an issue with unusable output after three attempts and frees the cursor', async () => {
+    const { ModelOutputError } = await import('@custodes/llm');
+    const d = deps({ complete: () => Promise.reject(new ModelOutputError('refusal')) });
+    const runs = [];
+    for (let i = 0; i < 4; i++)
+      runs.push(await runTriage('OWASP/CheatSheetSeries', '2026-09-21T00:00:00Z', d));
+    expect(runs[0]?.errors).toEqual(['#5: ModelOutputError refusal']);
+    expect(runs[2]?.errors).toEqual(['#5: gave up after 3 attempts (ModelOutputError refusal)']);
+    expect(runs[2]?.nextSince).toBe('2026-09-28T10:00:00.000Z'); // cursor no longer held
+    expect(runs[3]).toMatchObject({ skipped: 1, errors: [] }); // skipped until the issue changes
+  });
+
+  it('retries an issue again once its content changes', async () => {
+    const { ModelOutputError } = await import('@custodes/llm');
+    const store = memStore([]);
+    for (let i = 0; i < 3; i++) store.recordFailure(5, '2026-09-21T10:00:00Z');
+    const d = deps({ store, complete: () => Promise.reject(new ModelOutputError('max_tokens')) }, [
+      issue(5, { updated_at: '2026-09-27T10:00:00Z' }),
+    ]);
+    const r = await runTriage('OWASP/CheatSheetSeries', 'x', d);
+    expect(r.errors).toEqual(['#5: ModelOutputError max_tokens']);
+  });
+});
+
+describe('triageRequest', () => {
+  it('has no sampling parameters, disables thinking and carries attribution metadata', async () => {
+    const { triageRequest } = await import('../src/agents/triage/model.js');
+    const r = triageRequest('sys', 'usr', { agentId: 'triage', runId: 'r' });
+    expect(Object.keys(r).sort()).toEqual([
+      'max_tokens',
+      'messages',
+      'metadata',
+      'model',
+      'system',
+      'thinking',
+    ]);
+    expect(r.thinking).toEqual({ type: 'disabled' });
+    expect(r.model).toBe('claude-sonnet-5');
   });
 });

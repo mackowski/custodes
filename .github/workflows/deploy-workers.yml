@@ -33,6 +33,14 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm types && pnpm typecheck && pnpm test
+      - name: Model smoke test (the real triage request through AI Gateway)
+        # Fails the deploy if the model rejects a request parameter, the BYOK key or gateway token is
+        # bad, or the answer no longer parses. Costs a fraction of a cent.
+        env:
+          AI_GATEWAY_TOKEN: ${{ secrets.AI_GATEWAY_TOKEN }}
+        run: |
+          pnpm --filter ./workers/agents exec esbuild scripts/model-smoke.ts --bundle --platform=node --format=esm --outfile="$RUNNER_TEMP/model-smoke.mjs" --log-level=warning
+          node "$RUNNER_TEMP/model-smoke.mjs"
       - name: Deploy broker
         uses: cloudflare/wrangler-action@953926a2e2182532811c01a25e53647d93bf07c0 # v4
         with:

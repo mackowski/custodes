@@ -1,12 +1,17 @@
 import { AgentHaltedError } from '@custodes/core/agent';
 import { parseStructured } from '@custodes/llm';
 import { RawAssessment, validateAssessment, type Assessment } from './assess.js';
+import { describeError } from './errors.js';
 import type { BrokerGitHubReader, PublicIssue } from './github.js';
 import { buildUserMessage, isSafeName, SYSTEM_PROMPT, type TriageContext } from './prompt.js';
 
 export interface TriageStore {
   /** True when this issue was already assessed at this `updated_at`. */
   isCurrent(issue: number, updatedAt: string): boolean;
+  /** Input-specific failures recorded for this issue at this `updated_at`. */
+  failures(issue: number, updatedAt: string): number;
+  /** Records one input-specific failure and returns the new count. */
+  recordFailure(issue: number, updatedAt: string): number;
   save(issue: PublicIssue, assessment: Assessment, now: Date): void;
 }
 
@@ -30,6 +35,19 @@ export interface TriageRunResult {
 
 /** Maximum issues assessed per run: bounds model spend and GitHub API use. */
 export const MAX_PER_RUN = 15;
+/** An issue whose output is unusable this many times (same content) is skipped until it changes. */
+export const MAX_ATTEMPTS = 3;
+/** Consecutive infrastructure failures after which the run stops instead of hammering a broken path. */
+export const MAX_CONSECUTIVE_INFRA_FAILURES = 3;
+
+/**
+ * Input-specific failures are about this issue's content (model output unparseable, refused or cut
+ * off); retrying forever would stall the cursor. Everything else (gateway, GitHub, network,
+ * configuration) is infrastructure: it is retried next run and never counted against an issue.
+ */
+function isInputSpecific(err: unknown): boolean {
+  return err instanceof Error && ['StructuredOutputError', 'ModelOutputError'].includes(err.name);
+}
 
 /**
  * One triage pass: read public data, assess changed issues, store validated results.
@@ -56,8 +74,12 @@ export async function runTriage(
   const errors: string[] = [];
   let assessed = 0;
   let skipped = 0;
+  let consecutiveInfra = 0;
   for (const issue of issues) {
-    if (deps.store.isCurrent(issue.number, issue.updated_at)) {
+    if (
+      deps.store.isCurrent(issue.number, issue.updated_at) ||
+      deps.store.failures(issue.number, issue.updated_at) >= MAX_ATTEMPTS
+    ) {
       skipped++;
       continue;
     }
@@ -72,11 +94,28 @@ export async function runTriage(
       });
       deps.store.save(issue, assessment, deps.now());
       assessed++;
+      consecutiveInfra = 0;
     } catch (err) {
       if (err instanceof AgentHaltedError) throw err; // a halt stops the run; the cursor is kept
-      firstFailedUpdate ??= issue.updated_at;
-      // Never include model output or issue text in the error: only the issue number and a class.
-      errors.push(`#${issue.number}: ${err instanceof Error ? err.name : 'error'}`);
+      // Never include model output or issue text in the error: class, status and error type only.
+      const what = describeError(err);
+      if (isInputSpecific(err)) {
+        consecutiveInfra = 0;
+        const attempts = deps.store.recordFailure(issue.number, issue.updated_at);
+        if (attempts >= MAX_ATTEMPTS) {
+          errors.push(`#${issue.number}: gave up after ${attempts} attempts (${what})`);
+        } else {
+          firstFailedUpdate ??= issue.updated_at;
+          errors.push(`#${issue.number}: ${what}`);
+        }
+      } else {
+        firstFailedUpdate ??= issue.updated_at;
+        errors.push(`#${issue.number}: ${what}`);
+        if (++consecutiveInfra >= MAX_CONSECUTIVE_INFRA_FAILURES) {
+          errors.push(`stopped after ${consecutiveInfra} consecutive infrastructure failures`);
+          break;
+        }
+      }
     }
   }
   // Issues arrive oldest update first. If the batch was capped, resume from the last one reached

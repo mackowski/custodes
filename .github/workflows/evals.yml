@@ -2,12 +2,15 @@ name: Evals
 # Behavioural and prompt-injection evals for agents. Runs on PRs that touch prompts, agents or
 # the eval corpus. Needs AI Gateway access, so it runs only for branches in this repository.
 on:
+  workflow_dispatch:
   pull_request:
     paths: ['workers/agents/**', 'packages/llm/**', 'evals/**']
 permissions: read-all
 jobs:
   promptfoo:
-    if: github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]'
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]')
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: ci
@@ -22,8 +25,8 @@ jobs:
       - name: Run evals
         working-directory: evals
         env:
-          AI_GATEWAY_ACCOUNT_ID: ${{ vars.AI_GATEWAY_ACCOUNT_ID }}
-          AI_GATEWAY_ID: ${{ vars.AI_GATEWAY_ID }}
+          AI_GATEWAY_ACCOUNT_ID: 5f62912564df344533c9563904c77662
+          AI_GATEWAY_ID: custodes
           AI_GATEWAY_TOKEN: ${{ secrets.AI_GATEWAY_TOKEN }}
         run: |
           pnpm dlx promptfoo@0.123.1 eval -c promptfooconfig.yaml --no-cache

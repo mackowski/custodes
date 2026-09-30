@@ -36,6 +36,18 @@ workers/* ─┼─> packages/{github,llm,email} ─> packages/core ─> package
 - Secrets: Secrets Store bindings in the broker (`PAT_<AGENT>`, synced by CI from GitHub secrets), signing keys inside the broker Keyring, Worker secrets
   elsewhere (`wrangler secret put`). Never `vars`, never in code, never in tests as real values.
 
+## Model calls
+
+- Never send `temperature`, `top_p`, `top_k` or `budget_tokens` to current Claude models (Sonnet 5,
+  Opus 5.x, Fable): they return HTTP 400 and every call fails. `MessagesRequest` has no such fields
+  on purpose. Determinism comes from a strict output shape plus validation.
+- Short classification calls set `thinking: { type: 'disabled' }`; adaptive thinking counts against
+  `max_tokens`. Check the `claude-api` skill for the target model before adding any request field.
+- Build each agent's model request in one function and add it to a smoke test
+  (`workers/agents/scripts/model-smoke.ts`) that runs before every deploy. Unit tests inject their
+  own `fetch` and can never catch a request the real API rejects.
+- Report failures as class + HTTP status + provider error type (`describeError`), never message text.
+
 ## Code style
 
 - TypeScript strict, `verbatimModuleSyntax`, `exactOptionalPropertyTypes`: spread optional fields

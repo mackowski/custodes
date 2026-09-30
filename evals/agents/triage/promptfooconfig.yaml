@@ -10,7 +10,9 @@ providers:
         cf-aig-authorization: 'Bearer {{env.AI_GATEWAY_TOKEN}}'
         cf-aig-metadata: '{"agentId":"evals","runId":"promptfoo-triage"}'
       max_tokens: 700
-      temperature: 0
+      # Sonnet 5 rejects temperature/top_p/top_k with HTTP 400; do not set them.
+      thinking:
+        type: disabled
 
 # system.txt is the exact SYSTEM_PROMPT the agent ships (a unit test enforces it).
 prompts:

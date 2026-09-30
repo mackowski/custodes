@@ -35,7 +35,11 @@ At most 15 issues are assessed per run; a capped run resumes from the last issue
 
 ## Model
 
-`claude-sonnet-5` through the AI Gateway `custodes`, `max_tokens` 700, temperature 0.
+`claude-sonnet-5` through the AI Gateway `custodes` with the stored (BYOK) key and no Unified Billing fallback.
+`max_tokens` 700, thinking disabled (a short classification must not spend its budget thinking), and
+**no sampling parameters**: `temperature`, `top_p` and `top_k` are rejected with HTTP 400 by current
+models. The request is built in one place (`triage/model.ts`) and a smoke test sends exactly that
+request before every deploy.
 
 ## Failure modes
 
