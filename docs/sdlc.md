@@ -26,8 +26,27 @@ approvers. The repository encodes how that works so every session behaves the sa
    prompt or schema changed.
 5. **Review**: `/agent-security-review` (delegates to `security-reviewer`), fix, then open the PR
    with the template's security-impact section filled in.
-6. **CI**: lint, typecheck, tests, CodeQL, gitleaks, Semgrep, dependency review, Terraform scan,
-   evals, Claude code review and security review as PR comments.
+6. **CI**: lint, typecheck and tests (one `check` job), CodeQL, gitleaks, Semgrep, dependency
+   review, Terraform scan, evals, and Claude code review and security review as PR comments. The
+   `main` ruleset requires `check`, `codeql`, `gitleaks`, `dependency-review`, `semgrep` and
+   `terraform-scan`. Evals (`promptfoo`) and Claude review (`review`) are advisory. Run evals
+   yourself before merging a prompt or schema change. Limits of Claude review:
+   - It runs only for same-repo, non-draft, non-dependabot PRs.
+   - It skips itself on a PR that changes `.github/workflows/claude-review.yml`, and the check
+     still reports success (seen on #17): `claude-code-action` only runs a workflow identical to
+     the one on `main`. That protects the action's own invocation, not the API key. A
+     `pull_request` run uses the PR's workflow file and the secret is repository-scoped, so anyone
+     who can open a same-repo PR can reach it. That is accepted because only collaborators with
+     write access can push a branch, and it is why the job never runs for forks.
+   - The skill, subagent, agent memory, `.claude/settings.json` (including its hooks, which run as
+     shell inside the review process) and `CLAUDE.md` all come from the PR branch. The review
+     therefore runs with collaborator trust and a PR can steer its verdict. That is why it is
+     advisory and must never become a required check.
+   - Code review is expected to comment once per PR. The workflow posts the security review's report as one
+     comment starting `Custodes agent security review:`, with its verdict.
+   - A green `review` check without such a comment means it did not run. The "Review diagnostics"
+     step shows which tools ran, which were denied and the outcome. The transcript itself is
+     hidden on purpose.
 7. **Human review** by a CODEOWNER. AI-written code is reviewed like any other code.
 8. **Merge to `main`** deploys to the single production environment after the protected
    environment's reviewer approves the run. New agents start against a test repository you own;
