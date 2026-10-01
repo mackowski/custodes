@@ -33,12 +33,16 @@ approvers. The repository encodes how that works so every session behaves the sa
    yourself before merging a prompt or schema change. Limits of Claude review:
    - It runs only for same-repo, non-draft, non-dependabot PRs.
    - It skips itself on a PR that changes `.github/workflows/claude-review.yml`, and the check
-     still reports success (seen on #17). `claude-code-action` only runs a workflow identical to
-     the one on `main`, so a PR cannot rewrite that file to reach the API key.
-   - That check covers the workflow file only. The skill, subagent, agent memory,
-     `.claude/settings.json` and `CLAUDE.md` it loads come from the PR branch, so a PR can still
-     steer what the review says. That is why it is advisory and must never become a required check.
-   - Code review comments once per PR. The workflow posts the security review's report as one
+     still reports success (seen on #17): `claude-code-action` only runs a workflow identical to
+     the one on `main`. That protects the action's own invocation, not the API key. A
+     `pull_request` run uses the PR's workflow file and the secret is repository-scoped, so anyone
+     who can open a same-repo PR can reach it. That is accepted because only collaborators with
+     write access can push a branch, and it is why the job never runs for forks.
+   - The skill, subagent, agent memory, `.claude/settings.json` (including its hooks, which run as
+     shell inside the review process) and `CLAUDE.md` all come from the PR branch. The review
+     therefore runs with collaborator trust and a PR can steer its verdict. That is why it is
+     advisory and must never become a required check.
+   - Code review is expected to comment once per PR. The workflow posts the security review's report as one
      comment starting `Custodes agent security review:`, with its verdict.
    - A green `review` check without such a comment means it did not run. The "Review diagnostics"
      step shows which tools ran, which were denied and the outcome. The transcript itself is
