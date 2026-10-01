@@ -48,6 +48,7 @@ describe('untrusted() properties', () => {
         expect(out.endsWith('\n</untrusted>')).toBe(true);
         expect(out).not.toContain('\u0000');
       }),
+      { numRuns: 2000 },
     );
   });
 });
