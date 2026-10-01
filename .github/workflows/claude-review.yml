@@ -45,8 +45,14 @@ jobs:
           # Exactly the tools the code-review command declares, plus subagents (it launches several)
           # and read-only file tools.
           claude_args: >-
-            --allowedTools "Agent,Task,Read,Grep,Glob,Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr list:*),Bash(gh pr comment:*),Bash(gh issue view:*),Bash(gh issue list:*),Bash(gh search:*),mcp__github_inline_comment__create_inline_comment"
+            --allowedTools "Agent,Task,Skill,Read,Grep,Glob,Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr list:*),Bash(gh pr checks:*),Bash(gh pr comment:*),Bash(gh issue view:*),Bash(gh issue list:*),Bash(gh search:*),Bash(gh run list:*),Bash(gh run view:*),mcp__github_inline_comment__create_inline_comment"
             --max-turns 60
+      # Both action runs write the same execution file; keep the first before the second overwrites it.
+      - name: Keep the code review execution log
+        if: always()
+        env:
+          FILE: ${{ steps.code_review.outputs.execution_file }}
+        run: if [ -n "$FILE" ] && [ -f "$FILE" ]; then cp "$FILE" "$RUNNER_TEMP/code-review-log.json"; fi
       - name: Agent security review
         id: security_review
         if: always()
@@ -66,14 +72,14 @@ jobs:
             references and final verdict. Never include secrets or environment values. If the review
             could not run, post that instead, with the reason.
           claude_args: >-
-            --allowedTools "Agent,Task,Read,Grep,Glob,Bash(gh pr diff *),Bash(gh pr view *),Bash(gh pr comment *),Bash(git diff *),Bash(git log *),mcp__github_inline_comment__create_inline_comment"
+            --allowedTools "Agent,Task,Skill,Read,Grep,Glob,Bash(gh pr diff *),Bash(gh pr view *),Bash(gh pr checks *),Bash(gh pr comment *),Bash(gh run list *),Bash(gh run view *),Bash(git diff *),Bash(git log *),mcp__github_inline_comment__create_inline_comment"
             --max-turns 60
       # The action hides its transcript (it can contain file contents). Print metadata only: which
       # tools ran, which were denied (Bash: first three words of the command), and the outcome.
       - name: Review diagnostics (tool names and outcomes only)
         if: always()
         env:
-          CODE_REVIEW_LOG: ${{ steps.code_review.outputs.execution_file }}
+          CODE_REVIEW_LOG: ${{ runner.temp }}/code-review-log.json
           SECURITY_REVIEW_LOG: ${{ steps.security_review.outputs.execution_file }}
         run: |
           for name in CODE_REVIEW SECURITY_REVIEW; do
