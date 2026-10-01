@@ -26,16 +26,23 @@ approvers. The repository encodes how that works so every session behaves the sa
    prompt or schema changed.
 5. **Review**: `/agent-security-review` (delegates to `security-reviewer`), fix, then open the PR
    with the template's security-impact section filled in.
-6. **CI**: lint, typecheck, tests, CodeQL, gitleaks, Semgrep, dependency review, Terraform scan,
-   evals, Claude code review and security review as PR comments. The `main` ruleset requires the
-   first six to pass. Claude review is advisory, and these limits apply:
-   - It runs only for same-repo, non-dependabot PRs.
-   - It skips itself, while still reporting success, on a PR that changes
-     `.github/workflows/claude-review.yml`: `claude-code-action` only runs a workflow identical to
-     the one on `main`, so a PR cannot rewrite the workflow to reach its API key.
-   - Code review comments once per PR. The security review's report is posted by the workflow as one comment starting
-     `Custodes agent security review:` with its verdict.
-   - A green `review` check without such a comment means it did not run. Check the log.
+6. **CI**: lint, typecheck and tests (one `check` job), CodeQL, gitleaks, Semgrep, dependency
+   review, Terraform scan, evals, and Claude code review and security review as PR comments. The
+   `main` ruleset requires `check`, `codeql`, `gitleaks`, `dependency-review`, `semgrep` and
+   `terraform-scan`. Evals (`promptfoo`) and Claude review (`review`) are advisory. Run evals
+   yourself before merging a prompt or schema change. Limits of Claude review:
+   - It runs only for same-repo, non-draft, non-dependabot PRs.
+   - It skips itself on a PR that changes `.github/workflows/claude-review.yml`, and the check
+     still reports success (seen on #17). `claude-code-action` only runs a workflow identical to
+     the one on `main`, so a PR cannot rewrite that file to reach the API key.
+   - That check covers the workflow file only. The skill, subagent, agent memory,
+     `.claude/settings.json` and `CLAUDE.md` it loads come from the PR branch, so a PR can still
+     steer what the review says. That is why it is advisory and must never become a required check.
+   - Code review comments once per PR. The workflow posts the security review's report as one
+     comment starting `Custodes agent security review:`, with its verdict.
+   - A green `review` check without such a comment means it did not run. The "Review diagnostics"
+     step shows which tools ran, which were denied and the outcome. The transcript itself is
+     hidden on purpose.
 7. **Human review** by a CODEOWNER. AI-written code is reviewed like any other code.
 8. **Merge to `main`** deploys to the single production environment after the protected
    environment's reviewer approves the run. New agents start against a test repository you own;
