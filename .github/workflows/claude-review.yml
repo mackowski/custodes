@@ -17,6 +17,8 @@ jobs:
     # pull-requests/issues write: the reviews post their findings as PR comments (inline or summary).
     # The job runs only for same-repo, non-dependabot PRs, and the tool allow-lists below permit
     # commenting on this PR and reading the repo, nothing else (no pushes, no arbitrary gh api).
+    # Accepted risk: `Read` can reach files on the runner. That is why this job never runs for fork
+    # PRs: only collaborators, who already have write access, can trigger it.
     permissions:
       contents: read
       pull-requests: write
@@ -27,6 +29,9 @@ jobs:
         with:
           fetch-depth: 1
       - name: Code review
+        id: code_review
+        # Advisory: a failure here must not stop the security review below.
+        continue-on-error: true
         uses: anthropics/claude-code-action@756cc22e19660d20e8cc9496b4f242475a7f7790 # v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -43,6 +48,8 @@ jobs:
             --allowedTools "Agent,Task,Read,Grep,Glob,Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr list:*),Bash(gh pr comment:*),Bash(gh issue view:*),Bash(gh issue list:*),Bash(gh search:*),mcp__github_inline_comment__create_inline_comment"
             --max-turns 60
       - name: Agent security review
+        id: security_review
+        if: always()
         uses: anthropics/claude-code-action@756cc22e19660d20e8cc9496b4f242475a7f7790 # v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -61,3 +68,26 @@ jobs:
           claude_args: >-
             --allowedTools "Agent,Task,Read,Grep,Glob,Bash(gh pr diff *),Bash(gh pr view *),Bash(gh pr comment *),Bash(git diff *),Bash(git log *),mcp__github_inline_comment__create_inline_comment"
             --max-turns 60
+      # The action hides its transcript (it can contain file contents). Print metadata only: which
+      # tools ran, which were denied (Bash: first three words of the command), and the outcome.
+      - name: Review diagnostics (tool names and outcomes only)
+        if: always()
+        env:
+          CODE_REVIEW_LOG: ${{ steps.code_review.outputs.execution_file }}
+          SECURITY_REVIEW_LOG: ${{ steps.security_review.outputs.execution_file }}
+        run: |
+          for name in CODE_REVIEW SECURITY_REVIEW; do
+            var="${name}_LOG"; file="${!var}"
+            echo "== ${name}"
+            if [ -z "$file" ] || [ ! -f "$file" ]; then echo "no execution log"; continue; fi
+            jq -r '
+              def cmd: if .name == "Bash" or .tool_name == "Bash"
+                then " " + (((.input // .tool_input).command // "") | split(" ")[0:3] | join(" "))
+                else "" end;
+              (.[] | select(.type == "assistant") | .message.content[]? | select(.type == "tool_use")
+                | "tool: \(.name)\(cmd)"),
+              (.[] | select(.type == "result")
+                | "result: subtype=\(.subtype) is_error=\(.is_error) turns=\(.num_turns)",
+                  (.permission_denials[]? | "denied: \(.tool_name)\(cmd)"))
+            ' "$file" | sort | uniq -c
+          done
