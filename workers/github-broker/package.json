@@ -16,7 +16,7 @@
     "@custodes/core": "workspace:*",
     "@custodes/github": "workspace:*",
     "@custodes/schema": "workspace:*",
-    "hono": "4.13.8",
+    "hono": "4.13.9",
     "zod": "4.6.5"
   },
   "devDependencies": {
