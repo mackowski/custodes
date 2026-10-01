@@ -166,6 +166,11 @@ export function validateProposalReview(
     else dropped.push('assignee not in the thread');
   }
   const helpWanted = raw.helpWanted && assignTo === null;
+  // Someone is assigned: "help wanted" would contradict the recommendation.
+  if (assignTo !== null) {
+    const i = addLabels.findIndex((l) => l.toLowerCase() === HELP_WANTED.toLowerCase());
+    if (i >= 0) addLabels.splice(i, 1);
+  }
   const helpLabel = canonical.get(HELP_WANTED.toLowerCase());
   if (
     helpWanted &&

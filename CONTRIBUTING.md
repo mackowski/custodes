@@ -6,7 +6,9 @@ skills in `.claude/skills/`, then reviewed by humans and by automated review. Re
 
 ## Quick rules
 
-1. Every change goes through a pull request. No direct pushes to `main`.
+1. Every change goes through a pull request. No direct pushes to `main`: a repository ruleset
+   requires a PR and green `check`, `codeql`, `gitleaks`, `dependency-review`, `semgrep` and
+   `terraform-scan`, and blocks force pushes and deletion.
 2. Every new agent gets a threat-model section (`/threat-model <agent>`), a policy entry, a docs
    page, evals, and tests. The `/new-agent` skill scaffolds all of them.
 3. Agents never receive credentials. If your change needs a token inside `workers/agents`, stop and
@@ -15,6 +17,8 @@ skills in `.claude/skills/`, then reviewed by humans and by automated review. Re
    `@custodes/llm` before it reaches a prompt, and model output is validated with a zod schema.
 5. Pin everything: exact dependency versions, GitHub Actions by SHA, Terraform providers.
 6. Add a changeset (`pnpm changeset`) for user-visible changes.
+7. Every change in behaviour comes with tests (vitest, deterministic). Code that parses or
+   sanitizes untrusted input also gets property-based tests (`fast-check`, `test/properties.test.ts`).
 
 ## Local setup
 
