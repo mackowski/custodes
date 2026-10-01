@@ -80,15 +80,19 @@ function stripLinks(s: string): string {
 }
 
 /** Markdown and HTML link forms that GitHub renders as live links or remote images. */
-function stripMarkup(s: string): string {
-  return (
-    s
-      .replace(/<[^>]*>/g, '')
-      // Tag removal alone can reassemble a tag (`<scr<x>ipt>`); no angle bracket survives.
-      .replace(/[<>]/g, '')
-      .replace(/^\s*\[[^\]]*\]:\s*\S+.*$/, '')
-      .replace(/\]\([^)]*\)/g, ']')
-  );
+function stripMarkup(input: string): string {
+  // Remove innermost tags until none are left, so `<scr<x>ipt>` cannot reassemble into a tag,
+  // then drop any stray angle bracket.
+  let s = input;
+  let prev: string;
+  do {
+    prev = s;
+    s = s.replace(/<[^<>]*>/g, '');
+  } while (s !== prev);
+  return s
+    .replace(/[<>]/g, '')
+    .replace(/^\s*\[[^\]]*\]:\s*\S+.*$/, '')
+    .replace(/\]\([^)]*\)/g, ']');
 }
 
 /**
