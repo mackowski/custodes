@@ -26,3 +26,18 @@ jobs:
       - name: GitHub REST rate limit from this runner (unauthenticated)
         if: always()
         run: curl -s https://api.github.com/rate_limit | jq -c '.resources.core'
+      - name: Anthropic API key used by the Claude review workflow (status and error type only)
+        if: always()
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          if [ -z "$ANTHROPIC_API_KEY" ]; then echo "ANTHROPIC_API_KEY: not set"; exit 0; fi
+          code=$(curl -s -o "$RUNNER_TEMP/models.json" -w '%{http_code}' https://api.anthropic.com/v1/models?limit=1 \
+            -H "x-api-key: $ANTHROPIC_API_KEY" -H 'anthropic-version: 2023-06-01')
+          echo "GET /v1/models: HTTP $code $(jq -r '(.error.type // "ok") + " " + ((.error.message // "") | .[0:160])' "$RUNNER_TEMP/models.json" 2>/dev/null)"
+          # One output token: also catches billing and model-access errors that /v1/models does not.
+          code=$(curl -s -o "$RUNNER_TEMP/models.json" -w '%{http_code}' https://api.anthropic.com/v1/messages \
+            -H "x-api-key: $ANTHROPIC_API_KEY" -H 'anthropic-version: 2023-06-01' -H 'content-type: application/json' \
+            -d '{"model":"claude-haiku-4-5-20251001","max_tokens":1,"messages":[{"role":"user","content":"ok"}]}')
+          echo "POST /v1/messages: HTTP $code $(jq -r '(.error.type // "ok") + " " + ((.error.message // "") | .[0:160])' "$RUNNER_TEMP/models.json" 2>/dev/null)"
+          rm -f "$RUNNER_TEMP/models.json"

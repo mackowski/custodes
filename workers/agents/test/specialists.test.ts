@@ -163,6 +163,13 @@ describe('sanitizeComment', () => {
     expect(out).toContain('See [details] and here');
   });
 
+  it('removes characters before links, so a deletion cannot form a link (found by fuzzing)', () => {
+    expect(sanitizeComment('/@/evil.example')).not.toContain('//');
+    expect(sanitizeComment('evil.example@/http://')).not.toMatch(/evil|http/);
+    expect(sanitizeComment('[x](\nhost)')).toBe('[x]');
+    expect(sanitizeComment('@@x')).toBe('x');
+  });
+
   it('never lets a tag reassemble after tag removal', () => {
     expect(sanitizeComment('<scr<x>ipt>alert(1)</scr</x>ipt>')).not.toMatch(/[<>]/);
   });
