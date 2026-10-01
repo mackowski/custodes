@@ -22,11 +22,15 @@
     "bindings": [
       { "name": "HelloAgent", "class_name": "HelloAgent" },
       { "name": "TriageAgent", "class_name": "TriageAgent" },
+      // Specialists triage delegates to over RPC (read-only, own broker read policy each).
+      { "name": "ImplementationCheckAgent", "class_name": "ImplementationCheckAgent" },
+      { "name": "ProposalReviewAgent", "class_name": "ProposalReviewAgent" },
     ],
   },
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["HelloAgent"] },
     { "tag": "v2", "new_sqlite_classes": ["TriageAgent"] },
+    { "tag": "v3", "new_sqlite_classes": ["ImplementationCheckAgent", "ProposalReviewAgent"] },
   ],
   // Must match CRON_TRIAGE_POLL / CRON_TRIAGE_DIGEST in src/index.ts (UTC).
   "triggers": { "crons": ["17 */4 * * *", "0 7 * * *"] },

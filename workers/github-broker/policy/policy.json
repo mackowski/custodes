@@ -14,7 +14,18 @@
   "reads": {
     "triage": {
       "tokenBinding": "PAT_READONLY",
-      "repos": ["OWASP/CheatSheetSeries"]
+      "repos": ["OWASP/CheatSheetSeries"],
+      "resources": ["issues", "labels", "cheatsheets", "timeline"]
+    },
+    "implementation-check": {
+      "tokenBinding": "PAT_READONLY",
+      "repos": ["OWASP/CheatSheetSeries"],
+      "resources": ["issue", "timeline", "pull_files", "cheatsheets", "cheatsheet"]
+    },
+    "proposal-review": {
+      "tokenBinding": "PAT_READONLY",
+      "repos": ["OWASP/CheatSheetSeries"],
+      "resources": ["issue", "comments", "labels", "cheatsheets", "cheatsheet"]
     }
   }
 }

@@ -2,7 +2,7 @@ import { AgentHaltedError } from '@custodes/core/agent';
 import { parseStructured } from '@custodes/llm';
 import { RawAssessment, validateAssessment, type Assessment } from './assess.js';
 import { describeError } from './errors.js';
-import type { BrokerGitHubReader, PublicIssue } from './github.js';
+import { issueLabels, type BrokerGitHubReader, type PublicIssue } from './github.js';
 import { buildUserMessage, isSafeName, SYSTEM_PROMPT, type TriageContext } from './prompt.js';
 
 export interface TriageStore {
@@ -26,8 +26,17 @@ export interface TriageDeps {
   now(): Date;
 }
 
+/** An issue assessed in this run, as routing needs it. */
+export interface AssessedIssue {
+  number: number;
+  updatedAt: string;
+  labels: string[];
+  kind: Assessment['kind'];
+}
+
 export interface TriageRunResult {
   assessed: number;
+  assessedIssues: AssessedIssue[];
   skipped: number;
   errors: string[];
   nextSince: string;
@@ -72,7 +81,7 @@ export async function runTriage(
   const ctx: TriageContext = { repo, labels, cheatSheets, recent };
   let firstFailedUpdate: string | null = null;
   const errors: string[] = [];
-  let assessed = 0;
+  const assessedIssues: AssessedIssue[] = [];
   let skipped = 0;
   let consecutiveInfra = 0;
   for (const issue of issues) {
@@ -93,7 +102,12 @@ export async function runTriage(
         recentIssues: recent.map((r) => r.number),
       });
       deps.store.save(issue, assessment, deps.now());
-      assessed++;
+      assessedIssues.push({
+        number: issue.number,
+        updatedAt: issue.updated_at,
+        labels: issueLabels(issue),
+        kind: assessment.kind,
+      });
       consecutiveInfra = 0;
     } catch (err) {
       if (err instanceof AgentHaltedError) throw err; // a halt stops the run; the cursor is kept
@@ -125,5 +139,5 @@ export async function runTriage(
   const nextSince =
     firstFailedUpdate ??
     (issues.length >= MAX_PER_RUN && last ? last.updated_at : startedAt.toISOString());
-  return { assessed, skipped, errors, nextSince };
+  return { assessed: assessedIssues.length, assessedIssues, skipped, errors, nextSince };
 }

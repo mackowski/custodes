@@ -1,18 +1,24 @@
+import { getAgentByName } from 'agents';
 import { CustodesAgent } from '@custodes/core/agent';
 import { AnthropicGateway, inertText } from '@custodes/llm';
 import type { AgentManifest } from '@custodes/schema';
 import type { AgentsEnv } from '../env.js';
+import { PendingResults, type SpecialistJob } from './specialists/agent.js';
+import { ImplementationCheck } from './specialists/implementation.js';
+import { ProposalReview } from './specialists/proposal.js';
 import { Assessment } from './triage/assess.js';
-import { renderDigest, type DigestItem } from './triage/digest.js';
+import { renderDigest, type DigestItem, type SpecialistItem } from './triage/digest.js';
+import { describeError } from './triage/errors.js';
+import { proposalJobs, sweepAcks } from './triage/route.js';
 import { triageRequest } from './triage/model.js';
 import { BrokerGitHubReader, type PublicIssue } from './triage/github.js';
 import { runTriage, type TriageStore } from './triage/run.js';
 
 export const TRIAGE_MANIFEST: AgentManifest = {
   id: 'triage',
-  version: '0.1.0',
+  version: '0.2.0',
   description:
-    'Read-only triage report for OWASP Cheat Sheet Series issues: suggests labels, the affected cheat sheet and duplicates, e-mailed daily. Never writes to GitHub.',
+    'Read-only triage report for OWASP Cheat Sheet Series issues: suggests labels, cheat sheet and duplicates, delegates to implementation-check and proposal-review, e-mails daily.',
   mode: 'readonly',
   repos: ['OWASP/CheatSheetSeries'],
 };
@@ -69,6 +75,92 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
       issue_updated_at TEXT NOT NULL,
       attempts         INTEGER NOT NULL
     )`;
+    // Open accepted issues and when ACK_OBTAINED was applied (refreshed every poll).
+    this.sql`CREATE TABLE IF NOT EXISTS acks (
+      issue  INTEGER PRIMARY KEY,
+      ack_at TEXT NOT NULL
+    )`;
+  }
+
+  private specialist(kind: 'implementation' | 'proposal') {
+    return kind === 'implementation'
+      ? getAgentByName(this.env.ImplementationCheckAgent, TRIAGE_INSTANCE)
+      : getAgentByName(this.env.ProposalReviewAgent, TRIAGE_INSTANCE);
+  }
+
+  /**
+   * Agent calls agent: hands issue numbers (never issue text) to the specialists, which read the
+   * issue themselves under their own broker read policy and queue the work.
+   */
+  private async delegate(
+    kind: 'implementation' | 'proposal',
+    jobs: SpecialistJob[],
+  ): Promise<number> {
+    if (jobs.length === 0) return 0;
+    const stub = await this.specialist(kind);
+    return (await stub.enqueue(jobs.slice(0, 100))).queued;
+  }
+
+  /** Refreshes the accepted-issue table and delegates; failures are reported, never fatal. */
+  private async route(
+    reader: BrokerGitHubReader,
+    assessed: Parameters<typeof proposalJobs>[0],
+    now: Date,
+  ): Promise<{ errors: string[]; proposals: number; checks: number }> {
+    const errors: string[] = [];
+    let proposals = 0;
+    let checks = 0;
+    try {
+      const known = new Map(
+        this.sql<{ issue: number; ack_at: string }>`SELECT issue, ack_at FROM acks`.map((r) => [
+          r.issue,
+          r.ack_at,
+        ]),
+      );
+      const sweep = await sweepAcks(this.repo, known, reader, now);
+      this.sql`DELETE FROM acks`;
+      for (const [issue, at] of sweep.acks)
+        this.sql`INSERT INTO acks (issue, ack_at) VALUES (${issue}, ${at})`;
+      checks = await this.delegate('implementation', sweep.staleJobs);
+    } catch (err) {
+      errors.push(`ACK sweep: ${describeError(err)}`);
+    }
+    try {
+      proposals = await this.delegate('proposal', proposalJobs(assessed));
+    } catch (err) {
+      errors.push(`proposal review hand-off: ${describeError(err)}`);
+    }
+    return { errors, proposals, checks };
+  }
+
+  private async collect<R>(
+    kind: 'implementation' | 'proposal',
+    schema: { safeParse(v: unknown): { success: true; data: R } | { success: false } },
+    errors: string[],
+  ): Promise<SpecialistItem<R>[]> {
+    let pending: PendingResults;
+    try {
+      pending = PendingResults.parse(await (await this.specialist(kind)).pendingResults());
+    } catch (err) {
+      errors.push(`${kind} results unavailable: ${describeError(err)}`);
+      return [];
+    }
+    const label = kind === 'implementation' ? 'implementation-check' : 'proposal-review';
+    errors.push(...pending.errors.map((e) => `${label}: ${e}`));
+    const items: SpecialistItem<R>[] = [];
+    for (const r of pending.results) {
+      // Re-validated on receipt: the digest only renders what passes the schema.
+      let json: unknown;
+      try {
+        json = JSON.parse(r.result);
+      } catch {
+        json = undefined;
+      }
+      const parsed = schema.safeParse(json);
+      if (parsed.success) items.push({ issue: r.issue, result: parsed.data });
+      else errors.push(`${label}: #${r.issue} result failed validation`);
+    }
+    return items;
   }
 
   private store(): TriageStore {
@@ -122,9 +214,10 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
       gatewayId: this.env.AI_GATEWAY_ID,
       gatewayToken: this.env.AI_GATEWAY_TOKEN,
     });
+    const reader = new BrokerGitHubReader(this.env.BROKER, this.manifest.id, runId);
     try {
       const result = await runTriage(this.repo, since, {
-        reader: new BrokerGitHubReader(this.env.BROKER, this.manifest.id, runId),
+        reader,
         store: this.store(),
         now: () => new Date(),
         complete: async (system, user, issue) => {
@@ -135,11 +228,12 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
           return AnthropicGateway.text(res);
         },
       });
+      const routed = await this.route(reader, result.assessedIssues, now);
       this.setState({
         ...this.state,
         since: result.nextSince,
         lastPollAt: now.toISOString(),
-        lastErrors: [...result.errors, ...this.state.lastErrors].slice(0, 20),
+        lastErrors: [...result.errors, ...routed.errors, ...this.state.lastErrors].slice(0, 20),
         assessedTotal: this.state.assessedTotal + result.assessed,
       });
       console.log(
@@ -148,12 +242,14 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
           runId,
           assessed: result.assessed,
           skipped: result.skipped,
-          errors: result.errors.length,
+          errors: result.errors.length + routed.errors.length,
+          delegatedProposals: routed.proposals,
+          delegatedChecks: routed.checks,
         }),
       );
       return {
         ok: true,
-        detail: `assessed ${result.assessed}, skipped ${result.skipped}, errors ${result.errors.length}`,
+        detail: `assessed ${result.assessed}, skipped ${result.skipped}, errors ${result.errors.length + routed.errors.length}, delegated ${routed.proposals} review(s) and ${routed.checks} check(s)`,
       };
     } catch (err) {
       const detail =
@@ -179,24 +275,45 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
     const rows = this
       .sql<AssessmentRow>`SELECT issue, title, url, issue_updated_at, assessment, assessed_at
       FROM assessments WHERE digested_at IS NULL ORDER BY issue`;
+    const accepted = new Set(
+      this.sql<{ issue: number }>`SELECT issue FROM acks`.map((r) => r.issue),
+    );
     const items: DigestItem[] = [];
+    let omittedAck = 0;
     for (const r of rows) {
       const parsed = Assessment.safeParse(JSON.parse(r.assessment));
-      if (parsed.success)
-        items.push({
-          issue: r.issue,
-          title: inertText(r.title, 200),
-          url: r.url,
-          assessment: parsed.data,
-        });
+      if (!parsed.success) continue;
+      // Accepted issues are the maintainers' backlog, not news; flagged ones are still shown.
+      const flagged = parsed.data.needsMaintainer || parsed.data.injectionDetected;
+      if (accepted.has(r.issue) && !flagged) {
+        omittedAck++;
+        continue;
+      }
+      items.push({
+        issue: r.issue,
+        title: inertText(r.title, 200),
+        url: r.url,
+        assessment: parsed.data,
+      });
     }
-    const errors = this.state.lastErrors;
-    if (items.length === 0 && errors.length === 0) return { ok: true, detail: 'nothing to report' };
+    const errors = [...this.state.lastErrors];
+    const implementation = await this.collect('implementation', ImplementationCheck, errors);
+    const proposals = await this.collect('proposal', ProposalReview, errors);
+    if (
+      items.length === 0 &&
+      implementation.length === 0 &&
+      proposals.length === 0 &&
+      errors.length === 0
+    )
+      return { ok: true, detail: 'nothing to report' };
 
     const now = new Date();
     const digest = renderDigest({
       repo: this.repo,
       items,
+      implementation,
+      proposals,
+      omittedAck,
       errors,
       since: this.state.lastDigestAt,
       now,
@@ -217,11 +334,40 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
       return { ok: false, detail };
     }
     const stamp = now.toISOString();
-    for (const item of items)
-      this.sql`UPDATE assessments SET digested_at = ${stamp} WHERE issue = ${item.issue}`;
+    for (const r of rows)
+      this.sql`UPDATE assessments SET digested_at = ${stamp} WHERE issue = ${r.issue}`;
     this.setState({ ...this.state, lastDigestAt: stamp, lastErrors: [] });
-    console.log(JSON.stringify({ event: 'triage.digest.sent', items: items.length }));
-    return { ok: true, detail: `sent ${items.length} item(s)` };
+    for (const [kind, list] of [
+      ['implementation', implementation],
+      ['proposal', proposals],
+    ] as const) {
+      try {
+        await (
+          await this.specialist(kind)
+        ).markReported(
+          list.map((i) => i.issue),
+          stamp,
+        );
+      } catch (err) {
+        // The results come again in the next digest; better twice than never.
+        console.warn(
+          JSON.stringify({ event: 'triage.digest.mark_failed', kind, what: describeError(err) }),
+        );
+      }
+    }
+    console.log(
+      JSON.stringify({
+        event: 'triage.digest.sent',
+        items: items.length,
+        omittedAck,
+        implementation: implementation.length,
+        proposals: proposals.length,
+      }),
+    );
+    return {
+      ok: true,
+      detail: `sent ${items.length} item(s), ${implementation.length} check(s), ${proposals.length} review(s)`,
+    };
   }
 
   /** Status for operators, reachable only through the Access-protected gateway. */

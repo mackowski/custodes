@@ -30,6 +30,7 @@ Reads use `/v1/read`: `policy.json` `reads` allow-lists repositories per agent, 
 resource (`issues`, `labels`, `cheatsheets`) and a strictly typed query, and the broker builds the
 URL and authenticates with `PAT_READONLY`, a fine-grained token scoped to public repositories with
 no permissions. Agents still hold no credential and cannot form arbitrary GitHub paths.
+ADR 0010 adds resources and a per-agent `resources` allow-list.
 
 ## Consequences
 

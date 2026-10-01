@@ -2,7 +2,9 @@ import type { BrokerReadRequest } from '@custodes/schema';
 import type { GitHubIdentity } from './identity.js';
 
 /** Builds the GitHub API path for an allow-listed read. Pure; the only place paths are formed. */
-export function buildReadPath(req: Pick<BrokerReadRequest, 'repo' | 'resource' | 'query'>): string {
+export function buildReadPath(
+  req: Pick<BrokerReadRequest, 'repo' | 'resource' | 'query' | 'number' | 'file'>,
+): string {
   const q = new URLSearchParams();
   for (const [k, v] of Object.entries(req.query)) if (v !== undefined) q.set(k, String(v));
   const qs = q.toString();
@@ -13,7 +15,31 @@ export function buildReadPath(req: Pick<BrokerReadRequest, 'repo' | 'resource' |
       return `/repos/${req.repo}/labels?per_page=${req.query.per_page ?? 100}`;
     case 'cheatsheets':
       return `/repos/${req.repo}/contents/cheatsheets`;
+    case 'issue':
+      return `/repos/${req.repo}/issues/${required(req.number)}`;
+    case 'timeline':
+    case 'comments':
+    case 'pull_files':
+      return `${numberedBase(req.resource, req.repo, required(req.number))}?${paging(req.query)}`;
+    case 'cheatsheet':
+      return `/repos/${req.repo}/contents/cheatsheets/${encodeURIComponent(required(req.file))}`;
   }
+}
+
+function numberedBase(resource: 'timeline' | 'comments' | 'pull_files', repo: string, n: number) {
+  if (resource === 'pull_files') return `/repos/${repo}/pulls/${n}/files`;
+  return `/repos/${repo}/issues/${n}/${resource}`;
+}
+
+/** Only paging is honoured on numbered resources; other query fields are ignored. */
+function paging(query: BrokerReadRequest['query']): string {
+  return `per_page=${query.per_page ?? 100}&page=${query.page ?? 1}`;
+}
+
+function required<T>(v: T | undefined): T {
+  // BrokerReadRequest validation guarantees presence; this guards direct callers.
+  if (v === undefined) throw new Error('read request is missing a required field');
+  return v;
 }
 
 export type ReadResult =

@@ -71,4 +71,40 @@ describe('buildReadPath', () => {
       }),
     ).toBe('/repos/o/r/issues?state=open&since=2026-09-01T00%3A00%3A00Z&per_page=50');
   });
+
+  it('builds numbered and file resources from validated fields only', async () => {
+    const { buildReadPath } = await import('../src/read.js');
+    expect(buildReadPath({ repo: 'o/r', resource: 'issue', query: {}, number: 7 })).toBe(
+      '/repos/o/r/issues/7',
+    );
+    expect(
+      buildReadPath({
+        repo: 'o/r',
+        resource: 'timeline',
+        query: { page: 2, state: 'all' },
+        number: 7,
+      }),
+    ).toBe('/repos/o/r/issues/7/timeline?per_page=100&page=2');
+    expect(buildReadPath({ repo: 'o/r', resource: 'comments', query: {}, number: 7 })).toBe(
+      '/repos/o/r/issues/7/comments?per_page=100&page=1',
+    );
+    expect(buildReadPath({ repo: 'o/r', resource: 'pull_files', query: {}, number: 9 })).toBe(
+      '/repos/o/r/pulls/9/files?per_page=100&page=1',
+    );
+    expect(
+      buildReadPath({ repo: 'o/r', resource: 'cheatsheet', query: {}, file: 'A_Cheat_Sheet.md' }),
+    ).toBe('/repos/o/r/contents/cheatsheets/A_Cheat_Sheet.md');
+    expect(() => buildReadPath({ repo: 'o/r', resource: 'issue', query: {} })).toThrow();
+  });
+
+  it('passes a single label filter on issue listings', async () => {
+    const { buildReadPath } = await import('../src/read.js');
+    expect(
+      buildReadPath({
+        repo: 'o/r',
+        resource: 'issues',
+        query: { state: 'open', labels: 'ACK_OBTAINED' },
+      }),
+    ).toBe('/repos/o/r/issues?state=open&labels=ACK_OBTAINED');
+  });
 });

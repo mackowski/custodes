@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { AgentId, AgentMode, GitHubRepo } from './agent.js';
 import { BrokerActionType } from './actions.js';
+import { ReadResource } from './read.js';
 
 export const AgentPolicy = z.object({
   /** Name of the Secrets Store binding that holds this agent's GitHub PAT. */
@@ -20,6 +21,8 @@ export const ReadPolicy = z.object({
   /** Secrets Store binding holding a PAT limited to public repositories, read-only. */
   tokenBinding: z.string().regex(/^[A-Z][A-Z0-9_]*$/),
   repos: z.array(GitHubRepo).min(1),
+  /** The only resources this agent may read. Explicit, so a new resource is never granted by default. */
+  resources: z.array(ReadResource).min(1),
 });
 export type ReadPolicy = z.infer<typeof ReadPolicy>;
 

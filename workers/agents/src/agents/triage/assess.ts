@@ -33,7 +33,10 @@ export interface KnownData {
 export function inertNoLinks(s: string, maxChars: number): string {
   const unlinked = s
     .replace(/\bhttps?:\/\/\S+/gi, '[link removed]')
-    .replace(/\bwww\.\S+/gi, '[link removed]');
+    .replace(/\bwww\.\S+/gi, '[link removed]')
+    .replace(/(^|[\s("'<])\/\/\S+/g, '$1[link removed]')
+    // Bare domain with a path: mail clients turn it into a link.
+    .replace(/\b[a-z0-9-]+(\.[a-z0-9-]+)+\/\S*/gi, '[link removed]');
   return inertText(unlinked, maxChars);
 }
 

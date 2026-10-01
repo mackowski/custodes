@@ -39,7 +39,7 @@ export function isSafeName(s: string): boolean {
 }
 
 /** GitHub logins are [A-Za-z0-9-]{1,39}; anything else is not shown outside the envelope. */
-function safeLogin(s: string | undefined): string {
+export function safeLogin(s: string | undefined): string {
   return s && /^[A-Za-z0-9-]{1,39}$/.test(s) ? s : 'unknown';
 }
 

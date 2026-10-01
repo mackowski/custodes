@@ -11,5 +11,6 @@
 | [0007](0007-single-environment.md)                     | Single environment; test repositories as the proving ground           | accepted                  |
 | [0008](0008-broker-keyring-and-ci-managed-secrets.md)  | Signing keys generated in the broker; all other secrets managed by CI | accepted                  |
 | [0009](0009-read-only-agents.md)                       | Read-only agents                                                      | accepted                  |
+| [0010](0010-specialist-agents-and-wider-reads.md)      | Specialist agents called by triage, and wider broker reads            | accepted                  |
 
 Create new records with the `/adr` skill.

@@ -6,6 +6,8 @@ import { REGISTRY } from './registry.js';
 
 export { HelloAgent } from './agents/hello.js';
 export { TriageAgent } from './agents/triage.js';
+export { ImplementationCheckAgent } from './agents/implementation-check.js';
+export { ProposalReviewAgent } from './agents/proposal-review.js';
 
 /** Must match wrangler.jsonc triggers.crons. */
 export const CRON_TRIAGE_POLL = '17 */4 * * *';

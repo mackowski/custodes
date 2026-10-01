@@ -73,4 +73,52 @@ describe('broker read()', () => {
     expect(BrokerReadRequest.safeParse({ ...req(), query: { path: '/user' } }).success).toBe(false);
     expect(BrokerReadRequest.safeParse({ ...req(), path: '/user' }).success).toBe(false);
   });
+
+  it('denies resources outside the agent read policy, before any network call', async () => {
+    const fetchImpl = vi.fn();
+    // triage may not read file contents; proposal-review may not read timelines.
+    expect(
+      await read(testEnv, req({ resource: 'cheatsheet', file: 'A_Cheat_Sheet.md' }), fetchImpl),
+    ).toMatchObject({
+      ok: false,
+      code: 'policy_denied',
+      reason: 'resource cheatsheet not allowed',
+    });
+    expect(
+      await read(
+        testEnv,
+        req({ agentId: 'proposal-review', resource: 'timeline', number: 1 }),
+        fetchImpl,
+      ),
+    ).toMatchObject({ ok: false, code: 'policy_denied' });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('lets a specialist read a cheat sheet by validated file name', async () => {
+    const fetchImpl = vi.fn((_u: RequestInfo | URL, _i?: RequestInit) =>
+      Promise.resolve(Response.json({ type: 'file', encoding: 'base64', content: 'IyBB' })),
+    );
+    const res = await read(
+      testEnv,
+      req({ agentId: 'implementation-check', resource: 'cheatsheet', file: 'A_Cheat_Sheet.md' }),
+      fetchImpl,
+    );
+    expect(res.ok).toBe(true);
+    expect(fetchImpl.mock.calls[0]?.[0]).toBe(
+      'https://api.github.com/repos/OWASP/CheatSheetSeries/contents/cheatsheets/A_Cheat_Sheet.md',
+    );
+  });
+
+  it('requires a number or file exactly where the resource needs one, and safe file names', () => {
+    const ok = (over: Partial<BrokerReadRequest>) => BrokerReadRequest.safeParse(req(over)).success;
+    expect(ok({ resource: 'issue', number: 1 })).toBe(true);
+    expect(ok({ resource: 'issue' })).toBe(false);
+    expect(ok({ resource: 'labels', number: 1 })).toBe(false);
+    expect(ok({ resource: 'cheatsheet', file: 'A.md' })).toBe(true);
+    expect(ok({ resource: 'cheatsheet', file: '../../README.md' })).toBe(false);
+    expect(ok({ resource: 'cheatsheet', file: 'a/b.md' })).toBe(false);
+    expect(ok({ resource: 'cheatsheet', file: '.hidden.md' })).toBe(false);
+    expect(ok({ resource: 'cheatsheet' })).toBe(false);
+    expect(ok({ resource: 'issues', query: { labels: 'a,b' } })).toBe(false);
+  });
 });

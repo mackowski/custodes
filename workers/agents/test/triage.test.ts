@@ -111,6 +111,9 @@ describe('renderDigest', () => {
   it('rebuilds issue URLs from numbers and puts urgent items first', () => {
     const d = renderDigest({
       repo: 'OWASP/CheatSheetSeries',
+      implementation: [],
+      proposals: [],
+      omittedAck: 0,
       items: [
         {
           issue: 1,
@@ -298,6 +301,9 @@ describe('security review fixes', () => {
     );
     const d = renderDigest({
       repo: 'OWASP/CheatSheetSeries',
+      implementation: [],
+      proposals: [],
+      omittedAck: 0,
       items: [
         {
           issue: 9,

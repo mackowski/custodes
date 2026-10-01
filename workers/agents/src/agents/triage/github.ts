@@ -1,12 +1,46 @@
 import { z } from 'zod';
 import { BrokerReadResponse, type BrokerReadRequest, type ReadQuery } from '@custodes/schema';
 
+/** Timeline events we use: label changes and cross-references from pull requests. */
+export const TimelineEvent = z.looseObject({
+  event: z.string(),
+  created_at: z.string().optional(),
+  label: z.looseObject({ name: z.string() }).optional(),
+  source: z
+    .looseObject({
+      issue: z
+        .looseObject({
+          number: z.number().int().positive(),
+          state: z.string().optional(),
+          pull_request: z.looseObject({ merged_at: z.string().nullable().optional() }).optional(),
+          repository: z.looseObject({ full_name: z.string() }).optional(),
+        })
+        .optional(),
+    })
+    .optional(),
+});
+export type TimelineEvent = z.infer<typeof TimelineEvent>;
+
+export const IssueComment = z.looseObject({
+  user: z.looseObject({ login: z.string() }).nullable(),
+  body: z.string().nullable().optional(),
+  created_at: z.string(),
+});
+export type IssueComment = z.infer<typeof IssueComment>;
+
+const ContentFile = z.looseObject({
+  type: z.literal('file'),
+  encoding: z.literal('base64'),
+  content: z.string(),
+});
+
 /** Only the fields triage uses. Everything here is untrusted third-party content. */
 export const PublicIssue = z.looseObject({
   number: z.number().int().positive(),
   title: z.string(),
   body: z.string().nullable().optional(),
   html_url: z.url(),
+  state: z.string().optional(),
   user: z.looseObject({ login: z.string() }).nullable(),
   labels: z.array(z.union([z.string(), z.looseObject({ name: z.string() })])),
   created_at: z.string(),
@@ -51,6 +85,7 @@ export class BrokerGitHubReader {
     resource: BrokerReadRequest['resource'],
     query: ReadQuery,
     schema: T,
+    target: Pick<BrokerReadRequest, 'number' | 'file'> = {},
   ): Promise<z.infer<T>> {
     const req: BrokerReadRequest = {
       agentId: this.agentId,
@@ -58,6 +93,7 @@ export class BrokerGitHubReader {
       repo,
       resource,
       query,
+      ...target,
     };
     const res = await this.broker.fetch('https://broker.internal/v1/read', {
       method: 'POST',
@@ -108,6 +144,70 @@ export class BrokerGitHubReader {
       z.array(z.looseObject({ name: z.string(), type: z.string() })),
     );
     return entries.filter((e) => e.type === 'file' && e.name.endsWith('.md')).map((e) => e.name);
+  }
+
+  /** Open issues carrying `label`, oldest first. Pull requests are dropped. */
+  async listOpenIssuesWithLabel(repo: string, label: string): Promise<PublicIssue[]> {
+    const out: PublicIssue[] = [];
+    for (let page = 1; page <= 3; page++) {
+      const q: ReadQuery = {
+        state: 'open',
+        labels: label,
+        sort: 'created',
+        direction: 'asc',
+        per_page: 100,
+        page,
+      };
+      const batch = await this.read(repo, 'issues', q, z.array(PublicIssue));
+      out.push(...batch.filter((i) => i.pull_request === undefined));
+      if (batch.length < 100) break;
+    }
+    return out;
+  }
+
+  async getIssue(repo: string, number: number): Promise<PublicIssue> {
+    return this.read(repo, 'issue', {}, PublicIssue, { number });
+  }
+
+  /** Up to the first 300 timeline events (label history is near the start). */
+  async listTimeline(repo: string, number: number): Promise<TimelineEvent[]> {
+    const out: TimelineEvent[] = [];
+    for (let page = 1; page <= 3; page++) {
+      const batch = await this.read(
+        repo,
+        'timeline',
+        { per_page: 100, page },
+        z.array(TimelineEvent),
+        { number },
+      );
+      out.push(...batch);
+      if (batch.length < 100) break;
+    }
+    return out;
+  }
+
+  /** The first 100 comments. */
+  async listComments(repo: string, number: number): Promise<IssueComment[]> {
+    return this.read(repo, 'comments', { per_page: 100 }, z.array(IssueComment), { number });
+  }
+
+  /** Paths changed by a pull request (first 100). */
+  async listPullFiles(repo: string, number: number): Promise<string[]> {
+    const files = await this.read(
+      repo,
+      'pull_files',
+      { per_page: 100 },
+      z.array(z.looseObject({ filename: z.string() })),
+      { number },
+    );
+    return files.map((f) => f.filename);
+  }
+
+  /** The Markdown source of one cheat sheet. */
+  async getCheatSheet(repo: string, file: string): Promise<string> {
+    const f = await this.read(repo, 'cheatsheet', {}, ContentFile, { file });
+    const bin = atob(f.content.replace(/\s/g, ''));
+    return new TextDecoder().decode(Uint8Array.from(bin, (c) => c.charCodeAt(0)));
   }
 }
 

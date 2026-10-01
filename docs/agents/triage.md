@@ -1,6 +1,6 @@
 # triage
 
-- Version: 0.1.0 · Mode: **readonly** · Repository: OWASP/CheatSheetSeries
+- Version: 0.2.0 · Mode: **readonly** · Repository: OWASP/CheatSheetSeries
 - Class: `workers/agents/src/agents/triage.ts` · Logic: `workers/agents/src/agents/triage/`
 - Policy: no `agents` entry (read-only agents may request no side effects, and the broker denies
   `readonly` agents even if one is added). A `reads` entry allows GET-only reads of this repository.
@@ -13,10 +13,17 @@ label set), the cheat sheet affected (from the real file list), possible duplica
 open issues), the kind of issue, and whether a maintainer should look soon. Once a day it e-mails
 the suggestions to the operator.
 
+Since 0.2 (ADR 0010) triage also routes work to two read-only specialists over Durable Object RPC:
+issues without `ACK_OBTAINED` go to [proposal-review](proposal-review.md), and issues accepted more
+than a week ago (measured from when the label was applied) go to
+[implementation-check](implementation-check.md). Their results appear in the same digest under
+recommended actions. Accepted issues are otherwise left out of the digest (only a count is shown),
+unless triage flags them as needing a maintainer or as possible injection.
+
 ## Inputs (all untrusted)
 
 Public repository data read through the broker's GET-only `/v1/read` endpoint (issues, labels, the
-`cheatsheets/` listing). The agent holds no GitHub credential; the broker uses `PAT_READONLY`, a
+`cheatsheets/` listing, and issue timelines to date `ACK_OBTAINED`). The agent holds no GitHub credential; the broker uses `PAT_READONLY`, a
 fine-grained token limited to public repositories with no permissions, and builds every URL itself.
 Issue text and recent titles are wrapped with `untrusted()`.
 
