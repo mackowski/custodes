@@ -14,10 +14,13 @@ jobs:
       github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # pull-requests/issues write: the reviews post their findings as PR comments (inline or summary).
+    # The job runs only for same-repo, non-dependabot PRs, and the tool allow-lists below permit
+    # commenting on this PR and reading the repo, nothing else (no pushes, no arbitrary gh api).
     permissions:
       contents: read
-      pull-requests: read
-      issues: read
+      pull-requests: write
+      issues: write
       id-token: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -34,7 +37,11 @@ jobs:
             code-review@claude-code-plugins
             cloudflare@cloudflare
           prompt: '/code-review:code-review --comment ${{ github.repository }}/pull/${{ github.event.pull_request.number }}'
-          claude_args: '--allowedTools "mcp__github_inline_comment__create_inline_comment" --max-turns 30'
+          # Exactly the tools the code-review command declares, plus subagents (it launches several)
+          # and read-only file tools.
+          claude_args: >-
+            --allowedTools "Agent,Task,Read,Grep,Glob,Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr list:*),Bash(gh pr comment:*),Bash(gh issue view:*),Bash(gh issue list:*),Bash(gh search:*),mcp__github_inline_comment__create_inline_comment"
+            --max-turns 60
       - name: Agent security review
         uses: anthropics/claude-code-action@756cc22e19660d20e8cc9496b4f242475a7f7790 # v1
         with:
@@ -42,4 +49,6 @@ jobs:
           plugin_marketplaces: https://github.com/cloudflare/skills.git
           plugins: cloudflare@cloudflare
           prompt: '/agent-security-review ${{ github.event.pull_request.number }}'
-          claude_args: '--allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr diff *),Bash(gh pr view *)" --max-turns 30'
+          claude_args: >-
+            --allowedTools "Agent,Task,Read,Grep,Glob,Bash(gh pr diff *),Bash(gh pr view *),Bash(gh pr comment *),Bash(git diff *),Bash(git log *),mcp__github_inline_comment__create_inline_comment"
+            --max-turns 60
