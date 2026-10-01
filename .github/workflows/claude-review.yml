@@ -48,7 +48,16 @@ jobs:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           plugin_marketplaces: https://github.com/cloudflare/skills.git
           plugins: cloudflare@cloudflare
-          prompt: '/agent-security-review ${{ github.event.pull_request.number }}'
+          # The skill runs in the read-only security-reviewer subagent, which cannot comment. It returns
+          # its report here, and this step posts it: CI output is hidden, so the PR comment is the
+          # only place the result shows.
+          prompt: |
+            Run /agent-security-review ${{ github.event.pull_request.number }} and wait for its report.
+            Then post that report as exactly one comment on PR #${{ github.event.pull_request.number }}
+            with `gh pr comment ${{ github.event.pull_request.number }} --body-file -`. Start the
+            comment with "Custodes agent security review:" and keep its findings, file:line
+            references and final verdict. Never include secrets or environment values. If the review
+            could not run, post that instead, with the reason.
           claude_args: >-
             --allowedTools "Agent,Task,Read,Grep,Glob,Bash(gh pr diff *),Bash(gh pr view *),Bash(gh pr comment *),Bash(git diff *),Bash(git log *),mcp__github_inline_comment__create_inline_comment"
             --max-turns 60
