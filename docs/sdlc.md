@@ -27,7 +27,15 @@ approvers. The repository encodes how that works so every session behaves the sa
 5. **Review**: `/agent-security-review` (delegates to `security-reviewer`), fix, then open the PR
    with the template's security-impact section filled in.
 6. **CI**: lint, typecheck, tests, CodeQL, gitleaks, Semgrep, dependency review, Terraform scan,
-   evals, Claude code review and security review as PR comments.
+   evals, Claude code review and security review as PR comments. The `main` ruleset requires the
+   first six to pass. Claude review is advisory, and these limits apply:
+   - It runs only for same-repo, non-dependabot PRs.
+   - It skips itself, while still reporting success, on a PR that changes
+     `.github/workflows/claude-review.yml`: `claude-code-action` only runs a workflow identical to
+     the one on `main`, so a PR cannot rewrite the workflow to reach its API key.
+   - Code review comments once per PR. The security review always posts a summary comment starting
+     `Custodes agent security review:` with its verdict.
+   - A green `review` check without such a comment means it did not run. Check the log.
 7. **Human review** by a CODEOWNER. AI-written code is reviewed like any other code.
 8. **Merge to `main`** deploys to the single production environment after the protected
    environment's reviewer approves the run. New agents start against a test repository you own;
