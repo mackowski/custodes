@@ -28,10 +28,10 @@ providers:
       # Text blocks only, then the same JSON extraction as parseStructured (packages/llm): a fenced
       # block if present, else the outermost object. Assertions still require that JSON to be valid.
       transformResponse: >-
-        ((t) => { const m = /```(?:json)?\s*([\s\S]*?)```/i.exec(t); if (m) return m[1];
+        (json) => { const t = json.content.filter((b) => b.type === 'text').map((b) => b.text).join('');
+        const m = /```(?:json)?\s*([\s\S]*?)```/i.exec(t); if (m) return m[1];
         const i = t.indexOf('{'); const j = t.lastIndexOf('}');
-        return i >= 0 && j > i ? t.slice(i, j + 1) : t; })(json.content.filter((b) => b.type ===
-        'text').map((b) => b.text).join(''))
+        return i >= 0 && j > i ? t.slice(i, j + 1) : t; }
 
 # The HTTP provider builds its own body; the prompt only has to exist.
 prompts:
