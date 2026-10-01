@@ -4,7 +4,7 @@ description: Security-focused review checklist for a pull request in this repo -
 argument-hint: [pr-number | branch]
 context: fork
 agent: security-reviewer
-allowed-tools: Read, Grep, Glob, Bash(gh pr diff *), Bash(gh pr view *), Bash(gh pr comment *), Bash(git diff *), mcp__github_inline_comment__create_inline_comment
+allowed-tools: Read, Grep, Glob, Bash(gh pr diff *), Bash(gh pr view *), Bash(git diff *)
 ---
 
 # Agent security review: ${ARGUMENTS:-current diff}
@@ -25,9 +25,5 @@ Work through the checklist in the security-reviewer system prompt. Also verify:
 Report findings ranked by severity with file:line and the smallest fix. End with an explicit
 verdict: approve, approve with nits, or request changes.
 
-When invoked with a PR number (CI), the report must land on the PR, because CI output is hidden:
-post each finding as an inline comment if the inline comment tool is available, and always post
-one summary comment with `gh pr comment <number> --body-file -` that starts with
-`Custodes agent security review:`, lists the checklist areas covered, the findings (or "no
-findings") and the verdict. Never quote secrets or environment values in a comment. Otherwise
-(local runs) print the report.
+Return the report; do not post it yourself (this skill runs in the read-only `security-reviewer`
+subagent). In CI, `.github/workflows/claude-review.yml` posts the returned report as a PR comment.
