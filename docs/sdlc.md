@@ -33,7 +33,7 @@ approvers. The repository encodes how that works so every session behaves the sa
    - It skips itself, while still reporting success, on a PR that changes
      `.github/workflows/claude-review.yml`: `claude-code-action` only runs a workflow identical to
      the one on `main`, so a PR cannot rewrite the workflow to reach its API key.
-   - Code review comments once per PR. The security review always posts a summary comment starting
+   - Code review comments once per PR. The security review's report is posted by the workflow as one comment starting
      `Custodes agent security review:` with its verdict.
    - A green `review` check without such a comment means it did not run. Check the log.
 7. **Human review** by a CODEOWNER. AI-written code is reviewed like any other code.
