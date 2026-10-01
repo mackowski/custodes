@@ -163,6 +163,17 @@ describe('sanitizeComment', () => {
     expect(out).toContain('See [details] and here');
   });
 
+  it('never lets a tag reassemble after tag removal', () => {
+    expect(sanitizeComment('<scr<x>ipt>alert(1)</scr</x>ipt>')).not.toMatch(/[<>]/);
+  });
+
+  it('is fast on hostile link-like input', () => {
+    const t = performance.now();
+    sanitizeComment('a-'.repeat(1500));
+    sanitizeComment(']('.repeat(1500));
+    expect(performance.now() - t).toBeLessThan(200);
+  });
+
   it('bounds the size', () => {
     const out = sanitizeComment(Array.from({ length: 50 }, (_, i) => `line ${i}`).join('\n'));
     expect(out.split('\n')).toHaveLength(20);

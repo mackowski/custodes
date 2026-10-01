@@ -30,10 +30,12 @@ export function appendTrailers(body: string, input: TrailerInput): string {
 export function parseTrailers(
   body: string,
 ): Partial<Record<'Custodes-Agent' | 'Custodes-Attestation' | 'On-Behalf-Of', string>> {
-  const m = /<!--\n([\s\S]*?)\n-->/.exec(body);
   const out: Record<string, string> = {};
-  if (!m) return out;
-  for (const line of (m[1] ?? '').split('\n')) {
+  // indexOf, not a lazy regex: comment bodies are untrusted and a regex here is quadratic.
+  const open = body.indexOf('<!--\n');
+  const close = open < 0 ? -1 : body.indexOf('\n-->', open + 5);
+  if (close < 0) return out;
+  for (const line of body.slice(open + 5, close).split('\n')) {
     const idx = line.indexOf(': ');
     if (idx > 0) out[line.slice(0, idx)] = line.slice(idx + 2);
   }

@@ -76,15 +76,19 @@ function stripLinks(s: string): string {
     .replace(/\bhttps?:\/\/\S+/gi, '[link removed]')
     .replace(/\bwww\.\S+/gi, '[link removed]')
     .replace(/(^|[\s("'<])\/\/\S+/g, '$1[link removed]')
-    .replace(/\b[a-z0-9-]+(\.[a-z0-9-]+)+\/\S*/gi, '[link removed]');
+    .replace(/\b[a-z0-9-]{1,63}(?:\.[a-z0-9-]{1,63}){1,10}\/\S*/gi, '[link removed]');
 }
 
 /** Markdown and HTML link forms that GitHub renders as live links or remote images. */
 function stripMarkup(s: string): string {
-  return s
-    .replace(/<[^>]*>/g, '')
-    .replace(/^\s*\[[^\]]*\]:\s*\S+.*$/, '')
-    .replace(/\]\([^)]*\)/g, ']');
+  return (
+    s
+      .replace(/<[^>]*>/g, '')
+      // Tag removal alone can reassemble a tag (`<scr<x>ipt>`); no angle bracket survives.
+      .replace(/[<>]/g, '')
+      .replace(/^\s*\[[^\]]*\]:\s*\S+.*$/, '')
+      .replace(/\]\([^)]*\)/g, ']')
+  );
 }
 
 /**

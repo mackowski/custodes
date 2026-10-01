@@ -32,3 +32,21 @@ describe('inertText coverage', () => {
     expect(inertText(`a${hidden}b`, 20)).toBe('a b');
   });
 });
+
+// Regression for CodeQL js/polynomial-redos: hostile input must stay linear.
+const fast = (fn: () => unknown) => {
+  const t = performance.now();
+  fn();
+  return performance.now() - t;
+};
+
+describe('untrusted (hostile input)', () => {
+  it('neutralises spaced and doubled-slash break-outs', () => {
+    const out = untrusted('x', 'a < / untrusted> b <//UNTRUSTED c');
+    expect(out.match(/<[\s/]*untrusted/gi)).toHaveLength(2); // only our own envelope tags
+  });
+
+  it('is linear on many spaces after <', () => {
+    expect(fast(() => untrusted('x', `<${' '.repeat(100_000)}`))).toBeLessThan(200);
+  });
+});

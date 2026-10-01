@@ -5,9 +5,14 @@ issues in Custodes can therefore affect projects that are not Custodes. Please r
 
 ## Reporting a vulnerability
 
-- Use GitHub's private vulnerability reporting on this repository (Security → Report a vulnerability).
+- Report privately at <https://github.com/mackowski/custodes/security/advisories/new>
+  (GitHub private vulnerability reporting).
 - Do not open a public issue for anything that could be exploited before a fix ships.
-- You should receive an acknowledgement within 3 business days.
+- You should receive an acknowledgement within 3 business days and an assessment within 10.
+- We aim to fix confirmed issues within 30 days and publish a GitHub security advisory crediting
+  the reporter (unless you prefer otherwise). Please allow 90 days before public disclosure.
+
+Only the latest commit on `main` is supported; there are no release branches.
 
 ## Scope
 

@@ -15,8 +15,7 @@ export class StructuredOutputError extends Error {
  * Model output is untrusted: only what survives the schema reaches the rest of the system.
  */
 export function parseStructured<T extends z.ZodType>(schema: T, text: string): z.infer<T> {
-  const fenced = /```(?:json)?\s*([\s\S]*?)```/i.exec(text);
-  const candidate = fenced?.[1] ?? sliceFirstObject(text);
+  const candidate = fencedBlock(text) ?? sliceFirstObject(text);
   if (candidate === null) throw new StructuredOutputError('no JSON object found', text);
   let value: unknown;
   try {
@@ -28,6 +27,16 @@ export function parseStructured<T extends z.ZodType>(schema: T, text: string): z
   if (!result.success)
     throw new StructuredOutputError(`schema violation: ${result.error.message}`, text);
   return result.data;
+}
+
+/** Content of the first ``` fence (optionally ```json). indexOf, not a regex: linear on any input. */
+function fencedBlock(text: string): string | null {
+  const open = text.indexOf('```');
+  if (open < 0) return null;
+  let start = open + 3;
+  if (text.slice(start, start + 4).toLowerCase() === 'json') start += 4;
+  const close = text.indexOf('```', start);
+  return close < 0 ? null : text.slice(start, close).trim();
 }
 
 function sliceFirstObject(text: string): string | null {

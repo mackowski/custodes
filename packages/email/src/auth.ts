@@ -20,8 +20,11 @@ export function parseAuthenticationResults(header: string | null | undefined): A
 }
 
 export function extractAddress(from: string): string {
-  const m = /<([^>]+)>/.exec(from);
-  return (m?.[1] ?? from).trim().toLowerCase();
+  // indexOf, not a regex: the From header is attacker-controlled.
+  const open = from.indexOf('<');
+  const close = open < 0 ? -1 : from.indexOf('>', open + 1);
+  const inner = close > open + 1 ? from.slice(open + 1, close) : from;
+  return inner.trim().toLowerCase();
 }
 
 /**

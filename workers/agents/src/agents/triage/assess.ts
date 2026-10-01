@@ -36,7 +36,7 @@ export function inertNoLinks(s: string, maxChars: number): string {
     .replace(/\bwww\.\S+/gi, '[link removed]')
     .replace(/(^|[\s("'<])\/\/\S+/g, '$1[link removed]')
     // Bare domain with a path: mail clients turn it into a link.
-    .replace(/\b[a-z0-9-]+(\.[a-z0-9-]+)+\/\S*/gi, '[link removed]');
+    .replace(/\b[a-z0-9-]{1,63}(?:\.[a-z0-9-]{1,63}){1,10}\/\S*/gi, '[link removed]');
   return inertText(unlinked, maxChars);
 }
 

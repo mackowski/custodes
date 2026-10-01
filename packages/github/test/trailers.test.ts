@@ -17,3 +17,17 @@ describe('trailers', () => {
     });
   });
 });
+
+// Regression for CodeQL js/polynomial-redos: hostile input must stay linear.
+const fast = (fn: () => unknown) => {
+  const t = performance.now();
+  fn();
+  return performance.now() - t;
+};
+
+describe('parseTrailers (hostile input)', () => {
+  it('is linear on many unterminated comment openers', () => {
+    expect(fast(() => parseTrailers('<!--\na'.repeat(50_000)))).toBeLessThan(200);
+    expect(parseTrailers('<!--\na'.repeat(10))).toEqual({});
+  });
+});

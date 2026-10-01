@@ -21,4 +21,5 @@ ignoredBuiltDependencies:
 # Security overrides for transitive dev-only dependencies (remove when upstream catches up).
 overrides:
   sharp: 0.35.4 # GHSA-rgj7-g3m4-5g8c, via @cloudflare/vitest-pool-workers > miniflare
+  esbuild: 0.28.2 # GHSA-g7r4-m6w7-qqqr (fixed in 0.28.1), via tsup and vite; build/dev only
   undici: 7.29.1 # GHSA-3wwx-pv8p-q78v, via miniflare (wrangler, vitest-pool-workers); dev/test only

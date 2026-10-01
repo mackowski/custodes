@@ -28,3 +28,17 @@ describe('inbound email trust', () => {
     expect(isTrustedSender('jakub@example.org', null, allow).trusted).toBe(false);
   });
 });
+
+// Regression for CodeQL js/polynomial-redos: hostile input must stay linear.
+const fast = (fn: () => unknown) => {
+  const t = performance.now();
+  fn();
+  return performance.now() - t;
+};
+
+describe('inbound email trust (hostile input)', () => {
+  it('is linear on many < characters in From', () => {
+    expect(fast(() => isTrustedSender('<'.repeat(100_000), null, allow))).toBeLessThan(200);
+    expect(isTrustedSender('Jakub <JAKUB@example.org>', 'dmarc=pass', allow).trusted).toBe(true);
+  });
+});
