@@ -3,6 +3,7 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import { sanitizeComment, verifyEvidence } from '../src/agents/specialists/evidence.js';
+import { validateImplementationCheck } from '../src/agents/specialists/implementation.js';
 import {
   validateProposalReview,
   type RawProposalReview,
@@ -216,10 +217,28 @@ describe('renderDigestHtml() properties', () => {
             files: new Map(),
           },
         );
+        const impl = validateImplementationCheck(
+          {
+            implemented: 'yes',
+            evidence: [{ file: 'A_Cheat_Sheet.md', quote: comment }],
+            mergedPrs: [5],
+            explanation: summary,
+            suggestedComment: comment,
+            injectionDetected: false,
+            confidence: 0.5,
+          },
+          {
+            repo: 'OWASP/CheatSheetSeries',
+            title,
+            ackAt: '2024-01-01T00:00:00Z',
+            pulls: [{ number: 5, merged: true, files: [] }],
+            files: new Map([['A_Cheat_Sheet.md', `${comment}\n${title}`]]),
+          },
+        );
         const html = renderDigestHtml({
           repo: 'OWASP/CheatSheetSeries',
           items: [{ issue: 1, title, url: 'https://evil.example', assessment }],
-          implementation: [],
+          implementation: [{ issue: 3, result: impl }],
           proposals: [{ issue: 2, result: review }],
           omittedAck: 0,
           errors: [title],

@@ -144,7 +144,12 @@ function triageDetails(a: Assessment): string {
     ].join('')}</div>` +
     `<div style="color:${C.muted};font-size:13px;line-height:19px;">${esc(meta.join(' · '))}</div>` +
     label('Summary (model-generated)') +
-    para(a.summary)
+    para(a.summary) +
+    (a.dropped.length
+      ? `<div style="margin-top:8px;color:${C.muted};font-size:12px;">Dropped invalid suggestions: ${esc(
+          a.dropped.map((d) => inert(d, 80)).join(', '),
+        )}</div>`
+      : '')
   );
 }
 
