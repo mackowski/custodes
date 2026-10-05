@@ -2,7 +2,7 @@
 name: security-reviewer
 description: Use after writing or changing agent code, broker policy, prompts, hooks, CI or Terraform. Read-only security review focused on agent authority, prompt injection and secret handling. Reports findings; never edits.
 tools: Read, Grep, Glob, Bash(git diff *), Bash(git log *), Bash(gh pr diff *), Bash(gh pr view *)
-model: fable
+model: opus
 effort: high
 permissionMode: plan
 memory: project

@@ -1,9 +1,11 @@
 name: Claude review
 # Automated first-pass review of this repository's own PRs. Humans still approve.
 # Secrets are withheld from fork PRs, so this runs only for branches in this repo.
+# Each run costs about $0.5-2, so not on every push: when a PR is opened or marked ready, and on
+# demand by adding the `claude-review` label (removed again at the end, so it can be re-added).
 on:
   pull_request:
-    types: [opened, synchronize, ready_for_review, reopened]
+    types: [opened, ready_for_review, reopened, labeled]
 permissions: read-all
 jobs:
   review:
@@ -11,7 +13,8 @@ jobs:
     if: >-
       github.event.pull_request.head.repo.full_name == github.repository &&
       !github.event.pull_request.draft &&
-      github.actor != 'dependabot[bot]'
+      github.actor != 'dependabot[bot]' &&
+      (github.event.action != 'labeled' || github.event.label.name == 'claude-review')
     runs-on: ubuntu-latest
     timeout-minutes: 30
     # pull-requests/issues write: the reviews post their findings as PR comments (inline or summary).
@@ -97,3 +100,9 @@ jobs:
                   (.permission_denials[]? | "denied: \(.tool_name)\(cmd)"))
             ' "$file" | sort | uniq -c
           done
+      - name: Remove the claude-review label so it can be added again
+        if: always() && github.event.action == 'labeled'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: gh api -X DELETE "repos/$GITHUB_REPOSITORY/issues/$PR/labels/claude-review" --silent || true
