@@ -696,4 +696,11 @@ describe('HTML digest', () => {
     expect(out).toBe('alpha beta gamma…');
     expect(out.length).toBeLessThanOrEqual(18);
   });
+
+  it('never leaves half of an emoji at the cut', () => {
+    const out = inertNoLinksWords('aaaaaaaaaaaaaaaa😀😀😀😀', 18);
+    // No high surrogate without its low half.
+    expect(out).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/);
+    expect(out.endsWith('…')).toBe(true);
+  });
 });
