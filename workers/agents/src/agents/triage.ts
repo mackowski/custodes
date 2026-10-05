@@ -9,7 +9,7 @@ import { ProposalReview } from './specialists/proposal.js';
 import { Assessment } from './triage/assess.js';
 import { renderDigest, type DigestItem, type SpecialistItem } from './triage/digest.js';
 import { describeError } from './triage/errors.js';
-import { proposalJobs, sweepAcks } from './triage/route.js';
+import { earliest, proposalJobs, sweepAcks, withoutClosed } from './triage/route.js';
 import { triageRequest } from './triage/model.js';
 import { BrokerGitHubReader, type PublicIssue } from './triage/github.js';
 import { runTriage, type TriageStore } from './triage/run.js';
@@ -133,11 +133,24 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
     return { errors, proposals, checks };
   }
 
+  /** Issues closed since the earliest pending item; on a read failure, reports it and drops nothing. */
+  private async closedSince(times: string[], errors: string[]): Promise<Set<number>> {
+    const since = earliest(times);
+    if (since === null) return new Set();
+    try {
+      const reader = new BrokerGitHubReader(this.env.BROKER, this.manifest.id, crypto.randomUUID());
+      return await reader.listClosedIssueNumbersSince(this.repo, since);
+    } catch (err) {
+      errors.push(`closed-issue check: ${describeError(err)}`);
+      return new Set();
+    }
+  }
+
   private async collect<R>(
     kind: 'implementation' | 'proposal',
     schema: { safeParse(v: unknown): { success: true; data: R } | { success: false } },
     errors: string[],
-  ): Promise<SpecialistItem<R>[]> {
+  ): Promise<(SpecialistItem<R> & { checkedAt: string })[]> {
     let pending: PendingResults;
     try {
       pending = PendingResults.parse(await (await this.specialist(kind)).pendingResults());
@@ -147,7 +160,7 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
     }
     const label = kind === 'implementation' ? 'implementation-check' : 'proposal-review';
     errors.push(...pending.errors.map((e) => `${label}: ${e}`));
-    const items: SpecialistItem<R>[] = [];
+    const items: (SpecialistItem<R> & { checkedAt: string })[] = [];
     for (const r of pending.results) {
       // Re-validated on receipt: the digest only renders what passes the schema.
       let json: unknown;
@@ -157,7 +170,8 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
         json = undefined;
       }
       const parsed = schema.safeParse(json);
-      if (parsed.success) items.push({ issue: r.issue, result: parsed.data });
+      if (parsed.success)
+        items.push({ issue: r.issue, result: parsed.data, checkedAt: r.checkedAt });
       else errors.push(`${label}: #${r.issue} result failed validation`);
     }
     return items;
@@ -264,6 +278,37 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
     }
   }
 
+  private markDigested(rows: { issue: number }[], stamp: string): void {
+    for (const r of rows)
+      this.sql`UPDATE assessments SET digested_at = ${stamp} WHERE issue = ${r.issue}`;
+  }
+
+  /** Marks specialist results reported, including those about closed issues, so none come back. */
+  private async markHandled(
+    implementation: { issue: number }[],
+    proposals: { issue: number }[],
+    stamp: string,
+  ): Promise<void> {
+    for (const [kind, list] of [
+      ['implementation', implementation],
+      ['proposal', proposals],
+    ] as const) {
+      try {
+        await (
+          await this.specialist(kind)
+        ).markReported(
+          list.map((i) => i.issue),
+          stamp,
+        );
+      } catch (err) {
+        // The results come again in the next digest; better twice than never.
+        console.warn(
+          JSON.stringify({ event: 'triage.digest.mark_failed', kind, what: describeError(err) }),
+        );
+      }
+    }
+  }
+
   /** Scheduled daily. Sends nothing when there is nothing to report. */
   async sendDigest(): Promise<{ ok: boolean; detail: string }> {
     try {
@@ -297,15 +342,37 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
       });
     }
     const errors = [...this.state.lastErrors];
-    const implementation = await this.collect('implementation', ImplementationCheck, errors);
-    const proposals = await this.collect('proposal', ProposalReview, errors);
+    const allImplementation = await this.collect('implementation', ImplementationCheck, errors);
+    const allProposals = await this.collect('proposal', ProposalReview, errors);
+    const closed = await this.closedSince(
+      [
+        ...rows.map((r) => r.assessed_at),
+        ...allImplementation.map((i) => i.checkedAt),
+        ...allProposals.map((p) => p.checkedAt),
+      ],
+      errors,
+    );
+    const openItems = withoutClosed(items, closed);
+    const implementationOpen = withoutClosed(allImplementation, closed);
+    const proposalsOpen = withoutClosed(allProposals, closed);
+    const omittedClosed = openItems.dropped + implementationOpen.dropped + proposalsOpen.dropped;
+    const implementation = implementationOpen.kept;
+    const proposals = proposalsOpen.kept;
+    items.splice(0, items.length, ...openItems.kept);
     if (
       items.length === 0 &&
       implementation.length === 0 &&
       proposals.length === 0 &&
       errors.length === 0
-    )
-      return { ok: true, detail: 'nothing to report' };
+    ) {
+      // Everything left was about closed issues: mark it so it is not re-checked every day.
+      if (omittedClosed > 0) {
+        const stamp = new Date().toISOString();
+        this.markDigested(rows, stamp);
+        await this.markHandled(allImplementation, allProposals, stamp);
+      }
+      return { ok: true, detail: `nothing to report (${omittedClosed} closed omitted)` };
+    }
 
     const now = new Date();
     const digest = renderDigest({
@@ -314,6 +381,7 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
       implementation,
       proposals,
       omittedAck,
+      omittedClosed,
       errors,
       since: this.state.lastDigestAt,
       now,
@@ -334,27 +402,9 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
       return { ok: false, detail };
     }
     const stamp = now.toISOString();
-    for (const r of rows)
-      this.sql`UPDATE assessments SET digested_at = ${stamp} WHERE issue = ${r.issue}`;
+    this.markDigested(rows, stamp);
     this.setState({ ...this.state, lastDigestAt: stamp, lastErrors: [] });
-    for (const [kind, list] of [
-      ['implementation', implementation],
-      ['proposal', proposals],
-    ] as const) {
-      try {
-        await (
-          await this.specialist(kind)
-        ).markReported(
-          list.map((i) => i.issue),
-          stamp,
-        );
-      } catch (err) {
-        // The results come again in the next digest; better twice than never.
-        console.warn(
-          JSON.stringify({ event: 'triage.digest.mark_failed', kind, what: describeError(err) }),
-        );
-      }
-    }
+    await this.markHandled(allImplementation, allProposals, stamp);
     console.log(
       JSON.stringify({
         event: 'triage.digest.sent',
@@ -362,6 +412,7 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
         omittedAck,
         implementation: implementation.length,
         proposals: proposals.length,
+        omittedClosed,
       }),
     );
     return {

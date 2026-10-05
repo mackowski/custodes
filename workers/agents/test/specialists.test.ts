@@ -21,12 +21,18 @@ import {
 } from '../src/agents/specialists/proposal.js';
 import type { SpecialistDeps } from '../src/agents/specialists/run.js';
 import { renderDigest } from '../src/agents/triage/digest.js';
-import type { PublicIssue, TimelineEvent } from '../src/agents/triage/github.js';
+import {
+  BrokerGitHubReader,
+  type PublicIssue,
+  type TimelineEvent,
+} from '../src/agents/triage/github.js';
 import {
   ACK_STALE_MS,
+  earliest,
   MAX_ACK_LOOKUPS,
   proposalJobs,
   sweepAcks,
+  withoutClosed,
 } from '../src/agents/triage/route.js';
 
 const repo = 'OWASP/CheatSheetSeries';
@@ -550,5 +556,64 @@ describe('specialist agents (Durable Objects)', () => {
     const pending = await stub.pendingResults();
     expect(pending.results).toEqual([]);
     expect(pending.errors[0]).toBe('#5: GitHubReadError');
+  });
+});
+
+describe('closed issues are left out of the digest', () => {
+  it('drops items about closed issues and counts them', () => {
+    const r = withoutClosed([{ issue: 1 }, { issue: 2539 }, { issue: 3 }], new Set([2539, 99]));
+    expect(r.kept.map((x) => x.issue)).toEqual([1, 3]);
+    expect(r.dropped).toBe(1);
+  });
+
+  it('starts the closed-issue check at the earliest pending timestamp', () => {
+    expect(earliest(['2026-10-04T20:17:00Z', '2026-10-03T08:00:00Z', 'not a date'])).toBe(
+      '2026-10-03T08:00:00Z',
+    );
+    expect(earliest([])).toBeNull();
+  });
+
+  it('asks the broker for closed issues since a time and ignores pull requests', async () => {
+    const fetch = vi.fn((_u: string, _i?: RequestInit) =>
+      Promise.resolve(
+        Response.json({
+          ok: true,
+          data: [
+            issue(2539, { state: 'closed' }),
+            { ...issue(7, { state: 'closed' }), pull_request: {} },
+          ],
+        }),
+      ),
+    );
+    const reader = new BrokerGitHubReader(
+      { fetch },
+      'triage',
+      '9d7c1e9e-2b1a-4b6e-9a2e-1f7d1c2b3a44',
+    );
+    const closed = await reader.listClosedIssueNumbersSince(repo, '2026-10-04T20:17:00Z');
+    expect([...closed]).toEqual([2539]);
+    const body = JSON.parse(fetch.mock.calls[0]?.[1]?.body as string) as {
+      resource: string;
+      query: Record<string, unknown>;
+    };
+    expect(body.resource).toBe('issues');
+    expect(body.query).toMatchObject({ state: 'closed', since: '2026-10-04T20:17:00Z' });
+  });
+
+  it('says how many items were left out', () => {
+    const d = renderDigest({
+      repo,
+      items: [],
+      implementation: [],
+      proposals: [],
+      omittedAck: 0,
+      omittedClosed: 3,
+      errors: ['x'],
+      since: null,
+      now: new Date('2026-10-05T07:00:00Z'),
+    });
+    expect(d.text).toContain(
+      '3 item(s) about issues closed since they were assessed were left out.',
+    );
   });
 });

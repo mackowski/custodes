@@ -58,3 +58,22 @@ export async function sweepAcks(
   }
   return { acks, staleJobs, lookups };
 }
+
+/**
+ * Polls only see open issues, so an issue closed after it was assessed keeps its stored
+ * assessment and specialist results. The digest drops everything about issues closed since.
+ */
+export function withoutClosed<T extends { issue: number }>(
+  list: T[],
+  closed: ReadonlySet<number>,
+): { kept: T[]; dropped: number } {
+  const kept = list.filter((x) => !closed.has(x.issue));
+  return { kept, dropped: list.length - kept.length };
+}
+
+/** The earliest time anything pending was produced; closures before it cannot matter. */
+export function earliest(times: readonly string[]): string | null {
+  let min: string | null = null;
+  for (const t of times) if (!Number.isNaN(Date.parse(t)) && (min === null || t < min)) min = t;
+  return min;
+}
