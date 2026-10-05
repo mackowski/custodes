@@ -600,7 +600,11 @@ describe('closed issues are left out of the digest', () => {
       query: Record<string, unknown>;
     };
     expect(body.resource).toBe('issues');
-    expect(body.query).toMatchObject({ state: 'closed', since: '2026-10-04T20:17:00Z' });
+    expect(body.query).toMatchObject({
+      state: 'closed',
+      direction: 'desc',
+      since: '2026-10-04T20:17:00Z',
+    });
   });
 
   it('fails open: a broker error drops nothing and is reported', async () => {
@@ -618,7 +622,7 @@ describe('closed issues are left out of the digest', () => {
     expect(errors).toEqual(['closed-issue check: GitHubReadError 403']);
   });
 
-  it('reports a truncated closed-issue list and uses the earliest issue version', async () => {
+  it('reports a truncated closed-issue list and starts before the earliest time seen open', async () => {
     const errors: string[] = [];
     const seen: string[] = [];
     await closedSince(
@@ -632,7 +636,8 @@ describe('closed issues are left out of the digest', () => {
       ['2026-10-04T20:28:00Z', '2026-10-04T17:49:43Z'],
       errors,
     );
-    expect(seen).toEqual(['2026-10-04T17:49:43Z']);
+    // Earliest time seen open, minus the slack for a close during a poll.
+    expect(seen).toEqual(['2026-10-04T11:49:43.000Z']);
     expect(errors[0]).toMatch(/truncated/);
   });
 
