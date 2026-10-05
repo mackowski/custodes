@@ -138,7 +138,7 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
     kind: 'implementation' | 'proposal',
     schema: { safeParse(v: unknown): { success: true; data: R } | { success: false } },
     errors: string[],
-  ): Promise<(SpecialistItem<R> & { issueUpdatedAt: string })[]> {
+  ): Promise<(SpecialistItem<R> & { checkedAt: string })[]> {
     let pending: PendingResults;
     try {
       pending = PendingResults.parse(await (await this.specialist(kind)).pendingResults());
@@ -148,7 +148,7 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
     }
     const label = kind === 'implementation' ? 'implementation-check' : 'proposal-review';
     errors.push(...pending.errors.map((e) => `${label}: ${e}`));
-    const items: (SpecialistItem<R> & { issueUpdatedAt: string })[] = [];
+    const items: (SpecialistItem<R> & { checkedAt: string })[] = [];
     for (const r of pending.results) {
       // Re-validated on receipt: the digest only renders what passes the schema.
       let json: unknown;
@@ -159,7 +159,7 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
       }
       const parsed = schema.safeParse(json);
       if (parsed.success)
-        items.push({ issue: r.issue, result: parsed.data, issueUpdatedAt: r.issueUpdatedAt });
+        items.push({ issue: r.issue, result: parsed.data, checkedAt: r.checkedAt });
       else errors.push(`${label}: #${r.issue} result failed validation`);
     }
     return items;
@@ -335,11 +335,12 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
     const closed = await closedSince(
       new BrokerGitHubReader(this.env.BROKER, this.manifest.id, crypto.randomUUID()),
       this.repo,
-      // Issue versions we saw, not when we finished: a close during a poll is still caught.
+      // When we saw each issue open (closedSince subtracts slack for a close during a poll). Not
+      // the issue's own updated_at: a dormant accepted issue would push the window back years.
       [
-        ...rows.map((r) => r.issue_updated_at),
-        ...allImplementation.map((i) => i.issueUpdatedAt),
-        ...allProposals.map((p) => p.issueUpdatedAt),
+        ...rows.map((r) => r.assessed_at),
+        ...allImplementation.map((i) => i.checkedAt),
+        ...allProposals.map((p) => p.checkedAt),
       ],
       errors,
     );
@@ -389,6 +390,8 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
     };
     const digest = { ...renderDigest(digestInput), html: renderDigestHtml(digestInput) };
     try {
+      // Re-check right before the side effect: the closed-issue read above may have taken a while.
+      await this.guard();
       await this.env.EMAIL.send({
         from: { name: 'Custodes triage', email: this.env.EMAIL_FROM },
         to: this.env.OPERATOR_EMAIL,

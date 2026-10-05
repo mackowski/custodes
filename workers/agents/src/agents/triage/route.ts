@@ -73,10 +73,7 @@ export function withoutClosed<T extends { issue: number }>(
   return { kept, dropped: list.length - kept.length };
 }
 
-/**
- * The earliest issue version (`updated_at`) behind anything pending. A close always updates the
- * issue after the version we saw, so listing closed issues `since` this bound misses none.
- */
+/** The earliest of the given datetimes (only values the broker's `since` accepts). */
 export function earliest(times: readonly string[]): string | null {
   let min: string | null = null;
   for (const t of times) {
@@ -89,15 +86,20 @@ export function earliest(times: readonly string[]): string | null {
 
 const ISO = z.iso.datetime();
 
-/** Issues closed since the earliest pending version. Fails open: on error nothing is dropped. */
+export const CLOSE_SLACK_MS = 6 * 3_600_000;
+
+/** Issues closed since we first saw any pending item open. Fails open: on error nothing is dropped. */
 export async function closedSince(
   reader: Pick<BrokerGitHubReader, 'listClosedIssueNumbersSince'>,
   repo: string,
-  versions: readonly string[],
+  seenOpenAt: readonly string[],
   errors: string[],
 ): Promise<Set<number>> {
-  const since = earliest(versions);
-  if (since === null) return new Set();
+  const first = earliest(seenOpenAt);
+  if (first === null) return new Set();
+  // A poll lists issues, then spends minutes on model calls before recording assessed_at; a close
+  // in between has an earlier updated_at. Polls run every 4 h, so 6 h of slack covers it.
+  const since = new Date(Date.parse(first) - CLOSE_SLACK_MS).toISOString();
   try {
     const { closed, truncated } = await reader.listClosedIssueNumbersSince(repo, since);
     if (truncated)

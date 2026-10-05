@@ -165,7 +165,10 @@ export class BrokerGitHubReader {
     return out;
   }
 
-  /** Issues closed (or updated while closed) since `since`, up to 300; `truncated` if there are more. */
+  /**
+   * Issues closed (or updated while closed) since `since`, newest first, up to 300; `truncated` if
+   * there are more. Newest first, so a cut loses the oldest closes, not the ones that matter.
+   */
   async listClosedIssueNumbersSince(
     repo: string,
     since: string,
@@ -175,7 +178,7 @@ export class BrokerGitHubReader {
       const q: ReadQuery = {
         state: 'closed',
         sort: 'updated',
-        direction: 'asc',
+        direction: 'desc',
         since,
         per_page: 100,
         page,
