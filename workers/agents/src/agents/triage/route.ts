@@ -1,5 +1,6 @@
 import type { SpecialistJob } from '../specialists/agent.js';
 import { labelAppliedAt } from '../specialists/implementation.js';
+import { describeError } from './errors.js';
 import type { BrokerGitHubReader, PublicIssue } from './github.js';
 import type { AssessedIssue } from './run.js';
 
@@ -71,9 +72,35 @@ export function withoutClosed<T extends { issue: number }>(
   return { kept, dropped: list.length - kept.length };
 }
 
-/** The earliest time anything pending was produced; closures before it cannot matter. */
+/**
+ * The earliest issue version (`updated_at`) behind anything pending. A close always updates the
+ * issue after the version we saw, so listing closed issues `since` this bound misses none.
+ */
 export function earliest(times: readonly string[]): string | null {
   let min: string | null = null;
-  for (const t of times) if (!Number.isNaN(Date.parse(t)) && (min === null || t < min)) min = t;
+  for (const t of times) {
+    const ms = Date.parse(t);
+    if (!Number.isNaN(ms) && (min === null || ms < Date.parse(min))) min = t;
+  }
   return min;
+}
+
+/** Issues closed since the earliest pending version. Fails open: on error nothing is dropped. */
+export async function closedSince(
+  reader: Pick<BrokerGitHubReader, 'listClosedIssueNumbersSince'>,
+  repo: string,
+  versions: readonly string[],
+  errors: string[],
+): Promise<Set<number>> {
+  const since = earliest(versions);
+  if (since === null) return new Set();
+  try {
+    const { closed, truncated } = await reader.listClosedIssueNumbersSince(repo, since);
+    if (truncated)
+      errors.push('closed-issue check truncated at 300; some closed issues may still be listed');
+    return closed;
+  } catch (err) {
+    errors.push(`closed-issue check: ${describeError(err)}`);
+    return new Set();
+  }
 }

@@ -23,11 +23,13 @@ import type { SpecialistDeps } from '../src/agents/specialists/run.js';
 import { renderDigest } from '../src/agents/triage/digest.js';
 import {
   BrokerGitHubReader,
+  GitHubReadError,
   type PublicIssue,
   type TimelineEvent,
 } from '../src/agents/triage/github.js';
 import {
   ACK_STALE_MS,
+  closedSince,
   earliest,
   MAX_ACK_LOOKUPS,
   proposalJobs,
@@ -591,13 +593,53 @@ describe('closed issues are left out of the digest', () => {
       '9d7c1e9e-2b1a-4b6e-9a2e-1f7d1c2b3a44',
     );
     const closed = await reader.listClosedIssueNumbersSince(repo, '2026-10-04T20:17:00Z');
-    expect([...closed]).toEqual([2539]);
+    expect([...closed.closed]).toEqual([2539]);
+    expect(closed.truncated).toBe(false);
     const body = JSON.parse(fetch.mock.calls[0]?.[1]?.body as string) as {
       resource: string;
       query: Record<string, unknown>;
     };
     expect(body.resource).toBe('issues');
     expect(body.query).toMatchObject({ state: 'closed', since: '2026-10-04T20:17:00Z' });
+  });
+
+  it('fails open: a broker error drops nothing and is reported', async () => {
+    const errors: string[] = [];
+    const closed = await closedSince(
+      {
+        listClosedIssueNumbersSince: () =>
+          Promise.reject(new GitHubReadError(403, 'issues', true, 'github_error')),
+      },
+      repo,
+      ['2026-10-04T20:00:00Z'],
+      errors,
+    );
+    expect(closed.size).toBe(0);
+    expect(errors).toEqual(['closed-issue check: GitHubReadError 403']);
+  });
+
+  it('reports a truncated closed-issue list and uses the earliest issue version', async () => {
+    const errors: string[] = [];
+    const seen: string[] = [];
+    await closedSince(
+      {
+        listClosedIssueNumbersSince: (_r, since) => {
+          seen.push(since);
+          return Promise.resolve({ closed: new Set([1]), truncated: true });
+        },
+      },
+      repo,
+      ['2026-10-04T20:28:00Z', '2026-10-04T17:49:43Z'],
+      errors,
+    );
+    expect(seen).toEqual(['2026-10-04T17:49:43Z']);
+    expect(errors[0]).toMatch(/truncated/);
+  });
+
+  it('does not query when nothing is pending', async () => {
+    const list = vi.fn();
+    expect((await closedSince({ listClosedIssueNumbersSince: list }, repo, [], [])).size).toBe(0);
+    expect(list).not.toHaveBeenCalled();
   });
 
   it('says how many items were left out', () => {

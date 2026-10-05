@@ -9,7 +9,7 @@ import { ProposalReview } from './specialists/proposal.js';
 import { Assessment } from './triage/assess.js';
 import { renderDigest, type DigestItem, type SpecialistItem } from './triage/digest.js';
 import { describeError } from './triage/errors.js';
-import { earliest, proposalJobs, sweepAcks, withoutClosed } from './triage/route.js';
+import { closedSince, proposalJobs, sweepAcks, withoutClosed } from './triage/route.js';
 import { triageRequest } from './triage/model.js';
 import { BrokerGitHubReader, type PublicIssue } from './triage/github.js';
 import { runTriage, type TriageStore } from './triage/run.js';
@@ -133,24 +133,11 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
     return { errors, proposals, checks };
   }
 
-  /** Issues closed since the earliest pending item; on a read failure, reports it and drops nothing. */
-  private async closedSince(times: string[], errors: string[]): Promise<Set<number>> {
-    const since = earliest(times);
-    if (since === null) return new Set();
-    try {
-      const reader = new BrokerGitHubReader(this.env.BROKER, this.manifest.id, crypto.randomUUID());
-      return await reader.listClosedIssueNumbersSince(this.repo, since);
-    } catch (err) {
-      errors.push(`closed-issue check: ${describeError(err)}`);
-      return new Set();
-    }
-  }
-
   private async collect<R>(
     kind: 'implementation' | 'proposal',
     schema: { safeParse(v: unknown): { success: true; data: R } | { success: false } },
     errors: string[],
-  ): Promise<(SpecialistItem<R> & { checkedAt: string })[]> {
+  ): Promise<(SpecialistItem<R> & { issueUpdatedAt: string })[]> {
     let pending: PendingResults;
     try {
       pending = PendingResults.parse(await (await this.specialist(kind)).pendingResults());
@@ -160,7 +147,7 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
     }
     const label = kind === 'implementation' ? 'implementation-check' : 'proposal-review';
     errors.push(...pending.errors.map((e) => `${label}: ${e}`));
-    const items: (SpecialistItem<R> & { checkedAt: string })[] = [];
+    const items: (SpecialistItem<R> & { issueUpdatedAt: string })[] = [];
     for (const r of pending.results) {
       // Re-validated on receipt: the digest only renders what passes the schema.
       let json: unknown;
@@ -171,7 +158,7 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
       }
       const parsed = schema.safeParse(json);
       if (parsed.success)
-        items.push({ issue: r.issue, result: parsed.data, checkedAt: r.checkedAt });
+        items.push({ issue: r.issue, result: parsed.data, issueUpdatedAt: r.issueUpdatedAt });
       else errors.push(`${label}: #${r.issue} result failed validation`);
     }
     return items;
@@ -344,11 +331,14 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
     const errors = [...this.state.lastErrors];
     const allImplementation = await this.collect('implementation', ImplementationCheck, errors);
     const allProposals = await this.collect('proposal', ProposalReview, errors);
-    const closed = await this.closedSince(
+    const closed = await closedSince(
+      new BrokerGitHubReader(this.env.BROKER, this.manifest.id, crypto.randomUUID()),
+      this.repo,
+      // Issue versions we saw, not when we finished: a close during a poll is still caught.
       [
-        ...rows.map((r) => r.assessed_at),
-        ...allImplementation.map((i) => i.checkedAt),
-        ...allProposals.map((p) => p.checkedAt),
+        ...rows.map((r) => r.issue_updated_at),
+        ...allImplementation.map((i) => i.issueUpdatedAt),
+        ...allProposals.map((p) => p.issueUpdatedAt),
       ],
       errors,
     );
