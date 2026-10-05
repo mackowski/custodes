@@ -1,10 +1,23 @@
 name: Evals
-# Behavioural and prompt-injection evals for agents. Runs on PRs that touch prompts, agents or
-# the eval corpus. Needs AI Gateway access, so it runs only for branches in this repository.
+# Behavioural and prompt-injection evals for agents, on the real models (Opus 5.5 costs real
+# money). Runs on PRs only when something that changes model behaviour changes: prompts, output
+# schemas, model choice, the untrusted-data rules, or the evals themselves. Run it by hand
+# (workflow_dispatch) for anything else. Needs AI Gateway access: branches in this repository only.
 on:
   workflow_dispatch:
   pull_request:
-    paths: ['workers/agents/**', 'packages/llm/**', 'evals/**']
+    paths:
+      - 'evals/**'
+      - '.github/workflows/evals.yml'
+      - 'workers/agents/src/agents/triage/prompt.ts'
+      - 'workers/agents/src/agents/triage/model.ts'
+      - 'workers/agents/src/agents/triage/assess.ts'
+      - 'workers/agents/src/agents/specialists/implementation.ts'
+      - 'workers/agents/src/agents/specialists/proposal.ts'
+      - 'workers/agents/src/agents/specialists/select.ts'
+      - 'workers/agents/src/agents/specialists/model.ts'
+      - 'packages/llm/src/models.ts'
+      - 'packages/llm/src/untrusted.ts'
 permissions: read-all
 jobs:
   promptfoo:

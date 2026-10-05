@@ -29,9 +29,11 @@ approvers. The repository encodes how that works so every session behaves the sa
 6. **CI**: lint, typecheck and tests (one `check` job), CodeQL, gitleaks, Semgrep, dependency
    review, Terraform scan, evals, and Claude code review and security review as PR comments. The
    `main` ruleset requires `check`, `codeql`, `gitleaks`, `dependency-review`, `semgrep` and
-   `terraform-scan`. Evals (`promptfoo`) and Claude review (`review`) are advisory. Run evals
+   `terraform-scan`. Evals (`promptfoo`) and Claude review (`review`) are advisory. Evals run on a PR only when a prompt, output schema, model choice, the untrusted-data rules or the evals change (paths in `.github/workflows/evals.yml`); otherwise run them by hand. Run evals
    yourself before merging a prompt or schema change. Limits of Claude review:
-   - It runs only for same-repo, non-draft, non-dependabot PRs.
+   - It runs only for same-repo, non-draft, non-dependabot PRs: once when the PR is opened or marked
+     ready, and again whenever someone adds the `claude-review` label (the workflow removes the label
+     afterwards). Pushes do not re-run it; each run costs about $0.5-2.
    - It skips itself on a PR that changes `.github/workflows/claude-review.yml`, and the check
      still reports success (seen on #17): `claude-code-action` only runs a workflow identical to
      the one on `main`. That protects the action's own invocation, not the API key. A
