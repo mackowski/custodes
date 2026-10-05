@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { CheatSheetFile } from '@custodes/schema';
 import { clip, parseStructured, untrusted, UNTRUSTED_DATA_RULES } from '@custodes/llm';
-import { inertNoLinks } from '../triage/assess.js';
+import { inertNoLinks, inertNoLinksWords } from '../triage/assess.js';
 import { issueLabels, type PublicIssue, type TimelineEvent } from '../triage/github.js';
 import { isSafeName, safeLogin } from '../triage/prompt.js';
 import { RawEvidence, sanitizeComment, VerifiedEvidence, verifyEvidence } from './evidence.js';
@@ -168,7 +168,7 @@ export function validateImplementationCheck(
     recommendation,
     evidence,
     mergedPrs,
-    explanation: inertNoLinks(raw.explanation, 600),
+    explanation: inertNoLinksWords(raw.explanation, 700),
     suggestedComment: sanitizeComment(raw.suggestedComment),
     injectionDetected: raw.injectionDetected,
     confidence: raw.confidence,

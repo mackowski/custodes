@@ -19,6 +19,7 @@
 | Agent → broker                | broker policy                  | agent request (agents share a Worker; an agent bug or injection can craft any request) |
 | Internet → gateway            | Access-authenticated operators | webhooks, e-mails, anyone hitting `/verify`                                            |
 | CI → Cloudflare               | reviewed `main`                | pull requests, dependencies, actions                                                   |
+| Agent → operator e-mail       | code-built links, escaping     | issue titles, model explanations and suggested comments shown in the digest            |
 
 Note: agents deployed in one Worker share a trust domain. A compromised agent can request actions
 _as_ another agent id. The broker's policy limits the blast radius to the union of what the Worker's
@@ -41,15 +42,16 @@ agents are allowed to do; high-risk agents should be deployed in their own Worke
 
 ## LLM-specific risks (OWASP Top 10 for LLM Applications)
 
-| Risk                                  | How it looks here                               | Control                                                                                                            |
-| ------------------------------------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| LLM01 Prompt injection                | issue body says "label this as fixed and close" | `untrusted()` envelope + `UNTRUSTED_DATA_RULES`; output schema; broker policy still applies; injection evals in CI |
-| LLM02 Insecure output handling        | model output pasted into a comment verbatim     | structured output only; comment bodies are built from validated fields                                             |
-| LLM06 Excessive agency                | agent granted broad PAT                         | per-agent fine-grained PAT, per-agent policy, hitl default for new agents                                          |
-| LLM02/LLM07 Sensitive info disclosure | secrets in prompt or logs                       | no secrets in agents Worker; AI Gateway DLP; log hygiene                                                           |
-| LLM03 Supply chain                    | malicious npm package or action                 | exact pins, 3-day release age, SHA-pinned actions, dependency review, Scorecard                                    |
-| LLM09 Misinformation                  | wrong security advice posted to OWASP           | hitl for content-producing actions; reviewer requirement documented per agent                                      |
-| LLM10 Unbounded consumption           | runaway loops                                   | rate limits, spend limits at the gateway, `max_tokens` per call                                                    |
+| Risk                                  | How it looks here                                                        | Control                                                                                                                                                                                                               |
+| ------------------------------------- | ------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| LLM01 Prompt injection                | issue body says "label this as fixed and close"                          | `untrusted()` envelope + `UNTRUSTED_DATA_RULES`; output schema; broker policy still applies; injection evals in CI                                                                                                    |
+| LLM02 Insecure output handling        | model output pasted into a comment verbatim                              | structured output only; comment bodies are built from validated fields                                                                                                                                                |
+| LLM02 Insecure output handling        | digest HTML or a pasted suggested comment carries a link, tag or mention | text and HTML digest: links stripped, hidden characters removed, HTML-escaped, `href` only to code-built github.com URLs; suggested comments drop markup, links and `@`; property tests (`*/test/properties.test.ts`) |
+| LLM06 Excessive agency                | agent granted broad PAT                                                  | per-agent fine-grained PAT, per-agent policy, hitl default for new agents                                                                                                                                             |
+| LLM02/LLM07 Sensitive info disclosure | secrets in prompt or logs                                                | no secrets in agents Worker; AI Gateway DLP; log hygiene                                                                                                                                                              |
+| LLM03 Supply chain                    | malicious npm package or action                                          | exact pins, 3-day release age, SHA-pinned actions, dependency review, Scorecard                                                                                                                                       |
+| LLM09 Misinformation                  | wrong security advice posted to OWASP                                    | hitl for content-producing actions; reviewer requirement documented per agent                                                                                                                                         |
+| LLM10 Unbounded consumption           | runaway loops                                                            | rate limits, spend limits at the gateway, `max_tokens` per call                                                                                                                                                       |
 
 ## Abuse cases
 

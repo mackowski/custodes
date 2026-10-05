@@ -8,6 +8,7 @@ import { ImplementationCheck } from './specialists/implementation.js';
 import { ProposalReview } from './specialists/proposal.js';
 import { Assessment } from './triage/assess.js';
 import { renderDigest, type DigestItem, type SpecialistItem } from './triage/digest.js';
+import { renderDigestHtml } from './triage/digest-html.js';
 import { describeError } from './triage/errors.js';
 import { closedSince, proposalJobs, sweepAcks, withoutClosed } from './triage/route.js';
 import { triageRequest } from './triage/model.js';
@@ -380,7 +381,7 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
     }
 
     const now = new Date();
-    const digest = renderDigest({
+    const digestInput = {
       repo: this.repo,
       items,
       implementation,
@@ -390,7 +391,8 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
       errors,
       since: this.state.lastDigestAt,
       now,
-    });
+    };
+    const digest = { ...renderDigest(digestInput), html: renderDigestHtml(digestInput) };
     try {
       // Re-check right before the side effect: the closed-issue read above may have taken a while.
       await this.guard();
@@ -399,6 +401,7 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
         to: this.env.OPERATOR_EMAIL,
         subject: digest.subject,
         text: digest.text,
+        html: digest.html,
       });
     } catch (err) {
       const detail = `digest not sent: ${err instanceof Error ? err.message : 'send failed'}`.slice(

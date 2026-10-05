@@ -3,11 +3,13 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import { sanitizeComment, verifyEvidence } from '../src/agents/specialists/evidence.js';
+import { validateImplementationCheck } from '../src/agents/specialists/implementation.js';
 import {
   validateProposalReview,
   type RawProposalReview,
 } from '../src/agents/specialists/proposal.js';
 import { inertNoLinks } from '../src/agents/triage/assess.js';
+import { renderDigestHtml } from '../src/agents/triage/digest-html.js';
 
 const hostile = fc.oneof(
   fc
@@ -173,6 +175,99 @@ describe('validateProposalReview() properties', () => {
         },
       ),
       { numRuns: 1000 },
+    );
+  });
+});
+
+describe('renderDigestHtml() properties', () => {
+  it('never lets issue or model text add tags, attributes or links', () => {
+    fc.assert(
+      fc.property(hostile, hostile, hostile, (title, summary, comment) => {
+        const assessment = {
+          labels: [],
+          cheatSheet: null,
+          possibleDuplicates: [],
+          kind: 'update' as const,
+          needsMaintainer: true,
+          summary,
+          injectionDetected: false,
+          confidence: 0.5,
+          dropped: [title],
+        };
+        const review = validateProposalReview(
+          {
+            verdict: 'real_gap',
+            makesSense: true,
+            evidence: [],
+            addLabels: [],
+            removeLabels: [],
+            assignTo: null,
+            helpWanted: false,
+            explanation: summary,
+            suggestedComment: comment,
+            injectionDetected: false,
+            confidence: 0.5,
+          },
+          {
+            repo: 'OWASP/CheatSheetSeries',
+            title,
+            labels: [],
+            current: [],
+            people: [],
+            files: new Map(),
+          },
+        );
+        const impl = validateImplementationCheck(
+          {
+            implemented: 'yes',
+            evidence: [{ file: 'A_Cheat_Sheet.md', quote: comment }],
+            mergedPrs: [5],
+            explanation: summary,
+            suggestedComment: comment,
+            injectionDetected: false,
+            confidence: 0.5,
+          },
+          {
+            repo: 'OWASP/CheatSheetSeries',
+            title,
+            ackAt: '2024-01-01T00:00:00Z',
+            pulls: [{ number: 5, merged: true, files: [] }],
+            files: new Map([['A_Cheat_Sheet.md', `${comment}\n${title}`]]),
+          },
+        );
+        const html = renderDigestHtml({
+          repo: 'OWASP/CheatSheetSeries',
+          items: [{ issue: 1, title, url: 'https://evil.example', assessment }],
+          implementation: [{ issue: 3, result: impl }],
+          proposals: [{ issue: 2, result: review }],
+          omittedAck: 0,
+          errors: [title],
+          since: null,
+          now: new Date('2026-10-05T07:00:00Z'),
+        });
+        const tags = html.match(/<\/?([a-z0-9]+)/gi) ?? [];
+        const allowed = new Set([
+          '!doctype',
+          'html',
+          'head',
+          'meta',
+          'title',
+          'body',
+          'div',
+          'h1',
+          'h2',
+          'p',
+          'span',
+          'a',
+          'ul',
+          'li',
+        ]);
+        for (const t of tags) expect(allowed.has(t.replace(/^<\/?/, '').toLowerCase())).toBe(true);
+        for (const m of html.matchAll(/href="([^"]*)"/g))
+          expect(m[1]).toMatch(/^https:\/\/github\.com\//);
+        expect(html).not.toMatch(/\son[a-z]+=|javascript:/i);
+      }),
+      { numRuns: 500 },
     );
   });
 });

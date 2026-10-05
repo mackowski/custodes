@@ -19,6 +19,7 @@ export interface SpecialistItem<R> {
 export interface Digest {
   subject: string;
   text: string;
+  html: string;
 }
 
 export interface DigestInput {
@@ -35,10 +36,10 @@ export interface DigestInput {
   now: Date;
 }
 
-const pct = (n: number) => `${Math.round(n * 100)}%`;
+export const pct = (n: number) => `${Math.round(n * 100)}%`;
 // Links are rebuilt from issue and PR numbers, never taken from model output or issue text.
-const issueUrl = (repo: string, n: number) => `https://github.com/${repo}/issues/${n}`;
-const pullUrl = (repo: string, n: number) => `https://github.com/${repo}/pull/${n}`;
+export const issueUrl = (repo: string, n: number) => `https://github.com/${repo}/issues/${n}`;
+export const pullUrl = (repo: string, n: number) => `https://github.com/${repo}/pull/${n}`;
 
 function triageLines(a: Assessment): string[] {
   const flags = [
@@ -96,9 +97,9 @@ function flagsLine(r: { injectionDetected: boolean; dropped: string[] }): string
 }
 
 /** Model text may be attacker-steered: no paste-ready comment or one-click recommendation. */
-const INJECTED = 'review by hand (possible prompt injection; no comment suggested)';
+export const INJECTED = 'review by hand (possible prompt injection; no comment suggested)';
 
-const ACTION: Record<ImplementationCheck['recommendation'], string> = {
+export const ACTION: Record<ImplementationCheck['recommendation'], string> = {
   close: 'close the issue with a comment pointing to the evidence',
   review: 'review by hand; it may be partly done',
   keep: 'keep open',
@@ -120,7 +121,7 @@ function implementationItem(it: SpecialistItem<ImplementationCheck>, repo: strin
   ];
 }
 
-const VERDICT: Record<ProposalReview['verdict'], string> = {
+export const VERDICT: Record<ProposalReview['verdict'], string> = {
   real_gap: 'real gap',
   partially_covered: 'partially covered already',
   already_covered: 'already covered',
@@ -128,7 +129,7 @@ const VERDICT: Record<ProposalReview['verdict'], string> = {
   unclear: 'unclear',
 };
 
-function proposalActions(r: ProposalReview): string[] {
+export function proposalActions(r: ProposalReview): string[] {
   const out: string[] = [];
   if (r.addLabels.length) out.push(`add label ${r.addLabels.join(', ')}`);
   if (r.removeLabels.length) out.push(`remove label ${r.removeLabels.join(', ')}`);
@@ -160,8 +161,20 @@ function proposalItem(
   ];
 }
 
-export function renderDigest(input: DigestInput): Digest {
-  const { repo, items, errors } = input;
+/** Which item goes in which section, shared by the text and HTML renderings. */
+export interface DigestPlan {
+  close: SpecialistItem<ImplementationCheck>[];
+  review: SpecialistItem<ImplementationCheck>[];
+  keep: SpecialistItem<ImplementationCheck>[];
+  proposals: SpecialistItem<ProposalReview>[];
+  triageFor: (issue: number) => DigestItem | undefined;
+  urgent: DigestItem[];
+  rest: DigestItem[];
+  subject: string;
+}
+
+export function planDigest(input: DigestInput): DigestPlan {
+  const { repo, items } = input;
   const reviewed = new Set(input.proposals.map((p) => p.issue));
   const byIssue = new Map(items.map((i) => [i.issue, i]));
   const close = input.implementation.filter((i) => i.result.recommendation === 'close');
@@ -179,7 +192,23 @@ export function renderDigest(input: DigestInput): Digest {
     remaining.length ? `${remaining.length} issue(s)` : null,
     urgent.length ? `${urgent.length} need attention` : null,
   ].filter(Boolean);
-  const subject = `[custodes] ${repo} triage ${day}: ${counts.join(', ') || 'problems only'}`;
+  return {
+    close,
+    review,
+    keep,
+    proposals: input.proposals,
+    triageFor: (issue) => byIssue.get(issue),
+    urgent,
+    rest,
+    subject: `[custodes] ${repo} triage ${day}: ${counts.join(', ') || 'problems only'}`,
+  };
+}
+
+/** Plain-text rendering (the e-mail's text part; also what clients without HTML show). */
+export function renderDigest(input: DigestInput): Omit<Digest, 'html'> {
+  const { repo, errors } = input;
+  const plan = planDigest(input);
+  const { close, review, keep, urgent, rest, subject } = plan;
   const section = (title: string, lines: string[]) =>
     lines.length ? [`== ${title} ==`, '', ...lines] : [];
   const text = [
@@ -193,7 +222,7 @@ export function renderDigest(input: DigestInput): Digest {
     ),
     ...section(
       'Community proposals: recommended actions',
-      input.proposals.flatMap((p) => proposalItem(p, byIssue.get(p.issue), repo)),
+      input.proposals.flatMap((p) => proposalItem(p, plan.triageFor(p.issue), repo)),
     ),
     ...section(
       'Accepted issues that may be partly implemented',

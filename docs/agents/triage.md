@@ -20,7 +20,12 @@ than a week ago (measured from when the label was applied) go to
 recommended actions. Accepted issues are otherwise left out of the digest (only a count is shown),
 unless triage flags them as needing a maintainer or as possible injection.
 Polls only read open issues, so before sending, the digest asks the broker which issues were closed
-since the oldest pending item and leaves those out, counting them in one line.
+since the oldest pending item and leaves those out, counting them in one line. Any of those that were
+flagged for possible prompt injection are still listed by number under problems.
+
+The e-mail has two parts: plain text, and HTML for Gmail on web and mobile (`triage/digest-html.ts`).
+The HTML part escapes every issue and model string, uses inline styles only, and links only to
+`https://github.com/` URLs that code builds from issue numbers, PR numbers and verified evidence.
 
 ## Inputs (all untrusted)
 

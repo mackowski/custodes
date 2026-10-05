@@ -22,6 +22,9 @@ Work through the checklist in the security-reviewer system prompt. Also verify:
 - GitHub Actions: SHA-pinned, `permissions` minimal, no secrets on `pull_request` from forks.
 - Terraform: no widening of Access policies; service tokens have durations.
 
+Do not build, test or run anything (no pnpm, node, wrangler or scripts): CI already ran the checks,
+and in CI this review holds an API key in its environment. Read the code instead.
+
 Report findings ranked by severity with file:line and the smallest fix. End with an explicit
 verdict: approve, approve with nits, or request changes.
 
