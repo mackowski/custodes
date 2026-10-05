@@ -367,13 +367,17 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
       proposals.length === 0 &&
       errors.length === 0
     ) {
-      // Everything left was about closed issues: mark it so it is not re-checked every day.
-      if (omittedClosed > 0) {
+      // Nothing to send, but every pending row was looked at (accepted or closed): mark it, so old
+      // rows do not keep widening the closed-issue window day after day.
+      if (rows.length || allImplementation.length || allProposals.length) {
         const stamp = new Date().toISOString();
         this.markDigested(rows, stamp);
         await this.markHandled(allImplementation, allProposals, stamp);
       }
-      return { ok: true, detail: `nothing to report (${omittedClosed} closed omitted)` };
+      return {
+        ok: true,
+        detail: `nothing to report (${omittedAck} accepted, ${omittedClosed} closed omitted)`,
+      };
     }
 
     const now = new Date();
