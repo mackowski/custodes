@@ -24,6 +24,6 @@
     "@custodes/config": "workspace:*",
     "typescript": "5.9.3",
     "vitest": "4.1.11",
-    "wrangler": "4.141.0"
+    "wrangler": "4.146.0"
   }
 }
