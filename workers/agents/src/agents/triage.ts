@@ -343,6 +343,16 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
       ],
       errors,
     );
+    // Closed issues leave the digest, but an injection attempt is still worth knowing about.
+    const closedFlagged = [
+      ...items.filter((i) => i.assessment.injectionDetected).map((i) => i.issue),
+      ...allImplementation.filter((i) => i.result.injectionDetected).map((i) => i.issue),
+      ...allProposals.filter((p) => p.result.injectionDetected).map((p) => p.issue),
+    ].filter((n, idx, all) => closed.has(n) && all.indexOf(n) === idx);
+    if (closedFlagged.length)
+      errors.push(
+        `closed issues flagged for possible prompt injection: ${closedFlagged.map((n) => `#${n}`).join(', ')}`,
+      );
     const openItems = withoutClosed(items, closed);
     const implementationOpen = withoutClosed(allImplementation, closed);
     const proposalsOpen = withoutClosed(allProposals, closed);

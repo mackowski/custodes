@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import type { SpecialistJob } from '../specialists/agent.js';
 import { labelAppliedAt } from '../specialists/implementation.js';
 import { describeError } from './errors.js';
@@ -79,11 +80,14 @@ export function withoutClosed<T extends { issue: number }>(
 export function earliest(times: readonly string[]): string | null {
   let min: string | null = null;
   for (const t of times) {
-    const ms = Date.parse(t);
-    if (!Number.isNaN(ms) && (min === null || ms < Date.parse(min))) min = t;
+    // Only values the broker's `since` accepts; anything else would fail the whole check.
+    if (!ISO.safeParse(t).success) continue;
+    if (min === null || Date.parse(t) < Date.parse(min)) min = t;
   }
   return min;
 }
+
+const ISO = z.iso.datetime();
 
 /** Issues closed since the earliest pending version. Fails open: on error nothing is dropped. */
 export async function closedSince(
