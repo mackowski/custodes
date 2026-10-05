@@ -41,9 +41,18 @@ export function inertNoLinks(s: string, maxChars: number): string {
   return inertText(unlinked, maxChars);
 }
 
+/** Like inertNoLinks, but a cut ends on a word boundary with an ellipsis instead of mid-word. */
+export function inertNoLinksWords(s: string, maxChars: number): string {
+  const full = inertNoLinks(s, 100_000);
+  if (full.length <= maxChars) return full;
+  const cut = full.slice(0, maxChars - 1);
+  const space = cut.lastIndexOf(' ');
+  return `${(space > maxChars * 0.6 ? cut.slice(0, space) : cut).replace(/[\s.,;:]+$/, '')}…`;
+}
+
 /** Model summary for the digest. */
 export function sanitizeSummary(s: string): string {
-  return inertNoLinks(s, 300);
+  return inertNoLinksWords(s, 400);
 }
 
 /** Keeps only suggestions that refer to things that actually exist in the repository. */

@@ -21,6 +21,8 @@ import {
 } from '../src/agents/specialists/proposal.js';
 import type { SpecialistDeps } from '../src/agents/specialists/run.js';
 import { renderDigest } from '../src/agents/triage/digest.js';
+import { esc, renderDigestHtml } from '../src/agents/triage/digest-html.js';
+import { inertNoLinksWords } from '../src/agents/triage/assess.js';
 import {
   BrokerGitHubReader,
   GitHubReadError,
@@ -657,5 +659,36 @@ describe('closed issues are left out of the digest', () => {
     expect(d.text).toContain(
       '3 item(s) about issues closed since they were assessed were left out.',
     );
+  });
+});
+
+describe('HTML digest', () => {
+  it('escapes untrusted text and links only to github.com', () => {
+    const review = validateProposalReview(rawProposal({ helpWanted: true }), {
+      ...proposalCtx,
+      title: '<img src=x onerror=alert(1)> "quoted"',
+    });
+    const html = renderDigestHtml({
+      repo,
+      items: [],
+      implementation: [],
+      proposals: [{ issue: 1710, result: review }],
+      omittedAck: 2,
+      errors: [],
+      since: '2026-10-04T07:00:09.204Z',
+      now: new Date('2026-10-05T07:00:00Z'),
+    });
+    expect(html).toContain('&lt;img src=x onerror=alert(1)&gt; &quot;quoted&quot;');
+    expect(html).not.toContain('<img');
+    expect(html).toContain('href="https://github.com/OWASP/CheatSheetSeries/issues/1710"');
+    expect(html).toContain('<meta name="viewport"');
+    expect(html).toContain('add label ACK_OBTAINED, HELP_WANTED');
+    expect(esc('<a href="x">&</a>')).toBe('&lt;a href=&quot;x&quot;&gt;&amp;&lt;/a&gt;');
+  });
+
+  it('clips model text on a word boundary', () => {
+    const out = inertNoLinksWords('alpha beta gamma delta epsilon', 18);
+    expect(out).toBe('alpha beta gamma…');
+    expect(out.length).toBeLessThanOrEqual(18);
   });
 });
