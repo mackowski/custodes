@@ -165,6 +165,31 @@ export class BrokerGitHubReader {
     return out;
   }
 
+  /**
+   * Issues closed (or updated while closed) since `since`, newest first, up to 300; `truncated` if
+   * there are more. Newest first, so a cut loses the oldest closes, not the ones that matter.
+   */
+  async listClosedIssueNumbersSince(
+    repo: string,
+    since: string,
+  ): Promise<{ closed: Set<number>; truncated: boolean }> {
+    const out = new Set<number>();
+    for (let page = 1; page <= 3; page++) {
+      const q: ReadQuery = {
+        state: 'closed',
+        sort: 'updated',
+        direction: 'desc',
+        since,
+        per_page: 100,
+        page,
+      };
+      const batch = await this.read(repo, 'issues', q, z.array(PublicIssue));
+      for (const i of batch) if (i.pull_request === undefined) out.add(i.number);
+      if (batch.length < 100) return { closed: out, truncated: false };
+    }
+    return { closed: out, truncated: true };
+  }
+
   async getIssue(repo: string, number: number): Promise<PublicIssue> {
     return this.read(repo, 'issue', {}, PublicIssue, { number });
   }

@@ -28,6 +28,8 @@ export interface DigestInput {
   proposals: SpecialistItem<ProposalReview>[];
   /** Triage results left out because the issue is already accepted (ACK_OBTAINED). */
   omittedAck: number;
+  /** Items left out because the issue was closed after it was assessed. */
+  omittedClosed?: number;
   errors: string[];
   since: string | null;
   now: Date;
@@ -216,6 +218,12 @@ export function renderDigest(input: DigestInput): Digest {
       ? [
           `${input.omittedAck} updated issue(s) already accepted (ACK_OBTAINED) were left out; ` +
             'those accepted over a week ago are checked for an existing implementation.',
+          '',
+        ]
+      : []),
+    ...(input.omittedClosed
+      ? [
+          `${input.omittedClosed} item(s) about issues closed since they were assessed were left out.`,
           '',
         ]
       : []),

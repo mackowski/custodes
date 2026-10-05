@@ -19,6 +19,8 @@ than a week ago (measured from when the label was applied) go to
 [implementation-check](implementation-check.md). Their results appear in the same digest under
 recommended actions. Accepted issues are otherwise left out of the digest (only a count is shown),
 unless triage flags them as needing a maintainer or as possible injection.
+Polls only read open issues, so before sending, the digest asks the broker which issues were closed
+since the oldest pending item and leaves those out, counting them in one line.
 
 ## Inputs (all untrusted)
 
