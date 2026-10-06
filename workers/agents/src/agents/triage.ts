@@ -97,7 +97,7 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
     kind: 'implementation' | 'proposal',
     jobs: SpecialistJob[],
   ): Promise<number> {
-    if (jobs.length === 0) return 0;
+    // Called even with no jobs: it also wakes the specialist's queue (see enqueue).
     const stub = await this.specialist(kind);
     return (await stub.enqueue(jobs.slice(0, 100))).queued;
   }

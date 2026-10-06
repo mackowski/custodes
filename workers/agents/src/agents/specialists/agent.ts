@@ -37,6 +37,8 @@ export interface SpecialistState {
   jobsToday: number;
   lastRunAt: string | null;
   lastErrors: string[];
+  /** Set while a job runs, so a second alarm firing meanwhile does not take the same job. */
+  workingSince?: string | null;
 }
 
 /** Jobs (each one fast and one reasoning call) per UTC day: bounds model spend. */
@@ -44,6 +46,14 @@ export const MAX_JOBS_PER_DAY = 10;
 /** A job that fails this many times is dropped (triage re-enqueues it when the issue changes). */
 export const MAX_ATTEMPTS = 4;
 const MAX_ENQUEUE = 100;
+/** A lock older than this is stale (the run crashed); longer than any single job. */
+const WORK_LOCK_MS = 15 * 60_000;
+
+/** True while another run holds the queue; a lock older than WORK_LOCK_MS is treated as stale. */
+export function lockHeld(workingSince: string | null | undefined, now: number): boolean {
+  const at = workingSince ? Date.parse(workingSince) : NaN;
+  return !Number.isNaN(at) && now - at < WORK_LOCK_MS;
+}
 
 interface JobRow {
   issue: number;
@@ -105,7 +115,11 @@ export abstract class SpecialistAgent extends CustodesAgent<AgentsEnv, Specialis
     )`;
   }
 
-  /** Called by triage over RPC. Input is re-validated: an RPC caller is still another component. */
+  /**
+   * Called by triage over RPC on every poll, with new jobs or an empty list: either way it wakes the
+   * queue, so jobs left over (daily cap, infrastructure failure) resume without new work arriving.
+   * Input is re-validated: an RPC caller is still another component.
+   */
   async enqueue(jobs: unknown): Promise<{ queued: number }> {
     const parsed = z.array(SpecialistJob).max(MAX_ENQUEUE).safeParse(jobs);
     if (!parsed.success) return { queued: 0 };
@@ -132,25 +146,42 @@ export abstract class SpecialistAgent extends CustodesAgent<AgentsEnv, Specialis
       queued++;
     }
     const pending = this.sql<{ n: number }>`SELECT COUNT(*) AS n FROM jobs`[0]?.n ?? 0;
+    // Idempotent here: repeated wake-ups while a run is pending add no second alarm.
     if (pending > 0) await this.schedule(5, 'work', undefined, { idempotent: true });
     return { queued };
   }
 
   /** Alarm callback: works one job, then schedules the next while the daily budget lasts. */
   async work(): Promise<void> {
+    const startedAt = Date.now();
+    if (lockHeld(this.state.workingSince, startedAt)) return;
+    this.setState({ ...this.state, workingSince: new Date(startedAt).toISOString() });
+    let next: boolean;
+    try {
+      next = await this.workOne();
+    } finally {
+      this.setState({ ...this.state, workingSince: null });
+    }
+    // A plain schedule, not an idempotent one: that would match this run's own schedule row, return
+    // it, and the chain would stop after one job (it did, 2026-10-01..06: one job per triage poll).
+    if (next) await this.schedule(2, 'work');
+  }
+
+  /** Works the job at the head of the queue. Returns true when another job should follow. */
+  private async workOne(): Promise<boolean> {
     try {
       await this.guard();
     } catch {
-      return; // halted: jobs stay queued
+      return false; // halted: jobs stay queued
     }
     this.ensureSchema();
     const now = new Date();
     const day = now.toISOString().slice(0, 10);
     const used = this.state.day === day ? this.state.jobsToday : 0;
-    if (used >= MAX_JOBS_PER_DAY) return; // the next enqueue after midnight UTC resumes
+    if (used >= MAX_JOBS_PER_DAY) return false; // the first triage poll after midnight UTC resumes
     const job = this.sql<JobRow>`SELECT issue, issue_updated_at, attempts FROM jobs
       ORDER BY enqueued_at, issue LIMIT 1`[0];
-    if (!job) return;
+    if (!job) return false;
     const runId = crypto.randomUUID();
     this.setState({ ...this.state, day, jobsToday: used + 1, lastRunAt: now.toISOString() });
     let more = true;
@@ -173,7 +204,7 @@ export abstract class SpecialistAgent extends CustodesAgent<AgentsEnv, Specialis
         }),
       );
     } catch (err) {
-      if (err instanceof AgentHaltedError) return;
+      if (err instanceof AgentHaltedError) return false;
       // Class, status and error type only: never model output or issue text.
       const what = describeError(err);
       const attempts = job.attempts + 1;
@@ -199,9 +230,7 @@ export abstract class SpecialistAgent extends CustodesAgent<AgentsEnv, Specialis
       );
     }
     const left = this.sql<{ n: number }>`SELECT COUNT(*) AS n FROM jobs`[0]?.n ?? 0;
-    // Idempotent: never two alarm chains working the same queue head.
-    if (more && left > 0 && used + 1 < MAX_JOBS_PER_DAY)
-      await this.schedule(2, 'work', undefined, { idempotent: true });
+    return more && left > 0 && used + 1 < MAX_JOBS_PER_DAY;
   }
 
   /** Called by triage over RPC when it builds a digest. */

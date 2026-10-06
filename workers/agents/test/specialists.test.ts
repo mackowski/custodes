@@ -19,6 +19,7 @@ import {
   validateProposalReview,
   type RawProposalReview,
 } from '../src/agents/specialists/proposal.js';
+import { lockHeld } from '../src/agents/specialists/agent.js';
 import type { SpecialistDeps } from '../src/agents/specialists/run.js';
 import { renderDigest } from '../src/agents/triage/digest.js';
 import { esc, renderDigestHtml } from '../src/agents/triage/digest-html.js';
@@ -538,6 +539,17 @@ describe('digest safety', () => {
   });
 });
 
+describe('specialist work lock', () => {
+  const now = Date.parse('2026-10-06T10:00:00Z');
+  it('is held by a recent run and expires after 15 minutes', () => {
+    expect(lockHeld(null, now)).toBe(false);
+    expect(lockHeld(undefined, now)).toBe(false);
+    expect(lockHeld('2026-10-06T09:59:00Z', now)).toBe(true);
+    expect(lockHeld('2026-10-06T09:44:00Z', now)).toBe(false);
+    expect(lockHeld('garbage', now)).toBe(false);
+  });
+});
+
 describe('specialist agents (Durable Objects)', () => {
   const testEnv = env as unknown as AgentsEnv;
 
@@ -549,6 +561,24 @@ describe('specialist agents (Durable Objects)', () => {
     ).toEqual({
       queued: 0,
     });
+  });
+
+  it('release the work lock after a run, even a failed one', async () => {
+    const stub = await getAgentByName(testEnv.ProposalReviewAgent, 'test-lock');
+    expect(await stub.enqueue([{ issue: 9, issueUpdatedAt: '2026-09-20T10:00:00Z' }])).toEqual({
+      queued: 1,
+    });
+    await stub.work(); // the stub broker fails it; the job stays queued
+    await stub.work(); // runs again: the lock was released
+    expect((await stub.pendingResults()).errors).toEqual([
+      '#9: GitHubReadError',
+      '#9: GitHubReadError',
+    ]);
+  });
+
+  it('accept an empty wake-up call', async () => {
+    const stub = await getAgentByName(testEnv.ImplementationCheckAgent, 'test-wake');
+    expect(await stub.enqueue([])).toEqual({ queued: 0 });
   });
 
   it('queue a job, report a broker failure as an error and keep the job', async () => {
