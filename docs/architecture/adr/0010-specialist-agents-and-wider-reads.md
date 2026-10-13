@@ -104,3 +104,7 @@ reviewed again after every comment, several times a day.
 - Model answers whose text or lists are too long, or whose confidence is out of range, are
   clipped instead of rejected. A job whose answer is unusable is retried after 6 h, not
   immediately: four Opus calls in one minute on 2026-10-07/08 produced nothing.
+- **Accepted risk:** anyone can open a pull request from a fork that mentions an issue, so a
+  linked PR is not vetted. The digest says the model _reads_ it as doing the work, and the
+  maintainer reviews the PR before any merge. A review flagged for possible injection stays in the
+  digest even if the issue was accepted in the meantime. Owner: the maintainer.

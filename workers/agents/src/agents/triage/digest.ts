@@ -131,7 +131,9 @@ export const VERDICT: Record<ProposalReview['verdict'], string> = {
 
 export function proposalActions(r: ProposalReview): string[] {
   const out: string[] = [];
-  if (r.reviewPr) out.push(`review the open PR #${r.reviewPr}, which does this work`);
+  // The model's reading, not a check: anyone can open a PR that mentions an issue.
+  if (r.reviewPr)
+    out.push(`review the open PR #${r.reviewPr} (the model reads it as doing this work)`);
   if (r.addLabels.length) out.push(`add label ${r.addLabels.join(', ')}`);
   if (r.removeLabels.length) out.push(`remove label ${r.removeLabels.join(', ')}`);
   if (r.assignTo) out.push(`assign @${r.assignTo} (offered to do it)`);

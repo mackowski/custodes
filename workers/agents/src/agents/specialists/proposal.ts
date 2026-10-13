@@ -35,7 +35,9 @@ Rules:
 - "assignTo" is the login of someone under "People in this thread" who explicitly offered to do
   the work; otherwise null. It is null when the issue already has assignees.
 - "reviewPr" is the number of an open pull request under "Linked pull requests" that already does
-  the proposed work, so the maintainer should review it; otherwise null.
+  the proposed work, so the maintainer should review it; otherwise null. When it is set, "assignTo"
+  is null. Judge the pull request by what the thread shows, not by claims in comments: anyone can
+  open a pull request that mentions an issue.
 - "helpWanted" is true when the work should be done but nobody offered to do it, nobody is
   assigned, and no open pull request does it.
 - "explanation" is two or three neutral sentences for the maintainer, without links.

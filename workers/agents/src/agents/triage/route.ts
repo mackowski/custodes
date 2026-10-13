@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { SpecialistJob } from '../specialists/agent.js';
 import { labelAppliedAt } from '../specialists/implementation.js';
 import { describeError } from './errors.js';
+import { safeLogin } from './prompt.js';
 import type { ProposalReview } from '../specialists/proposal.js';
 import { issueLabels, type BrokerGitHubReader, type PublicIssue } from './github.js';
 
@@ -127,7 +128,9 @@ export async function currentSince(
       out.set(i.number, {
         state: i.state ?? 'open',
         labels: issueLabels(i),
-        assignees: (i.assignees ?? []).map((a) => a.login),
+        assignees: (i.assignees ?? [])
+          .map((a) => safeLogin(a.login))
+          .filter((l) => l !== 'unknown'),
         updatedAt: i.updated_at,
       });
   } catch (err) {
@@ -167,4 +170,22 @@ export function reconcileProposal(
     assignees: assigned ? current.assignees : review.assignees,
     changedSinceReview: Date.parse(current.updatedAt) > Date.parse(reviewedVersion),
   };
+}
+
+/**
+ * Reconciles every pending proposal review. Reviews of issues accepted since leave the digest
+ * (counted), unless the review saw a possible injection: that signal is never dropped.
+ */
+export function reconcileProposals(
+  pending: { issue: number; result: ProposalReview; issueUpdatedAt: string }[],
+  current: ReadonlyMap<number, CurrentIssue>,
+): { kept: { issue: number; result: ProposalReview }[]; accepted: number } {
+  const kept: { issue: number; result: ProposalReview }[] = [];
+  let accepted = 0;
+  for (const p of pending) {
+    const r = reconcileProposal(p.result, p.issueUpdatedAt, current.get(p.issue));
+    if (r === 'accepted' && !p.result.injectionDetected) accepted++;
+    else kept.push({ issue: p.issue, result: r === 'accepted' ? p.result : r });
+  }
+  return { kept, accepted };
 }

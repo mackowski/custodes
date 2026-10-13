@@ -15,7 +15,7 @@ import {
   currentSince,
   hasAck,
   pendingProposalJobs,
-  reconcileProposal,
+  reconcileProposals,
   sweepAcks,
   withoutClosed,
 } from './triage/route.js';
@@ -420,12 +420,9 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
       return true;
     });
     items.splice(0, items.length, ...stillOpen);
-    const proposals: SpecialistItem<ProposalReview>[] = [];
-    for (const p of proposalsOpen.kept) {
-      const r = reconcileProposal(p.result, p.issueUpdatedAt, current.get(p.issue));
-      if (r === 'accepted') omittedAck++;
-      else proposals.push({ issue: p.issue, result: r });
-    }
+    const reconciled = reconcileProposals(proposalsOpen.kept, current);
+    const proposals = reconciled.kept;
+    omittedAck += reconciled.accepted;
     if (
       items.length === 0 &&
       implementation.length === 0 &&

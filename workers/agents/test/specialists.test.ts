@@ -37,6 +37,7 @@ import {
   closedIn,
   currentSince,
   reconcileProposal,
+  reconcileProposals,
   type CurrentIssue,
   earliest,
   MAX_ACK_LOOKUPS,
@@ -635,6 +636,22 @@ describe('stored reviews are reconciled with the issue as it is now', () => {
     ).toBe('accepted');
   });
 
+  it('keeps a review flagged for possible injection even when the issue was accepted since', () => {
+    const flagged = { ...review(), injectionDetected: true };
+    const r = reconcileProposals(
+      [
+        { issue: 1, result: review(), issueUpdatedAt: '2026-10-12T08:00:00Z' },
+        { issue: 2, result: flagged, issueUpdatedAt: '2026-10-12T08:00:00Z' },
+      ],
+      new Map([
+        [1, now({ labels: ['ACK_OBTAINED'] })],
+        [2, now({ labels: ['ACK_OBTAINED'] })],
+      ]),
+    );
+    expect(r.accepted).toBe(1);
+    expect(r.kept.map((k) => k.issue)).toEqual([2]);
+  });
+
   it('removes actions already carried out and marks a changed issue', () => {
     const r = reconcileProposal(
       review(),
@@ -680,7 +697,9 @@ describe('proposal review with linked pull requests', () => {
     expect(r.reviewPr).toBe(1721);
     expect(r.assignTo).toBeNull();
     expect(r.addLabels).not.toContain('HELP_WANTED');
-    expect(proposalActions(r)[0]).toBe('review the open PR #1721, which does this work');
+    expect(proposalActions(r)[0]).toBe(
+      'review the open PR #1721 (the model reads it as doing this work)',
+    );
   });
 
   it('accepts only open linked PRs and never assigns an already assigned issue', () => {
