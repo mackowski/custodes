@@ -18,16 +18,16 @@
     "@custodes/github": "workspace:*",
     "@custodes/llm": "workspace:*",
     "@custodes/schema": "workspace:*",
-    "agents": "0.24.0",
+    "agents": "0.28.0",
     "zod": "4.6.5"
   },
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "0.22.0",
+    "@cloudflare/vitest-pool-workers": "0.23.0",
     "@custodes/config": "workspace:*",
     "esbuild": "0.28.2",
     "fast-check": "4.10.2",
     "typescript": "5.9.3",
     "vitest": "4.1.11",
-    "wrangler": "4.141.0"
+    "wrangler": "4.149.0"
   }
 }
