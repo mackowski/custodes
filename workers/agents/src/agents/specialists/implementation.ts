@@ -4,6 +4,7 @@ import { clip, parseStructured, untrusted, UNTRUSTED_DATA_RULES } from '@custode
 import { inertNoLinks, inertNoLinksWords } from '../triage/assess.js';
 import { issueLabels, type PublicIssue, type TimelineEvent } from '../triage/github.js';
 import { isSafeName, safeLogin } from '../triage/prompt.js';
+import { list, numbers, text, unit } from './lenient.js';
 import { RawEvidence, sanitizeComment, VerifiedEvidence, verifyEvidence } from './evidence.js';
 import { loadCheatSheets, type SpecialistDeps } from './run.js';
 import { buildSelectMessage, RawSelection, SELECT_PROMPT, validateSelection } from './select.js';
@@ -42,12 +43,12 @@ Respond with exactly one JSON object and nothing else:
 
 export const RawImplementationCheck = z.object({
   implemented: z.enum(['yes', 'partially', 'no', 'unclear']),
-  evidence: z.array(RawEvidence).max(8),
-  mergedPrs: z.array(z.number().int().positive()).max(8),
-  explanation: z.string().max(1500),
-  suggestedComment: z.string().max(3000),
+  evidence: list(RawEvidence, 8),
+  mergedPrs: numbers(8),
+  explanation: text(1500),
+  suggestedComment: text(3000),
   injectionDetected: z.boolean(),
-  confidence: z.number().min(0).max(1),
+  confidence: unit,
 });
 export type RawImplementationCheck = z.infer<typeof RawImplementationCheck>;
 
@@ -89,6 +90,38 @@ export function referencingPulls(
     seen.set(src.number, (seen.get(src.number) ?? false) || merged);
   }
   return [...seen].map(([number, merged]) => ({ number, merged }));
+}
+
+export interface LinkedPull {
+  number: number;
+  state: 'open' | 'merged' | 'closed';
+  /** GitHub login (safe charset) or 'unknown'. */
+  author: string;
+  /** Untrusted: shown to the model inside an envelope, never outside one. */
+  title: string;
+}
+
+/** Same-repository pull requests that reference the issue, with their state, from its timeline. */
+export function linkedPulls(repo: string, timeline: TimelineEvent[]): LinkedPull[] {
+  const out = new Map<number, LinkedPull>();
+  for (const e of timeline) {
+    const src = e.source?.issue;
+    if (e.event !== 'cross-referenced' || !src?.pull_request) continue;
+    if (src.repository?.full_name.toLowerCase() !== repo.toLowerCase()) continue;
+    const state =
+      typeof src.pull_request.merged_at === 'string'
+        ? 'merged'
+        : src.state === 'open'
+          ? 'open'
+          : 'closed';
+    out.set(src.number, {
+      number: src.number,
+      state,
+      author: safeLogin(src.user?.login),
+      title: clip(src.title ?? '', 150),
+    });
+  }
+  return [...out.values()].slice(0, 10);
 }
 
 /** When the label was last applied, from the timeline; null when the timeline does not show it. */
