@@ -132,8 +132,11 @@ export const VERDICT: Record<ProposalReview['verdict'], string> = {
 export function proposalActions(r: ProposalReview): string[] {
   const out: string[] = [];
   // The model's reading, not a check: anyone can open a PR that mentions an issue.
-  if (r.reviewPr)
-    out.push(`review the open PR #${r.reviewPr} (the model reads it as doing this work)`);
+  if (r.reviewPr) {
+    const by = r.linkedPrs.find((p) => p.number === r.reviewPr)?.author;
+    const author = by && by !== 'unknown' ? ` by @${by}` : '';
+    out.push(`review the open PR #${r.reviewPr}${author} (the model reads it as doing this work)`);
+  }
   if (r.addLabels.length) out.push(`add label ${r.addLabels.join(', ')}`);
   if (r.removeLabels.length) out.push(`remove label ${r.removeLabels.join(', ')}`);
   if (r.assignTo) out.push(`assign @${r.assignTo} (offered to do it)`);
@@ -159,7 +162,7 @@ function proposalItem(
     `  recommended: ${r.injectionDetected ? INJECTED : actions.join('; ') || '(no change)'}`,
     ...(r.linkedPrs.length
       ? [
-          `  linked PRs: ${r.linkedPrs.map((p) => `#${p.number} ${p.state} ${pullUrl(repo, p.number)}`).join(', ')}`,
+          `  linked PRs: ${r.linkedPrs.map((p) => `#${p.number} ${p.state} by @${p.author} ${pullUrl(repo, p.number)}`).join(', ')}`,
         ]
       : []),
     ...(r.changedSinceReview

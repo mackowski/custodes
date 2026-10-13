@@ -95,11 +95,15 @@ export function referencingPulls(
 export interface LinkedPull {
   number: number;
   state: 'open' | 'merged' | 'closed';
+  /** GitHub login (safe charset) or 'unknown'. */
+  author: string;
+  /** Untrusted: shown to the model inside an envelope, never outside one. */
+  title: string;
 }
 
 /** Same-repository pull requests that reference the issue, with their state, from its timeline. */
 export function linkedPulls(repo: string, timeline: TimelineEvent[]): LinkedPull[] {
-  const out = new Map<number, LinkedPull['state']>();
+  const out = new Map<number, LinkedPull>();
   for (const e of timeline) {
     const src = e.source?.issue;
     if (e.event !== 'cross-referenced' || !src?.pull_request) continue;
@@ -110,9 +114,14 @@ export function linkedPulls(repo: string, timeline: TimelineEvent[]): LinkedPull
         : src.state === 'open'
           ? 'open'
           : 'closed';
-    out.set(src.number, state);
+    out.set(src.number, {
+      number: src.number,
+      state,
+      author: safeLogin(src.user?.login),
+      title: clip(src.title ?? '', 150),
+    });
   }
-  return [...out].map(([number, state]) => ({ number, state })).slice(0, 10);
+  return [...out.values()].slice(0, 10);
 }
 
 /** When the label was last applied, from the timeline; null when the timeline does not show it. */

@@ -12,6 +12,8 @@ export const TimelineEvent = z.looseObject({
         .looseObject({
           number: z.number().int().positive(),
           state: z.string().optional(),
+          title: z.string().optional(),
+          user: z.looseObject({ login: z.string() }).nullable().optional(),
           pull_request: z.looseObject({ merged_at: z.string().nullable().optional() }).optional(),
           repository: z.looseObject({ full_name: z.string() }).optional(),
         })

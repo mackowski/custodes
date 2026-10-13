@@ -220,7 +220,8 @@ function proposalCard(
         ? label('Linked pull requests') +
           list(
             r.linkedPrs.map(
-              (p) => `${link(pullUrl(repo, p.number), `#${p.number}`)} ${esc(p.state)}`,
+              (p) =>
+                `${link(pullUrl(repo, p.number), `#${p.number}`)} ${esc(p.state)} by @${esc(p.author)}`,
             ),
           )
         : '') +

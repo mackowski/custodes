@@ -423,7 +423,7 @@ describe('reviewProposal', () => {
     expect(r?.assignTo).toBe('gqlwriter');
     const user = deps.assess.mock.calls[0]?.[1] ?? '';
     expect(user).toContain('People in this thread: gqlwriter, maint1');
-    expect(user.match(/<\/untrusted>/g)).toHaveLength(3); // issue, comments, one cheat sheet
+    expect(user.match(/<\/untrusted>/g)).toHaveLength(4); // linked PRs, issue, comments, one cheat sheet
   });
 });
 
@@ -684,8 +684,8 @@ describe('proposal review with linked pull requests', () => {
   const ctx = {
     ...proposalCtx,
     linkedPrs: [
-      { number: 1721, state: 'open' as const },
-      { number: 1700, state: 'merged' as const },
+      { number: 1721, state: 'open' as const, author: 'gqlwriter', title: 'GraphQL work' },
+      { number: 1700, state: 'merged' as const, author: 'gqlwriter', title: 'GraphQL work' },
     ],
   };
 
@@ -698,7 +698,7 @@ describe('proposal review with linked pull requests', () => {
     expect(r.assignTo).toBeNull();
     expect(r.addLabels).not.toContain('HELP_WANTED');
     expect(proposalActions(r)[0]).toBe(
-      'review the open PR #1721 (the model reads it as doing this work)',
+      'review the open PR #1721 by @gqlwriter (the model reads it as doing this work)',
     );
   });
 
@@ -717,10 +717,12 @@ describe('proposal review with linked pull requests', () => {
   it('reads the timeline and tells the model about assignees and linked PRs', () => {
     const msg = buildProposalMessage(repo, issue(1720), [], ['ACK_OBTAINED'], new Map(), {
       assignees: ['maint1'],
-      linkedPrs: [{ number: 1721, state: 'open' }],
+      linkedPrs: [{ number: 1721, state: 'open', author: 'gqlwriter', title: 'GraphQL work' }],
     });
     expect(msg).toContain('Current assignees: maint1');
-    expect(msg).toContain('Linked pull requests: #1721 open');
+    expect(msg).toContain(
+      '<untrusted source="github:issue#1720:linked-prs">\n#1721 open by @gqlwriter: GraphQL work\n</untrusted>',
+    );
   });
 
   it('finds linked PRs and their state in the timeline', () => {
@@ -731,6 +733,8 @@ describe('proposal review with linked pull requests', () => {
           source: {
             issue: {
               number: 3,
+              title: 'Fix it',
+              user: { login: 'gqlwriter' },
               state: 'open',
               pull_request: { merged_at: null },
               repository: { full_name: repo },
@@ -765,9 +769,9 @@ describe('proposal review with linked pull requests', () => {
         },
       ]),
     ).toEqual([
-      { number: 3, state: 'open' },
-      { number: 4, state: 'merged' },
-      { number: 5, state: 'closed' },
+      { number: 3, state: 'open', author: 'gqlwriter', title: 'Fix it' },
+      { number: 4, state: 'merged', author: 'unknown', title: '' },
+      { number: 5, state: 'closed', author: 'unknown', title: '' },
     ]);
   });
 

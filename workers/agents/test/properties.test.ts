@@ -168,8 +168,8 @@ describe('validateProposalReview() properties', () => {
             files: new Map(),
             assignees,
             linkedPrs: [
-              { number: 5, state: 'open' },
-              { number: 6, state: 'merged' },
+              { number: 5, state: 'open', author: 'gqlwriter', title: 'GraphQL work' },
+              { number: 6, state: 'merged', author: 'gqlwriter', title: 'GraphQL work' },
             ],
           });
           // Only an open linked PR can be recommended for review; then nobody is assigned.
