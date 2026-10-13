@@ -73,7 +73,7 @@ export const RawProposalReview = z.object({
     .transform((v) => {
       if (v === null || v === undefined) return null;
       const n = typeof v === 'number' ? v : Number(v.replace(/^#/, ''));
-      return Number.isInteger(n) && n > 0 ? n : null;
+      return Number.isInteger(n) && n > 0 && n <= 1_000_000 ? n : null;
     }),
   helpWanted: z.boolean(),
   explanation: text(1500),
