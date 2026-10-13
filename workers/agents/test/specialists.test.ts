@@ -8,20 +8,22 @@ import { sanitizeComment, verifyEvidence } from '../src/agents/specialists/evide
 import {
   checkImplementation,
   IMPLEMENTATION_PROMPT,
+  linkedPulls,
   labelAppliedAt,
   referencingPulls,
   validateImplementationCheck,
   type RawImplementationCheck,
 } from '../src/agents/specialists/implementation.js';
 import {
+  buildProposalMessage,
+  RawProposalReview,
   PROPOSAL_PROMPT,
   reviewProposal,
   validateProposalReview,
-  type RawProposalReview,
 } from '../src/agents/specialists/proposal.js';
 import { lockHeld } from '../src/agents/specialists/agent.js';
 import type { SpecialistDeps } from '../src/agents/specialists/run.js';
-import { renderDigest } from '../src/agents/triage/digest.js';
+import { proposalActions, renderDigest } from '../src/agents/triage/digest.js';
 import { esc, renderDigestHtml } from '../src/agents/triage/digest-html.js';
 import { inertNoLinksWords } from '../src/agents/triage/assess.js';
 import {
@@ -32,10 +34,13 @@ import {
 } from '../src/agents/triage/github.js';
 import {
   ACK_STALE_MS,
-  closedSince,
+  closedIn,
+  currentSince,
+  reconcileProposal,
+  type CurrentIssue,
   earliest,
   MAX_ACK_LOOKUPS,
-  proposalJobs,
+  pendingProposalJobs,
   sweepAcks,
   withoutClosed,
 } from '../src/agents/triage/route.js';
@@ -81,6 +86,7 @@ const rawProposal = (over: Partial<RawProposalReview> = {}): RawProposalReview =
   addLabels: ['ACK_OBTAINED'],
   removeLabels: ['ACK_WAITING'],
   assignTo: null,
+  reviewPr: null,
   helpWanted: false,
   explanation: 'Not covered yet.',
   suggestedComment: 'Thanks for the proposal.',
@@ -421,13 +427,17 @@ describe('reviewProposal', () => {
 });
 
 describe('triage routing', () => {
-  it('sends unaccepted, non-spam issues to proposal review', () => {
+  it('sends pending, unaccepted, non-spam issues to proposal review at the assessed version', () => {
     expect(
-      proposalJobs([
-        { number: 1, updatedAt: '2026-09-20T10:00:00Z', labels: [], kind: 'new_cheat_sheet' },
-        { number: 2, updatedAt: '2026-09-20T10:00:00Z', labels: ['ACK_OBTAINED'], kind: 'update' },
-        { number: 3, updatedAt: '2026-09-20T10:00:00Z', labels: [], kind: 'spam' },
-      ]),
+      pendingProposalJobs(
+        [
+          { issue: 1, issueUpdatedAt: '2026-09-20T10:00:00Z', kind: 'new_cheat_sheet' },
+          { issue: 2, issueUpdatedAt: '2026-09-20T10:00:00Z', kind: 'update' },
+          { issue: 3, issueUpdatedAt: '2026-09-20T10:00:00Z', kind: 'spam' },
+          { issue: 4, issueUpdatedAt: '2026-09-20T10:00:00Z', kind: null },
+        ],
+        new Set([2]),
+      ),
     ).toEqual([{ issue: 1, issueUpdatedAt: '2026-09-20T10:00:00Z' }]);
   });
 
@@ -563,15 +573,19 @@ describe('specialist agents (Durable Objects)', () => {
     });
   });
 
-  it('release the work lock after a run, even a failed one', async () => {
+  it('release the work lock after a run, and never retry a failed job in the same run', async () => {
     const stub = await getAgentByName(testEnv.ProposalReviewAgent, 'test-lock');
-    expect(await stub.enqueue([{ issue: 9, issueUpdatedAt: '2026-09-20T10:00:00Z' }])).toEqual({
-      queued: 1,
-    });
-    await stub.work(); // the stub broker fails it; the job stays queued
-    await stub.work(); // runs again: the lock was released
+    expect(
+      await stub.enqueue([
+        { issue: 9, issueUpdatedAt: '2026-09-20T10:00:00Z' },
+        { issue: 10, issueUpdatedAt: '2026-09-20T10:00:00Z' },
+      ]),
+    ).toEqual({ queued: 2 });
+    await stub.work(); // #9 fails at the stub broker and waits RETRY_AFTER_MS
+    await stub.work(); // the lock was released: #10 runs (and fails)
+    await stub.work(); // nothing is ready: #9 is not retried yet
     expect((await stub.pendingResults()).errors).toEqual([
-      '#9: GitHubReadError',
+      '#10: GitHubReadError',
       '#9: GitHubReadError',
     ]);
   });
@@ -593,6 +607,166 @@ describe('specialist agents (Durable Objects)', () => {
   });
 });
 
+describe('stored reviews are reconciled with the issue as it is now', () => {
+  const review = () =>
+    validateProposalReview(
+      rawProposal({
+        addLabels: ['ACK_OBTAINED', 'NEW_CS'],
+        assignTo: 'gqlwriter',
+        helpWanted: false,
+      }),
+      proposalCtx,
+    );
+  const now = (over: Partial<CurrentIssue> = {}): CurrentIssue => ({
+    state: 'open',
+    labels: ['ACK_WAITING'],
+    assignees: [],
+    updatedAt: '2026-10-12T08:00:00Z',
+    ...over,
+  });
+
+  it('leaves an unchanged issue alone', () => {
+    expect(reconcileProposal(review(), '2026-10-12T08:00:00Z', undefined)).toEqual(review());
+  });
+
+  it('drops a review once a maintainer accepted the issue (the #2770 case)', () => {
+    expect(
+      reconcileProposal(review(), '2026-10-12T08:00:00Z', now({ labels: ['ACK_OBTAINED'] })),
+    ).toBe('accepted');
+  });
+
+  it('removes actions already carried out and marks a changed issue', () => {
+    const r = reconcileProposal(
+      review(),
+      '2026-10-12T08:00:00Z',
+      now({ labels: ['NEW_CS'], assignees: ['gqlwriter'], updatedAt: '2026-10-12T14:00:00Z' }),
+    );
+    expect(r).not.toBe('accepted');
+    if (r === 'accepted') return;
+    expect(r.addLabels).toEqual(['ACK_OBTAINED']);
+    expect(r.removeLabels).toEqual([]); // ACK_WAITING is no longer on the issue
+    expect(r.assignTo).toBeNull();
+    expect(r.assignees).toEqual(['gqlwriter']);
+    expect(r.changedSinceReview).toBe(true);
+    const text = renderDigest({
+      repo,
+      items: [],
+      implementation: [],
+      proposals: [{ issue: 2770, result: r }],
+      omittedAck: 0,
+      errors: [],
+      since: null,
+      now: new Date('2026-10-13T07:00:00Z'),
+    }).text;
+    expect(text).toContain('already assigned to @gqlwriter');
+    expect(text).toContain('the issue changed after this review');
+  });
+});
+
+describe('proposal review with linked pull requests', () => {
+  const ctx = {
+    ...proposalCtx,
+    linkedPrs: [
+      { number: 1721, state: 'open' as const },
+      { number: 1700, state: 'merged' as const },
+    ],
+  };
+
+  it('recommends reviewing an open linked PR and then assigns nobody', () => {
+    const r = validateProposalReview(
+      rawProposal({ reviewPr: 1721, assignTo: 'gqlwriter', helpWanted: true }),
+      ctx,
+    );
+    expect(r.reviewPr).toBe(1721);
+    expect(r.assignTo).toBeNull();
+    expect(r.addLabels).not.toContain('HELP_WANTED');
+    expect(proposalActions(r)[0]).toBe('review the open PR #1721, which does this work');
+  });
+
+  it('accepts only open linked PRs and never assigns an already assigned issue', () => {
+    const merged = validateProposalReview(rawProposal({ reviewPr: 1700 }), ctx);
+    expect(merged.reviewPr).toBeNull();
+    expect(merged.dropped).toContain('PR #1700');
+    const taken = validateProposalReview(rawProposal({ assignTo: 'gqlwriter' }), {
+      ...ctx,
+      assignees: ['maint1'],
+    });
+    expect(taken.assignTo).toBeNull();
+    expect(taken.dropped).toContain('assignee (already assigned)');
+  });
+
+  it('reads the timeline and tells the model about assignees and linked PRs', () => {
+    const msg = buildProposalMessage(repo, issue(1720), [], ['ACK_OBTAINED'], new Map(), {
+      assignees: ['maint1'],
+      linkedPrs: [{ number: 1721, state: 'open' }],
+    });
+    expect(msg).toContain('Current assignees: maint1');
+    expect(msg).toContain('Linked pull requests: #1721 open');
+  });
+
+  it('finds linked PRs and their state in the timeline', () => {
+    expect(
+      linkedPulls(repo, [
+        {
+          event: 'cross-referenced',
+          source: {
+            issue: {
+              number: 3,
+              state: 'open',
+              pull_request: { merged_at: null },
+              repository: { full_name: repo },
+            },
+          },
+        },
+        {
+          event: 'cross-referenced',
+          source: {
+            issue: {
+              number: 4,
+              state: 'closed',
+              pull_request: { merged_at: 'x' },
+              repository: { full_name: repo },
+            },
+          },
+        },
+        {
+          event: 'cross-referenced',
+          source: {
+            issue: {
+              number: 5,
+              state: 'closed',
+              pull_request: { merged_at: null },
+              repository: { full_name: repo },
+            },
+          },
+        },
+        {
+          event: 'cross-referenced',
+          source: { issue: { number: 6, state: 'open', repository: { full_name: repo } } },
+        },
+      ]),
+    ).toEqual([
+      { number: 3, state: 'open' },
+      { number: 4, state: 'merged' },
+      { number: 5, state: 'closed' },
+    ]);
+  });
+
+  it('tolerates over-long fields and "#12"-style numbers instead of rejecting the answer', () => {
+    const raw = RawProposalReview.parse({
+      ...rawProposal(),
+      explanation: 'x'.repeat(5000),
+      reviewPr: '#1721',
+      confidence: 1.4,
+      addLabels: ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'],
+    });
+    expect(raw.explanation).toHaveLength(1500);
+    expect(raw.reviewPr).toBe(1721);
+    expect(raw.confidence).toBe(1);
+    expect(raw.addLabels).toHaveLength(6);
+  });
+});
+
 describe('closed issues are left out of the digest', () => {
   it('drops items about closed issues and counts them', () => {
     const r = withoutClosed([{ issue: 1 }, { issue: 2539 }, { issue: 3 }], new Set([2539, 99]));
@@ -607,7 +781,7 @@ describe('closed issues are left out of the digest', () => {
     expect(earliest([])).toBeNull();
   });
 
-  it('asks the broker for closed issues since a time and ignores pull requests', async () => {
+  it('asks the broker for issues changed since a time, any state, and ignores pull requests', async () => {
     const fetch = vi.fn((_u: string, _i?: RequestInit) =>
       Promise.resolve(
         Response.json({
@@ -624,16 +798,16 @@ describe('closed issues are left out of the digest', () => {
       'triage',
       '9d7c1e9e-2b1a-4b6e-9a2e-1f7d1c2b3a44',
     );
-    const closed = await reader.listClosedIssueNumbersSince(repo, '2026-10-04T20:17:00Z');
-    expect([...closed.closed]).toEqual([2539]);
-    expect(closed.truncated).toBe(false);
+    const changed = await reader.listIssuesUpdatedSince(repo, '2026-10-04T20:17:00Z');
+    expect(changed.issues.map((i) => i.number)).toEqual([2539]);
+    expect(changed.truncated).toBe(false);
     const body = JSON.parse(fetch.mock.calls[0]?.[1]?.body as string) as {
       resource: string;
       query: Record<string, unknown>;
     };
     expect(body.resource).toBe('issues');
     expect(body.query).toMatchObject({
-      state: 'closed',
+      state: 'all',
       direction: 'desc',
       since: '2026-10-04T20:17:00Z',
     });
@@ -641,27 +815,30 @@ describe('closed issues are left out of the digest', () => {
 
   it('fails open: a broker error drops nothing and is reported', async () => {
     const errors: string[] = [];
-    const closed = await closedSince(
+    const current = await currentSince(
       {
-        listClosedIssueNumbersSince: () =>
+        listIssuesUpdatedSince: () =>
           Promise.reject(new GitHubReadError(403, 'issues', true, 'github_error')),
       },
       repo,
       ['2026-10-04T20:00:00Z'],
       errors,
     );
-    expect(closed.size).toBe(0);
-    expect(errors).toEqual(['closed-issue check: GitHubReadError 403']);
+    expect(current.size).toBe(0);
+    expect(errors).toEqual(['issue-state check: GitHubReadError 403']);
   });
 
   it('reports a truncated closed-issue list and starts before the earliest time seen open', async () => {
     const errors: string[] = [];
     const seen: string[] = [];
-    await closedSince(
+    const current = await currentSince(
       {
-        listClosedIssueNumbersSince: (_r, since) => {
+        listIssuesUpdatedSince: (_r, since) => {
           seen.push(since);
-          return Promise.resolve({ closed: new Set([1]), truncated: true });
+          return Promise.resolve({
+            issues: [issue(1, { state: 'closed' }), issue(2, { assignees: [{ login: 'a' }] })],
+            truncated: true,
+          });
         },
       },
       repo,
@@ -671,11 +848,13 @@ describe('closed issues are left out of the digest', () => {
     // Earliest time seen open, minus the slack for a close during a poll.
     expect(seen).toEqual(['2026-10-04T11:49:43.000Z']);
     expect(errors[0]).toMatch(/truncated/);
+    expect([...closedIn(current)]).toEqual([1]);
+    expect(current.get(2)?.assignees).toEqual(['a']);
   });
 
   it('does not query when nothing is pending', async () => {
     const list = vi.fn();
-    expect((await closedSince({ listClosedIssueNumbersSince: list }, repo, [], [])).size).toBe(0);
+    expect((await currentSince({ listIssuesUpdatedSince: list }, repo, [], [])).size).toBe(0);
     expect(list).not.toHaveBeenCalled();
   });
 

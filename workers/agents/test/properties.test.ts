@@ -143,12 +143,14 @@ describe('validateProposalReview() properties', () => {
             fc.oneof(fc.constantFrom('gqlwriter', '@gqlwriter', 'attacker'), hostile),
             { nil: null },
           ),
+          reviewPr: fc.option(fc.constantFrom(5, 6, 99), { nil: null }),
           helpWanted: fc.boolean(),
           explanation: hostile,
           suggestedComment: hostile,
         }),
         fc.subarray(labels),
-        (r, current) => {
+        fc.subarray(['maint1']),
+        (r, current, assignees) => {
           const raw: RawProposalReview = {
             verdict: 'real_gap',
             makesSense: true,
@@ -164,7 +166,17 @@ describe('validateProposalReview() properties', () => {
             current,
             people: ['gqlwriter', 'maint1'],
             files: new Map(),
+            assignees,
+            linkedPrs: [
+              { number: 5, state: 'open' },
+              { number: 6, state: 'merged' },
+            ],
           });
+          // Only an open linked PR can be recommended for review; then nobody is assigned.
+          expect([null, 5]).toContain(out.reviewPr);
+          if (out.reviewPr !== null || assignees.length) expect(out.assignTo).toBeNull();
+          if (out.reviewPr !== null || assignees.length || out.assignTo)
+            expect(out.addLabels).not.toContain('HELP_WANTED');
           for (const l of out.addLabels) expect(labels).toContain(l);
           for (const l of out.removeLabels) expect(current).toContain(l);
           if (out.assignTo !== null) expect(['gqlwriter', 'maint1']).toContain(out.assignTo);
@@ -202,6 +214,7 @@ describe('renderDigestHtml() properties', () => {
             addLabels: [],
             removeLabels: [],
             assignTo: null,
+            reviewPr: null,
             helpWanted: false,
             explanation: summary,
             suggestedComment: comment,

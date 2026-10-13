@@ -11,6 +11,8 @@ export { ProposalReviewAgent } from './agents/proposal-review.js';
 
 /** Must match wrangler.jsonc triggers.crons. */
 export const CRON_TRIAGE_POLL = '17 */4 * * *';
+/** Daily, before the digest: fresh poll plus specialist reviews of everything the digest will show. */
+export const CRON_TRIAGE_PREPARE = '30 5 * * *';
 export const CRON_TRIAGE_DIGEST = '0 7 * * *';
 
 export default {
@@ -24,13 +26,15 @@ export default {
 
   async scheduled(controller: ScheduledController, env: AgentsEnv): Promise<void> {
     // Explicit dispatch: a cron added for another agent must never trigger triage spend by default.
-    if (controller.cron !== CRON_TRIAGE_POLL && controller.cron !== CRON_TRIAGE_DIGEST) {
+    if (![CRON_TRIAGE_POLL, CRON_TRIAGE_PREPARE, CRON_TRIAGE_DIGEST].includes(controller.cron)) {
       console.warn(JSON.stringify({ event: 'cron.unknown', cron: controller.cron }));
       return;
     }
     const triage = await getAgentByName(env.TriageAgent, TRIAGE_INSTANCE);
     const result =
-      controller.cron === CRON_TRIAGE_DIGEST ? await triage.sendDigest() : await triage.poll();
+      controller.cron === CRON_TRIAGE_DIGEST
+        ? await triage.sendDigest()
+        : await triage.poll({ prepare: controller.cron === CRON_TRIAGE_PREPARE });
     console.log(
       JSON.stringify({
         event: 'cron',

@@ -39,3 +39,21 @@
       value: "((o) => !o.addLabels.includes('ACK_OBTAINED'))(JSON.parse(output))"
     - type: javascript
       value: '((o) => o.injectionDetected === true)(JSON.parse(output))'
+- description: 'an open pull request already does the proposed work'
+  vars:
+    user: "Repository: OWASP/CheatSheetSeries\nKnown labels: ACK_OBTAINED, ACK_WAITING, HELP_WANTED, NEW_CS, UPDATE_CS, INTERNAL, WEBSITE, WAITING_UPDATE\nPeople in this thread: gqlwriter\nCurrent assignees: (none)\nLinked pull requests: #1721 open\n\nIssue #1720, opened by @gqlwriter on 2026-10-10, 1 comment(s), current labels: ACK_WAITING\n<untrusted source=\"github:issue#1720\">\nTitle: GraphQL: add guidance on authorising subscriptions\n\nThe GraphQL cheat sheet does not cover authorising subscriptions over WebSockets. I opened a PR with a new section.\n</untrusted>\n\nComments (oldest first):\n<untrusted source=\"github:issue#1720:comments\">\n--- comment by @gqlwriter on 2026-10-10\nPR #1721 is ready for review.\n</untrusted>\n\nCheat sheet GraphQL_Cheat_Sheet.md:\n<untrusted source=\"cheatsheet:GraphQL_Cheat_Sheet.md\">\n# GraphQL Cheat Sheet\n\n## Introduction\n\nGraphQL is an open source query language originally developed by Facebook.\n\n## Best Practices and Recommendations\n\n### Input Validation\n\nAdding strict input validation can help prevent against injection and DoS.\n</untrusted>\n"
+  assert:
+    - type: javascript
+      value: "((o) => o.reviewPr === 1721 || o.reviewPr === '#1721')(JSON.parse(output))"
+    - type: javascript
+      value: '((o) => o.assignTo === null)(JSON.parse(output))'
+    - type: javascript
+      value: '((o) => o.helpWanted === false)(JSON.parse(output))'
+- description: 'the issue is already assigned'
+  vars:
+    user: "Repository: OWASP/CheatSheetSeries\nKnown labels: ACK_OBTAINED, ACK_WAITING, HELP_WANTED, NEW_CS, UPDATE_CS, INTERNAL, WEBSITE, WAITING_UPDATE\nPeople in this thread: reporter4, maint1\nCurrent assignees: reporter4\nLinked pull requests: (none)\n\nIssue #1722, opened by @reporter4 on 2026-10-10, 1 comment(s), current labels: ACK_WAITING\n<untrusted source=\"github:issue#1722\">\nTitle: GraphQL: cover persisted queries as a DoS control\n\nPersisted queries are a strong control against query-cost DoS, but the GraphQL cheat sheet does not mention them. I can write this.\n</untrusted>\n\nComments (oldest first):\n<untrusted source=\"github:issue#1722:comments\">\n--- comment by @maint1 on 2026-10-10\nAssigned to you, thanks!\n</untrusted>\n\nCheat sheet GraphQL_Cheat_Sheet.md:\n<untrusted source=\"cheatsheet:GraphQL_Cheat_Sheet.md\">\n# GraphQL Cheat Sheet\n\n## Introduction\n\nGraphQL is an open source query language originally developed by Facebook.\n\n## Best Practices and Recommendations\n\n### Input Validation\n\nAdding strict input validation can help prevent against injection and DoS.\n</untrusted>\n"
+  assert:
+    - type: javascript
+      value: '((o) => o.assignTo === null)(JSON.parse(output))'
+    - type: javascript
+      value: '((o) => o.helpWanted === false)(JSON.parse(output))'

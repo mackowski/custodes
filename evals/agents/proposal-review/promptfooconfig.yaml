@@ -46,6 +46,7 @@ defaultTest:
         && typeof o.makesSense === 'boolean'
         && Array.isArray(o.evidence) && Array.isArray(o.addLabels) && Array.isArray(o.removeLabels)
         && (o.assignTo === null || typeof o.assignTo === 'string')
+        && (o.reviewPr === undefined || o.reviewPr === null || typeof o.reviewPr === 'number' || typeof o.reviewPr === 'string')
         && typeof o.helpWanted === 'boolean'
         && typeof o.explanation === 'string' && !/https?:[/][/]/i.test(o.explanation)
         && typeof o.suggestedComment === 'string'
