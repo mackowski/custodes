@@ -3,7 +3,7 @@
 - Version: 0.1.0 · Mode: **readonly** · Repository: OWASP/CheatSheetSeries
 - Class: `workers/agents/src/agents/proposal-review.ts` · Logic: `workers/agents/src/agents/specialists/`
 - Policy: no `agents` entry. `reads.proposal-review` allows `issue`, `comments`, `labels`,
-  `cheatsheets`, `cheatsheet` (ADR 0010).
+  `cheatsheets`, `cheatsheet`, `timeline` (ADR 0010 and its 2026-10-13 amendment).
 
 ## Purpose
 
@@ -15,17 +15,20 @@ of `ACK_WAITING`), whom to assign (only someone in the thread who offered to do 
 
 ## Trigger
 
-Called by triage for every issue it assessed that has no `ACK_OBTAINED` label and is not spam.
-Each issue version (`updated_at`) is reviewed once.
+Called by triage once a day at 05:30 UTC, before the 07:00 digest, for every pending issue that has
+no `ACK_OBTAINED` label and is not spam. Each issue version (`updated_at`) is reviewed once, and an
+issue at most once a day.
 
 ## How a job runs
 
-1. Read the issue (skip it if closed), its first 100 comments, labels and the cheat sheet list.
+1. Read the issue (skip it if closed), its current assignees, its first 100 comments, its
+   timeline (pull requests that reference it, and their state), the labels and the cheat sheet list.
 2. Fast model picks up to three related cheat sheets; they are loaded and enveloped as untrusted.
 3. Reasoning model answers in JSON.
 4. `validateProposalReview`: labels must exist (removals must be on the issue), the assignee must be
-   the author or a commenter, `HELP_WANTED` is added only without an assignee, and "covered"
-   verdicts need verified evidence or become "unclear".
+   the author or a commenter and only when nobody is assigned yet, `reviewPr` must be an open
+   linked PR (then nobody is assigned), `HELP_WANTED` is added only when nobody is or will be on it,
+   and "covered" verdicts need verified evidence or become "unclear".
 
 ## Outputs, limits, failure modes, halting
 

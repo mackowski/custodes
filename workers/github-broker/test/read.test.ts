@@ -76,7 +76,7 @@ describe('broker read()', () => {
 
   it('denies resources outside the agent read policy, before any network call', async () => {
     const fetchImpl = vi.fn();
-    // triage may not read file contents; proposal-review may not read timelines.
+    // triage may not read file contents; proposal-review may not read PR file lists.
     expect(
       await read(testEnv, req({ resource: 'cheatsheet', file: 'A_Cheat_Sheet.md' }), fetchImpl),
     ).toMatchObject({
@@ -87,7 +87,7 @@ describe('broker read()', () => {
     expect(
       await read(
         testEnv,
-        req({ agentId: 'proposal-review', resource: 'timeline', number: 1 }),
+        req({ agentId: 'proposal-review', resource: 'pull_files', number: 1 }),
         fetchImpl,
       ),
     ).toMatchObject({ ok: false, code: 'policy_denied' });

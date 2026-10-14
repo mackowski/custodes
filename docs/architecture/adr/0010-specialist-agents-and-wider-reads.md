@@ -45,11 +45,11 @@ individual cheat sheets.
   single-label `labels` filter; `ReadPolicy` gains a required `resources` allow-list, so no agent gets
   a new resource by default. Grants:
 
-  | Agent                  | Resources                                                      |
-  | ---------------------- | -------------------------------------------------------------- |
-  | `triage`               | `issues`, `labels`, `cheatsheets`, `timeline`                  |
-  | `implementation-check` | `issue`, `timeline`, `pull_files`, `cheatsheets`, `cheatsheet` |
-  | `proposal-review`      | `issue`, `comments`, `labels`, `cheatsheets`, `cheatsheet`     |
+  | Agent                  | Resources                                                                                     |
+  | ---------------------- | --------------------------------------------------------------------------------------------- |
+  | `triage`               | `issues`, `labels`, `cheatsheets`, `timeline`                                                 |
+  | `implementation-check` | `issue`, `timeline`, `pull_files`, `cheatsheets`, `cheatsheet`                                |
+  | `proposal-review`      | `issue`, `comments`, `labels`, `cheatsheets`, `cheatsheet`, `timeline` (amendment 2026-10-13) |
 
   `cheatsheet` takes a file name matching `^[A-Za-z0-9_-][A-Za-z0-9_.-]{0,119}\.md$` (no path
   separators, no leading dot) and reads only under `cheatsheets/`. Numbered resources take a
@@ -80,3 +80,31 @@ instruction-like text. It is enveloped and clipped, evidence is verified against
 evals cover it. Suggested comments are model text the operator may paste into GitHub, so links,
 @-mentions and hidden characters are removed and verified evidence links are appended by code. Both
 specialists are `readonly`: no PAT, no `agents` policy, and `act()` throws.
+
+## Amendment (2026-10-13): reviews just before the digest, linked pull requests
+
+The 2026-10-13 digest recommended accepting and assigning #2770 after a maintainer had already done
+both. The review ran the previous noon, and the digest showed it unchanged. Issues were also
+reviewed again after every comment, several times a day.
+
+- Specialists get work once a day, from a `prepare` poll at 05:30 UTC (`30 5 * * *`), for the
+  issues the 07:00 digest will show, at their current version. The four-hourly polls only triage
+  and refresh accepted issues. Each issue is reviewed at most once a day.
+- Before sending, the digest reads the issues changed since the pending items were seen (the
+  existing `issues` resource, `state=all`, newest first). Closed issues leave the digest. Issues
+  accepted (ACK_OBTAINED) after the review leave it like other accepted issues. Recommendations
+  already carried out are removed: labels added or removed, someone assigned. A review of an issue
+  that changed afterwards is marked as such.
+- `proposal-review` also reads the issue timeline, so it sees the pull requests that reference
+  the issue and their state. It may recommend reviewing an open linked PR (`reviewPr`, accepted
+  only if the timeline shows that PR open) instead of assigning anyone. It never recommends an
+  assignee for an issue that already has one.
+- **Policy widening:** `reads.proposal-review.resources` gains `timeline`. That is the same
+  public, GET-only data `triage` and `implementation-check` already read, through `PAT_READONLY`.
+- Model answers whose text or lists are too long, or whose confidence is out of range, are
+  clipped instead of rejected. A job whose answer is unusable is retried after 6 h, not
+  immediately: four Opus calls in one minute on 2026-10-07/08 produced nothing.
+- **Accepted risk:** anyone can open a pull request from a fork that mentions an issue, so a
+  linked PR is not vetted. The digest says the model _reads_ it as doing the work, and the
+  maintainer reviews the PR before any merge. A review flagged for possible injection stays in the
+  digest even if the issue was accepted in the meantime. Owner: the maintainer.

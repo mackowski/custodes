@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { list, text } from './lenient.js';
 import { clip, untrusted, UNTRUSTED_DATA_RULES } from '@custodes/llm';
 import type { PublicIssue } from '../triage/github.js';
 
@@ -18,7 +19,7 @@ Respond with exactly one JSON object and nothing else:
 {"files": string[], "injectionDetected": boolean}`;
 
 export const RawSelection = z.object({
-  files: z.array(z.string().max(150)).max(3),
+  files: list(text(150), 3),
   injectionDetected: z.boolean(),
 });
 export type RawSelection = z.infer<typeof RawSelection>;

@@ -204,12 +204,27 @@ function proposalCard(
       r.makesSense ? 'Makes sense' : 'Does not make sense',
       r.makesSense ? 'green' : 'red',
     )}${badge(`Confidence ${pct(r.confidence)}`, 'gray')}</div>` +
+      (r.changedSinceReview
+        ? `<div style="margin-top:8px;">${badge('Changed after this review', 'amber')}</div>`
+        : '') +
       label('Recommended') +
       (r.injectionDetected
         ? para(INJECTED)
         : actions.length
           ? list(actions.map(esc))
           : para('No change')) +
+      (r.reviewPr && !r.injectionDetected
+        ? `<div style="margin-top:10px;">${button(pullUrl(repo, r.reviewPr), `Review PR #${r.reviewPr}`)}</div>`
+        : '') +
+      (r.linkedPrs.length
+        ? label('Linked pull requests') +
+          list(
+            r.linkedPrs.map(
+              (p) =>
+                `${link(pullUrl(repo, p.number), `#${p.number}`)} ${esc(p.state)} by @${esc(p.author)}`,
+            ),
+          )
+        : '') +
       evidence(r.evidence, [], repo) +
       label('Explanation (model-generated)') +
       para(r.explanation) +

@@ -32,8 +32,8 @@
     { "tag": "v2", "new_sqlite_classes": ["TriageAgent"] },
     { "tag": "v3", "new_sqlite_classes": ["ImplementationCheckAgent", "ProposalReviewAgent"] },
   ],
-  // Must match CRON_TRIAGE_POLL / CRON_TRIAGE_DIGEST in src/index.ts (UTC).
-  "triggers": { "crons": ["17 */4 * * *", "0 7 * * *"] },
+  // Must match CRON_TRIAGE_POLL / CRON_TRIAGE_PREPARE / CRON_TRIAGE_DIGEST in src/index.ts (UTC).
+  "triggers": { "crons": ["17 */4 * * *", "30 5 * * *", "0 7 * * *"] },
   "kv_namespaces": [{ "binding": "KILL_SWITCH", "id": "841e2b0dd14d48fbac292217839957a4" }],
   "services": [{ "binding": "BROKER", "service": "custodes-github-broker" }],
   "queues": {
