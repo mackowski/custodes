@@ -16,9 +16,9 @@
     "EMAIL_DOMAIN": "custodes.work",
     // Recipient of digests. Must be a verified Email Routing destination (infra/terraform email module).
     "OPERATOR_EMAIL": "jkb.mackowski@gmail.com",
-    // pr-gate closes pull requests only when this is "true" (ADR 0011). Flip it in a reviewed PR
-    // after a dry-run summary looked right; until then it only reports what it would close.
-    "PR_GATE_ENFORCE": "false",
+    // pr-gate closes pull requests while this is "true" (ADR 0011). "false" is a soft stop: it keeps
+    // evaluating and only reports what it would close. The hard stop is the kill switch.
+    "PR_GATE_ENFORCE": "true",
     // Jev transport (ADR 0011). AI Gateway's openrouter provider returns 404 for OpenRouter's
     // /api/alpha/decisions (Diagnose run 38715467646, 2026-10-15), so Jev is called directly with
     // the OPENROUTER_API_KEY Worker secret (set by CI). Switch to "gateway" when it is supported.

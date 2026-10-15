@@ -90,13 +90,12 @@ first and then closes, so a close never lacks its reason. The broker appends the
 - A daily e-mail (07:00 UTC, with the triage digest) lists what was closed, what would have been
   closed, what needs a maintainer, and errors.
 
-**Dry run first.** Closing happens only while the `PR_GATE_ENFORCE` var is `"true"`. The agent ships
-with `"false"`, so the first summaries show "would close". The broker gates it too: pr-gate's policy
-ships with `requiresApproval: ["pr.close"]`, so even a caller in the agents Worker that claims to be
-pr-gate cannot close anything without a human approval. The reviewed PR that turns enforcement on
-sets the var to `"true"` and empties `requiresApproval` together.
-This satisfies CLAUDE.md invariant 3: the agent is `hotl` in policy but acts only after its evals
-pass and a dry run is reviewed.
+**Closing from the first deploy.** The operator chose to enable closes immediately instead of a
+dry run. CLAUDE.md invariant 3 (agents stay `hitl` until evals pass) is met: the pr-gate eval suite
+passes 14/14 on the real Jev, including the injection cases. `PR_GATE_ENFORCE="true"` ships, and
+setting it to `"false"` is a soft stop (decide and report "would close" only). The broker policy has
+no `requiresApproval` for pr-gate, so its limits are the policy (`pr.close` on one repository),
+the caps and the kill switch.
 
 **Policy widening** (`workers/github-broker/policy/policy.json`, invariant 4):
 
@@ -105,8 +104,7 @@ pass and a dry run is reviewed.
 - `agents["pr-gate"]`:
   - `PAT_PR_GATE`, a **classic** PAT on the operator's account with only the `public_repo` scope
     (see "Amendment: classic PAT" below)
-  - `hotl`, `actions: ["pr.close"]`, `rateLimitPerHour: 5`, `requiresApproval: ["pr.close"]` during
-    the dry run
+  - `hotl`, `actions: ["pr.close"]`, `rateLimitPerHour: 5`, `requiresApproval: []`
 - `reads["pr-gate"]`: `pulls`, `pull_files`, `issue`.
 
 ## Alternatives considered

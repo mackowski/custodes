@@ -113,15 +113,13 @@ describe('evaluatePolicy for pr-gate (real broker policy)', () => {
     ...base,
     agentId: 'pr-gate',
   };
-  // During the dry run the broker, not only PR_GATE_ENFORCE, gates closes (ADR 0011). When the
-  // operator enables enforcement, requiresApproval is emptied and this expects needsApproval false.
-  it('lets pr-gate close pull requests on CheatSheetSeries, behind an approval during the dry run', () => {
+  it('lets pr-gate close pull requests on CheatSheetSeries without human approval (hotl)', () => {
     expect(
       evaluatePolicy(real, {
         ...gate,
         action: { type: 'pr.close', repo: 'OWASP/CheatSheetSeries', pull: 7, body: 'x' },
       }),
-    ).toEqual({ allow: true, needsApproval: true });
+    ).toEqual({ allow: true, needsApproval: false });
   });
   it('denies pr-gate commenting, reviewing and closing on other repositories', () => {
     expect(

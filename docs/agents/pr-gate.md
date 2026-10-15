@@ -1,6 +1,6 @@
 # pr-gate
 
-- Version: 0.1.0 · Mode: **hotl** (closes only while `PR_GATE_ENFORCE="true"`)
+- Version: 0.1.0 · Mode: **hotl**, closing enabled (`PR_GATE_ENFORCE="true"`)
 - Repositories: OWASP/CheatSheetSeries
 - Class: `workers/agents/src/agents/pr-gate.ts` · Logic: `workers/agents/src/agents/pr-gate/`
 - Policy: `agents.pr-gate` (`pr.close`, 5/h) and `reads.pr-gate` (`pulls`, `pull_files`, `issue`).
@@ -67,12 +67,11 @@ on OWASP/CheatSheetSeries. Rotate it per [rotate-pat](../runbooks/rotate-pat.md)
 | A maintainer reopens a PR the agent closed    | Reported once (`reopened_after_close`). The agent never acts on that PR again.                        |
 | More than five issue references in the body   | Never closed (`too_many_refs` flag) unless an approved, assigned one is among them.                   |
 
-## Dry run and enabling closes
+## Turning closes off
 
-While `PR_GATE_ENFORCE="false"` the agent only reports "would close", and the broker policy requires
-an approval for `pr.close` as a second gate. To enable closes, one reviewed PR sets
-`PR_GATE_ENFORCE` to `"true"` in `workers/agents/wrangler.jsonc` and empties
-`agents.pr-gate.requiresApproval` in the policy (also update the policy unit test).
+pr-gate closes from its first deploy. To pause closing without stopping the agent, set
+`PR_GATE_ENFORCE` to `"false"` in `workers/agents/wrangler.jsonc` in a reviewed PR: it keeps
+evaluating and the summary lists "would close". To stop it entirely, use the kill switch.
 
 ## How to halt
 

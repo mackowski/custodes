@@ -101,7 +101,7 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
     return this.manifest.repos[0] ?? 'OWASP/CheatSheetSeries';
   }
 
-  /** Until the operator flips PR_GATE_ENFORCE to "true" in a reviewed PR, closes are only reported. */
+  /** PR_GATE_ENFORCE="false" is a soft stop: decisions are still made, closes only reported. */
   private get enforcing(): boolean {
     return this.env.PR_GATE_ENFORCE === 'true';
   }

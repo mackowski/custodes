@@ -126,14 +126,6 @@ describe('broker act() when execution fails half way', () => {
       agentId: 'pr-gate',
       action: { type: 'pr.close', repo: 'OWASP/CheatSheetSeries', pull: 7, body: 'closing' },
     };
-    const approvals = new ApprovalStore(env.AUDIT);
-    const approval = await approvals.create(
-      gate,
-      'dry run gate',
-      await sha256Hex(canonicalJson(gate.action)),
-      3600,
-    );
-    expect(await approvals.decide(approval.id, 'approved', 'tester')).toBe('ok');
     let postedBody = '';
     const calls: string[] = [];
     vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
@@ -150,7 +142,7 @@ describe('broker act() when execution fails half way', () => {
     const store = new AuditStore(env.AUDIT);
     const hourAgo = new Date(Date.now() - 3600_000).toISOString();
     const before = await store.countAllowedSince('pr-gate', hourAgo);
-    const res = await act(testEnv, { ...gate, approvalId: approval.id });
+    const res = await act(testEnv, gate);
     expect(calls).toEqual([
       'POST /repos/OWASP/CheatSheetSeries/issues/7/comments',
       'PATCH /repos/OWASP/CheatSheetSeries/pulls/7',
