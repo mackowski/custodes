@@ -78,12 +78,11 @@ an approval for `pr.close` as a second gate. To enable closes, one reviewed PR s
 
 ## Jev transport
 
-By default (`JEV_TRANSPORT="gateway"`) Jev goes through AI Gateway's `openrouter` provider with the
-stored key. The `JEV_GATEWAY_PATH` var sets the path.
-
-If the gateway cannot forward OpenRouter's Decisions API, set `JEV_TRANSPORT="direct"` and add
-`OPENROUTER_API_KEY` to the agents deploy secrets, and the agent calls OpenRouter directly. Check either path with the `Diagnose`
-workflow's Jev step (`scripts/jev-smoke.ts --probe`).
+Jev is called directly at `https://openrouter.ai/api/alpha/decisions` (`JEV_TRANSPORT="direct"`)
+with the `OPENROUTER_API_KEY` Worker secret, pushed by CI from the GitHub secret of the same name.
+AI Gateway's `openrouter` provider returned 404 for the Decisions API on 2026-10-15 (ADR 0011).
+When it supports it, set `JEV_TRANSPORT="gateway"` (path: `JEV_GATEWAY_PATH`). Check either route
+with the `Diagnose` workflow's Jev step (`scripts/jev-smoke.ts --probe`).
 
 ## Threat model
 

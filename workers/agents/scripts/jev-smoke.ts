@@ -51,7 +51,8 @@ async function attempt(label: string, transport: JevTransport): Promise<boolean>
 }
 
 const results: boolean[] = [];
-if (token) {
+const directOnly = !probe && env['JEV_TRANSPORT'] === 'direct';
+if (token && !directOnly) {
   const paths = probe
     ? [JEV_GATEWAY_PATH, 'alpha/decisions', 'v1/alpha/decisions', 'api/v1/alpha/decisions']
     : [env['JEV_GATEWAY_PATH'] ?? JEV_GATEWAY_PATH];
@@ -68,6 +69,6 @@ if (token) {
 } else {
   console.log('jev smoke: AI_GATEWAY_TOKEN is not set, gateway not tried');
 }
-if (directKey && (probe || !token))
+if (directKey && (probe || directOnly || !token))
   results.push(await attempt('direct', { kind: 'direct', apiKey: directKey }));
 if (!results.some(Boolean)) process.exit(1);

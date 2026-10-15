@@ -43,13 +43,19 @@ human (`packages/core/src/ladder.ts`).
 - The state is a branded `JevState`, which only `jevState()` produces. `jevState()` wraps the text
   with `untrusted()` and clips it to 30,000 characters.
 - Answers are validated with zod. A missing or mistyped answer is an error.
-- **Default transport (`JEV_TRANSPORT="gateway"`):** AI Gateway's `openrouter` provider, with the
-  OpenRouter key stored in the gateway (BYOK). We send `cf-aig-authorization` and no
-  `Authorization`. The path is set by the `JEV_GATEWAY_PATH` var.
-- **Fallback, if the gateway cannot forward `/api/alpha/decisions`:** set `JEV_TRANSPORT="direct"` and
-  add `OPENROUTER_API_KEY` to the agents deploy `secrets:` in CI; the client then calls OpenRouter
-  directly. A key alone never switches the transport. That key can only spend
-  OpenRouter credit (the account has a credit limit). It grants no GitHub or e-mail authority.
+- **Transport: direct (`JEV_TRANSPORT="direct"`).** The preferred route was AI Gateway's
+  `openrouter` provider with the key stored in the gateway (BYOK). Diagnose run 38715467646
+  (2026-10-15) showed the gateway answers **404** for every path that could reach
+  `/api/alpha/decisions` (`api/alpha/decisions`, `alpha/decisions`, `v1/alpha/decisions`,
+  `api/v1/alpha/decisions`), while the same request sent directly succeeded. So the agents Worker
+  calls OpenRouter directly with `OPENROUTER_API_KEY`, a Worker secret pushed by CI from the GitHub
+  secret of the same name. That key can only spend OpenRouter credit (the account has a credit
+  limit) and grants no GitHub or e-mail authority. Without the gateway, the agent logs every Jev
+  call itself (PR number, rung, score; no content) and OpenRouter's activity log holds the
+  requests.
+- The gateway transport stays in `JevClient` (`JEV_TRANSPORT="gateway"`, `JEV_GATEWAY_PATH`). Switch
+  back when AI Gateway supports the Decisions API; `scripts/jev-smoke.ts --probe` in the Diagnose
+  workflow tells. A key alone never switches the transport.
 
 **pr-gate** (`workers/agents/src/agents/pr-gate*`) is a **hotl** agent, and the first one that writes
 to GitHub. It runs with the triage poll and decides each open pull request again only when it changes:
@@ -114,6 +120,8 @@ pass and a dry run is reviewed.
   reported daily, and the PR author is a second human on the loop.
 - **Readonly recommendations only.** Leaves the maintainer to do every close by hand, which is the
   work being automated.
+- **Waiting for AI Gateway to support the Decisions API.** Would block the agent on a vendor
+  roadmap; the transport switch is one var when it lands.
 - **Proxying Jev through the broker to keep the OpenRouter key out of the agents Worker.** Stretches
   the broker's GitHub-only role for a key that carries no repository authority.
 - **GitHub's `closingIssuesReferences` for linked issues.** The template's "This PR fixes issue #N"
@@ -155,5 +163,6 @@ pass and a dry run is reviewed.
 - **Spam closes** are bounded by the agent's daily cap and the broker's hourly rate limit, and
   stopped by the kill switch (`custodes agents halt pr-gate`).
 - **Logs** hold PR numbers, rule names and scores only.
-- If the fallback is used, `OPENROUTER_API_KEY` is a CI-managed Worker secret (ADR 0008). It is never
-  in files or logs and is limited by an OpenRouter credit cap.
+- `OPENROUTER_API_KEY` is a CI-managed Worker secret (ADR 0008), the first provider key held by a
+  Worker rather than the gateway. It is never in files or logs, it is sent only to openrouter.ai,
+  and it is limited by an OpenRouter credit cap.
