@@ -32,7 +32,7 @@ Please select exactly one of the following options. PRs that leave this section 
 const OPT_NONE = '- [%] I did not use any AI tools in preparing this contribution.';
 const OPT_AI = '- [%] I used AI tools and have reviewed and verified all of the content.';
 const tick = (a: boolean, b: boolean) =>
-  `${SECTION}${OPT_NONE.replace('%', a ? 'x' : ' ')}\n${OPT_AI.replace('%', b ? 'x' : ' ')}\n`;
+  `${SECTION}${OPT_NONE.replaceAll('%', a ? 'x' : ' ')}\n${OPT_AI.replaceAll('%', b ? 'x' : ' ')}\n`;
 
 const pull = (over: Partial<PublicPull> = {}): PublicPull => ({
   number: 2780,

@@ -2,10 +2,7 @@
 // sends it: same questions (questions.json, kept identical to MINOR_QUESTIONS by a unit test), same
 // untrusted envelope, through AI Gateway (BYOK) or directly when JEV_TRANSPORT=direct.
 // Output: {"p": <probability of minor>, "kind": "<choice>"}.
-import { readFileSync } from 'node:fs';
-
-/** @type {unknown} */
-const questions = JSON.parse(readFileSync(new URL('./questions.json', import.meta.url), 'utf8'));
+import questions from './questions.json' with { type: 'json' };
 
 /**
  * Mirrors untrusted() in packages/llm/src/untrusted.ts.
