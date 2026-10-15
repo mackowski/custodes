@@ -24,6 +24,8 @@ resource "cloudflare_zero_trust_access_application" "gateway" {
   app_launcher_visible       = false
   auto_redirect_to_identity  = true
   http_only_cookie_attribute = true
+  # No Access cookie on cross-site POSTs (CSRF on the admin and agent routes, ADR 0012 review).
+  same_site_cookie_attribute = "lax"
   # Bind cookies to the user's device posture when available.
   enable_binding_cookie = true
 }

@@ -11,6 +11,8 @@ Verified against `agents@0.24.0` (`dist/src-*.js`, `callable-decorator.js`) on 2
 - **RPC exposure:** `cf_agent_rpc` frames only reach methods decorated with `@callable()` (`_isCallable` → `isCallableMethod`). Plain public methods (`enqueue`, `work`, `pendingResults`, ...) are reachable only through a Durable Object stub (`getAgentByName(...)`) from inside the Worker, or via `onRequest` for HTTP. So agent-to-agent RPC is intra-Worker trust, not client trust; still require zod on every RPC arg (threat model treats agents as separate components).
 - **schedule():** `schedule(delay, cb, payload, { idempotent: true })` dedupes on callback+payload against pending rows; delayed schedules default to `idempotent: false`. A self-rescheduling worker (`schedule(2, 'work')`) plus an external `schedule(5, 'work', undefined, { idempotent: true })` can still produce two concurrent alarm chains that pick the same SQL job before it is deleted.
 
+Re-checked on `agents@0.28.0` (2026-10-15): the Agent constructor creates its `cf_agents_*` SQLite tables and persists the name before `onRequest` runs, and WebSocket upgrades go to `onConnect` (sends state/identity), never `onRequest`. So a 404 returned from `onRequest` does NOT prevent DO/state creation; an instance allow-list has to sit in the Worker `fetch` before `routeAgentRequest`.
+
 **Why:** These decide whether a finding is "any Access user" (client-reachable) or "another agent in the same Worker" (accepted shared trust domain), and whether cost caps can be bypassed.
 
 **How to apply:** Check version first (`node_modules/.pnpm/agents@*`); hook names may change. Flag any new `@callable()` as client-reachable surface behind Access.

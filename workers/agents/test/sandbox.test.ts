@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import worker from '../src/index.js';
 import type { AgentsEnv } from '../src/env.js';
 import {
+  allowedAgentPath,
   INSTANCE_REPOS,
   instanceOf,
   OWASP_INSTANCE,
@@ -83,9 +84,22 @@ describe('on-demand routes', () => {
     }
   });
 
-  it('answer 404 for an instance that is not listed', async () => {
+  it('answer 404 for an instance that is not listed, for every agent class', async () => {
     expect((await call('/agents/pr-gate-agent/somewhere-else')).status).toBe(404);
     expect((await call('/agents/triage-agent/somewhere-else/run', 'POST')).status).toBe(404);
+    expect((await call('/agents/proposal-review-agent/anything')).status).toBe(404);
+    expect((await call('/agents/hello-agent/other')).status).toBe(404);
+  });
+
+  it('decides instance paths before any Durable Object is created', () => {
+    expect(allowedAgentPath('/registry')).toBe(true);
+    expect(allowedAgentPath(`/agents/triage-agent/${OWASP_INSTANCE}`)).toBe(true);
+    expect(allowedAgentPath(`/agents/pr-gate-agent/${SANDBOX_INSTANCE}/run`)).toBe(true);
+    expect(allowedAgentPath('/agents/hello-agent/default/run')).toBe(true);
+    expect(allowedAgentPath('/agents/hello-agent/owasp-cheatsheetseries')).toBe(false);
+    expect(allowedAgentPath('/agents/triage-agent/__proto__')).toBe(false);
+    expect(allowedAgentPath('/agents/triage-agent/%E0%A4%A')).toBe(false);
+    expect(allowedAgentPath('/agents/triage-agent/custodes%2Dsandbox')).toBe(true);
   });
 
   it('preview the sandbox summary without sending it', async () => {

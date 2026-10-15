@@ -35,3 +35,14 @@ function actorFrom(p: JWTPayload & { email?: string; common_name?: string }): Ad
     return { subject: `service:${p.common_name}`, via: 'access-service-token' };
   return null;
 }
+
+/**
+ * CSRF guard for Access-protected routes. Browsers attach the Access cookie (and Access then adds
+ * the JWT) to cross-site requests too, so a page the operator visits could POST here. Browsers send
+ * Sec-Fetch-Site; the CLI, service tokens and scripts do not, so they are unaffected.
+ */
+export function crossSiteWrite(req: Request): boolean {
+  if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return false;
+  const site = req.headers.get('sec-fetch-site');
+  return site !== null && site !== 'same-origin' && site !== 'none';
+}

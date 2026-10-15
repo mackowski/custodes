@@ -47,7 +47,7 @@ export function agentsCommand(): Command {
       const cfg = loadConfig(c.optsWithGlobals());
       const s = await new ApiClient(cfg).call(
         'GET',
-        `/agents/${toKebab(agent)}/${o.instance}`,
+        `/agents/${toKebab(agent)}/${encodeURIComponent(o.instance)}`,
         Status,
       );
       print(cfg.json, s);

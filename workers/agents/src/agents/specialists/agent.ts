@@ -74,6 +74,15 @@ interface ResultRow {
   checked_at: string;
 }
 
+/** A stored result for the status view; one corrupt row must not take the whole view down. */
+function parseStored(json: string): unknown {
+  try {
+    return JSON.parse(json) as unknown;
+  } catch {
+    return { unreadable: true };
+  }
+}
+
 function isInputSpecific(err: unknown): boolean {
   return err instanceof Error && ['StructuredOutputError', 'ModelOutputError'].includes(err.name);
 }
@@ -288,7 +297,7 @@ export abstract class SpecialistAgent extends CustodesAgent<AgentsEnv, Specialis
         checked_at, result FROM results ORDER BY checked_at DESC LIMIT 20`.map((r) => ({
         issue: r.issue,
         checkedAt: r.checked_at,
-        result: JSON.parse(r.result) as unknown,
+        result: parseStored(r.result),
       })),
     });
   }

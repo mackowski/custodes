@@ -1,6 +1,7 @@
 // End-to-end scenarios against mackowski/custodes-sandbox (ADR 0012). Run with Node >= 22.18:
 //
-//   export GH_TOKEN=$(gh auth token --user mackowski) CUSTODES_API_URL=https://custodes.work
+//   export CUSTODES_API_URL=https://custodes.work
+//   GH_TOKEN=$(gh auth token --user mackowski) node e2e/sandbox/run.ts <step>   (token per command)
 //   node e2e/sandbox/run.ts seed      # once: deliberate typos + a planted instruction on main
 //   node e2e/sandbox/run.ts setup     # opens this run's issues and pull requests
 //   node e2e/sandbox/run.ts trigger   # runs pr-gate and triage on the sandbox now

@@ -5,11 +5,11 @@ through the deployed agents (ADR 0012). They complement unit tests (logic) and p
 (model behaviour on fixed inputs).
 
 ```bash
-export GH_TOKEN=$(gh auth token --user mackowski)   # operator token: opens scenario issues/PRs
 export CUSTODES_API_URL=https://custodes.work         # Access login: cloudflared access login $CUSTODES_API_URL/admin
-node e2e/sandbox/run.ts seed      # once: deliberate typos and a planted instruction on main
-node e2e/sandbox/run.ts all       # setup + trigger + check (exit 1 if a "must" check fails)
-node e2e/sandbox/run.ts cleanup   # close everything the scenarios opened, delete branches
+# The GitHub token is set per command, never exported into the shell (it can write anywhere you can).
+GH_TOKEN=$(gh auth token --user mackowski) node e2e/sandbox/run.ts seed      # once
+GH_TOKEN=$(gh auth token --user mackowski) node e2e/sandbox/run.ts all       # setup + trigger + check
+GH_TOKEN=$(gh auth token --user mackowski) node e2e/sandbox/run.ts cleanup   # close scenario issues/PRs
 ```
 
 The steps can also run one at a time (`setup`, `trigger`, `check`). To see the e-mails, send them

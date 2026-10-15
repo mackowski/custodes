@@ -40,3 +40,25 @@ export function instanceOf(name: string): RepoInstance {
 export function unknownInstance(): Response {
   return Response.json({ error: 'unknown instance' }, { status: 404 });
 }
+
+/** The hello smoke-test agent is not bound to a repository and keeps its single `default` instance. */
+const UNBOUND: Readonly<Record<string, readonly string[]>> = { 'hello-agent': ['default'] };
+
+/**
+ * True when an `/agents/<class>/<instance>/...` path names an instance that may exist. Other paths
+ * (not agent routes, or malformed) are left to the SDK router, which answers 404 for them.
+ */
+export function allowedAgentPath(pathname: string): boolean {
+  const m = /^\/agents\/([^/]+)\/([^/]+)/.exec(pathname);
+  if (!m) return true;
+  const [, cls = '', rawInstance = ''] = m;
+  let instance: string;
+  try {
+    instance = decodeURIComponent(rawInstance);
+  } catch {
+    return false;
+  }
+  const unbound = Object.hasOwn(UNBOUND, cls) ? UNBOUND[cls] : undefined;
+  if (unbound) return unbound.includes(instance);
+  return Object.hasOwn(INSTANCES, instance);
+}

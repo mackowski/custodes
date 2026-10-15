@@ -16,7 +16,7 @@ import {
   type InboundEvent,
   type PublicKeyEntry,
 } from '@custodes/schema';
-import { verifyAccessJwt } from './access.js';
+import { crossSiteWrite, verifyAccessJwt } from './access.js';
 import type { GatewayEnv } from './env.js';
 
 interface Vars {
@@ -72,6 +72,7 @@ app.post('/webhooks/github', async (c) => {
 // ---------- Admin API: Cloudflare Access required ----------
 const admin = new Hono<{ Bindings: GatewayEnv; Variables: Vars }>();
 admin.use('*', async (c, next) => {
+  if (crossSiteWrite(c.req.raw)) return c.json({ error: 'cross-site request refused' }, 403);
   const actor = await verifyAccessJwt(c.req.raw, c.env.ACCESS_TEAM, c.env.ACCESS_AUD);
   if (!actor) return c.json({ error: 'unauthorized' }, 401);
   c.set('actor', actor);
@@ -142,6 +143,7 @@ app.route('/admin', admin);
 
 // Agent HTTP/WebSocket access (CLI interactive mode) also sits behind Access.
 app.all('/agents/*', async (c) => {
+  if (crossSiteWrite(c.req.raw)) return c.json({ error: 'cross-site request refused' }, 403);
   const actor = await verifyAccessJwt(c.req.raw, c.env.ACCESS_TEAM, c.env.ACCESS_AUD);
   if (!actor) return c.json({ error: 'unauthorized' }, 401);
   const url = new URL(c.req.url);

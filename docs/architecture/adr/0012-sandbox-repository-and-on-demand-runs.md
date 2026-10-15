@@ -29,7 +29,8 @@ repositories: `owasp-cheatsheetseries` → OWASP/CheatSheetSeries and `custodes-
 sandbox.
 
 - Agents read their repository from the instance name only.
-- An unknown instance name answers 404 and creates no state.
+- An unknown instance name answers 404 in the agents Worker's `fetch`, before routing, so no
+  Durable Object is created for it (the SDK creates state before `onRequest` runs).
 - Triage hands work to the specialists of the same instance.
 - Crons run only the OWASP instances, so the sandbox costs nothing unless the operator runs it.
 
@@ -38,10 +39,10 @@ sandbox.
 - `custodes agents run triage --instance custodes-sandbox`, and `--step digest` to send the digest.
 - `custodes agents run pr-gate --instance custodes-sandbox`, which skips the 1-hour grace period, and
   `--step summary` to send the summary.
-- `custodes agents report pr-gate --instance custodes-sandbox` shows the summary e-mail without
-  sending it.
+- `custodes agents report pr-gate --instance <instance>` shows the summary e-mail without sending it.
+  It is read-only, so it works on the OWASP instance too.
 
-The same requests on the OWASP instance answer 403.
+The effectful requests (`run`, `digest`, `summary`) on the OWASP instance answer 403.
 
 **pr-gate gates maintainers in the sandbox,** so the operator can open scenario pull requests
 personally. Bots and dependabot stay exempt everywhere.
@@ -81,8 +82,17 @@ Each check is graded "must" (security or contract) or "should" (model quality).
 - pr-gate's broker rate limit (5 per hour) is per agent, not per repository. A sandbox run can use
   the hour's budget that OWASP closes would otherwise have, which shows up as "close refused
   (policy_denied)" and a retry at the next poll.
+- The AI Gateway spend limit is shared too, so a large sandbox run can delay OWASP triage. Daily
+  caps (`MAX_JOBS_PER_DAY`, `MAX_CLOSES_PER_DAY`) are per instance, so the fleet's daily ceiling is
+  twice a single repository's. The broker's 5 closes per hour stays one global limit for pr-gate.
 
 ## Security considerations
+
+- **CSRF:** the new routes are the first effectful POSTs reachable with the operator's Access
+  browser cookie. The gateway refuses non-GET requests whose `Sec-Fetch-Site` is not `same-origin`
+  or `none` on `/admin` and `/agents`, and the Access application sets `SameSite=Lax`. The CLI,
+  service tokens and the e2e script send no `Sec-Fetch-*` headers and are unaffected. This also
+  closes the older cross-site path to `POST /admin/agents/:id/resume`.
 
 - **The sandbox is public:** anyone can open issues or PRs there. The OWASP crons never touch it,
   and on-demand runs need Access, so outsiders cannot spend model budget. A run the operator
