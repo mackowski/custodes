@@ -48,8 +48,13 @@ const ruleTrace = (detail: Record<string, string | number | boolean>): TraceEntr
   { rung: 'rule', outcome: 'decided', detail },
 ];
 
-export async function decide(repo: string, pr: PublicPull, deps: DecideDeps): Promise<Decision> {
-  const exempt = exemption(pr);
+export async function decide(
+  repo: string,
+  pr: PublicPull,
+  deps: DecideDeps,
+  opts: { gateMaintainers?: boolean } = {},
+): Promise<Decision> {
+  const exempt = exemption(pr, opts);
   if (exempt)
     return { outcome: 'skip', reason: exempt, rung: 'rule', trace: ruleTrace({ exempt }) };
 

@@ -1,5 +1,6 @@
 import { env } from 'cloudflare:workers';
 import { getAgentByName } from 'agents';
+import { OWASP_INSTANCE, SANDBOX_INSTANCE } from '../src/instances.js';
 import { describe, expect, it, vi } from 'vitest';
 import implementationEvalPrompt from '../../../evals/agents/implementation-check/system.txt?raw';
 import proposalEvalPrompt from '../../../evals/agents/proposal-review/system.txt?raw';
@@ -575,7 +576,7 @@ describe('specialist agents (Durable Objects)', () => {
   });
 
   it('release the work lock after a run, and never retry a failed job in the same run', async () => {
-    const stub = await getAgentByName(testEnv.ProposalReviewAgent, 'test-lock');
+    const stub = await getAgentByName(testEnv.ProposalReviewAgent, SANDBOX_INSTANCE);
     expect(
       await stub.enqueue([
         { issue: 9, issueUpdatedAt: '2026-09-20T10:00:00Z' },
@@ -597,7 +598,7 @@ describe('specialist agents (Durable Objects)', () => {
   });
 
   it('queue a job, report a broker failure as an error and keep the job', async () => {
-    const stub = await getAgentByName(testEnv.ImplementationCheckAgent, 'test-flow');
+    const stub = await getAgentByName(testEnv.ImplementationCheckAgent, OWASP_INSTANCE);
     expect(await stub.enqueue([{ issue: 5, issueUpdatedAt: '2026-09-20T10:00:00Z' }])).toEqual({
       queued: 1,
     });

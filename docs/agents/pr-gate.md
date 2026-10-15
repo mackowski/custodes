@@ -1,7 +1,7 @@
 # pr-gate
 
 - Version: 0.1.0 · Mode: **hotl**, closing enabled (`PR_GATE_ENFORCE="true"`)
-- Repositories: OWASP/CheatSheetSeries
+- Repositories: OWASP/CheatSheetSeries, and mackowski/custodes-sandbox for tests (ADR 0012)
 - Class: `workers/agents/src/agents/pr-gate.ts` · Logic: `workers/agents/src/agents/pr-gate/`
 - Policy: `agents.pr-gate` (`pr.close`, 5/h) and `reads.pr-gate` (`pulls`, `pull_files`, `issue`).
   ADR 0011.
@@ -66,6 +66,13 @@ on OWASP/CheatSheetSeries. Rotate it per [rotate-pat](../runbooks/rotate-pat.md)
 | The comment posts but the close fails         | Signed and counted by the broker. The PR is flagged `close_failed` and not retried until new commits. |
 | A maintainer reopens a PR the agent closed    | Reported once (`reopened_after_close`). The agent never acts on that PR again.                        |
 | More than five issue references in the body   | Never closed (`too_many_refs` flag) unless an approved, assigned one is among them.                   |
+
+## Testing in the sandbox
+
+Run `node e2e/sandbox/run.ts all` (see `e2e/sandbox/README.md`), or one step at a time:
+`custodes agents run pr-gate --instance custodes-sandbox` judges open sandbox PRs at once (no grace
+period, maintainers gated too), and `custodes agents report pr-gate --instance custodes-sandbox`
+shows the e-mail without sending it.
 
 ## Turning closes off
 

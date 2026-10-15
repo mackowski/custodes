@@ -3,6 +3,7 @@ import { InboundEvent } from '@custodes/schema';
 import { PR_GATE_INSTANCE } from './agents/pr-gate.js';
 import { TRIAGE_INSTANCE } from './agents/triage.js';
 import type { AgentsEnv } from './env.js';
+import { allowedAgentPath, unknownInstance } from './instances.js';
 import { REGISTRY } from './registry.js';
 
 export { HelloAgent } from './agents/hello.js';
@@ -23,6 +24,8 @@ export default {
     if (url.pathname === '/healthz') return Response.json({ ok: true, env: env.ENVIRONMENT });
     if (url.pathname === '/registry') return Response.json(REGISTRY);
     // /agents/<kebab-class-name>/<instance> → the Durable Object. Only reachable via the gateway.
+    // Refuse unlisted instances here: the SDK creates a Durable Object's state before onRequest.
+    if (!allowedAgentPath(url.pathname)) return unknownInstance();
     return (await routeAgentRequest(request, env)) ?? new Response('Not found', { status: 404 });
   },
 

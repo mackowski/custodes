@@ -14,7 +14,7 @@
       "$comment": "ADR 0011: closes community PRs that break CONTRIBUTING.md, with a signed comment. hotl; the agent also caps itself at 10 closes per UTC day.",
       "tokenBinding": "PAT_PR_GATE",
       "mode": "hotl",
-      "repos": ["OWASP/CheatSheetSeries"],
+      "repos": ["OWASP/CheatSheetSeries", "mackowski/custodes-sandbox"],
       "actions": ["pr.close"],
       "requiresApproval": [],
       "rateLimitPerHour": 5
@@ -23,22 +23,22 @@
   "reads": {
     "triage": {
       "tokenBinding": "PAT_READONLY",
-      "repos": ["OWASP/CheatSheetSeries"],
+      "repos": ["OWASP/CheatSheetSeries", "mackowski/custodes-sandbox"],
       "resources": ["issues", "labels", "cheatsheets", "timeline"]
     },
     "implementation-check": {
       "tokenBinding": "PAT_READONLY",
-      "repos": ["OWASP/CheatSheetSeries"],
+      "repos": ["OWASP/CheatSheetSeries", "mackowski/custodes-sandbox"],
       "resources": ["issue", "timeline", "pull_files", "cheatsheets", "cheatsheet"]
     },
     "proposal-review": {
       "tokenBinding": "PAT_READONLY",
-      "repos": ["OWASP/CheatSheetSeries"],
+      "repos": ["OWASP/CheatSheetSeries", "mackowski/custodes-sandbox"],
       "resources": ["issue", "comments", "timeline", "labels", "cheatsheets", "cheatsheet"]
     },
     "pr-gate": {
       "tokenBinding": "PAT_READONLY",
-      "repos": ["OWASP/CheatSheetSeries"],
+      "repos": ["OWASP/CheatSheetSeries", "mackowski/custodes-sandbox"],
       "resources": ["pulls", "pull_files", "issue"]
     }
   }

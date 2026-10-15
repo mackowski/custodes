@@ -3,6 +3,13 @@ import { CustodesAgent } from '@custodes/core/agent';
 import { AnthropicGateway, inertText } from '@custodes/llm';
 import type { AgentManifest } from '@custodes/schema';
 import type { AgentsEnv } from '../env.js';
+import {
+  INSTANCE_REPOS,
+  instanceOf,
+  OWASP_INSTANCE,
+  UnknownInstanceError,
+  unknownInstance,
+} from '../instances.js';
 import { PendingResults, type SpecialistJob } from './specialists/agent.js';
 import { ImplementationCheck } from './specialists/implementation.js';
 import { ProposalReview } from './specialists/proposal.js';
@@ -29,11 +36,11 @@ export const TRIAGE_MANIFEST: AgentManifest = {
   description:
     'Read-only triage report for OWASP Cheat Sheet Series issues: suggests labels, cheat sheet and duplicates, delegates to implementation-check and proposal-review, e-mails daily.',
   mode: 'readonly',
-  repos: ['OWASP/CheatSheetSeries'],
+  repos: [...INSTANCE_REPOS],
 };
 
 /** One instance per repository. */
-export const TRIAGE_INSTANCE = 'owasp-cheatsheetseries';
+export const TRIAGE_INSTANCE = OWASP_INSTANCE;
 
 interface TriageState {
   since: string | null;
@@ -64,8 +71,9 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
     assessedTotal: 0,
   };
 
+  /** The repository is chosen by the instance name only (see instances.ts). */
   private get repo(): string {
-    return this.manifest.repos[0] ?? 'OWASP/CheatSheetSeries';
+    return instanceOf(this.name).repo;
   }
 
   private ensureSchema(): void {
@@ -93,8 +101,8 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
 
   private specialist(kind: 'implementation' | 'proposal') {
     return kind === 'implementation'
-      ? getAgentByName(this.env.ImplementationCheckAgent, TRIAGE_INSTANCE)
-      : getAgentByName(this.env.ProposalReviewAgent, TRIAGE_INSTANCE);
+      ? getAgentByName(this.env.ImplementationCheckAgent, this.name)
+      : getAgentByName(this.env.ProposalReviewAgent, this.name);
   }
 
   /**
@@ -494,7 +502,25 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
   }
 
   /** Status for operators, reachable only through the Access-protected gateway. */
-  override async onRequest(): Promise<Response> {
+  override async onRequest(request: Request): Promise<Response> {
+    let sandbox: boolean;
+    try {
+      sandbox = instanceOf(this.name).sandbox;
+    } catch (err) {
+      if (err instanceof UnknownInstanceError) return unknownInstance();
+      throw err;
+    }
+    const url = new URL(request.url);
+    // On-demand runs (ADR 0012) exist only for sandbox instances; real ones follow the crons.
+    if (request.method === 'POST' && /\/(run|digest)$/.test(url.pathname)) {
+      if (!sandbox)
+        return Response.json({ error: 'on-demand runs are sandbox only' }, { status: 403 });
+      return Response.json(
+        url.pathname.endsWith('/digest')
+          ? await this.sendDigest()
+          : await this.poll({ prepare: true }),
+      );
+    }
     this.ensureSchema();
     const recent = this
       .sql<AssessmentRow>`SELECT issue, title, issue_updated_at, assessment, assessed_at
