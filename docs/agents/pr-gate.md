@@ -46,7 +46,7 @@ plus the broker's signed trailer (agent, version, attestation id, verify link) a
 
 ## Schedule / triggers
 
-- **Every 4 hours** with the triage poll (`17 */4 * * *`): evaluates PRs that are new or changed,
+- **Every 4 hours, and at 05:30 UTC,** with the triage poll and prepare crons (`17 */4 * * *`, `30 5 * * *`): evaluates PRs that are new or changed,
   and only those untouched for at least 1 hour.
 - **07:00 UTC daily** (`0 7 * * *`): sends the summary e-mail. It lists closed PRs, PRs it would
   close, PRs that need a maintainer, and errors. Nothing is sent when nothing happened.

@@ -12,6 +12,8 @@ export const TimelineEvent = z.looseObject({
         .looseObject({
           number: z.number().int().positive(),
           state: z.string().optional(),
+          title: z.string().optional(),
+          user: z.looseObject({ login: z.string() }).nullable().optional(),
           pull_request: z.looseObject({ merged_at: z.string().nullable().optional() }).optional(),
           repository: z.looseObject({ full_name: z.string() }).optional(),
         })
@@ -197,17 +199,17 @@ export class BrokerGitHubReader {
   }
 
   /**
-   * Issues closed (or updated while closed) since `since`, newest first, up to 300; `truncated` if
-   * there are more. Newest first, so a cut loses the oldest closes, not the ones that matter.
+   * Issues (open or closed, not PRs) updated since `since`, newest first, up to 300; `truncated` if
+   * there are more. Newest first, so a cut loses the oldest updates, not the ones that matter.
    */
-  async listClosedIssueNumbersSince(
+  async listIssuesUpdatedSince(
     repo: string,
     since: string,
-  ): Promise<{ closed: Set<number>; truncated: boolean }> {
-    const out = new Set<number>();
+  ): Promise<{ issues: PublicIssue[]; truncated: boolean }> {
+    const out: PublicIssue[] = [];
     for (let page = 1; page <= 3; page++) {
       const q: ReadQuery = {
-        state: 'closed',
+        state: 'all',
         sort: 'updated',
         direction: 'desc',
         since,
@@ -215,10 +217,10 @@ export class BrokerGitHubReader {
         page,
       };
       const batch = await this.read(repo, 'issues', q, z.array(PublicIssue));
-      for (const i of batch) if (i.pull_request === undefined) out.add(i.number);
-      if (batch.length < 100) return { closed: out, truncated: false };
+      out.push(...batch.filter((i) => i.pull_request === undefined));
+      if (batch.length < 100) return { issues: out, truncated: false };
     }
-    return { closed: out, truncated: true };
+    return { issues: out, truncated: true };
   }
 
   async getIssue(repo: string, number: number): Promise<PublicIssue> {

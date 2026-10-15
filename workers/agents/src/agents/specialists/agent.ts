@@ -46,6 +46,11 @@ export const MAX_JOBS_PER_DAY = 10;
 /** A job that fails this many times is dropped (triage re-enqueues it when the issue changes). */
 export const MAX_ATTEMPTS = 4;
 const MAX_ENQUEUE = 100;
+/**
+ * A failed job waits this long before it is tried again (it never retries in the same run, which
+ * spent four reasoning calls in one minute on 2026-10-08). In practice: the next daily preparation.
+ */
+export const RETRY_AFTER_MS = 6 * 3_600_000;
 /** A lock older than this is stale (the run crashed); longer than any single job. */
 const WORK_LOCK_MS = 15 * 60_000;
 
@@ -145,7 +150,7 @@ export abstract class SpecialistAgent extends CustodesAgent<AgentsEnv, Specialis
           issue_updated_at = excluded.issue_updated_at`;
       queued++;
     }
-    const pending = this.sql<{ n: number }>`SELECT COUNT(*) AS n FROM jobs`[0]?.n ?? 0;
+    const pending = this.readyJobs(now);
     // Idempotent here: repeated wake-ups while a run is pending add no second alarm.
     if (pending > 0) await this.schedule(5, 'work', undefined, { idempotent: true });
     return { queued };
@@ -179,8 +184,9 @@ export abstract class SpecialistAgent extends CustodesAgent<AgentsEnv, Specialis
     const day = now.toISOString().slice(0, 10);
     const used = this.state.day === day ? this.state.jobsToday : 0;
     if (used >= MAX_JOBS_PER_DAY) return false; // the first triage poll after midnight UTC resumes
+    // enqueued_at doubles as "not before": a failed job is pushed into the future.
     const job = this.sql<JobRow>`SELECT issue, issue_updated_at, attempts FROM jobs
-      ORDER BY enqueued_at, issue LIMIT 1`[0];
+      WHERE enqueued_at <= ${now.toISOString()} ORDER BY enqueued_at, issue LIMIT 1`[0];
     if (!job) return false;
     const runId = crypto.randomUUID();
     this.setState({ ...this.state, day, jobsToday: used + 1, lastRunAt: now.toISOString() });
@@ -212,12 +218,15 @@ export abstract class SpecialistAgent extends CustodesAgent<AgentsEnv, Specialis
         this.sql`DELETE FROM jobs WHERE issue = ${job.issue}`;
         this.recordError(`#${job.issue}: gave up after ${attempts} attempts (${what})`);
       } else {
-        // To the back of the queue, so one failing issue cannot block the others.
-        this.sql`UPDATE jobs SET attempts = ${attempts}, enqueued_at = ${now.toISOString()}
+        // Not before RETRY_AFTER_MS, so one failing issue neither blocks the others nor burns
+        // repeated model calls in the same run.
+        const notBefore = new Date(now.getTime() + RETRY_AFTER_MS).toISOString();
+        this.sql`UPDATE jobs SET attempts = ${attempts}, enqueued_at = ${notBefore}
           WHERE issue = ${job.issue}`;
         this.recordError(`#${job.issue}: ${what}`);
       }
-      // Infrastructure failures stop the chain; the next enqueue (next triage poll) retries.
+      // Infrastructure failures stop the chain (the path is broken for every job); an unusable
+      // answer about one issue does not.
       more = isInputSpecific(err);
       console.warn(
         JSON.stringify({
@@ -229,8 +238,14 @@ export abstract class SpecialistAgent extends CustodesAgent<AgentsEnv, Specialis
         }),
       );
     }
-    const left = this.sql<{ n: number }>`SELECT COUNT(*) AS n FROM jobs`[0]?.n ?? 0;
-    return more && left > 0 && used + 1 < MAX_JOBS_PER_DAY;
+    return more && this.readyJobs(new Date()) > 0 && used + 1 < MAX_JOBS_PER_DAY;
+  }
+
+  private readyJobs(now: Date): number {
+    return (
+      this.sql<{ n: number }>`SELECT COUNT(*) AS n FROM jobs
+        WHERE enqueued_at <= ${now.toISOString()}`[0]?.n ?? 0
+    );
   }
 
   /** Called by triage over RPC when it builds a digest. */

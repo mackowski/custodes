@@ -1,10 +1,11 @@
 import { z } from 'zod';
+import { text } from './lenient.js';
 import { inertNoLinks } from '../triage/assess.js';
 
 /** What a model may claim as evidence: a file it was shown and a line copied from it. */
 export const RawEvidence = z.object({
-  file: z.string().max(150),
-  quote: z.string().max(400),
+  file: text(150),
+  quote: text(400),
 });
 export type RawEvidence = z.infer<typeof RawEvidence>;
 

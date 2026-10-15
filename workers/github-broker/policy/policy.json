@@ -34,7 +34,7 @@
     "proposal-review": {
       "tokenBinding": "PAT_READONLY",
       "repos": ["OWASP/CheatSheetSeries"],
-      "resources": ["issue", "comments", "labels", "cheatsheets", "cheatsheet"]
+      "resources": ["issue", "comments", "timeline", "labels", "cheatsheets", "cheatsheet"]
     },
     "pr-gate": {
       "tokenBinding": "PAT_READONLY",

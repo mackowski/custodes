@@ -13,6 +13,8 @@ export { PrGateAgent } from './agents/pr-gate.js';
 
 /** Must match wrangler.jsonc triggers.crons. */
 export const CRON_TRIAGE_POLL = '17 */4 * * *';
+/** Daily, before the digest: fresh poll plus specialist reviews of everything the digest will show. */
+export const CRON_TRIAGE_PREPARE = '30 5 * * *';
 export const CRON_TRIAGE_DIGEST = '0 7 * * *';
 
 export default {
@@ -26,16 +28,19 @@ export default {
 
   async scheduled(controller: ScheduledController, env: AgentsEnv): Promise<void> {
     // Explicit dispatch: a cron added for another agent must never trigger triage spend by default.
-    if (controller.cron !== CRON_TRIAGE_POLL && controller.cron !== CRON_TRIAGE_DIGEST) {
+    if (![CRON_TRIAGE_POLL, CRON_TRIAGE_PREPARE, CRON_TRIAGE_DIGEST].includes(controller.cron)) {
       console.warn(JSON.stringify({ event: 'cron.unknown', cron: controller.cron }));
       return;
     }
     const digest = controller.cron === CRON_TRIAGE_DIGEST;
-    // Independent agents: one failing or halted must not stop the other.
+    // Independent agents: one failing or halted must not stop the other. pr-gate polls on the
+    // poll and prepare crons and sends its summary with the digest.
     const jobs = {
       triage: async () => {
         const triage = await getAgentByName(env.TriageAgent, TRIAGE_INSTANCE);
-        return digest ? triage.sendDigest() : triage.poll();
+        return digest
+          ? triage.sendDigest()
+          : triage.poll({ prepare: controller.cron === CRON_TRIAGE_PREPARE });
       },
       'pr-gate': async () => {
         const gate = await getAgentByName(env.PrGateAgent, PR_GATE_INSTANCE);

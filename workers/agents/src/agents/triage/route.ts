@@ -2,8 +2,9 @@ import { z } from 'zod';
 import type { SpecialistJob } from '../specialists/agent.js';
 import { labelAppliedAt } from '../specialists/implementation.js';
 import { describeError } from './errors.js';
-import type { BrokerGitHubReader, PublicIssue } from './github.js';
-import type { AssessedIssue } from './run.js';
+import { safeLogin } from './prompt.js';
+import type { ProposalReview } from '../specialists/proposal.js';
+import { issueLabels, type BrokerGitHubReader, type PublicIssue } from './github.js';
 
 /** Maintainers accept an issue by applying this label. */
 export const ACK_LABEL = 'ACK_OBTAINED';
@@ -16,11 +17,17 @@ export function hasAck(labels: readonly string[]): boolean {
   return labels.includes(ACK_LABEL);
 }
 
-/** Community issues not accepted yet go to proposal review; spam does not. */
-export function proposalJobs(assessed: AssessedIssue[]): SpecialistJob[] {
-  return assessed
-    .filter((a) => !hasAck(a.labels) && a.kind !== 'spam')
-    .map((a) => ({ issue: a.number, issueUpdatedAt: a.updatedAt }));
+/**
+ * Issues waiting for the next digest that go to proposal review: not accepted (ACK_OBTAINED), not
+ * spam, at the version triage assessed.
+ */
+export function pendingProposalJobs(
+  pending: { issue: number; issueUpdatedAt: string; kind: string | null }[],
+  accepted: ReadonlySet<number>,
+): SpecialistJob[] {
+  return pending
+    .filter((p) => !accepted.has(p.issue) && p.kind !== null && p.kind !== 'spam')
+    .map((p) => ({ issue: p.issue, issueUpdatedAt: p.issueUpdatedAt }));
 }
 
 export interface AckSweep {
@@ -88,25 +95,97 @@ const ISO = z.iso.datetime();
 
 export const CLOSE_SLACK_MS = 6 * 3_600_000;
 
-/** Issues closed since we first saw any pending item open. Fails open: on error nothing is dropped. */
-export async function closedSince(
-  reader: Pick<BrokerGitHubReader, 'listClosedIssueNumbersSince'>,
+/** An issue as it is now, for checking stored assessments and reviews against it. */
+export interface CurrentIssue {
+  state: string;
+  labels: string[];
+  assignees: string[];
+  updatedAt: string;
+}
+
+/**
+ * Issues that changed since we first saw any pending item open (minus slack for a change during a
+ * poll), as they are now. Issues not in the map have not changed since. Fails open: on error the
+ * map is empty, nothing is dropped or changed, and the error is reported.
+ */
+export async function currentSince(
+  reader: Pick<BrokerGitHubReader, 'listIssuesUpdatedSince'>,
   repo: string,
   seenOpenAt: readonly string[],
   errors: string[],
-): Promise<Set<number>> {
+): Promise<Map<number, CurrentIssue>> {
   const first = earliest(seenOpenAt);
-  if (first === null) return new Set();
-  // A poll lists issues, then spends minutes on model calls before recording assessed_at; a close
+  const out = new Map<number, CurrentIssue>();
+  if (first === null) return out;
+  // A poll lists issues, then spends minutes on model calls before recording assessed_at; a change
   // in between has an earlier updated_at. Polls run every 4 h, so 6 h of slack covers it.
   const since = new Date(Date.parse(first) - CLOSE_SLACK_MS).toISOString();
   try {
-    const { closed, truncated } = await reader.listClosedIssueNumbersSince(repo, since);
+    const { issues, truncated } = await reader.listIssuesUpdatedSince(repo, since);
     if (truncated)
-      errors.push('closed-issue check truncated at 300; some closed issues may still be listed');
-    return closed;
+      errors.push('issue-state check truncated at 300; some items may not reflect recent changes');
+    for (const i of issues)
+      out.set(i.number, {
+        state: i.state ?? 'open',
+        labels: issueLabels(i),
+        assignees: (i.assignees ?? [])
+          .map((a) => safeLogin(a.login))
+          .filter((l) => l !== 'unknown'),
+        updatedAt: i.updated_at,
+      });
   } catch (err) {
-    errors.push(`closed-issue check: ${describeError(err)}`);
-    return new Set();
+    errors.push(`issue-state check: ${describeError(err)}`);
   }
+  return out;
+}
+
+export function closedIn(current: ReadonlyMap<number, CurrentIssue>): Set<number> {
+  return new Set([...current].filter(([, c]) => c.state === 'closed').map(([n]) => n));
+}
+
+/**
+ * Brings a stored proposal review in line with the issue as it is now. Returns 'accepted' when a
+ * maintainer accepted the issue after the review (it leaves the digest, like other accepted
+ * issues). Otherwise drops recommendations that were already carried out (labels added or
+ * removed, someone assigned) and marks the review if the issue changed after it.
+ */
+export function reconcileProposal(
+  review: ProposalReview,
+  reviewedVersion: string,
+  current: CurrentIssue | undefined,
+): ProposalReview | 'accepted' {
+  if (!current) return review;
+  if (hasAck(current.labels)) return 'accepted';
+  const has = new Set(current.labels.map((l) => l.toLowerCase()));
+  const assigned = current.assignees.length > 0;
+  const addLabels = review.addLabels.filter(
+    (l) => !has.has(l.toLowerCase()) && !(assigned && l.toLowerCase() === 'help_wanted'),
+  );
+  return {
+    ...review,
+    addLabels,
+    removeLabels: review.removeLabels.filter((l) => has.has(l.toLowerCase())),
+    assignTo: assigned ? null : review.assignTo,
+    helpWanted: review.helpWanted && !assigned,
+    assignees: assigned ? current.assignees : review.assignees,
+    changedSinceReview: Date.parse(current.updatedAt) > Date.parse(reviewedVersion),
+  };
+}
+
+/**
+ * Reconciles every pending proposal review. Reviews of issues accepted since leave the digest
+ * (counted), unless the review saw a possible injection: that signal is never dropped.
+ */
+export function reconcileProposals(
+  pending: { issue: number; result: ProposalReview; issueUpdatedAt: string }[],
+  current: ReadonlyMap<number, CurrentIssue>,
+): { kept: { issue: number; result: ProposalReview }[]; accepted: number } {
+  const kept: { issue: number; result: ProposalReview }[] = [];
+  let accepted = 0;
+  for (const p of pending) {
+    const r = reconcileProposal(p.result, p.issueUpdatedAt, current.get(p.issue));
+    if (r === 'accepted' && !p.result.injectionDetected) accepted++;
+    else kept.push({ issue: p.issue, result: r === 'accepted' ? p.result : r });
+  }
+  return { kept, accepted };
 }

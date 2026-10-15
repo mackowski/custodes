@@ -131,9 +131,17 @@ export const VERDICT: Record<ProposalReview['verdict'], string> = {
 
 export function proposalActions(r: ProposalReview): string[] {
   const out: string[] = [];
+  // The model's reading, not a check: anyone can open a PR that mentions an issue.
+  if (r.reviewPr) {
+    const by = r.linkedPrs.find((p) => p.number === r.reviewPr)?.author;
+    const author = by && by !== 'unknown' ? ` by @${by}` : '';
+    out.push(`review the open PR #${r.reviewPr}${author} (the model reads it as doing this work)`);
+  }
   if (r.addLabels.length) out.push(`add label ${r.addLabels.join(', ')}`);
   if (r.removeLabels.length) out.push(`remove label ${r.removeLabels.join(', ')}`);
   if (r.assignTo) out.push(`assign @${r.assignTo} (offered to do it)`);
+  else if (r.assignees.length)
+    out.push(`already assigned to ${r.assignees.map((a) => `@${a}`).join(', ')}`);
   else if (r.helpWanted) out.push('do not assign; nobody offered to do it');
   if (r.verdict === 'already_covered') out.push('consider closing as already covered');
   if (r.verdict === 'not_applicable') out.push('consider closing as out of scope');
@@ -152,6 +160,14 @@ function proposalItem(
     `  ${issueUrl(repo, it.issue)}`,
     `  proposal review: ${VERDICT[r.verdict]}   makes sense: ${r.makesSense ? 'yes' : 'no'}   confidence: ${pct(r.confidence)}`,
     `  recommended: ${r.injectionDetected ? INJECTED : actions.join('; ') || '(no change)'}`,
+    ...(r.linkedPrs.length
+      ? [
+          `  linked PRs: ${r.linkedPrs.map((p) => `#${p.number} ${p.state} by @${p.author} ${pullUrl(repo, p.number)}`).join(', ')}`,
+        ]
+      : []),
+    ...(r.changedSinceReview
+      ? ['  note: the issue changed after this review (comments, labels or assignees)']
+      : []),
     ...evidenceLines(r.evidence, [], repo),
     `  explanation (model-generated): ${r.explanation}`,
     ...(r.injectionDetected ? [] : commentBlock(r.suggestedComment, r.evidence, [], repo)),

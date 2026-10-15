@@ -44,7 +44,15 @@ Issue text and recent titles are wrapped with `untrusted()`.
 
 ## Schedule
 
-Worker cron triggers in `workers/agents/wrangler.jsonc`: poll `17 */4 * * *`, digest `0 7 * * *`.
+Worker cron triggers in `workers/agents/wrangler.jsonc`:
+
+- poll `17 */4 * * *`: triage of changed issues and a refresh of accepted issues;
+- prepare `30 5 * * *`: the same poll, then the pending issues go to the specialists, so their
+  reviews are at most 90 minutes old when the digest goes out;
+- digest `0 7 * * *`.
+
+Before sending, the digest re-reads issues changed since their items were seen. It drops closed
+issues and issues accepted since, and removes recommendations already carried out.
 At most 15 issues are assessed per run; a capped run resumes from the last issue reached.
 
 ## Model
