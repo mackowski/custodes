@@ -103,8 +103,8 @@ pass and a dry run is reviewed.
 - `BrokerAction` gains `pr.close {repo, pull, body}`.
 - `ReadResource` gains `pulls`: a list of pull requests, honouring state, sort, direction and paging.
 - `agents["pr-gate"]`:
-  - `PAT_PR_GATE`, a fine-grained token for OWASP/CheatSheetSeries only, with
-    **Pull requests: read & write**
+  - `PAT_PR_GATE`, a **classic** PAT on the operator's account with only the `public_repo` scope
+    (see "Amendment: classic PAT" below)
   - `hotl`, `actions: ["pr.close"]`, `rateLimitPerHour: 5`, `requiresApproval: ["pr.close"]` during
     the dry run
 - `reads["pr-gate"]`: `pulls`, `pull_files`, `issue`.
@@ -151,8 +151,10 @@ pass and a dry run is reviewed.
     harmless, or a flag.
   - A "not minor" close needs high confidence and the `new_guidance` label. The injection eval
     covers diffs that argue for either answer.
-- **The PAT** is limited to one repository and to pull requests. The broker allows only `pr.close`
-  for this agent, so pr-gate cannot merge, push or label, and it comments only as part of a close.
+- **The PAT** is a classic `public_repo` token on the operator's account (amendment below), so the
+  token itself is broad. What limits pr-gate is the broker: it allows only `pr.close` on
+  OWASP/CheatSheetSeries for this agent, so pr-gate cannot merge, push or label, and it comments
+  only as part of a close. The token never leaves the broker's Secrets Store binding.
 - **Half-done closes:** `pr.close` comments first, then closes. If GitHub refuses the close after the
   comment posted, the broker signs the failure under the id already in the comment's trailer (so
   `/verify` works) and counts it against the hourly rate limit. The agent marks the PR
@@ -166,3 +168,30 @@ pass and a dry run is reviewed.
 - `OPENROUTER_API_KEY` is a CI-managed Worker secret (ADR 0008), the first provider key held by a
   Worker rather than the gateway. It is never in files or logs, it is sent only to openrouter.ai,
   and it is limited by an OpenRouter credit cap.
+
+## Amendment (2026-10-15): classic PAT for pr-gate
+
+The operator cannot create a fine-grained PAT for the OWASP organisation, so `PAT_PR_GATE` is a
+**classic PAT on the operator's account** with only the `public_repo` scope, the narrowest classic
+scope that can close a pull request. This departs from ADR 0003 (per-agent fine-grained tokens) for
+this agent only.
+
+- **What the token could do if leaked:** write to every public repository the operator can reach,
+  with the operator's maintainer rights across OWASP repositories. A fine-grained token would have
+  been limited to one repository and to pull requests.
+- **What still limits the agent:**
+  - Only the broker reads the token (Secrets Store binding, never in files, logs or the agents
+    Worker).
+  - The broker policy allows pr-gate one action (`pr.close`) on one repository, with 5 per hour plus
+    the agent's own caps.
+  - The kill switch stops it.
+- **Mitigations the operator applies:** `public_repo` only (no `repo`, `workflow`, `admin:*` or
+  `delete_repo`); an expiry of 90 days or less with rotation per `docs/runbooks/rotate-pat.md`; and
+  revoking it at once on any suspicion (`custodes agents halt pr-gate`, then delete the token on
+  GitHub).
+- **Attribution:** closes and comments appear on GitHub as the operator. The signed trailer and
+  `/verify` link name the agent, and the comment says it was closed automatically.
+- **Alternatives considered:**
+  - A dedicated bot account with the Triage role would confine a leak to triage on one repository.
+    The operator declined it for now.
+  - A GitHub App installed on OWASP remains the migration target (ADR 0003).

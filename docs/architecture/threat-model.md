@@ -74,6 +74,12 @@ agents are allowed to do; high-risk agents should be deployed in their own Worke
 ## Accepted risks
 
 - PATs are long-lived by nature; mitigated by minimal scopes, expiry, and rotation runbook. Owner: operator.
+- `PAT_PR_GATE` is a classic `public_repo` PAT on the operator's account, because the OWASP
+  organisation does not allow a fine-grained one (ADR 0011 amendment). A leak would expose the
+  operator's write access to every public repository they can reach. Mitigated by: broker-only
+  access, `public_repo` scope only, expiry of 90 days or less, and the broker policy limiting the
+  agent to `pr.close` on one repository. Owner: operator. Revisit with a Triage-role bot account or
+  a GitHub App.
 - Agents in one Worker share a trust domain: the broker trusts the `agentId` a caller in the agents
   Worker sends. Owner: operator. Revisited on 2026-10-15 when pr-gate gained `pr.close` (ADR 0011):
   every agent in the Worker is first-party code reviewed in this repository, readonly agents run no

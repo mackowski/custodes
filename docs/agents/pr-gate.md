@@ -40,9 +40,12 @@ Both disclosure options ticked turns a skip into a flag; it is never a close on 
 `pr.close`. The broker posts the comment and then closes the PR. The comment is code-built text
 plus the broker's signed trailer (agent, version, attestation id, verify link) and the UTC time.
 
-## PAT scopes (fine-grained)
+## PAT scopes
 
-`PAT_PR_GATE`: repository OWASP/CheatSheetSeries only, **Pull requests: read & write**.
+`PAT_PR_GATE` is a **classic** PAT on the operator's account with **only `public_repo`**, expiring in
+90 days or less. A fine-grained token is not possible for the OWASP organisation; ADR 0011's
+amendment records the trade-off. The broker policy, not the token, confines the agent to `pr.close`
+on OWASP/CheatSheetSeries. Rotate it per [rotate-pat](../runbooks/rotate-pat.md).
 
 ## Schedule / triggers
 
