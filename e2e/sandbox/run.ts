@@ -6,6 +6,7 @@
 //   node e2e/sandbox/run.ts setup     # opens this run's issues and pull requests
 //   node e2e/sandbox/run.ts trigger   # runs pr-gate and triage on the sandbox now
 //   node e2e/sandbox/run.ts check     # waits for the specialists, then checks every expectation
+//   node e2e/sandbox/run.ts emails    # sends the sandbox triage digest and pr-gate summary now
 //   node e2e/sandbox/run.ts cleanup   # closes every e2e issue and pull request, deletes branches
 //   node e2e/sandbox/run.ts all       # setup + trigger + check
 //
@@ -14,7 +15,7 @@
 // A full run costs roughly $1-2 of Claude (triage + specialists) and uses up to 5 of pr-gate's
 // hourly broker budget, which it shares with the real repository.
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import process from 'node:process';
 
 const REPO = 'mackowski/custodes-sandbox';
@@ -283,16 +284,21 @@ function api(): string {
   return url;
 }
 
-function accessToken(): string {
-  return execFileSync('cloudflared', ['access', 'token', `-app=${api()}/admin`], {
+/** CI uses the Access service token; a person uses their `cloudflared access login` session. */
+function accessHeaders(): Record<string, string> {
+  const id = process.env['CF_ACCESS_CLIENT_ID'];
+  const secret = process.env['CF_ACCESS_CLIENT_SECRET'];
+  if (id && secret) return { 'CF-Access-Client-Id': id, 'CF-Access-Client-Secret': secret };
+  const token = execFileSync('cloudflared', ['access', 'token', `-app=${api()}/admin`], {
     encoding: 'utf8',
   }).trim();
+  return { 'cf-access-token': token };
 }
 
 async function custodes<T>(method: string, path: string): Promise<T> {
   const res = await fetch(`${api()}${path}`, {
     method,
-    headers: { 'cf-access-token': accessToken(), accept: 'application/json' },
+    headers: { ...accessHeaders(), accept: 'application/json' },
   });
   const text = await res.text();
   if (!res.ok) throw new Error(`${method} ${path}: HTTP ${res.status} ${text.slice(0, 200)}`);
@@ -462,10 +468,12 @@ async function check(state: RunState): Promise<number> {
   );
 
   let fatal = 0;
+  const rows: string[] = [];
   const line = (ok: boolean, s: Scenario, msg: string) => {
     const mark = ok ? 'PASS' : s.level === 'must' ? 'FAIL' : 'WARN';
     if (!ok && s.level === 'must') fatal++;
     console.log(`${mark.padEnd(4)} ${s.id.padEnd(28)} ${msg}`);
+    rows.push(`| ${mark} | ${s.id} | ${s.level} | ${msg.replaceAll('|', '/')} |`);
   };
 
   for (const c of state.created) {
@@ -522,12 +530,30 @@ async function check(state: RunState): Promise<number> {
       );
       const leak = where.length > 0;
       if (leak) fatal += 1;
+      rows.push(
+        `| ${leak ? 'FAIL' : 'PASS'} | ${s.id}:no-leak | must | "${f}" ${leak ? 'found' : 'absent'} |`,
+      );
       console.log(
         `${leak ? 'FAIL' : 'PASS'} ${`${s.id}:no-leak`.padEnd(28)} "${f}" ${leak ? `found in ${where.length} output(s)` : 'absent'}`,
       );
     }
   }
   console.log(`\npr-gate e-mail preview: ${report.subject}`);
+  // In GitHub Actions the table is shown on the run page (readable on a phone).
+  const summaryFile = process.env['GITHUB_STEP_SUMMARY'];
+  if (summaryFile) {
+    const table = [
+      `## Sandbox scenarios ${state.runId}: ${fatal === 0 ? 'no must failures' : `${fatal} must failure(s)`}`,
+      '',
+      '| Result | Scenario | Level | Detail |',
+      '| --- | --- | --- | --- |',
+      ...rows,
+      '',
+      `pr-gate e-mail preview: ${report.subject.replaceAll('|', '/')}`,
+      '',
+    ].join('\n');
+    appendFileSync(summaryFile, table);
+  }
   return fatal;
 }
 
@@ -559,11 +585,21 @@ else if (cmd === 'setup') setup();
 else if (cmd === 'trigger') await trigger();
 else if (cmd === 'check') process.exitCode = (await check(lastRun())) > 0 ? 1 : 0;
 else if (cmd === 'cleanup') cleanup();
-else if (cmd === 'all') {
+else if (cmd === 'emails') {
+  // Sends the sandbox digest and pr-gate summary now, so a phone run ends with mail in the inbox.
+  console.log(
+    'triage digest:',
+    JSON.stringify(await custodes('POST', `/agents/triage-agent/${INSTANCE}/digest`)),
+  );
+  console.log(
+    'pr-gate summary:',
+    JSON.stringify(await custodes('POST', `/agents/pr-gate-agent/${INSTANCE}/summary`)),
+  );
+} else if (cmd === 'all') {
   const state = setup();
   await trigger();
   process.exitCode = (await check(state)) > 0 ? 1 : 0;
 } else {
-  console.error('usage: node e2e/sandbox/run.ts seed|setup|trigger|check|cleanup|all');
+  console.error('usage: node e2e/sandbox/run.ts seed|setup|trigger|check|emails|cleanup|all');
   process.exitCode = 2;
 }

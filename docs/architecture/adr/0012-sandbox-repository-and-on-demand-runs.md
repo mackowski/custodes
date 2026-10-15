@@ -62,6 +62,17 @@ the agents and checks the results:
 
 Each check is graded "must" (security or contract) or "should" (model quality).
 
+**Running from CI.** The manual `Sandbox scenarios` workflow
+(`.github/workflows/sandbox-e2e.yml`) runs the script on a GitHub runner. It can be started from
+the Actions tab, the GitHub mobile app or `gh workflow run`, and it writes the results table to the
+run page. Its secrets live in a `sandbox-e2e` environment that only `main` may use:
+
+- a fine-grained PAT limited to the sandbox repository;
+- the existing Access service token `custodes-cli`.
+
+On `/admin` the gateway makes the service token read-only, so a leak cannot approve actions, halt
+or resume agents, or rotate keys.
+
 ## Alternatives considered
 
 - **A second GitHub account to author scenario PRs.** Keeps the maintainer exemption identical, but
@@ -70,8 +81,8 @@ Each check is graded "must" (security or contract) or "should" (model quality).
 - **A private sandbox.** The broker reads with `PAT_READONLY`, which only covers public
   repositories. A private one needs a wider token for no benefit.
 - **A staging deployment.** ADR 0007 rejected it. Instances give the separation for one map entry.
-- **Running scenarios in CI.** Needs an Access service token and a CI-held GitHub token that can
-  open PRs. That may come later; operator-run commands come first.
+- **Running scenarios only from a laptop.** The operator's laptop cannot reach the gateway from
+  behind the corporate firewall, and a phone has no CLI, so CI is the main way in (below).
 
 ## Consequences
 
@@ -88,6 +99,9 @@ Each check is graded "must" (security or contract) or "should" (model quality).
 
 ## Security considerations
 
+- **CI credentials:** the service token can trigger sandbox runs (model spend, sandbox closes) and
+  read operator status. It is read-only on `/admin`, stored only in an environment restricted to
+  `main`, and the workflow is manual. The sandbox PAT can write only to the sandbox repository.
 - **CSRF:** the new routes are the first effectful POSTs reachable with the operator's Access
   browser cookie. The gateway refuses non-GET requests whose `Sec-Fetch-Site` is not `same-origin`
   or `none` on `/admin` and `/agents`, and the Access application sets `SameSite=Lax`. The CLI,

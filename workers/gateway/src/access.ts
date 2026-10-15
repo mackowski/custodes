@@ -46,3 +46,11 @@ export function crossSiteWrite(req: Request): boolean {
   const site = req.headers.get('sec-fetch-site');
   return site !== null && site !== 'same-origin' && site !== 'none';
 }
+
+/**
+ * The Access service token (CI: sandbox scenarios) may read the admin API but never change it:
+ * no approvals, no halting or resuming agents, no key rotation. Those stay with a person.
+ */
+export function adminWriteAllowed(actor: AdminActor, method: string): boolean {
+  return actor.via !== 'access-service-token' || ['GET', 'HEAD'].includes(method);
+}

@@ -16,7 +16,7 @@ import {
   type InboundEvent,
   type PublicKeyEntry,
 } from '@custodes/schema';
-import { crossSiteWrite, verifyAccessJwt } from './access.js';
+import { adminWriteAllowed, crossSiteWrite, verifyAccessJwt } from './access.js';
 import type { GatewayEnv } from './env.js';
 
 interface Vars {
@@ -75,6 +75,8 @@ admin.use('*', async (c, next) => {
   if (crossSiteWrite(c.req.raw)) return c.json({ error: 'cross-site request refused' }, 403);
   const actor = await verifyAccessJwt(c.req.raw, c.env.ACCESS_TEAM, c.env.ACCESS_AUD);
   if (!actor) return c.json({ error: 'unauthorized' }, 401);
+  if (!adminWriteAllowed(actor, c.req.method))
+    return c.json({ error: 'service tokens are read-only on /admin' }, 403);
   c.set('actor', actor);
   await next();
 });

@@ -20,6 +20,32 @@ custodes agents run triage  --instance custodes-sandbox --step digest
 custodes agents run pr-gate --instance custodes-sandbox --step summary
 ```
 
+## From GitHub Actions (phone or browser)
+
+The **Sandbox scenarios** workflow runs the same script on a GitHub runner. Start it from Actions →
+Sandbox scenarios → Run workflow (also in the GitHub mobile app), or with
+`gh workflow run sandbox-e2e.yml -R mackowski/custodes`. The results table is on the run page, and
+the e-mails go to the operator as usual.
+
+One-time setup (operator):
+
+1. Settings → Environments → **New environment** `sandbox-e2e`. Under Deployment branches, choose
+   "Selected branches" and allow only `main`. No reviewers are needed.
+2. A **fine-grained PAT** on your account, for repository `mackowski/custodes-sandbox` only:
+   Contents, Issues and Pull requests read & write, expiry of 90 days or less. Store it as the
+   environment secret `SANDBOX_GH_TOKEN`.
+3. The Access service token, copied from Terraform state without printing it:
+
+   ```bash
+   tf() { ./scripts/with-secrets.sh terraform -chdir=infra/terraform/envs/prod "$@"; }
+   tf init -input=false >/dev/null
+   tf output -raw access_service_client_id     | gh secret set CF_ACCESS_CLIENT_ID     --env sandbox-e2e -R mackowski/custodes
+   tf output -raw access_service_client_secret | gh secret set CF_ACCESS_CLIENT_SECRET --env sandbox-e2e -R mackowski/custodes
+   ```
+
+On `/admin` the service token is read-only (the gateway refuses its writes). It can run agents on
+the sandbox and read status, but it cannot approve, halt, resume or rotate anything.
+
 ## What is covered
 
 | Scenario                     | Agent           | Level  | Expectation                                                                 |

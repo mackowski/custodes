@@ -1,0 +1,61 @@
+name: Sandbox scenarios
+# End-to-end scenarios against mackowski/custodes-sandbox through the deployed agents (ADR 0012).
+# Manual only: run it from the Actions tab, the GitHub mobile app, or `gh workflow run`.
+# Secrets live in the `sandbox-e2e` environment, which only `main` may use:
+#   SANDBOX_GH_TOKEN         fine-grained PAT, repository mackowski/custodes-sandbox only
+#                            (Contents, Issues, Pull requests: read & write)
+#   CF_ACCESS_CLIENT_ID      Access service token (read-only on /admin, see the gateway)
+#   CF_ACCESS_CLIENT_SECRET
+# A full run costs about $1-2 of Claude and uses up to 5 of pr-gate's hourly broker budget.
+on:
+  workflow_dispatch:
+    inputs:
+      step:
+        description: 'all = open scenarios, run agents, check; emails = send digest + summary; cleanup = close scenarios'
+        type: choice
+        options: [all, emails, cleanup]
+        default: all
+      send_emails:
+        description: 'After "all": send the sandbox digest and pr-gate summary e-mails'
+        type: boolean
+        default: true
+      cleanup_after:
+        description: 'After "all": close the scenario issues and pull requests'
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: sandbox-e2e
+  cancel-in-progress: false
+jobs:
+  scenarios:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment: sandbox-e2e
+    env:
+      GH_TOKEN: ${{ secrets.SANDBOX_GH_TOKEN }}
+      CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+      CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+      CUSTODES_API_URL: https://custodes.work
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+      - name: Check secrets
+        run: |
+          for v in GH_TOKEN CF_ACCESS_CLIENT_ID CF_ACCESS_CLIENT_SECRET; do
+            if [ -z "${!v}" ]; then echo "::error::$v is not set in the sandbox-e2e environment"; exit 1; fi
+          done
+      - name: Scenarios (setup, run agents, check)
+        if: inputs.step == 'all'
+        run: node e2e/sandbox/run.ts all
+      - name: Send e-mails
+        if: always() && (inputs.step == 'emails' || (inputs.step == 'all' && inputs.send_emails))
+        run: node e2e/sandbox/run.ts emails
+      - name: Clean up
+        if: always() && (inputs.step == 'cleanup' || (inputs.step == 'all' && inputs.cleanup_after))
+        run: node e2e/sandbox/run.ts cleanup
