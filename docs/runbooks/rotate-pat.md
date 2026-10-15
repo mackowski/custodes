@@ -7,6 +7,12 @@ from the GitHub token page into a GitHub Environment secret, and CI writes it in
    Name `custodes-<agent>`, resource owner: the org (OWASP) if it allows fine-grained tokens, else
    your account; repositories: only the agent's; permissions: only those listed for the agent's
    actions in `docs/architecture/security-controls.md`. Expiry ≤ 90 days.
+
+   **Exception: `pr-gate`** (ADR 0011 amendment). OWASP does not allow a fine-grained token, so use
+   Settings → Developer settings → **Tokens (classic)** → Generate new token (classic). Note
+   `custodes-pr-gate`, expiry ≤ 90 days, and tick **only `public_repo`**: no `repo`, `workflow`,
+   `admin:*`, `delete_repo` or any other scope. Store it as `PAT_PR_GATE`.
+
 2. In the repository → Settings → Environments → `prod` → add or update the secret
    `PAT_<AGENT>` (upper-case, dashes become underscores: `PAT_HELLO`, `PAT_PR_REVIEW`).
 3. If this is a new agent, add one line to `.github/workflows/deploy-workers.yml` under

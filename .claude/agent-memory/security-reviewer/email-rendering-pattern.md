@@ -12,6 +12,8 @@ Seen twice now:
 - 2026-09-28 triage review: `summary` sanitized, titles kept links, `dropped` entries were raw model slices.
 - 2026-10-01 specialists review: `verifyEvidence` pushed `evidence in "<model file name>"` into `dropped` with only `normalize()` (no link strip) and `digest.ts` joined `dropped` raw. Same shape, new module.
 
+- 2026-10-15 pr-gate review: `pr-gate/summary.ts` rendered PR titles with plain `inertText` instead of triage's `inertNoLinks` (`triage/assess.ts`). New agent, same gap: check every new renderer imports the link-stripping helper.
+
 Second pattern: text the operator is meant to **paste into GitHub** (suggested comments) needs Markdown-aware sanitizing, not just `https?://` stripping: `[t](//host/x)`, `<a href=...>`, `<img src=...>`, reference-style `[t]: //host` all render as links/trackers on GitHub. Bare domains (`evil.example/x`) also get auto-linked by mail clients.
 
 **Why:** A phishing URL or fake digest line in the operator's inbox is the main impact channel for a read-only agent; the doc claims the control exists, so a gap is a silent one.

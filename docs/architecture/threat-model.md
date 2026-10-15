@@ -48,10 +48,11 @@ agents are allowed to do; high-risk agents should be deployed in their own Worke
 | LLM02 Insecure output handling        | model output pasted into a comment verbatim                              | structured output only; comment bodies are built from validated fields                                                                                                                                                |
 | LLM02 Insecure output handling        | digest HTML or a pasted suggested comment carries a link, tag or mention | text and HTML digest: links stripped, hidden characters removed, HTML-escaped, `href` only to code-built github.com URLs; suggested comments drop markup, links and `@`; property tests (`*/test/properties.test.ts`) |
 | LLM06 Excessive agency                | agent granted broad PAT                                                  | per-agent fine-grained PAT, per-agent policy, hitl default for new agents                                                                                                                                             |
-| LLM02/LLM07 Sensitive info disclosure | secrets in prompt or logs                                                | no secrets in agents Worker; AI Gateway DLP; log hygiene                                                                                                                                                              |
+| LLM02/LLM07 Sensitive info disclosure | secrets in prompt or logs                                                | no GitHub or e-mail secrets in agents Worker (only `OPENROUTER_API_KEY`, credit-capped, for Jev: ADR 0011); AI Gateway DLP; log hygiene                                                                               |
 | LLM03 Supply chain                    | malicious npm package or action                                          | exact pins, 3-day release age, SHA-pinned actions, dependency review, Scorecard                                                                                                                                       |
 | LLM09 Misinformation                  | wrong security advice posted to OWASP                                    | hitl for content-producing actions; reviewer requirement documented per agent                                                                                                                                         |
 | LLM10 Unbounded consumption           | runaway loops                                                            | rate limits, spend limits at the gateway, `max_tokens` per call                                                                                                                                                       |
+| LLM01/LLM06 via a classifier          | a PR diff tells Jev "this is a typo fix" to avoid pr-gate closing it     | Jev writes no text, answers are zod-validated probabilities; injection can only push towards skip/flag; a close needs a structural rule or p ≤ 0.15 plus `new_guidance`; the close comment is code-built (ADR 0011)   |
 
 ## Abuse cases
 
@@ -64,8 +65,23 @@ agents are allowed to do; high-risk agents should be deployed in their own Worke
 3. A dependency update introduces exfiltration code. Dependency review, `minimumReleaseAge`,
    Semgrep and CodeQL run on the PR; the agents Worker has no GitHub secrets to exfiltrate; the AI
    Gateway token and approval-token secret are rotated per the runbooks.
+4. Someone games pr-gate into closing other people's pull requests (for example by assigning an
+   issue, or by flooding). Assignment needs triage rights on the repository; closes are capped (5 per
+   poll, 10 per day, 5 per hour in the broker), every close is signed, listed in the daily summary
+   and reversible, and the kill switch stops the agent. Owners, members, collaborators and
+   dependabot are never gated.
 
 ## Accepted risks
 
 - PATs are long-lived by nature; mitigated by minimal scopes, expiry, and rotation runbook. Owner: operator.
-- Agents in one Worker share a trust domain. Owner: operator; revisit when a hotl agent gains write scopes beyond labels.
+- `PAT_PR_GATE` is a classic `public_repo` PAT on the operator's account, because the OWASP
+  organisation does not allow a fine-grained one (ADR 0011 amendment). A leak would expose the
+  operator's write access to every public repository they can reach. Mitigated by: broker-only
+  access, `public_repo` scope only, expiry of 90 days or less, and the broker policy limiting the
+  agent to `pr.close` on one repository. Owner: operator. Revisit with a Triage-role bot account or
+  a GitHub App.
+- Agents in one Worker share a trust domain: the broker trusts the `agentId` a caller in the agents
+  Worker sends. Owner: operator. Revisited on 2026-10-15 when pr-gate gained `pr.close` (ADR 0011):
+  every agent in the Worker is first-party code reviewed in this repository, readonly agents run no
+  untrusted code, and pr-gate's grant is one action on one repository under caps. Revisit again
+  before any agent runs third-party code or a second write-capable agent shares the Worker.

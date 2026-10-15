@@ -59,6 +59,8 @@ export function summariseAction(req: ApprovalRequest): string {
       return `remove labels [${a.labels.join(', ')}] from ${a.repo}#${a.issue}`;
     case 'pr.review':
       return `${a.event} review on ${a.repo}#${a.pull}`;
+    case 'pr.close':
+      return `comment on and close ${a.repo}#${a.pull}`;
   }
 }
 

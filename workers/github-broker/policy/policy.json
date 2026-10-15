@@ -9,6 +9,15 @@
       "actions": ["issue.comment"],
       "requiresApproval": [],
       "rateLimitPerHour": 5
+    },
+    "pr-gate": {
+      "$comment": "ADR 0011: closes community PRs that break CONTRIBUTING.md, with a signed comment. hotl; the agent also caps itself at 10 closes per UTC day.",
+      "tokenBinding": "PAT_PR_GATE",
+      "mode": "hotl",
+      "repos": ["OWASP/CheatSheetSeries"],
+      "actions": ["pr.close"],
+      "requiresApproval": [],
+      "rateLimitPerHour": 5
     }
   },
   "reads": {
@@ -26,6 +35,11 @@
       "tokenBinding": "PAT_READONLY",
       "repos": ["OWASP/CheatSheetSeries"],
       "resources": ["issue", "comments", "timeline", "labels", "cheatsheets", "cheatsheet"]
+    },
+    "pr-gate": {
+      "tokenBinding": "PAT_READONLY",
+      "repos": ["OWASP/CheatSheetSeries"],
+      "resources": ["pulls", "pull_files", "issue"]
     }
   }
 }

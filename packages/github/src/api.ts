@@ -64,6 +64,11 @@ export class GitHubRest {
       body,
     });
   }
+  closePull(repo: string, pull: number) {
+    return this.call<{ state: string }>('PATCH', `/repos/${repo}/pulls/${pull}`, {
+      state: 'closed',
+    });
+  }
 }
 
 /** Executes one already-authorised action. `decorate` appends trailers to any text body. */
@@ -94,6 +99,13 @@ export async function executeAction(
         action.event,
         decorate(action.body),
       );
+      return { githubUrl: r.html_url };
+    }
+    case 'pr.close': {
+      // Comment first: a pull request is never closed without its signed reason. If the close
+      // then fails, the broker reports github_error and the comment explains a close to come.
+      const r = await api.createIssueComment(action.repo, action.pull, decorate(action.body));
+      await api.closePull(action.repo, action.pull);
       return { githubUrl: r.html_url };
     }
   }

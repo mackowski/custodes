@@ -56,6 +56,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: 5f62912564df344533c9563904c77662
           SECRETS_STORE_ID: 92c5c38062fc4da98fad1fe4f5a8bda1
           PAT_HELLO: ${{ secrets.PAT_HELLO }}
+          PAT_PR_GATE: ${{ secrets.PAT_PR_GATE }}
           PAT_READONLY: ${{ secrets.PAT_READONLY }}
         run: ./scripts/sync-agent-secrets.sh
       - name: Apply D1 migrations
@@ -76,9 +77,12 @@ jobs:
           secrets: |
             AI_GATEWAY_TOKEN
             APPROVAL_TOKEN_SECRET
+            OPENROUTER_API_KEY
         env:
           AI_GATEWAY_TOKEN: ${{ secrets.AI_GATEWAY_TOKEN }}
           APPROVAL_TOKEN_SECRET: ${{ secrets.APPROVAL_TOKEN_SECRET }}
+          # Jev for pr-gate (ADR 0011: AI Gateway cannot forward the Decisions API yet).
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
       - name: Deploy gateway
         uses: cloudflare/wrangler-action@953926a2e2182532811c01a25e53647d93bf07c0 # v4
         with:

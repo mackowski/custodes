@@ -28,11 +28,12 @@
 
 ## Broker actions and the PAT permission each needs
 
-| Action                                   | GitHub REST call                           | Fine-grained PAT permission                                |
-| ---------------------------------------- | ------------------------------------------ | ---------------------------------------------------------- |
-| `issue.comment`, `pr.comment`            | `POST /repos/{r}/issues/{n}/comments`      | Issues: read & write (PR comments use the issues endpoint) |
-| `issue.label.add` / `issue.label.remove` | `POST/DELETE /repos/{r}/issues/{n}/labels` | Issues: read & write                                       |
-| `pr.review`                              | `POST /repos/{r}/pulls/{n}/reviews`        | Pull requests: read & write                                |
+| Action                                   | GitHub REST call                                                | Fine-grained PAT permission                                |
+| ---------------------------------------- | --------------------------------------------------------------- | ---------------------------------------------------------- |
+| `issue.comment`, `pr.comment`            | `POST /repos/{r}/issues/{n}/comments`                           | Issues: read & write (PR comments use the issues endpoint) |
+| `issue.label.add` / `issue.label.remove` | `POST/DELETE /repos/{r}/issues/{n}/labels`                      | Issues: read & write                                       |
+| `pr.review`                              | `POST /repos/{r}/pulls/{n}/reviews`                             | Pull requests: read & write                                |
+| `pr.close`                               | `POST …/issues/{n}/comments`, then `PATCH /repos/{r}/pulls/{n}` | Pull requests: read & write (covers the PR comment too)    |
 
 Read-only inputs (listing issues, reading diffs) on public repositories need no token; when a token
 is needed for rate limits, it will be a separate read-only PAT held by the broker (future `/v1/read`).

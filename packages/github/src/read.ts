@@ -23,6 +23,8 @@ export function buildReadPath(
       return `${numberedBase(req.resource, req.repo, required(req.number))}?${paging(req.query)}`;
     case 'cheatsheet':
       return `/repos/${req.repo}/contents/cheatsheets/${encodeURIComponent(required(req.file))}`;
+    case 'pulls':
+      return `/repos/${req.repo}/pulls?${pullsQuery(req.query)}`;
   }
 }
 
@@ -34,6 +36,17 @@ function numberedBase(resource: 'timeline' | 'comments' | 'pull_files', repo: st
 /** Only paging is honoured on numbered resources; other query fields are ignored. */
 function paging(query: BrokerReadRequest['query']): string {
   return `per_page=${query.per_page ?? 100}&page=${query.page ?? 1}`;
+}
+
+/** The pulls endpoint has no `since` or `labels` filter; GitHub would ignore them, so we drop them. */
+function pullsQuery(query: BrokerReadRequest['query']): string {
+  const q = new URLSearchParams({ state: query.state ?? 'open' });
+  if (query.sort !== undefined)
+    q.set('sort', query.sort === 'comments' ? 'popularity' : query.sort);
+  if (query.direction !== undefined) q.set('direction', query.direction);
+  q.set('per_page', String(query.per_page ?? 100));
+  q.set('page', String(query.page ?? 1));
+  return q.toString();
 }
 
 function required<T>(v: T | undefined): T {

@@ -35,6 +35,44 @@ describe('GitHubRest', () => {
   });
 });
 
+describe('executeAction pr.close', () => {
+  const action = { type: 'pr.close' as const, repo: 'o/r', pull: 7, body: 'reason' };
+
+  it('posts the decorated comment first, then closes the pull request, and never merges', async () => {
+    const calls: { url: string; method: string; body: unknown }[] = [];
+    const fetchMock = vi.fn((url: string, init: RequestInit) => {
+      calls.push({ url, method: init.method ?? '', body: JSON.parse(init.body as string) });
+      return Promise.resolve(
+        Response.json({ html_url: 'https://github.com/o/r/pull/7#c', state: 'closed' }),
+      );
+    });
+    const api = new GitHubRest(id, fetchMock as unknown as typeof fetch);
+    const r = await executeAction(api, action, (b) => `${b}\n--trailer`);
+    expect(r.githubUrl).toBe('https://github.com/o/r/pull/7#c');
+    expect(calls).toEqual([
+      {
+        url: 'https://api.github.com/repos/o/r/issues/7/comments',
+        method: 'POST',
+        body: { body: 'reason\n--trailer' },
+      },
+      {
+        url: 'https://api.github.com/repos/o/r/pulls/7',
+        method: 'PATCH',
+        body: { state: 'closed' },
+      },
+    ]);
+  });
+
+  it('does not close the pull request when the comment fails', async () => {
+    const fetchMock = vi.fn(() => Promise.resolve(new Response('forbidden', { status: 403 })));
+    const api = new GitHubRest(id, fetchMock);
+    await expect(executeAction(api, action, (b) => b)).rejects.toThrow(/GitHub 403/);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url] = fetchMock.mock.calls[0] as unknown as [string];
+    expect(url).toContain('/issues/7/comments');
+  });
+});
+
 describe('GitHubRest default fetch', () => {
   it('calls the global fetch unbound (a bound call throws "Illegal invocation" in Workers)', async () => {
     let receiver: unknown = 'not called';
@@ -106,5 +144,40 @@ describe('buildReadPath', () => {
         query: { state: 'open', labels: 'ACK_OBTAINED' },
       }),
     ).toBe('/repos/o/r/issues?state=open&labels=ACK_OBTAINED');
+  });
+});
+
+describe('buildReadPath pulls', () => {
+  it('lists pull requests with defaults', async () => {
+    const { buildReadPath } = await import('../src/read.js');
+    expect(buildReadPath({ repo: 'o/r', resource: 'pulls', query: {} })).toBe(
+      '/repos/o/r/pulls?state=open&per_page=100&page=1',
+    );
+  });
+
+  it('honours state, sort, direction and paging but drops since and labels', async () => {
+    const { buildReadPath } = await import('../src/read.js');
+    expect(
+      buildReadPath({
+        repo: 'o/r',
+        resource: 'pulls',
+        query: {
+          state: 'all',
+          sort: 'updated',
+          direction: 'asc',
+          per_page: 30,
+          page: 2,
+          since: '2026-09-01T00:00:00Z',
+          labels: 'ACK_OBTAINED',
+        },
+      }),
+    ).toBe('/repos/o/r/pulls?state=all&sort=updated&direction=asc&per_page=30&page=2');
+  });
+
+  it('maps the issues sort "comments" to the pulls sort "popularity"', async () => {
+    const { buildReadPath } = await import('../src/read.js');
+    expect(buildReadPath({ repo: 'o/r', resource: 'pulls', query: { sort: 'comments' } })).toBe(
+      '/repos/o/r/pulls?state=open&sort=popularity&per_page=100&page=1',
+    );
   });
 });

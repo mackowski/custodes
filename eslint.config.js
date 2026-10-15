@@ -52,7 +52,13 @@ export default defineConfig(
     },
   },
   {
-    files: ['eslint.config.js', '**/*.config.{js,mjs,ts}', 'scripts/**/*.ts', 'apps/cli/**/*.ts'],
+    files: [
+      'eslint.config.js',
+      '**/*.config.{js,mjs,ts}',
+      'scripts/**/*.ts',
+      'apps/cli/**/*.ts',
+      'evals/**/*.mjs',
+    ],
     languageOptions: { globals: { ...globals.node } },
   },
   prettier,

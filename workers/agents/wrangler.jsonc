@@ -16,8 +16,16 @@
     "EMAIL_DOMAIN": "custodes.work",
     // Recipient of digests. Must be a verified Email Routing destination (infra/terraform email module).
     "OPERATOR_EMAIL": "jkb.mackowski@gmail.com",
+    // pr-gate closes pull requests while this is "true" (ADR 0011). "false" is a soft stop: it keeps
+    // evaluating and only reports what it would close. The hard stop is the kill switch.
+    "PR_GATE_ENFORCE": "true",
+    // Jev transport (ADR 0011). AI Gateway's openrouter provider returns 404 for OpenRouter's
+    // /api/alpha/decisions (Diagnose run 38715467646, 2026-10-15), so Jev is called directly with
+    // the OPENROUTER_API_KEY Worker secret (set by CI). Switch to "gateway" when it is supported.
+    "JEV_TRANSPORT": "direct",
+    "JEV_GATEWAY_PATH": "api/alpha/decisions",
   },
-  // Secrets (set by CI on deploy): AI_GATEWAY_TOKEN, APPROVAL_TOKEN_SECRET
+  // Secrets (set by CI on deploy): AI_GATEWAY_TOKEN, APPROVAL_TOKEN_SECRET, OPENROUTER_API_KEY
   "durable_objects": {
     "bindings": [
       { "name": "HelloAgent", "class_name": "HelloAgent" },
@@ -25,14 +33,18 @@
       // Specialists triage delegates to over RPC (read-only, own broker read policy each).
       { "name": "ImplementationCheckAgent", "class_name": "ImplementationCheckAgent" },
       { "name": "ProposalReviewAgent", "class_name": "ProposalReviewAgent" },
+      // hotl: closes community PRs that break CONTRIBUTING.md (broker policy pr-gate).
+      { "name": "PrGateAgent", "class_name": "PrGateAgent" },
     ],
   },
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["HelloAgent"] },
     { "tag": "v2", "new_sqlite_classes": ["TriageAgent"] },
     { "tag": "v3", "new_sqlite_classes": ["ImplementationCheckAgent", "ProposalReviewAgent"] },
+    { "tag": "v4", "new_sqlite_classes": ["PrGateAgent"] },
   ],
   // Must match CRON_TRIAGE_POLL / CRON_TRIAGE_PREPARE / CRON_TRIAGE_DIGEST in src/index.ts (UTC).
+  // pr-gate shares them (polls on the first two, summary with the digest).
   "triggers": { "crons": ["17 */4 * * *", "30 5 * * *", "0 7 * * *"] },
   "kv_namespaces": [{ "binding": "KILL_SWITCH", "id": "841e2b0dd14d48fbac292217839957a4" }],
   "services": [{ "binding": "BROKER", "service": "custodes-github-broker" }],

@@ -26,6 +26,8 @@ export const BrokerAction = z.discriminatedUnion('type', [
     event: z.enum(['COMMENT', 'REQUEST_CHANGES', 'APPROVE']),
     body,
   }),
+  /** Posts the (signed) reason as a comment, then closes the pull request. Never merges. */
+  z.object({ type: z.literal('pr.close'), ...pullRef, body }),
 ]);
 export type BrokerAction = z.infer<typeof BrokerAction>;
 

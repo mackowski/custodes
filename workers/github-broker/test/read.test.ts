@@ -122,3 +122,50 @@ describe('broker read()', () => {
     expect(ok({ resource: 'issues', query: { labels: 'a,b' } })).toBe(false);
   });
 });
+
+describe('broker read() for pr-gate', () => {
+  it('may read pulls, pull files and single issues with the read-only token', async () => {
+    const fetchImpl = vi.fn((_u: RequestInfo | URL, _i?: RequestInit) =>
+      Promise.resolve(Response.json([])),
+    );
+    const gate = (over: Partial<BrokerReadRequest>) => req({ agentId: 'pr-gate', ...over });
+    expect((await read(testEnv, gate({ resource: 'pulls' }), fetchImpl)).ok).toBe(true);
+    expect((await read(testEnv, gate({ resource: 'pull_files', number: 3 }), fetchImpl)).ok).toBe(
+      true,
+    );
+    expect((await read(testEnv, gate({ resource: 'issue', number: 3 }), fetchImpl)).ok).toBe(true);
+    expect(fetchImpl.mock.calls.map((c) => c[0])).toEqual([
+      'https://api.github.com/repos/OWASP/CheatSheetSeries/pulls?state=open&per_page=100&page=1',
+      'https://api.github.com/repos/OWASP/CheatSheetSeries/pulls/3/files?per_page=100&page=1',
+      'https://api.github.com/repos/OWASP/CheatSheetSeries/issues/3',
+    ]);
+  });
+
+  it('denies pr-gate timelines, comments and file contents before any network call', async () => {
+    const fetchImpl = vi.fn();
+    const gate = (over: Partial<BrokerReadRequest>) => req({ agentId: 'pr-gate', ...over });
+    for (const r of [
+      gate({ resource: 'timeline', number: 1 }),
+      gate({ resource: 'comments', number: 1 }),
+      gate({ resource: 'cheatsheet', file: 'A_Cheat_Sheet.md' }),
+    ]) {
+      expect(await read(testEnv, r, fetchImpl)).toMatchObject({
+        ok: false,
+        code: 'policy_denied',
+      });
+    }
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('denies pr-gate reads outside CheatSheetSeries', async () => {
+    const fetchImpl = vi.fn();
+    expect(
+      await read(
+        testEnv,
+        req({ agentId: 'pr-gate', repo: 'evil/repo', resource: 'pulls' }),
+        fetchImpl,
+      ),
+    ).toMatchObject({ ok: false, code: 'policy_denied' });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+});

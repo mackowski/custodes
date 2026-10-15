@@ -1,5 +1,5 @@
 import { env } from 'cloudflare:workers';
-import { beforeAll, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   canonicalJson,
   importPublicKey,
@@ -31,7 +31,15 @@ let testEnv: BrokerEnv;
 beforeAll(() => {
   // Test double for the Secrets Store PAT binding. GitHub is never reached in these tests because
   // every case is denied before the execute step.
-  testEnv = { ...env, PAT_HELLO: { get: () => Promise.resolve('unused') } };
+  testEnv = {
+    ...env,
+    PAT_HELLO: { get: () => Promise.resolve('unused') },
+    PAT_PR_GATE: { get: () => Promise.resolve('unused') },
+  };
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
 });
 
 describe('broker act()', () => {
@@ -108,5 +116,44 @@ describe('broker act()', () => {
     });
     expect(res).toMatchObject({ ok: false, code: 'unknown_agent' });
     expect((await keyring(env).publicKeys()).some((k) => k.agentId === 'ghost')).toBe(false);
+  });
+});
+
+describe('broker act() when execution fails half way', () => {
+  it('signs the failure under the trailer id and counts it against the rate limit', async () => {
+    const gate: BrokerRequest = {
+      ...base,
+      agentId: 'pr-gate',
+      action: { type: 'pr.close', repo: 'OWASP/CheatSheetSeries', pull: 7, body: 'closing' },
+    };
+    let postedBody = '';
+    const calls: string[] = [];
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
+      const url = input instanceof Request ? input.url : String(input);
+      calls.push(`${init?.method ?? 'GET'} ${new URL(url).pathname}`);
+      if (init?.method === 'POST') {
+        postedBody = (JSON.parse(init.body as string) as { body: string }).body;
+        return Promise.resolve(
+          Response.json({ html_url: 'https://github.com/OWASP/CheatSheetSeries/pull/7#c1' }),
+        );
+      }
+      return Promise.resolve(new Response('Resource not accessible', { status: 403 }));
+    });
+    const store = new AuditStore(env.AUDIT);
+    const hourAgo = new Date(Date.now() - 3600_000).toISOString();
+    const before = await store.countAllowedSince('pr-gate', hourAgo);
+    const res = await act(testEnv, gate);
+    expect(calls).toEqual([
+      'POST /repos/OWASP/CheatSheetSeries/issues/7/comments',
+      'PATCH /repos/OWASP/CheatSheetSeries/pulls/7',
+    ]);
+    if (res.ok || !res.attestationId) throw new Error('expected a signed github_error');
+    expect(res.code).toBe('github_error');
+    // The posted comment's trailer names this attestation, and it exists and verifies.
+    expect(postedBody).toContain(res.attestationId);
+    const att = await store.get(res.attestationId);
+    expect(att?.record.decision).toBe('denied');
+    expect(att?.record.reason).toMatch(/^execution failed: /);
+    expect(await store.countAllowedSince('pr-gate', hourAgo)).toBe(before + 1);
   });
 });
