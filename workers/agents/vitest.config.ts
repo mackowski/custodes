@@ -16,7 +16,11 @@ export default defineConfig({
       wrangler: { configPath: './wrangler.jsonc' },
       miniflare: {
         kvNamespaces: ['KILL_SWITCH'],
-        bindings: { AI_GATEWAY_TOKEN: 'test', APPROVAL_TOKEN_SECRET: 'test-approval-secret' },
+        bindings: {
+          AI_GATEWAY_TOKEN: 'test',
+          APPROVAL_TOKEN_SECRET: 'test-approval-secret',
+          OPENROUTER_API_KEY: 'test',
+        },
         workers: [brokerStub],
       },
     }),

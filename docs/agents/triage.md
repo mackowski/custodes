@@ -1,6 +1,6 @@
 # triage
 
-- Version: 0.2.0 · Mode: **readonly** · Repository: OWASP/CheatSheetSeries
+- Version: 0.2.0 · Mode: **readonly** · Repositories: OWASP/CheatSheetSeries; mackowski/custodes-sandbox for tests (ADR 0012, run on demand only)
 - Class: `workers/agents/src/agents/triage.ts` · Logic: `workers/agents/src/agents/triage/`
 - Policy: no `agents` entry (read-only agents may request no side effects, and the broker denies
   `readonly` agents even if one is added). A `reads` entry allows GET-only reads of this repository.

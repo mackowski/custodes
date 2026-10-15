@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { AgentHaltedError, CustodesAgent } from '@custodes/core/agent';
 import { AnthropicGateway } from '@custodes/llm';
 import type { AgentsEnv } from '../../env.js';
+import { instanceOf } from '../../instances.js';
 import { describeError } from '../triage/errors.js';
 import { BrokerGitHubReader } from '../triage/github.js';
 import { assessRequest, selectRequest } from './model.js';
@@ -101,7 +102,7 @@ export abstract class SpecialistAgent extends CustodesAgent<AgentsEnv, Specialis
   ): boolean;
 
   private get repo(): string {
-    return this.manifest.repos[0] ?? 'OWASP/CheatSheetSeries';
+    return instanceOf(this.name).repo;
   }
 
   private ensureSchema(): void {
@@ -282,8 +283,13 @@ export abstract class SpecialistAgent extends CustodesAgent<AgentsEnv, Specialis
       state: this.state,
       killSwitch: await this.killSwitch.state(this.manifest.id),
       queued: this.sql<{ n: number }>`SELECT COUNT(*) AS n FROM jobs`[0]?.n ?? 0,
-      recent: this.sql<{ issue: number; checked_at: string }>`SELECT issue, checked_at
-        FROM results ORDER BY checked_at DESC LIMIT 20`,
+      // Validated, sanitised results (the digest shows the same); operators only, through Access.
+      recent: this.sql<{ issue: number; checked_at: string; result: string }>`SELECT issue,
+        checked_at, result FROM results ORDER BY checked_at DESC LIMIT 20`.map((r) => ({
+        issue: r.issue,
+        checkedAt: r.checked_at,
+        result: JSON.parse(r.result) as unknown,
+      })),
     });
   }
 

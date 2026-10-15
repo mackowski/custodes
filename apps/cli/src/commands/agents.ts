@@ -1,4 +1,4 @@
-import { Command } from 'commander';
+import { Command, InvalidArgumentError } from 'commander';
 import { z } from 'zod';
 import { AgentManifest, KillSwitchState } from '@custodes/schema';
 import { ApiClient } from '../client.js';
@@ -11,6 +11,16 @@ const Status = z.object({
   state: z.unknown(),
   killSwitch: KillSwitchState,
 });
+
+const Report = z.object({ subject: z.string(), text: z.string(), html: z.string() });
+
+const STEPS = ['run', 'digest', 'summary'] as const;
+type Step = (typeof STEPS)[number];
+export function parseStep(v: string): Step {
+  if (!(STEPS as readonly string[]).includes(v))
+    throw new InvalidArgumentError(`must be one of ${STEPS.join(', ')}`);
+  return v as Step;
+}
 
 export function agentsCommand(): Command {
   const cmd = new Command('agents').description('list, inspect, run, halt and resume agents');
@@ -45,18 +55,40 @@ export function agentsCommand(): Command {
 
   cmd
     .command('run <agent>')
-    .description('trigger one run of an agent instance now')
+    .description(
+      'trigger one run of an agent instance now (sandbox instances only for triage and pr-gate)',
+    )
     .option('--instance <name>', 'instance name', 'default')
-    .action(async (agent: string, o: { instance: string }, c: Command) => {
+    .option(
+      '--step <step>',
+      'run (poll), digest (triage e-mail) or summary (pr-gate e-mail)',
+      parseStep,
+      'run',
+    )
+    .action(async (agent: string, o: { instance: string; step: Step }, c: Command) => {
       const cfg = loadConfig(c.optsWithGlobals());
       print(
         cfg.json,
         await new ApiClient(cfg).call(
           'POST',
-          `/agents/${toKebab(agent)}/${o.instance}/run`,
+          `/agents/${toKebab(agent)}/${encodeURIComponent(o.instance)}/${o.step}`,
           z.unknown(),
         ),
       );
+    });
+
+  cmd
+    .command('report <agent>')
+    .description('show the e-mail an agent would send now, without sending it (pr-gate)')
+    .option('--instance <name>', 'instance name', 'default')
+    .action(async (agent: string, o: { instance: string }, c: Command) => {
+      const cfg = loadConfig(c.optsWithGlobals());
+      const r = await new ApiClient(cfg).call(
+        'GET',
+        `/agents/${toKebab(agent)}/${encodeURIComponent(o.instance)}/report`,
+        Report,
+      );
+      print(cfg.json, r, () => `${r.subject}\n\n${r.text}`);
     });
 
   cmd

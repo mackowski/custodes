@@ -1,6 +1,6 @@
 # implementation-check
 
-- Version: 0.1.0 · Mode: **readonly** · Repository: OWASP/CheatSheetSeries
+- Version: 0.1.0 · Mode: **readonly** · Repositories: OWASP/CheatSheetSeries; mackowski/custodes-sandbox for tests (ADR 0012, run on demand only)
 - Class: `workers/agents/src/agents/implementation-check.ts` · Logic: `workers/agents/src/agents/specialists/`
 - Policy: no `agents` entry. `reads.implementation-check` allows `issue`, `timeline`, `pull_files`,
   `cheatsheets`, `cheatsheet` (ADR 0010).

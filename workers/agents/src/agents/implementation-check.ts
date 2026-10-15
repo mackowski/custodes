@@ -1,4 +1,5 @@
 import type { AgentManifest } from '@custodes/schema';
+import { INSTANCE_REPOS } from '../instances.js';
 import { SpecialistAgent, type SpecialistJob } from './specialists/agent.js';
 import { checkImplementation } from './specialists/implementation.js';
 import type { SpecialistDeps } from './specialists/run.js';
@@ -9,7 +10,7 @@ export const IMPLEMENTATION_CHECK_MANIFEST: AgentManifest = {
   description:
     'Read-only: for issues accepted (ACK_OBTAINED) over a week ago, checks whether the cheat sheets already implement them and quotes the evidence. Called by triage.',
   mode: 'readonly',
-  repos: ['OWASP/CheatSheetSeries'],
+  repos: [...INSTANCE_REPOS],
 };
 
 /** A result is reused for this long while the issue is unchanged. */

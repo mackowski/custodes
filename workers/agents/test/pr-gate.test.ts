@@ -596,7 +596,9 @@ describe('renderSummary', () => {
         ],
       }),
     );
-    expect(r.subject).toBe('[custodes] pr-gate: 2 closed, 1 would close, 1 for you');
+    expect(r.subject).toBe(
+      '[custodes] pr-gate OWASP/CheatSheetSeries: 2 closed, 1 would close, 1 for you',
+    );
     expect(r.text).toContain('3 pull request(s) followed the guide');
     expect(r.text).toContain('Could not decide');
   });
