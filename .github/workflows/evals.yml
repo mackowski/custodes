@@ -16,6 +16,8 @@ on:
       - 'workers/agents/src/agents/specialists/proposal.ts'
       - 'workers/agents/src/agents/specialists/select.ts'
       - 'workers/agents/src/agents/specialists/model.ts'
+      - 'workers/agents/src/agents/pr-gate/minor.ts'
+      - 'packages/llm/src/jev.ts'
       - 'packages/llm/src/models.ts'
       - 'packages/llm/src/untrusted.ts'
 permissions: read-all
@@ -42,6 +44,9 @@ jobs:
           AI_GATEWAY_ACCOUNT_ID: 5f62912564df344533c9563904c77662
           AI_GATEWAY_ID: custodes
           AI_GATEWAY_TOKEN: ${{ secrets.AI_GATEWAY_TOKEN }}
+          # Jev (pr-gate) goes through the gateway at this path, as the agent does (ADR 0011). For the
+          # direct fallback add JEV_TRANSPORT: direct and OPENROUTER_API_KEY here.
+          JEV_GATEWAY_PATH: api/alpha/decisions
         run: |
           # One config per agent that calls a model: evals/agents/<agent>/promptfooconfig.yaml
           for config in agents/*/promptfooconfig.yaml; do

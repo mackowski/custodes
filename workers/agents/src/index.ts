@@ -1,5 +1,6 @@
 import { getAgentByName, routeAgentRequest } from 'agents';
 import { InboundEvent } from '@custodes/schema';
+import { PR_GATE_INSTANCE } from './agents/pr-gate.js';
 import { TRIAGE_INSTANCE } from './agents/triage.js';
 import type { AgentsEnv } from './env.js';
 import { REGISTRY } from './registry.js';
@@ -8,6 +9,7 @@ export { HelloAgent } from './agents/hello.js';
 export { TriageAgent } from './agents/triage.js';
 export { ImplementationCheckAgent } from './agents/implementation-check.js';
 export { ProposalReviewAgent } from './agents/proposal-review.js';
+export { PrGateAgent } from './agents/pr-gate.js';
 
 /** Must match wrangler.jsonc triggers.crons. */
 export const CRON_TRIAGE_POLL = '17 */4 * * *';
@@ -28,17 +30,31 @@ export default {
       console.warn(JSON.stringify({ event: 'cron.unknown', cron: controller.cron }));
       return;
     }
-    const triage = await getAgentByName(env.TriageAgent, TRIAGE_INSTANCE);
-    const result =
-      controller.cron === CRON_TRIAGE_DIGEST ? await triage.sendDigest() : await triage.poll();
-    console.log(
-      JSON.stringify({
-        event: 'cron',
-        cron: controller.cron,
-        ok: result.ok,
-        detail: result.detail,
-      }),
-    );
+    const digest = controller.cron === CRON_TRIAGE_DIGEST;
+    // Independent agents: one failing or halted must not stop the other.
+    const jobs = {
+      triage: async () => {
+        const triage = await getAgentByName(env.TriageAgent, TRIAGE_INSTANCE);
+        return digest ? triage.sendDigest() : triage.poll();
+      },
+      'pr-gate': async () => {
+        const gate = await getAgentByName(env.PrGateAgent, PR_GATE_INSTANCE);
+        return digest ? gate.sendSummary() : gate.poll();
+      },
+    };
+    const results = await Promise.allSettled(Object.values(jobs).map((run) => run()));
+    Object.keys(jobs).forEach((agent, i) => {
+      const r = results[i];
+      console.log(
+        JSON.stringify({
+          event: 'cron',
+          cron: controller.cron,
+          agent,
+          ok: r?.status === 'fulfilled' && r.value.ok,
+          detail: r?.status === 'fulfilled' ? r.value.detail : 'threw',
+        }),
+      );
+    });
   },
 
   /** Webhook events queued by the gateway. Dispatch by repo/event to the agent that owns it. */

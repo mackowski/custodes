@@ -19,6 +19,8 @@ export const ReadResource = z.enum([
   'pull_files',
   /** One cheat sheet's content (needs `file`). */
   'cheatsheet',
+  /** Pull requests (state, sort, direction and paging honoured). */
+  'pulls',
 ]);
 export type ReadResource = z.infer<typeof ReadResource>;
 

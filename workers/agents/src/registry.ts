@@ -1,6 +1,7 @@
 import type { AgentManifest } from '@custodes/schema';
 import { HELLO_MANIFEST } from './agents/hello.js';
 import { IMPLEMENTATION_CHECK_MANIFEST } from './agents/implementation-check.js';
+import { PR_GATE_MANIFEST } from './agents/pr-gate.js';
 import { PROPOSAL_REVIEW_MANIFEST } from './agents/proposal-review.js';
 import { TRIAGE_MANIFEST } from './agents/triage.js';
 
@@ -13,4 +14,5 @@ export const REGISTRY: readonly AgentManifest[] = [
   TRIAGE_MANIFEST,
   IMPLEMENTATION_CHECK_MANIFEST,
   PROPOSAL_REVIEW_MANIFEST,
+  PR_GATE_MANIFEST,
 ];

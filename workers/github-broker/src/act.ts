@@ -22,7 +22,7 @@ import type {
 } from '@custodes/schema';
 import { keyring, secretBinding, type BrokerEnv } from './env.js';
 import { policy } from './policy.js';
-import { ApprovalStore, AuditStore } from './store.js';
+import { ApprovalStore, AuditStore, EXECUTION_FAILED } from './store.js';
 
 /**
  * The broker pipeline for one requested side effect:
@@ -113,8 +113,20 @@ export async function act(
     );
     githubUrl = result.githubUrl;
   } catch (err) {
-    const reason = err instanceof GitHubApiError ? err.message : 'github request failed';
-    return deny('github_error', reason);
+    // Execution started, so part of the action may be live (pr.close posts its comment before
+    // closing). Record it under the id already written into that comment's trailer, so /verify
+    // works, and so the rate limit counts it (EXECUTION_FAILED prefix, see countAllowedSince).
+    const detail = err instanceof GitHubApiError ? err.message : 'github request failed';
+    const reason = `${EXECUTION_FAILED}${detail}`.slice(0, 500);
+    const record = await buildAuditRecord({
+      request: req,
+      decision: 'denied',
+      reason,
+      now,
+      id: attestationId,
+    });
+    await attest(record);
+    return { ok: false, code: 'github_error', reason, attestationId };
   }
 
   const record = await buildAuditRecord({

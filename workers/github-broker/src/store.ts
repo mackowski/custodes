@@ -65,16 +65,22 @@ export class AuditStore {
     );
   }
 
+  /** Side effects attempted: allowed ones plus those whose execution started and then failed. */
   async countAllowedSince(agentId: string, sinceIso: string): Promise<number> {
     const row = await this.db
       .prepare(
-        `SELECT COUNT(*) AS n FROM audit WHERE agent_id = ?1 AND decision = 'allowed' AND ts >= ?2`,
+        `SELECT COUNT(*) AS n FROM audit WHERE agent_id = ?1 AND ts >= ?2
+          AND (decision = 'allowed' OR (decision = 'denied'
+            AND substr(json_extract(record_json, '$.reason'), 1, ?3) = ?4))`,
       )
-      .bind(agentId, sinceIso)
+      .bind(agentId, sinceIso, EXECUTION_FAILED.length, EXECUTION_FAILED)
       .first<{ n: number }>();
     return row?.n ?? 0;
   }
 }
+
+/** Reason prefix for an action whose GitHub execution started and failed (possibly half done). */
+export const EXECUTION_FAILED = 'execution failed: ';
 
 interface ApprovalRow {
   id: string;

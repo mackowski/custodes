@@ -16,6 +16,14 @@
     "EMAIL_DOMAIN": "custodes.work",
     // Recipient of digests. Must be a verified Email Routing destination (infra/terraform email module).
     "OPERATOR_EMAIL": "jkb.mackowski@gmail.com",
+    // pr-gate closes pull requests only when this is "true" (ADR 0011). Flip it in a reviewed PR
+    // after a dry-run summary looked right; until then it only reports what it would close.
+    "PR_GATE_ENFORCE": "false",
+    // Jev transport (ADR 0011): "gateway" (BYOK key in AI Gateway) or "direct" (needs the
+    // OPENROUTER_API_KEY Worker secret, added to deploy-workers.yml only if the gateway fallback is adopted).
+    "JEV_TRANSPORT": "gateway",
+    // Path under AI Gateway's openrouter provider that reaches /api/alpha/decisions.
+    "JEV_GATEWAY_PATH": "api/alpha/decisions",
   },
   // Secrets (set by CI on deploy): AI_GATEWAY_TOKEN, APPROVAL_TOKEN_SECRET
   "durable_objects": {
@@ -25,14 +33,17 @@
       // Specialists triage delegates to over RPC (read-only, own broker read policy each).
       { "name": "ImplementationCheckAgent", "class_name": "ImplementationCheckAgent" },
       { "name": "ProposalReviewAgent", "class_name": "ProposalReviewAgent" },
+      // hotl: closes community PRs that break CONTRIBUTING.md (broker policy pr-gate).
+      { "name": "PrGateAgent", "class_name": "PrGateAgent" },
     ],
   },
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["HelloAgent"] },
     { "tag": "v2", "new_sqlite_classes": ["TriageAgent"] },
     { "tag": "v3", "new_sqlite_classes": ["ImplementationCheckAgent", "ProposalReviewAgent"] },
+    { "tag": "v4", "new_sqlite_classes": ["PrGateAgent"] },
   ],
-  // Must match CRON_TRIAGE_POLL / CRON_TRIAGE_DIGEST in src/index.ts (UTC).
+  // Must match CRON_TRIAGE_POLL / CRON_TRIAGE_DIGEST in src/index.ts (UTC). pr-gate shares them.
   "triggers": { "crons": ["17 */4 * * *", "0 7 * * *"] },
   "kv_namespaces": [{ "binding": "KILL_SWITCH", "id": "841e2b0dd14d48fbac292217839957a4" }],
   "services": [{ "binding": "BROKER", "service": "custodes-github-broker" }],

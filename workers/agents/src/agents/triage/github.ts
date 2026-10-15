@@ -47,8 +47,39 @@ export const PublicIssue = z.looseObject({
   updated_at: z.string(),
   comments: z.number().int(),
   pull_request: z.unknown().optional(),
+  assignees: z
+    .array(z.looseObject({ login: z.string() }))
+    .nullable()
+    .optional(),
 });
 export type PublicIssue = z.infer<typeof PublicIssue>;
+
+/** An open pull request as listed by GitHub. Body and title are untrusted. */
+export const PublicPull = z.looseObject({
+  number: z.number().int().positive(),
+  title: z.string(),
+  body: z.string().nullable().optional(),
+  html_url: z.url(),
+  state: z.string(),
+  draft: z.boolean().optional(),
+  user: z.looseObject({ login: z.string(), type: z.string().optional() }).nullable(),
+  author_association: z.string().optional(),
+  labels: z.array(z.looseObject({ name: z.string() })),
+  created_at: z.string(),
+  updated_at: z.string(),
+  head: z.looseObject({ sha: z.string() }),
+});
+export type PublicPull = z.infer<typeof PublicPull>;
+
+/** One changed file of a pull request. `patch` is untrusted and absent for binary or huge diffs. */
+export const PullFile = z.looseObject({
+  filename: z.string(),
+  status: z.string(),
+  additions: z.number().int().nonnegative(),
+  deletions: z.number().int().nonnegative(),
+  patch: z.string().optional(),
+});
+export type PullFile = z.infer<typeof PullFile>;
 
 export class GitHubReadError extends Error {
   constructor(
@@ -226,6 +257,29 @@ export class BrokerGitHubReader {
       { number },
     );
     return files.map((f) => f.filename);
+  }
+
+  /** Open pull requests, oldest first, up to 300; `truncated` if there are more. */
+  async listOpenPulls(repo: string): Promise<{ pulls: PublicPull[]; truncated: boolean }> {
+    const out: PublicPull[] = [];
+    for (let page = 1; page <= 3; page++) {
+      const q: ReadQuery = {
+        state: 'open',
+        sort: 'created',
+        direction: 'asc',
+        per_page: 100,
+        page,
+      };
+      const batch = await this.read(repo, 'pulls', q, z.array(PublicPull));
+      out.push(...batch);
+      if (batch.length < 100) return { pulls: out, truncated: false };
+    }
+    return { pulls: out, truncated: true };
+  }
+
+  /** Changed files with line counts and patches (first 100 files). */
+  async listPullFileDetails(repo: string, number: number): Promise<PullFile[]> {
+    return this.read(repo, 'pull_files', { per_page: 100 }, z.array(PullFile), { number });
   }
 
   /** The Markdown source of one cheat sheet. */

@@ -23,6 +23,14 @@ jobs:
         run: |
           pnpm --filter ./workers/agents exec esbuild scripts/model-smoke.ts --bundle --platform=node --format=esm --outfile="$RUNNER_TEMP/model-smoke.mjs" --log-level=warning
           node "$RUNNER_TEMP/model-smoke.mjs"
+      - name: Jev (OpenRouter Decisions API) through AI Gateway, and directly when a key is set
+        if: always()
+        env:
+          AI_GATEWAY_TOKEN: ${{ secrets.AI_GATEWAY_TOKEN }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          pnpm --filter ./workers/agents exec esbuild scripts/jev-smoke.ts --bundle --platform=node --format=esm --outfile="$RUNNER_TEMP/jev-smoke.mjs" --log-level=warning
+          node "$RUNNER_TEMP/jev-smoke.mjs" --probe
       - name: GitHub REST rate limit from this runner (unauthenticated)
         if: always()
         run: curl -s https://api.github.com/rate_limit | jq -c '.resources.core'

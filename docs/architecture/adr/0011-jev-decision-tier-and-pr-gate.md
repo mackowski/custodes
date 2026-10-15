@@ -1,0 +1,159 @@
+# 0011. Jev decision tier, and the pr-gate agent that closes non-compliant pull requests
+
+- Status: accepted
+- Date: 2026-10-15
+- Deciders: Jakub Maćkowski
+
+## Context
+
+Most decisions the agents make are classifications: a yes/no or a choice among a few options. Using
+Claude for them is slower and costs more than needed. TypeSafe's **Jev** (`typesafe/jev-1.14`),
+served through OpenRouter's Decisions API (`POST https://openrouter.ai/api/alpha/decisions`):
+
+- answers typed questions (`noul` yes/no, `choice`, `score`) about a `state` with probabilities;
+- writes no free text;
+- costs about $0.04 per million input tokens, with output free;
+- switches to a slower, less accurate mode for states over about 32 KB.
+
+The operator wants pull requests to OWASP/CheatSheetSeries checked against `CONTRIBUTING.md`, and
+those that break it closed:
+
+- An update or a new cheat sheet needs an approved issue (`ACK_OBTAINED`) assigned to the author.
+- Typos, broken links and small corrections need no issue.
+- The PR template says a PR with a blank AI disclosure "will be closed".
+
+There are only three open PRs today, but the backlog of non-compliant contributions (often
+AI-generated) is the reason for this agent.
+
+## Decision
+
+**Decision ladder.** Agents decide with deterministic code first, then Jev, then an LLM, then a
+human (`packages/core/src/ladder.ts`).
+
+- A rung either decides or passes the question up.
+- A rung that throws passes it up too, so an outage never turns into a wrong decision.
+- Thresholds are explicit bands per question.
+- Only rule decisions and high-confidence model decisions may lead to side effects. "Human" always
+  means flag, never act.
+- An agent uses only the rungs it needs. pr-gate uses rule, Jev and human, with no LLM.
+
+**Jev client.** `JevClient` lives in `packages/llm/src/jev.ts`; the pinned model id is
+`MODELS.decision` in `packages/llm/src/models.ts`.
+
+- The state is a branded `JevState`, which only `jevState()` produces. `jevState()` wraps the text
+  with `untrusted()` and clips it to 30,000 characters.
+- Answers are validated with zod. A missing or mistyped answer is an error.
+- **Default transport (`JEV_TRANSPORT="gateway"`):** AI Gateway's `openrouter` provider, with the
+  OpenRouter key stored in the gateway (BYOK). We send `cf-aig-authorization` and no
+  `Authorization`. The path is set by the `JEV_GATEWAY_PATH` var.
+- **Fallback, if the gateway cannot forward `/api/alpha/decisions`:** set `JEV_TRANSPORT="direct"` and
+  add `OPENROUTER_API_KEY` to the agents deploy `secrets:` in CI; the client then calls OpenRouter
+  directly. A key alone never switches the transport. That key can only spend
+  OpenRouter credit (the account has a credit limit). It grants no GitHub or e-mail authority.
+
+**pr-gate** (`workers/agents/src/agents/pr-gate*`) is a **hotl** agent, and the first one that writes
+to GitHub. It runs with the triage poll and decides each open pull request again only when it changes:
+
+1. **Exempt (skip):** `dependabot[bot]` (checked first, never closed), other bots, drafts, owners,
+   members, collaborators, and PRs labelled `WAITING_UPDATE`.
+2. **AI disclosure section with nothing ticked:** close (`ai_disclosure`). A missing section (the
+   template was not used, or upstream renamed the heading) is flagged instead.
+3. **Linked issues** (`#N` or issue URLs in the body, outside code spans; up to five are read, and a
+   body with more is never closed):
+   - Approved and assigned to the author: skip.
+   - Approved and assigned only to others: close (`assigned_to_other`).
+   - Approved and unassigned: flag.
+4. **No approved issue:** apply a structural rule.
+   - Only files under `cheatsheets/` count. Anything else is flagged.
+   - Added or removed files, or more than 60 changed lines, mean the PR is not minor: close
+     (`no_approved_issue`).
+   - Otherwise, Jev judges the diff:
+     - Minor with p ≥ 0.85 and a kind other than `new_guidance`: skip.
+     - p ≤ 0.15 and `new_guidance`: close.
+     - Anything else: flag.
+
+**Closing.** The close comment is code-built text: the rule, the guide section, what to do next, and
+an invitation to comment or open an issue if the close was a mistake. It contains no PR text, no
+model text and no @-mentions. It is posted by the new broker action `pr.close`, which comments
+first and then closes, so a close never lacks its reason. The broker appends the signed trailer
+(agent, version, attestation id, `/verify` link), and the comment states the UTC time.
+
+**Caps and reporting.**
+
+- Closes are capped at 5 per poll and 10 per UTC day by the agent, and 5 per hour by the broker.
+- A daily e-mail (07:00 UTC, with the triage digest) lists what was closed, what would have been
+  closed, what needs a maintainer, and errors.
+
+**Dry run first.** Closing happens only while the `PR_GATE_ENFORCE` var is `"true"`. The agent ships
+with `"false"`, so the first summaries show "would close". The broker gates it too: pr-gate's policy
+ships with `requiresApproval: ["pr.close"]`, so even a caller in the agents Worker that claims to be
+pr-gate cannot close anything without a human approval. The reviewed PR that turns enforcement on
+sets the var to `"true"` and empties `requiresApproval` together.
+This satisfies CLAUDE.md invariant 3: the agent is `hotl` in policy but acts only after its evals
+pass and a dry run is reviewed.
+
+**Policy widening** (`workers/github-broker/policy/policy.json`, invariant 4):
+
+- `BrokerAction` gains `pr.close {repo, pull, body}`.
+- `ReadResource` gains `pulls`: a list of pull requests, honouring state, sort, direction and paging.
+- `agents["pr-gate"]`:
+  - `PAT_PR_GATE`, a fine-grained token for OWASP/CheatSheetSeries only, with
+    **Pull requests: read & write**
+  - `hotl`, `actions: ["pr.close"]`, `rateLimitPerHour: 5`, `requiresApproval: ["pr.close"]` during
+    the dry run
+- `reads["pr-gate"]`: `pulls`, `pull_files`, `issue`.
+
+## Alternatives considered
+
+- **Claude for the minor-fix question.** Works, but costs about 100 times more and needs a prompt
+  that produces free text. Jev's probability is enough for a yes/no, and an unsure answer goes to
+  the operator.
+- **An LLM rung behind Jev.** Dropped for pr-gate. It would only turn some flags into automatic
+  decisions, and a flag costs the operator a glance in the daily mail.
+- **hitl (approve every close).** Rejected by the operator: closes are reversible, signed and
+  reported daily, and the PR author is a second human on the loop.
+- **Readonly recommendations only.** Leaves the maintainer to do every close by hand, which is the
+  work being automated.
+- **Proxying Jev through the broker to keep the OpenRouter key out of the agents Worker.** Stretches
+  the broker's GitHub-only role for a key that carries no repository authority.
+- **GitHub's `closingIssuesReferences` for linked issues.** The template's "This PR fixes issue #N"
+  wording does not create one, and the field is GraphQL only. Parsing the body covers the
+  template.
+
+## Consequences
+
+- PRs that break the guide are closed within about 5 hours (4-hourly poll plus 1-hour grace) with
+  an explanation.
+- Ambiguous cases reach the maintainer daily instead of piling up.
+- Jev cost is negligible: one call per small, unlinked PR diff.
+- The decision ladder and `JevClient` are reusable. Triage's classification is the next candidate.
+- **Risks:**
+  - A wrong close is public, though reversible and signed.
+  - Contributors who forget to reference their approved issue are closed and must comment.
+- OpenRouter's Decisions API is `alpha`, so a breaking change would make Jev calls fail. Those PRs
+  are then flagged, never closed. The `Diagnose` workflow's Jev step detects such a change.
+
+## Security considerations
+
+- **Untrusted inputs:**
+  - The PR body is used only for regex counting: checkboxes and issue numbers.
+  - The diff reaches Jev only inside `untrusted()`, clipped. Jev produces numbers and enum labels
+    that we validate, so the diff cannot make it emit instructions.
+  - An injected diff can at most push its own PR towards "minor". That means a skip, which is
+    harmless, or a flag.
+  - A "not minor" close needs high confidence and the `new_guidance` label. The injection eval
+    covers diffs that argue for either answer.
+- **The PAT** is limited to one repository and to pull requests. The broker allows only `pr.close`
+  for this agent, so pr-gate cannot merge, push or label, and it comments only as part of a close.
+- **Half-done closes:** `pr.close` comments first, then closes. If GitHub refuses the close after the
+  comment posted, the broker signs the failure under the id already in the comment's trailer (so
+  `/verify` works) and counts it against the hourly rate limit. The agent marks the PR
+  `close_failed` and does not retry until the author pushes new commits, so a missing permission
+  can never turn into a comment every poll.
+- **Reopened PRs:** a PR the agent closed that is open again was reopened by a human. The agent
+  reports it once and never acts on it again.
+- **Spam closes** are bounded by the agent's daily cap and the broker's hourly rate limit, and
+  stopped by the kill switch (`custodes agents halt pr-gate`).
+- **Logs** hold PR numbers, rule names and scores only.
+- If the fallback is used, `OPENROUTER_API_KEY` is a CI-managed Worker secret (ADR 0008). It is never
+  in files or logs and is limited by an OpenRouter credit cap.

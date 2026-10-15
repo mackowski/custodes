@@ -46,6 +46,7 @@ const request = fc.record({
     'comments',
     'pull_files',
     'cheatsheet',
+    'pulls',
   ),
   query: fc.record(
     {

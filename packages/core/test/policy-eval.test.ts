@@ -1,5 +1,6 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import type { BrokerRequest, Policy } from '@custodes/schema';
+import { Policy as PolicySchema, type BrokerRequest, type Policy } from '@custodes/schema';
 import { evaluatePolicy } from '../src/policy-eval.js';
 
 const policy: Policy = {
@@ -96,5 +97,65 @@ describe('evaluatePolicy for read-only agents', () => {
       action: { type: 'issue.comment', repo: 'OWASP/CheatSheetSeries', issue: 1, body: 'x' },
     };
     expect(evaluatePolicy(ro, req)).toMatchObject({ allow: false, code: 'policy_denied' });
+  });
+});
+
+describe('evaluatePolicy for pr-gate (real broker policy)', () => {
+  const real = PolicySchema.parse(
+    JSON.parse(
+      readFileSync(
+        new URL('../../../workers/github-broker/policy/policy.json', import.meta.url),
+        'utf8',
+      ),
+    ),
+  );
+  const gate = {
+    ...base,
+    agentId: 'pr-gate',
+  };
+  // During the dry run the broker, not only PR_GATE_ENFORCE, gates closes (ADR 0011). When the
+  // operator enables enforcement, requiresApproval is emptied and this expects needsApproval false.
+  it('lets pr-gate close pull requests on CheatSheetSeries, behind an approval during the dry run', () => {
+    expect(
+      evaluatePolicy(real, {
+        ...gate,
+        action: { type: 'pr.close', repo: 'OWASP/CheatSheetSeries', pull: 7, body: 'x' },
+      }),
+    ).toEqual({ allow: true, needsApproval: true });
+  });
+  it('denies pr-gate commenting, reviewing and closing on other repositories', () => {
+    expect(
+      evaluatePolicy(real, {
+        ...gate,
+        action: { type: 'pr.comment', repo: 'OWASP/CheatSheetSeries', pull: 7, body: 'x' },
+      }),
+    ).toMatchObject({ allow: false, code: 'policy_denied' });
+    expect(
+      evaluatePolicy(real, {
+        ...gate,
+        action: {
+          type: 'pr.review',
+          repo: 'OWASP/CheatSheetSeries',
+          pull: 7,
+          event: 'APPROVE',
+          body: 'x',
+        },
+      }),
+    ).toMatchObject({ allow: false, code: 'policy_denied' });
+    expect(
+      evaluatePolicy(real, {
+        ...gate,
+        action: { type: 'pr.close', repo: 'evil/repo', pull: 7, body: 'x' },
+      }),
+    ).toMatchObject({ allow: false, code: 'policy_denied' });
+  });
+  it('does not let other agents close pull requests', () => {
+    expect(
+      evaluatePolicy(real, {
+        ...base,
+        agentId: 'hello',
+        action: { type: 'pr.close', repo: 'OWASP/CheatSheetSeries', pull: 7, body: 'x' },
+      }),
+    ).toMatchObject({ allow: false, code: 'policy_denied' });
   });
 });

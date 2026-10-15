@@ -36,6 +36,19 @@ workers/* ─┼─> packages/{github,llm,email} ─> packages/core ─> package
 - Secrets: Secrets Store bindings in the broker (`PAT_<AGENT>`, synced by CI from GitHub secrets), signing keys inside the broker Keyring, Worker secrets
   elsewhere (`wrangler secret put`). Never `vars`, never in code, never in tests as real values.
 
+## Decision ladder (ADR 0011)
+
+- Decide with the cheapest thing that can: **deterministic code → Jev → Claude → human**
+  (`climb()` and `verdict()` in `@custodes/core`). Use only the rungs a task needs. A
+  yes/no or a pick from a fixed list is Jev's job. Claude is for questions whose answer is text,
+  or for reasoning over long context.
+- Jev (`JevClient`, `MODELS.decision`): the state is built only with `jevState()` (envelope plus clip
+  under 32 KB). Every question has explicit `criteria`, and the caller maps probabilities with an
+  explicit `Band`. Jev answers carry no text, so nothing from them is ever shown or posted except
+  numbers and enum labels.
+- Only `rule` and high-confidence model decisions may lead to side effects. "Unsure", a thrown
+  rung or `human` means flag for the operator, never act.
+
 ## Model calls
 
 - Never send `temperature`, `top_p`, `top_k` or `budget_tokens` to current Claude models (Sonnet 5,
