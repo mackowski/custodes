@@ -37,9 +37,11 @@ jobs:
         with:
           terraform_version: 1.16.4
       - run: terraform fmt -check -recursive ../..
-      - run: terraform init -input=false
+      # Dependabot runs get no Actions/environment secrets, so skip the remote backend and the plan for them
+      - run: terraform init -input=false -backend=${{ github.actor != 'dependabot[bot]' }}
       - run: terraform validate
-      - run: terraform plan -input=false -no-color -var-file=prod.tfvars.example
+      - if: github.actor != 'dependabot[bot]'
+        run: terraform plan -input=false -no-color -var-file=prod.tfvars.example
 
   apply:
     if: github.event_name != 'pull_request'
