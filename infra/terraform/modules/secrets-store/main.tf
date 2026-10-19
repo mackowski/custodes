@@ -9,6 +9,9 @@ terraform {
 resource "cloudflare_secrets_store" "this" {
   account_id = var.account_id
   name       = "custodes"
+  # cloudflare 5.28 added `force` (planned as false); the API returns null after apply, so every
+  # apply failed with "inconsistent result" (2026-10-19, run 39241776124).
+  lifecycle { ignore_changes = [force] }
 }
 
 locals {
