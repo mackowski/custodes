@@ -65,15 +65,18 @@ export class AuditStore {
     );
   }
 
-  /** Side effects attempted: allowed ones plus those whose execution started and then failed. */
-  async countAllowedSince(agentId: string, sinceIso: string): Promise<number> {
+  /**
+   * Side effects attempted on one repository: allowed ones plus those whose execution started and
+   * then failed. Per repository, so test runs on a sandbox never use up a real repository's budget.
+   */
+  async countAllowedSince(agentId: string, repo: string, sinceIso: string): Promise<number> {
     const row = await this.db
       .prepare(
-        `SELECT COUNT(*) AS n FROM audit WHERE agent_id = ?1 AND ts >= ?2
+        `SELECT COUNT(*) AS n FROM audit WHERE agent_id = ?1 AND repo = ?2 AND ts >= ?3
           AND (decision = 'allowed' OR (decision = 'denied'
-            AND substr(json_extract(record_json, '$.reason'), 1, ?3) = ?4))`,
+            AND substr(json_extract(record_json, '$.reason'), 1, ?4) = ?5))`,
       )
-      .bind(agentId, sinceIso, EXECUTION_FAILED.length, EXECUTION_FAILED)
+      .bind(agentId, repo, sinceIso, EXECUTION_FAILED.length, EXECUTION_FAILED)
       .first<{ n: number }>();
     return row?.n ?? 0;
   }

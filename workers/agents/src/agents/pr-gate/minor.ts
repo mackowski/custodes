@@ -31,8 +31,11 @@ export const MINOR_QUESTIONS = {
 
 export type MinorQuestions = typeof MINOR_QUESTIONS;
 
-/** Jev bands, kept wide: a wrong close costs a contributor, a wrong skip costs nothing. */
-export const MINOR_BAND = { yes: 0.85, no: 0.15 } as const;
+/**
+ * Jev bands. Asymmetric on purpose: a wrong close costs a contributor, a wrong skip only leaves a
+ * PR for normal review. `yes` was 0.85 until a real one-word typo fix scored 0.76 in the sandbox.
+ */
+export const MINOR_BAND = { yes: 0.7, no: 0.15 } as const;
 
 /** Maps Jev's answers to a decision. `true` = minor fix. */
 export function jevMinorVerdict(

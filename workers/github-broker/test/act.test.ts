@@ -141,7 +141,7 @@ describe('broker act() when execution fails half way', () => {
     });
     const store = new AuditStore(env.AUDIT);
     const hourAgo = new Date(Date.now() - 3600_000).toISOString();
-    const before = await store.countAllowedSince('pr-gate', hourAgo);
+    const before = await store.countAllowedSince('pr-gate', 'OWASP/CheatSheetSeries', hourAgo);
     const res = await act(testEnv, gate);
     expect(calls).toEqual([
       'POST /repos/OWASP/CheatSheetSeries/issues/7/comments',
@@ -154,6 +154,20 @@ describe('broker act() when execution fails half way', () => {
     const att = await store.get(res.attestationId);
     expect(att?.record.decision).toBe('denied');
     expect(att?.record.reason).toMatch(/^execution failed: /);
-    expect(await store.countAllowedSince('pr-gate', hourAgo)).toBe(before + 1);
+    expect(await store.countAllowedSince('pr-gate', 'OWASP/CheatSheetSeries', hourAgo)).toBe(
+      before + 1,
+    );
+  });
+});
+
+describe('broker rate limit is per agent and repository', () => {
+  it('does not count side effects on another repository', async () => {
+    const store = new AuditStore(env.AUDIT);
+    const hourAgo = new Date(Date.now() - 3600_000).toISOString();
+    const owasp = await store.countAllowedSince('pr-gate', 'OWASP/CheatSheetSeries', hourAgo);
+    const sandbox = await store.countAllowedSince('pr-gate', 'mackowski/custodes-sandbox', hourAgo);
+    // The half-done close above was on OWASP/CheatSheetSeries; the sandbox count is untouched.
+    expect(owasp).toBeGreaterThanOrEqual(sandbox);
+    expect(sandbox).toBe(0);
   });
 });

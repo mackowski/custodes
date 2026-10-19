@@ -92,8 +92,12 @@ export async function act(
   }
 
   const hourAgo = new Date(now.getTime() - 3600_000).toISOString();
-  if ((await audit.countAllowedSince(req.agentId, hourAgo)) >= agentPolicy.rateLimitPerHour) {
-    return deny('policy_denied', `rate limit of ${agentPolicy.rateLimitPerHour}/h reached`);
+  const used = await audit.countAllowedSince(req.agentId, req.action.repo, hourAgo);
+  if (used >= agentPolicy.rateLimitPerHour) {
+    return deny(
+      'policy_denied',
+      `rate limit of ${agentPolicy.rateLimitPerHour}/h on ${req.action.repo} reached`,
+    );
   }
 
   // Execute. The attestation id is fixed up front so the trailer can reference it.

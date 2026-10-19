@@ -246,6 +246,8 @@ describe('jevMinorVerdict', () => {
   const v = (p: number, kind: string) => jevMinorVerdict(answers(p, kind));
   it('decides true for a confident minor fix that is not new guidance', () => {
     expect(v(0.85, 'typo')).toMatchObject({ decided: true, value: true });
+    expect(v(0.76, 'typo')).toMatchObject({ decided: true, value: true });
+    expect(v(0.69, 'typo')).toMatchObject({ decided: false });
   });
   it('decides false only for a confident not-minor that is also new guidance', () => {
     expect(v(0.15, 'new_guidance')).toMatchObject({ decided: true, value: false });

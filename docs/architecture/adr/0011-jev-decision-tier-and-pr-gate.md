@@ -74,7 +74,7 @@ to GitHub. It runs with the triage poll and decides each open pull request again
    - Added or removed files, or more than 60 changed lines, mean the PR is not minor: close
      (`no_approved_issue`).
    - Otherwise, Jev judges the diff:
-     - Minor with p ≥ 0.85 and a kind other than `new_guidance`: skip.
+     - Minor with p ≥ 0.70 and a kind other than `new_guidance`: skip (0.85 until 2026-10-19).
      - p ≤ 0.15 and `new_guidance`: close.
      - Anything else: flag.
 
