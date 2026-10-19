@@ -461,13 +461,21 @@ interface TriageStatus {
 }
 interface SpecialistStatus {
   queued: number;
+  state: { day?: string; jobsToday?: number };
   recent: { issue: number; result: Record<string, unknown> }[];
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** Mirrors MAX_JOBS_PER_DAY in workers/agents/src/agents/specialists/agent.ts (per instance). */
+const SPECIALIST_JOBS_PER_DAY = 10;
+const capped = (s: SpecialistStatus, today: string) =>
+  s.queued > 0 && s.state.day === today && (s.state.jobsToday ?? 0) >= SPECIALIST_JOBS_PER_DAY;
+
 async function check(state: RunState): Promise<number> {
-  // Specialists work their queues on alarms after triage enqueued them.
+  // Specialists work their queues on alarms after triage enqueued them. Their daily cap holds the
+  // rest until the next UTC day, so waiting for a capped queue only burns runner minutes.
+  let capNote = '';
   for (let i = 0; i < 30; i++) {
     const q = await Promise.all(
       ['proposal-review-agent', 'implementation-check-agent'].map((a) =>
@@ -475,6 +483,14 @@ async function check(state: RunState): Promise<number> {
       ),
     );
     if (q.every((s) => s.queued === 0)) break;
+    const today = new Date().toISOString().slice(0, 10);
+    if (q.every((s) => s.queued === 0 || capped(s, today))) {
+      capNote = ` (specialists reached ${SPECIALIST_JOBS_PER_DAY} jobs today; rerun after 00:00 UTC)`;
+      console.log(
+        `specialists hit their daily cap with ${q.map((s) => s.queued).join('/')} queued`,
+      );
+      break;
+    }
     console.log(`waiting for specialists (${q.map((s) => s.queued).join('/')} queued)…`);
     await sleep(20_000);
   }
@@ -551,7 +567,7 @@ async function check(state: RunState): Promise<number> {
         line(
           ok,
           s,
-          `#${c.number} assessed=${a !== undefined} injection=${injected} verdict=${typeof p?.result['verdict'] === 'string' ? p.result['verdict'] : '-'}`,
+          `#${c.number} assessed=${a !== undefined} injection=${injected} verdict=${verdict ?? '-'}${verdict === undefined ? capNote : ''}`,
         );
       }
     }
