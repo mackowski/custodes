@@ -51,6 +51,11 @@ personally. Bots and dependabot stay exempt everywhere.
 to `repos` of `agents.pr-gate` and of every `reads` entry. No resource or action is added. `hello`
 is unchanged.
 
+**Rate limit per repository** (amended 2026-10-19, also a widening): the broker counts
+`rateLimitPerHour` per agent **and repository**, so a sandbox run never spends OWASP's budget. The
+cost is that each repo in an agent's `repos` adds a full hourly budget: pr-gate may now close 5 per
+hour on OWASP and 5 on the sandbox. OWASP's own limit is unchanged.
+
 **Scenarios.** `e2e/sandbox/run.ts` opens issues and pull requests for each rule and attack, runs
 the agents and checks the results:
 

@@ -11,7 +11,10 @@ export const AgentPolicy = z.object({
   actions: z.array(BrokerActionType).min(1),
   /** Subset of `actions` that always needs an approval id, even for hotl agents. */
   requiresApproval: z.array(BrokerActionType).default([]),
-  /** Max side effects per rolling hour; the broker denies above this. */
+  /**
+   * Max side effects per rolling hour **per repository**; the broker denies above this. Each repo
+   * in `repos` gets its own budget, so adding a repo widens the agent's total (ADR 0012).
+   */
   rateLimitPerHour: z.number().int().positive().default(60),
 });
 export type AgentPolicy = z.infer<typeof AgentPolicy>;

@@ -104,7 +104,8 @@ the caps and the kill switch.
 - `agents["pr-gate"]`:
   - `PAT_PR_GATE`, a **classic** PAT on the operator's account with only the `public_repo` scope
     (see "Amendment: classic PAT" below)
-  - `hotl`, `actions: ["pr.close"]`, `rateLimitPerHour: 5`, `requiresApproval: []`
+  - `hotl`, `actions: ["pr.close"]`, `rateLimitPerHour: 5` (per repository since ADR 0012),
+    `requiresApproval: []`
 - `reads["pr-gate"]`: `pulls`, `pull_files`, `issue`.
 
 ## Alternatives considered
@@ -160,7 +161,8 @@ the caps and the kill switch.
   can never turn into a comment every poll.
 - **Reopened PRs:** a PR the agent closed that is open again was reopened by a human. The agent
   reports it once and never acts on it again.
-- **Spam closes** are bounded by the agent's daily cap and the broker's hourly rate limit, and
+- **Spam closes** are bounded by the agent's daily cap and the broker's hourly rate limit (5 per
+  repository), and
   stopped by the kill switch (`custodes agents halt pr-gate`).
 - **Logs** hold PR numbers, rule names and scores only.
 - `OPENROUTER_API_KEY` is a CI-managed Worker secret (ADR 0008), the first provider key held by a

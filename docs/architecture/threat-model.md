@@ -36,7 +36,7 @@ agents are allowed to do; high-risk agents should be deployed in their own Worke
 | Tampering              | approval reused for a different action    | approval stores `actionHash`; broker compares; single-use `consume()`                       |
 | Repudiation            | "which agent posted this?"                | trailers + attestation id in every comment                                                  |
 | Information disclosure | token in logs or error                    | errors never include bodies/tokens; structured logs with ids only; hooks block secret files |
-| Denial of service      | agent loops posting comments              | per-agent `rateLimitPerHour`, kill switch, AI Gateway rate/spend limits                     |
+| Denial of service      | agent loops posting comments              | `rateLimitPerHour` per agent and repository, kill switch, AI Gateway rate/spend limits      |
 | Elevation of privilege | agent posts to another repo               | policy `repos`/`actions` allow-list evaluated in the broker                                 |
 | Elevation of privilege | Claude Code deploys to prod from a laptop | hooks deny deploy commands; prod deploy only via protected environment                      |
 

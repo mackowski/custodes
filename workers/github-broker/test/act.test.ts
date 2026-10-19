@@ -160,14 +160,29 @@ describe('broker act() when execution fails half way', () => {
   });
 });
 
-describe('broker rate limit is per agent and repository', () => {
-  it('does not count side effects on another repository', async () => {
-    const store = new AuditStore(env.AUDIT);
-    const hourAgo = new Date(Date.now() - 3600_000).toISOString();
-    const owasp = await store.countAllowedSince('pr-gate', 'OWASP/CheatSheetSeries', hourAgo);
-    const sandbox = await store.countAllowedSince('pr-gate', 'mackowski/custodes-sandbox', hourAgo);
-    // The half-done close above was on OWASP/CheatSheetSeries; the sandbox count is untouched.
-    expect(owasp).toBeGreaterThanOrEqual(sandbox);
-    expect(sandbox).toBe(0);
+describe('broker act() at the rate limit', () => {
+  it('refuses the sixth close on one repository and still allows another repository', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation((_input, init) =>
+      Promise.resolve(
+        init?.method === 'POST'
+          ? Response.json({ html_url: 'https://github.com/x/y/pull/1#c' })
+          : Response.json({ state: 'closed' }),
+      ),
+    );
+    const close = (repo: string, pull: number): BrokerRequest => ({
+      ...base,
+      agentId: 'pr-gate',
+      action: { type: 'pr.close', repo, pull, body: 'closing' },
+    });
+    for (let i = 1; i <= 5; i++) {
+      const res = await act(testEnv, close('mackowski/custodes-sandbox', 100 + i));
+      expect(res.ok, `close ${i}`).toBe(true);
+    }
+    const sixth = await act(testEnv, close('mackowski/custodes-sandbox', 106));
+    expect(sixth).toMatchObject({ ok: false, code: 'policy_denied' });
+    if (sixth.ok) throw new Error('expected a refusal');
+    expect(sixth.reason).toMatch(/rate limit .* mackowski\/custodes-sandbox/);
+    // OWASP has its own budget (the half-done close above used one of its five).
+    expect(await act(testEnv, close('OWASP/CheatSheetSeries', 200))).toMatchObject({ ok: true });
   });
 });

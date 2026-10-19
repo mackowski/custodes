@@ -844,3 +844,30 @@ describe('summary shows the issue behind a flag', () => {
     expect(out.html).toContain('author_has_approved_issue #2770');
   });
 });
+
+describe('summary lists minor-fix skips', () => {
+  it('shows Jev minor-fix skips with their score, apart from the skipped count', () => {
+    const out = renderSummary({
+      repo: REPO,
+      rows: [
+        {
+          pr: 16,
+          title: 'Fix typo in Password Storage',
+          outcome: 'minor',
+          why: 'minor_fix',
+          rung: 'jev',
+          p: 0.76,
+          decidedAt: '2026-10-19T08:19:00Z',
+        },
+      ],
+      skipped: 3,
+      enforcing: true,
+      verifyUrl: 'https://custodes.work/verify',
+      errors: [],
+      now: NOW,
+    });
+    expect(out.text).toContain('Skipped as minor fixes by Jev');
+    expect(out.text).toContain('minor_fix (jev, p=0.76)');
+    expect(out.html).toContain('#16');
+  });
+});
