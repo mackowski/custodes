@@ -35,3 +35,8 @@ updates:
     directory: /infra/terraform/envs/prod
     schedule: { interval: weekly, day: monday }
     cooldown: { default-days: 3 }
+    ignore:
+      # 5.27+ adds `force` to cloudflare_secrets_store: planned false, read back null, so every apply
+      # fails ("inconsistent result", run 39241776124). Drop this once a release fixes it.
+      - dependency-name: cloudflare/cloudflare
+        versions: ['>= 5.27.0']
