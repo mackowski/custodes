@@ -469,10 +469,14 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 /**
  * The job summary is Markdown rendered on the run page, and parts of each row come from the agents
- * (some from model output). Keep only plain characters, so no link, image or HTML can render there.
+ * (some from model output). Keep only plain characters, so no link, image or HTML can render there:
+ * no Markdown or HTML syntax, no `@` (e-mail autolinks, mentions) and no `www.` (autolinks).
  */
 function summaryText(s: string): string {
-  return s.replace(/[^\w .,;=#@"'/+-]/g, ' ').slice(0, 300);
+  return s
+    .replace(/[^\w .,;=#"'/+-]/g, ' ')
+    .replace(/\bwww\./gi, 'www ')
+    .slice(0, 300);
 }
 
 /** Mirrors MAX_JOBS_PER_DAY in workers/agents/src/agents/specialists/agent.ts (per instance). */
