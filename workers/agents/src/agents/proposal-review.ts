@@ -1,4 +1,5 @@
 import type { AgentManifest } from '@custodes/schema';
+import { INSTANCE_REPOS } from '../instances.js';
 import { SpecialistAgent, type SpecialistJob } from './specialists/agent.js';
 import { reviewProposal } from './specialists/proposal.js';
 import type { SpecialistDeps } from './specialists/run.js';
@@ -9,7 +10,7 @@ export const PROPOSAL_REVIEW_MANIFEST: AgentManifest = {
   description:
     'Read-only: for community issues not yet accepted, checks whether the proposal is sound, already covered or a real gap, and recommends labels, assignee and a comment. Called by triage.',
   mode: 'readonly',
-  repos: ['OWASP/CheatSheetSeries'],
+  repos: [...INSTANCE_REPOS],
 };
 
 export class ProposalReviewAgent extends SpecialistAgent {

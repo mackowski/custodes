@@ -13,5 +13,6 @@
 | [0009](0009-read-only-agents.md)                       | Read-only agents                                                      | accepted                        |
 | [0010](0010-specialist-agents-and-wider-reads.md)      | Specialist agents called by triage, and wider broker reads            | accepted                        |
 | [0011](0011-jev-decision-tier-and-pr-gate.md)          | Jev decision tier, and the pr-gate agent closing non-compliant PRs    | accepted                        |
+| [0012](0012-sandbox-repository-and-on-demand-runs.md)  | Sandbox repository, per-repository instances and on-demand runs       | accepted                        |
 
 Create new records with the `/adr` skill.

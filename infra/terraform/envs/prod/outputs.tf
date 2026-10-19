@@ -7,3 +7,15 @@ output "wrangler_ids" {
     access_aud        = module.access.aud
   }
 }
+
+# Access service token for CI (sandbox scenarios, ADR 0012). Copy into GitHub secrets with
+# `terraform output -raw … | gh secret set …` so the secret is never printed.
+output "access_service_client_id" {
+  value     = module.access.service_token_client_id
+  sensitive = true
+}
+
+output "access_service_client_secret" {
+  value     = module.access.service_token_client_secret
+  sensitive = true
+}

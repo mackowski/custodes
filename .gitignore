@@ -39,3 +39,4 @@ worker-configuration.d.ts
 
 # promptfoo results
 evals/output/
+e2e/sandbox/.last-run.json

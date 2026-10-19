@@ -13,13 +13,20 @@ export type CloseRule = 'ai_disclosure' | 'assigned_to_other' | 'no_approved_iss
 
 export type Exemption = 'dependabot' | 'bot' | 'draft' | 'maintainer' | 'waiting_update';
 
-/** Why a PR is not gated at all, or null when it is. */
-export function exemption(pr: PublicPull): Exemption | null {
+/**
+ * Why a PR is not gated at all, or null when it is. `gateMaintainers` (sandbox only, ADR 0012)
+ * drops the maintainer exemption so the operator can open scenarios themselves; bots stay exempt.
+ */
+export function exemption(
+  pr: PublicPull,
+  opts: { gateMaintainers?: boolean } = {},
+): Exemption | null {
   const login = pr.user?.login ?? '';
   if (login.toLowerCase() === DEPENDABOT) return 'dependabot';
   if (pr.user?.type === 'Bot' || login.endsWith('[bot]')) return 'bot';
   if (pr.draft === true) return 'draft';
-  if (TRUSTED_ASSOCIATIONS.has(pr.author_association ?? '')) return 'maintainer';
+  if (!opts.gateMaintainers && TRUSTED_ASSOCIATIONS.has(pr.author_association ?? ''))
+    return 'maintainer';
   if (pr.labels.some((l) => l.name === WAITING_UPDATE_LABEL)) return 'waiting_update';
   return null;
 }

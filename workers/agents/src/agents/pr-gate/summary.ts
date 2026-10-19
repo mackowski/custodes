@@ -63,7 +63,7 @@ export function renderSummary(input: SummaryInput): {
 } {
   const { repo, rows } = input;
   const count = (o: SummaryOutcome) => rows.filter((r) => r.outcome === o).length;
-  const subject = `[custodes] pr-gate: ${count('close')} closed, ${count('would_close')} would close, ${count('flag')} for you`;
+  const subject = `[custodes] pr-gate ${repo}: ${count('close')} closed, ${count('would_close')} would close, ${count('flag')} for you`;
   const text: string[] = [
     `pr-gate summary for ${repo} (${input.enforcing ? 'enforcing' : 'NOT enforcing: dry run'})`,
     `${input.skipped} pull request(s) followed the guide or were exempt (bots, drafts, maintainers).`,

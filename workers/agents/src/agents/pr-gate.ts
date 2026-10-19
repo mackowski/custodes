@@ -3,6 +3,13 @@ import { AgentHaltedError, CustodesAgent } from '@custodes/core/agent';
 import { JevClient, MODELS, type JevTransport } from '@custodes/llm';
 import type { AgentManifest } from '@custodes/schema';
 import type { AgentsEnv } from '../env.js';
+import {
+  INSTANCE_REPOS,
+  instanceOf,
+  OWASP_INSTANCE,
+  UnknownInstanceError,
+  unknownInstance,
+} from '../instances.js';
 import { closeComment } from './pr-gate/comment.js';
 import { decide, type Decision } from './pr-gate/decide.js';
 import { MINOR_QUESTIONS } from './pr-gate/minor.js';
@@ -22,10 +29,10 @@ export const PR_GATE_MANIFEST: AgentManifest = {
   description:
     'Checks open community PRs against CONTRIBUTING.md (approved and assigned issue, minor fix, AI disclosure) and closes those that break it with a signed comment. Daily e-mail summary.',
   mode: 'hotl',
-  repos: ['OWASP/CheatSheetSeries'],
+  repos: [...INSTANCE_REPOS],
 };
 
-export const PR_GATE_INSTANCE = 'owasp-cheatsheetseries';
+export const PR_GATE_INSTANCE = OWASP_INSTANCE;
 
 /** Closes per UTC day and per poll; the broker also caps the agent at 5 per hour. */
 export const MAX_CLOSES_PER_DAY = 10;
@@ -113,8 +120,13 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
     lastErrors: [],
   };
 
+  /** The repository is chosen by the instance name only (see instances.ts). */
   private get repo(): string {
-    return this.manifest.repos[0] ?? 'OWASP/CheatSheetSeries';
+    return instanceOf(this.name).repo;
+  }
+
+  private get sandbox(): boolean {
+    return instanceOf(this.name).sandbox;
   }
 
   /** PR_GATE_ENFORCE="false" is a soft stop: decisions are still made, closes only reported. */
@@ -176,8 +188,11 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
     return new JevClient({ transport });
   }
 
-  /** Scheduled with the triage poll. */
-  async poll(): Promise<{ ok: boolean; detail: string }> {
+  /**
+   * Scheduled with the triage poll. `manual` (sandbox only, ADR 0012) skips the grace period so a
+   * scenario PR is judged as soon as the operator asks.
+   */
+  async poll(opts: { manual?: boolean } = {}): Promise<{ ok: boolean; detail: string }> {
     try {
       await this.guard();
     } catch (err) {
@@ -232,43 +247,49 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
         this.store(pr, 'flag', { why: REOPENED, rung: 'human' }, now);
         continue;
       }
-      if (step === 'leave' || !settled(pr, now)) continue;
+      const skipGrace = opts.manual === true && this.sandbox;
+      if (step === 'leave' || (!skipGrace && !settled(pr, now))) continue;
       evaluated++;
       let decision: Decision;
       try {
         await this.guard();
-        decision = await decide(this.repo, pr, {
-          getIssue: async (n) => {
-            try {
-              return await reader.getIssue(this.repo, n);
-            } catch (err) {
-              // A number in the body that is no issue here (deleted, transferred, a typo).
-              if (err instanceof GitHubReadError && err.status === 404) return null;
-              throw err;
-            }
+        decision = await decide(
+          this.repo,
+          pr,
+          {
+            getIssue: async (n) => {
+              try {
+                return await reader.getIssue(this.repo, n);
+              } catch (err) {
+                // A number in the body that is no issue here (deleted, transferred, a typo).
+                if (err instanceof GitHubReadError && err.status === 404) return null;
+                throw err;
+              }
+            },
+            listFiles: () => reader.listPullFileDetails(this.repo, pr.number),
+            approvedIssuesOf: async (login) => {
+              approved ??= reader.listOpenIssuesWithLabelChecked(this.repo, ACK_LABEL);
+              const list = await approved;
+              const me = login.toLowerCase();
+              return {
+                issues: list.issues
+                  .filter((i) => (i.assignees ?? []).some((a) => a.login.toLowerCase() === me))
+                  .map((i) => i.number),
+                complete: !list.truncated,
+              };
+            },
+            jev: async (state) => {
+              await this.guard();
+              return jev.decide({
+                model: MODELS.decision,
+                state,
+                questions: MINOR_QUESTIONS,
+                metadata: { agentId: this.manifest.id, runId },
+              });
+            },
           },
-          listFiles: () => reader.listPullFileDetails(this.repo, pr.number),
-          approvedIssuesOf: async (login) => {
-            approved ??= reader.listOpenIssuesWithLabelChecked(this.repo, ACK_LABEL);
-            const list = await approved;
-            const me = login.toLowerCase();
-            return {
-              issues: list.issues
-                .filter((i) => (i.assignees ?? []).some((a) => a.login.toLowerCase() === me))
-                .map((i) => i.number),
-              complete: !list.truncated,
-            };
-          },
-          jev: async (state) => {
-            await this.guard();
-            return jev.decide({
-              model: MODELS.decision,
-              state,
-              questions: MINOR_QUESTIONS,
-              metadata: { agentId: this.manifest.id, runId },
-            });
-          },
-        });
+          { gateMaintainers: this.sandbox },
+        );
       } catch (err) {
         if (err instanceof AgentHaltedError) break;
         const what = describeError(err);
@@ -396,12 +417,14 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
   }
 
   /** Scheduled daily with the triage digest. Sends nothing when nothing happened. */
-  async sendSummary(): Promise<{ ok: boolean; detail: string }> {
-    try {
-      await this.guard();
-    } catch (err) {
-      return { ok: false, detail: err instanceof Error ? err.message : 'halted' };
-    }
+  /** The pending summary, rendered but not sent and not marked (used by sendSummary and /report). */
+  private buildSummary(now: Date): {
+    mail: ReturnType<typeof renderSummary>;
+    rows: SummaryRow[];
+    skipped: number;
+    errors: string[];
+    lastId: number;
+  } {
     this.ensureSchema();
     const pending = this.sql<EventRow>`SELECT * FROM events WHERE reported_at IS NULL
       ORDER BY id`;
@@ -429,12 +452,6 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
       });
     }
     const errors = [...this.state.lastErrors];
-    const now = new Date();
-    const stamp = now.toISOString();
-    if (rows.length === 0 && errors.length === 0) {
-      this.markReported(stamp, lastId);
-      return { ok: true, detail: `nothing to report (${skipped} skipped)` };
-    }
     const mail = renderSummary({
       repo: this.repo,
       rows,
@@ -444,6 +461,22 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
       errors,
       now,
     });
+    return { mail, rows, skipped, errors, lastId };
+  }
+
+  async sendSummary(): Promise<{ ok: boolean; detail: string }> {
+    try {
+      await this.guard();
+    } catch (err) {
+      return { ok: false, detail: err instanceof Error ? err.message : 'halted' };
+    }
+    const now = new Date();
+    const stamp = now.toISOString();
+    const { mail, rows, skipped, errors, lastId } = this.buildSummary(now);
+    if (rows.length === 0 && errors.length === 0) {
+      this.markReported(stamp, lastId);
+      return { ok: true, detail: `nothing to report (${skipped} skipped)` };
+    }
     try {
       await this.guard();
       await this.env.EMAIL.send({
@@ -464,7 +497,30 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
   }
 
   /** Status for operators, reachable only through the Access-protected gateway. */
-  override async onRequest(): Promise<Response> {
+  override async onRequest(request: Request): Promise<Response> {
+    let sandbox: boolean;
+    try {
+      sandbox = this.sandbox;
+    } catch (err) {
+      if (err instanceof UnknownInstanceError) return unknownInstance();
+      throw err;
+    }
+    const url = new URL(request.url);
+    // On-demand runs (ADR 0012) exist only for sandbox instances; real ones follow the crons.
+    if (request.method === 'POST' && /\/(run|summary)$/.test(url.pathname)) {
+      if (!sandbox)
+        return Response.json({ error: 'on-demand runs are sandbox only' }, { status: 403 });
+      return Response.json(
+        url.pathname.endsWith('/summary')
+          ? await this.sendSummary()
+          : await this.poll({ manual: true }),
+      );
+    }
+    // The summary as it would be e-mailed now, without sending or marking anything.
+    if (request.method === 'GET' && url.pathname.endsWith('/report')) {
+      const { mail } = this.buildSummary(new Date());
+      return Response.json(mail);
+    }
     this.ensureSchema();
     return Response.json({
       manifest: this.manifest,

@@ -1,7 +1,7 @@
 # pr-gate
 
 - Version: 0.1.0 · Mode: **hotl**, closing enabled (`PR_GATE_ENFORCE="true"`)
-- Repositories: OWASP/CheatSheetSeries
+- Repositories: OWASP/CheatSheetSeries, and mackowski/custodes-sandbox for tests (ADR 0012)
 - Class: `workers/agents/src/agents/pr-gate.ts` · Logic: `workers/agents/src/agents/pr-gate/`
 - Policy: `agents.pr-gate` (`pr.close`, 5/h) and `reads.pr-gate` (`pulls`, `pull_files`, `issue`,
   `issues`).
@@ -68,6 +68,13 @@ on OWASP/CheatSheetSeries. Rotate it per [rotate-pat](../runbooks/rotate-pat.md)
 | A maintainer reopens a PR the agent closed    | Reported once (`reopened_after_close`). The agent never acts on that PR again.                                                                                |
 | A link written in a form the parser misses    | Before a `no_approved_issue` close, the agent checks for an open `ACK_OBTAINED` issue assigned to the author and flags instead (`author_has_approved_issue`). |
 | More than five issue references in the body   | Never closed (`too_many_refs` flag) unless an approved, assigned one is among them.                                                                           |
+
+## Testing in the sandbox
+
+Run `node e2e/sandbox/run.ts all` (see `e2e/sandbox/README.md`), or one step at a time:
+`custodes agents run pr-gate --instance custodes-sandbox` judges open sandbox PRs at once (no grace
+period, maintainers gated too), and `custodes agents report pr-gate --instance custodes-sandbox`
+shows the e-mail without sending it.
 
 ## Turning closes off
 
