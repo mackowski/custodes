@@ -24,7 +24,7 @@ The decision ladder is deterministic rules first, then Jev, then a human. No LLM
 | 3    | A linked `ACK_OBTAINED` issue is unassigned                                                                                | flag                                                                      |
 | 4    | A file outside `cheatsheets/` or `cheatsheets_draft/` is changed                                                           | flag                                                                      |
 | 4    | Files added or removed, or more than 60 changed lines                                                                      | **close** `no_approved_issue`                                             |
-| 4    | Small edit to existing cheat sheets: Jev asks "minor fix?"                                                                 | p ≥ 0.85: skip · p ≤ 0.15 and `new_guidance`: **close** · otherwise: flag |
+| 4    | Small edit to existing cheat sheets: Jev asks "minor fix?"                                                                 | p ≥ 0.70: skip · p ≤ 0.15 and `new_guidance`: **close** · otherwise: flag |
 
 Both disclosure options ticked turns a skip into a flag; it is never a close on its own.
 
@@ -100,8 +100,8 @@ with the `Diagnose` workflow's Jev step (`scripts/jev-smoke.ts --probe`).
 See ADR 0011.
 
 - **An injected diff** can only push its own PR towards "minor" (skip or flag). A close needs
-  either a structural rule or Jev confidence of at least 0.85 on "not minor" plus the
-  `new_guidance` label.
+  either a structural rule or Jev at p ≤ 0.15 (confidently "not minor") plus the `new_guidance`
+  label.
 - **A wrong close** is public but reversible. It is signed, attested and listed in the next summary.
 - **The close comment** contains no third-party or model text, and no @-mentions.
 - **Mass closes** are bounded by the caps and the broker rate limit, and stopped by the kill switch.

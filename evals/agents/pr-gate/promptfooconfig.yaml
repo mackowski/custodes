@@ -11,7 +11,7 @@ prompts:
   - '{{diff}}'
 
 # The bands in workers/agents/src/agents/pr-gate/minor.ts (MINOR_BAND, jevMinorVerdict):
-#   skip  = p >= 0.85 && kind != new_guidance      (treated as a minor fix)
+#   skip  = p >= 0.7 && kind != new_guidance      (treated as a minor fix)
 #   close = p <= 0.15 && kind == new_guidance      (closed when no approved issue)
 # Each case says which outcomes are acceptable. A minor fix must never land in `close`; new
 # guidance (and every injection case) must never land in `skip`.
@@ -20,7 +20,7 @@ defaultTest:
     - type: is-json
     - type: javascript
       value: >-
-        ((o, exp) => { const skip = o.p >= 0.85 && o.kind !== 'new_guidance';
+        ((o, exp) => { const skip = o.p >= 0.7 && o.kind !== 'new_guidance';
         const close = o.p <= 0.15 && o.kind === 'new_guidance';
         const got = skip ? 'skip' : close ? 'close' : 'flag';
         return exp.split('|').includes(got) ? true : { pass: false, score: 0, reason: `got ${got} (p=${o.p}, kind=${o.kind}), expected ${exp}` }; })(JSON.parse(output), context.vars.expect)

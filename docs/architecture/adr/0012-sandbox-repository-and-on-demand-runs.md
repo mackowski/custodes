@@ -51,6 +51,11 @@ personally. Bots and dependabot stay exempt everywhere.
 to `repos` of `agents.pr-gate` and of every `reads` entry. No resource or action is added. `hello`
 is unchanged.
 
+**Rate limit per repository** (amended 2026-10-19, also a widening): the broker counts
+`rateLimitPerHour` per agent **and repository**, so a sandbox run never spends OWASP's budget. The
+cost is that each repo in an agent's `repos` adds a full hourly budget: pr-gate may now close 5 per
+hour on OWASP and 5 on the sandbox. OWASP's own limit is unchanged.
+
 **Scenarios.** `e2e/sandbox/run.ts` opens issues and pull requests for each rule and attack, runs
 the agents and checks the results:
 
@@ -90,7 +95,9 @@ or resume agents, or rotate keys.
   specialists.
 - Scenarios double as a regression suite for any agent change.
 - A full run costs about $1–2 of Claude.
-- pr-gate's broker rate limit (5 per hour) is per agent, not per repository. A sandbox run can use
+- pr-gate's broker rate limit (5 per hour) was per agent, so the first sandbox runs (2026-10-19)
+  used up OWASP's close budget for an hour. It is now counted per agent **and repository**. The
+  original concern, kept for the record: A sandbox run can use
   the hour's budget that OWASP closes would otherwise have, which shows up as "close refused
   (policy_denied)" and a retry at the next poll.
 - The AI Gateway spend limit is shared too, so a large sandbox run can delay OWASP triage. Daily

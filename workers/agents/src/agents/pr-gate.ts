@@ -34,7 +34,7 @@ export const PR_GATE_MANIFEST: AgentManifest = {
 
 export const PR_GATE_INSTANCE = OWASP_INSTANCE;
 
-/** Closes per UTC day and per poll; the broker also caps the agent at 5 per hour. */
+/** Closes per UTC day and per poll (per instance); the broker also caps 5 per hour per repository. */
 export const MAX_CLOSES_PER_DAY = 10;
 export const MAX_CLOSES_PER_RUN = 5;
 /** PRs evaluated per poll (each costs up to six reads and one Jev call). */
@@ -432,16 +432,19 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
     const rows: SummaryRow[] = [];
     let skipped = 0;
     for (const r of pending) {
-      if (r.outcome === 'skip') {
+      const d = Detail.safeParse(JSON.parse(r.detail));
+      // Skips are only counted, except Jev's minor-fix skips: a diff that talked its way past the
+      // gate must be visible to the operator, with its score.
+      const minor = r.outcome === 'skip' && d.success && d.data.why === 'minor_fix';
+      if (r.outcome === 'skip' && !minor) {
         skipped++;
         continue;
       }
-      const d = Detail.safeParse(JSON.parse(r.detail));
       if (!d.success) continue;
       rows.push({
         pr: r.pr,
         title: r.title,
-        outcome: r.outcome,
+        outcome: minor ? 'minor' : (r.outcome as Exclude<StoredOutcome, 'skip'>),
         why: d.data.why,
         rung: d.data.rung,
         ...(d.data.p !== undefined ? { p: d.data.p } : {}),

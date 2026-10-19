@@ -5,7 +5,7 @@ import { inertNoLinks } from '../triage/assess.js';
 import { esc } from '../triage/digest-html.js';
 import { pullUrl } from '../triage/digest.js';
 
-export type SummaryOutcome = 'close' | 'would_close' | 'flag' | 'error';
+export type SummaryOutcome = 'close' | 'would_close' | 'flag' | 'error' | 'minor';
 
 export interface SummaryRow {
   pr: number;
@@ -39,6 +39,10 @@ const SECTIONS: { outcome: SummaryOutcome; heading: string }[] = [
   { outcome: 'would_close', heading: 'Would close (not enforcing, or daily cap reached)' },
   { outcome: 'flag', heading: 'Needs a maintainer' },
   { outcome: 'error', heading: 'Could not decide (retried next poll)' },
+  {
+    outcome: 'minor',
+    heading: 'Skipped as minor fixes by Jev (look at the diff if the score is low)',
+  },
 ];
 
 /** " #2770, #2771" from validated numbers only. */
