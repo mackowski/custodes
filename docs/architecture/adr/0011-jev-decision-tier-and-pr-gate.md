@@ -193,3 +193,26 @@ this agent only.
   - A dedicated bot account with the Triage role would confine a leak to triage on one repository.
     The operator declined it for now.
   - A GitHub App installed on OWASP remains the migration target (ADR 0003).
+
+## Amendment (2026-10-19): false close of PR #2801, safety net and event log
+
+**What happened.** On 2026-10-17 pr-gate closed PR #2801 with `no_approved_issue`. The PR followed
+the template, but it wrote the reference as a code span: ``This PR fixes issue `#2770`.``.
+`linkedIssueNumbers` dropped code spans (added to ignore `#9` in pasted lint output), so the
+agent saw no linked issue. #2770 was `ACK_OBTAINED` and assigned to the PR author. A maintainer
+reopened the PR within an hour. The close also never reached the operator's e-mail: the next poll
+saw the PR open again and overwrote the stored close with a `reopened_after_close` flag before
+the 07:00 summary.
+
+**Changes.**
+
+- A code span that holds only a reference (`` `#123` ``, ``#`123` ``) counts as a reference.
+  Longer spans and fenced blocks are still ignored.
+- **Safety net:** before any `no_approved_issue` close, pr-gate lists open `ACK_OBTAINED` issues and
+  flags the PR (`author_has_approved_issue`) instead of closing it when one is assigned to the
+  author. A missed link can no longer close a contributor who did follow the guide.
+- **Summary event log:** decisions are also appended to an `events` table, which is what the
+  summary reports. A later state change for the same PR no longer hides an earlier close.
+
+**Policy widening** (invariant 4): `reads.pr-gate.resources` gains `issues` (public issue list with
+a single-label filter), which the safety net needs. No write grant changes.

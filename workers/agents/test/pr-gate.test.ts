@@ -85,6 +85,7 @@ interface Mocks {
   getIssue: Mock<DecideDeps['getIssue']>;
   listFiles: Mock<DecideDeps['listFiles']>;
   jev: Mock<DecideDeps['jev']>;
+  approvedIssuesOf: Mock<DecideDeps['approvedIssuesOf']>;
 }
 
 function deps(over: Partial<Mocks> = {}): Mocks {
@@ -92,6 +93,7 @@ function deps(over: Partial<Mocks> = {}): Mocks {
     getIssue: vi.fn((n: number) => Promise.resolve(issue({ number: n }))),
     listFiles: vi.fn(() => Promise.resolve([file(), file({ filename: 'cheatsheets/B.md' })])),
     jev: vi.fn((_state: string) => Promise.resolve(answers(0.95, 'link'))),
+    approvedIssuesOf: vi.fn((_login: string) => Promise.resolve([] as number[])),
     ...over,
   };
   return d;
@@ -640,9 +642,11 @@ describe('linkedIssueNumbers in pasted tool output (#2780 body)', () => {
       '```',
       'see #12 in the log',
       '```',
-      'inline `#13` too',
+      'inline `#13 was here` too',
     ].join('\n');
     expect(linkedIssueNumbers(body, REPO)).toEqual([]);
+    // A span holding only the reference counts since PR #2801 (`#13` alone was ignored then).
+    expect(linkedIssueNumbers('inline `#13` too', REPO)).toEqual([13]);
   });
   it("still reads the template's placeholder form #`2756`", () => {
     expect(linkedIssueNumbers('This PR fixes issue #`2756`.', REPO)).toEqual([2756]);
@@ -737,5 +741,53 @@ describe('nextStep (what a poll does with a PR it has seen before)', () => {
     expect(nextStep(pr, prior({ outcome: 'would_close', why: 'ai_disclosure' }), true)).toBe(
       'decide',
     );
+  });
+});
+
+describe('PR #2801 regression: a code-span issue reference was missed and the PR closed', () => {
+  // The original body (2026-10-17) followed the template but wrapped the reference in backticks.
+  const body2801 = `${tick(false, true)}\nIf your PR is related to an issue, please finish your PR text with the following line:\n\nThis PR fixes issue \`#2770\`.\n`;
+
+  it('reads `#2770` as a reference, but still ignores longer code spans and fenced blocks', () => {
+    expect(linkedIssueNumbers('This PR fixes issue `#2770`.', REPO)).toEqual([2770]);
+    expect(linkedIssueNumbers('fixes ` #2770 `', REPO)).toEqual([2770]);
+    expect(linkedIssueNumbers('`### RULE \\#9 - scanning` and `see #12 here`', REPO)).toEqual([]);
+    expect(linkedIssueNumbers('```\n`#77`\n```', REPO)).toEqual([]);
+  });
+
+  it('skips the PR as compliant when the referenced issue is approved and assigned to the author', async () => {
+    const d = deps({
+      getIssue: vi.fn((n: number) =>
+        Promise.resolve(issue({ number: n, assignees: [{ login: 'contributor' }] })),
+      ),
+      listFiles: vi.fn(() => Promise.resolve([file({ additions: 40, deletions: 30 })])),
+    });
+    const r = await decide(REPO, pull({ body: body2801 }), d);
+    expect(d.getIssue).toHaveBeenCalledWith(2770);
+    expect(r).toMatchObject({ outcome: 'skip', reason: 'compliant', issue: 2770 });
+  });
+
+  it('never closes for no_approved_issue when the author holds an approved issue (safety net)', async () => {
+    const d = deps({
+      // The link is unparseable here: nothing references the issue at all.
+      listFiles: vi.fn(() => Promise.resolve([file({ status: 'added' })])),
+      approvedIssuesOf: vi.fn(() => Promise.resolve([2770])),
+    });
+    const r = await decide(REPO, pull({ body: tick(true, false) }), d);
+    expect(d.approvedIssuesOf).toHaveBeenCalledWith('contributor');
+    expect(r).toMatchObject({ outcome: 'flag', reason: 'author_has_approved_issue', issue: 2770 });
+  });
+
+  it('still closes when the author holds no approved issue', async () => {
+    const d = deps({ listFiles: vi.fn(() => Promise.resolve([file({ status: 'added' })])) });
+    const r = await decide(REPO, pull({ body: tick(true, false) }), d);
+    expect(r).toMatchObject({ outcome: 'close', rule: 'no_approved_issue' });
+  });
+
+  it('does not consult the safety net for other close rules', async () => {
+    const d = deps({ approvedIssuesOf: vi.fn(() => Promise.resolve([2770])) });
+    const r = await decide(REPO, pull({ body: tick(false, false) }), d);
+    expect(r).toMatchObject({ outcome: 'close', rule: 'ai_disclosure' });
+    expect(d.approvedIssuesOf).not.toHaveBeenCalled();
   });
 });

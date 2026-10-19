@@ -6,10 +6,15 @@ import type { AgentsEnv } from '../env.js';
 import { closeComment } from './pr-gate/comment.js';
 import { decide, type Decision } from './pr-gate/decide.js';
 import { MINOR_QUESTIONS } from './pr-gate/minor.js';
-import { CLOSE_FAILED, nextStep, REOPENED, settled } from './pr-gate/rules.js';
+import { ACK_LABEL, CLOSE_FAILED, nextStep, REOPENED, settled } from './pr-gate/rules.js';
 import { renderSummary, type SummaryOutcome, type SummaryRow } from './pr-gate/summary.js';
 import { describeError } from './triage/errors.js';
-import { BrokerGitHubReader, GitHubReadError, type PublicPull } from './triage/github.js';
+import {
+  BrokerGitHubReader,
+  GitHubReadError,
+  type PublicIssue,
+  type PublicPull,
+} from './triage/github.js';
 
 export const PR_GATE_MANIFEST: AgentManifest = {
   id: 'pr-gate',
@@ -36,6 +41,17 @@ interface PrGateState {
   day: string | null;
   closesToday: number;
   lastErrors: string[];
+}
+
+interface EventRow {
+  id: number;
+  pr: number;
+  title: string;
+  outcome: StoredOutcome;
+  detail: string;
+  decided_at: string;
+  github_url: string | null;
+  attestation_id: string | null;
 }
 
 interface DecisionRow {
@@ -107,6 +123,9 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
   }
 
   private ensureSchema(): void {
+    const hadEvents =
+      this.sql<{ n: number }>`SELECT COUNT(*) AS n FROM sqlite_master
+        WHERE type = 'table' AND name = 'events'`[0]?.n === 1;
     this.sql`CREATE TABLE IF NOT EXISTS decisions (
       pr             INTEGER PRIMARY KEY,
       head_sha       TEXT NOT NULL,
@@ -119,6 +138,24 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
       attestation_id TEXT,
       reported_at    TEXT
     )`;
+    // Append-only log the summary reads. `decisions` holds only the latest state per PR, so a close
+    // followed by a reopen used to overwrite the close before any e-mail reported it (PR #2801).
+    this.sql`CREATE TABLE IF NOT EXISTS events (
+      id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      pr             INTEGER NOT NULL,
+      title          TEXT NOT NULL,
+      outcome        TEXT NOT NULL,
+      detail         TEXT NOT NULL,
+      decided_at     TEXT NOT NULL,
+      github_url     TEXT,
+      attestation_id TEXT,
+      reported_at    TEXT
+    )`;
+    if (!hadEvents)
+      this.sql`INSERT INTO events (pr, title, outcome, detail, decided_at, github_url,
+          attestation_id, reported_at)
+        SELECT pr, title, outcome, detail, decided_at, github_url, attestation_id, NULL
+        FROM decisions WHERE reported_at IS NULL`;
   }
 
   private jev(): JevClient {
@@ -152,6 +189,8 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
     const day = now.toISOString().slice(0, 10);
     if (this.state.day !== day) this.setState({ ...this.state, day, closesToday: 0 });
     const reader = new BrokerGitHubReader(this.env.BROKER, this.manifest.id, runId);
+    // Open ACK_OBTAINED issues, read at most once per poll and only if a close needs the check.
+    let approved: PublicIssue[] | undefined;
     let jev: JevClient;
     try {
       jev = this.jev();
@@ -208,6 +247,13 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
             }
           },
           listFiles: () => reader.listPullFileDetails(this.repo, pr.number),
+          approvedIssuesOf: async (login) => {
+            approved ??= await reader.listOpenIssuesWithLabel(this.repo, ACK_LABEL);
+            const me = login.toLowerCase();
+            return approved
+              .filter((i) => (i.assignees ?? []).some((a) => a.login.toLowerCase() === me))
+              .map((i) => i.number);
+          },
           jev: async (state) => {
             await this.guard();
             return jev.decide({
@@ -325,6 +371,9 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
         detail = excluded.detail, decided_at = excluded.decided_at,
         github_url = excluded.github_url, attestation_id = excluded.attestation_id,
         reported_at = NULL`;
+    this.sql`INSERT INTO events (pr, title, outcome, detail, decided_at, github_url, attestation_id)
+      VALUES (${pr.number}, ${title}, ${outcome}, ${JSON.stringify(detail)}, ${now.toISOString()},
+        ${acted?.githubUrl ?? null}, ${acted?.attestationId ?? null})`;
   }
 
   /** Scheduled daily with the triage digest. Sends nothing when nothing happened. */
@@ -335,8 +384,9 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
       return { ok: false, detail: err instanceof Error ? err.message : 'halted' };
     }
     this.ensureSchema();
-    const pending = this.sql<DecisionRow>`SELECT * FROM decisions WHERE reported_at IS NULL
-      ORDER BY pr`;
+    const pending = this.sql<EventRow>`SELECT * FROM events WHERE reported_at IS NULL
+      ORDER BY id`;
+    const lastId = pending.at(-1)?.id ?? 0;
     const rows: SummaryRow[] = [];
     let skipped = 0;
     for (const r of pending) {
@@ -362,7 +412,8 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
     const now = new Date();
     const stamp = now.toISOString();
     if (rows.length === 0 && errors.length === 0) {
-      this.sql`UPDATE decisions SET reported_at = ${stamp} WHERE reported_at IS NULL`;
+      this
+        .sql`UPDATE events SET reported_at = ${stamp} WHERE reported_at IS NULL AND id <= ${lastId}`;
       return { ok: true, detail: `nothing to report (${skipped} skipped)` };
     }
     const mail = renderSummary({
@@ -388,7 +439,8 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
       console.warn(JSON.stringify({ event: 'pr-gate.summary.failed', detail }));
       return { ok: false, detail };
     }
-    this.sql`UPDATE decisions SET reported_at = ${stamp} WHERE reported_at IS NULL`;
+    this
+      .sql`UPDATE events SET reported_at = ${stamp} WHERE reported_at IS NULL AND id <= ${lastId}`;
     this.setState({ ...this.state, lastSummaryAt: stamp, lastErrors: [] });
     return { ok: true, detail: `sent ${rows.length} row(s), ${skipped} skipped` };
   }

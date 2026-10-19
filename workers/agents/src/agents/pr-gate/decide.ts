@@ -22,6 +22,7 @@ export type FlagReason =
   | 'approved_unassigned'
   | 'out_of_scope'
   | 'too_many_refs'
+  | 'author_has_approved_issue'
   | 'undecided';
 
 export type Decision =
@@ -42,6 +43,11 @@ export interface DecideDeps extends MinorDeps {
   /** The issue, or null when the number is not an issue in this repository (404). */
   getIssue: (n: number) => Promise<PublicIssue | null>;
   listFiles: () => Promise<PullFile[]>;
+  /**
+   * Open ACK_OBTAINED issues assigned to this login. A safety net before a no_approved_issue close:
+   * if the author has one, the link was probably written in a way we did not parse (PR #2801).
+   */
+  approvedIssuesOf: (login: string) => Promise<number[]>;
 }
 
 const ruleTrace = (detail: Record<string, string | number | boolean>): TraceEntry[] => [
@@ -86,8 +92,24 @@ export async function decide(repo: string, pr: PublicPull, deps: DecideDeps): Pr
   }
   const approval = issueApproval(author, issues);
   const base = { disclosure: disc, linked: refs.length, approval: approval.kind };
-  const close = (d: Extract<Decision, { outcome: 'close' }>): Decision =>
-    overflow ? { outcome: 'flag', reason: 'too_many_refs', trace: d.trace } : d;
+  const close = async (d: Extract<Decision, { outcome: 'close' }>): Promise<Decision> => {
+    if (overflow) return { outcome: 'flag', reason: 'too_many_refs', trace: d.trace };
+    if (d.rule === 'no_approved_issue') {
+      const mine = await deps.approvedIssuesOf(author);
+      const first = mine[0];
+      if (first !== undefined)
+        return {
+          outcome: 'flag',
+          reason: 'author_has_approved_issue',
+          issue: first,
+          trace: [
+            ...d.trace,
+            { rung: 'rule', outcome: 'undecided', detail: { authorApproved: mine.length } },
+          ],
+        };
+    }
+    return d;
+  };
 
   if (approval.kind === 'approved_assigned') {
     if (softFlag)
