@@ -181,6 +181,14 @@ export class BrokerGitHubReader {
 
   /** Open issues carrying `label`, oldest first. Pull requests are dropped. */
   async listOpenIssuesWithLabel(repo: string, label: string): Promise<PublicIssue[]> {
+    return (await this.listOpenIssuesWithLabelChecked(repo, label)).issues;
+  }
+
+  /** As listOpenIssuesWithLabel, and says whether the 300-issue cap cut the list short. */
+  async listOpenIssuesWithLabelChecked(
+    repo: string,
+    label: string,
+  ): Promise<{ issues: PublicIssue[]; truncated: boolean }> {
     const out: PublicIssue[] = [];
     for (let page = 1; page <= 3; page++) {
       const q: ReadQuery = {
@@ -193,9 +201,9 @@ export class BrokerGitHubReader {
       };
       const batch = await this.read(repo, 'issues', q, z.array(PublicIssue));
       out.push(...batch.filter((i) => i.pull_request === undefined));
-      if (batch.length < 100) break;
+      if (batch.length < 100) return { issues: out, truncated: false };
     }
-    return out;
+    return { issues: out, truncated: true };
   }
 
   /**

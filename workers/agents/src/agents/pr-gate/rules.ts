@@ -57,9 +57,10 @@ export const MAX_LINKED = 5;
 
 /**
  * Issue numbers the PR body points at: `#123` and links to this repository's issues. At most
- * MAX_LINKED + 1 distinct ones, so a caller can tell that there were more. Pull requests among them are filtered later (an issue read says so).
- * Code blocks, code spans and escaped `\#` are ignored (pasted lint output is full of `#9`), but
- * the template's own placeholder form ``#`123` `` counts.
+ * MAX_LINKED + 1 distinct ones, so a caller can tell that there were more. Pull requests among
+ * them are filtered later (an issue read says so).
+ * Code blocks, longer code spans and escaped `\#` are ignored (pasted lint output is full of
+ * `#9`), but a code span holding only a reference counts: ``#`123` `` and `` `#123` ``.
  */
 export function linkedIssueNumbers(body: string | null | undefined, repo: string): number[] {
   const raw = (body ?? '').slice(0, MAX_BODY_SCAN);
@@ -68,11 +69,12 @@ export function linkedIssueNumbers(body: string | null | undefined, repo: string
     const n = Number(s);
     if (Number.isSafeInteger(n) && n > 0 && n < 1_000_000 && !out.includes(n)) out.push(n);
   };
-  for (const m of raw.matchAll(/(?<![\w&/\\])#`(\d{1,7})`/g)) add(m[1]);
-  const text = raw
-    .replace(/```[\s\S]*?(```|$)/g, ' ')
-    .replace(/`[^`\n]*`/g, ' ')
-    .replace(/\\#/g, ' ');
+  const unfenced = raw.replace(/```[\s\S]*?(```|$)/g, ' ');
+  // A code span that holds only a reference is a reference: the template's #`123` and a plain
+  // `#123` (PR #2801 wrote "This PR fixes issue `#2770`." and was closed by mistake).
+  for (const m of unfenced.matchAll(/(?<![\w&/\\])#`(\d{1,7})`|` ?#(\d{1,7}) ?`/g))
+    add(m[1] ?? m[2]);
+  const text = unfenced.replace(/`[^`\n]*`/g, ' ').replace(/\\#/g, ' ');
   const escaped = repo.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const url = new RegExp(`https://github\\.com/${escaped}/issues/(\\d{1,7})\\b`, 'gi');
   for (const m of text.matchAll(url)) add(m[1]);

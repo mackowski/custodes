@@ -18,6 +18,8 @@ export interface SummaryRow {
   /** Jev's probability that the diff is a minor fix, when Jev was asked. */
   p?: number;
   decidedAt: string;
+  /** Issues behind the decision (the approved issue for author_has_approved_issue). */
+  issues?: number[];
   githubUrl?: string;
   attestationId?: string;
 }
@@ -39,10 +41,16 @@ const SECTIONS: { outcome: SummaryOutcome; heading: string }[] = [
   { outcome: 'error', heading: 'Could not decide (retried next poll)' },
 ];
 
+/** " #2770, #2771" from validated numbers only. */
+function refs(r: SummaryRow): string {
+  const ns = (r.issues ?? []).filter((n) => Number.isSafeInteger(n) && n > 0).slice(0, 5);
+  return ns.length ? ` ${ns.map((n) => `#${n}`).join(', ')}` : '';
+}
+
 function line(repo: string, r: SummaryRow): string {
   const parts = [
     `#${r.pr} ${inertNoLinks(r.title, 120)}`,
-    `${r.why} (${r.rung}${r.p !== undefined ? `, p=${r.p}` : ''})`,
+    `${r.why}${refs(r)} (${r.rung}${r.p !== undefined ? `, p=${r.p}` : ''})`,
     pullUrl(repo, r.pr),
   ];
   return `- ${parts.join(' — ')}`;
@@ -76,7 +84,7 @@ export function renderSummary(input: SummaryInput): {
           ? ` · <a href="${esc(`${input.verifyUrl}/${r.attestationId}`)}">verify</a>`
           : '';
       html.push(
-        `<li><a href="${esc(pullUrl(repo, r.pr))}">#${r.pr}</a> ${esc(inertNoLinks(r.title, 120))}<br><span style="color:#59636e;">${esc(r.why)} (${esc(r.rung)}${r.p !== undefined ? `, p=${r.p}` : ''}) · ${esc(r.decidedAt.slice(0, 16).replace('T', ' '))} UTC${verify}</span></li>`,
+        `<li><a href="${esc(pullUrl(repo, r.pr))}">#${r.pr}</a> ${esc(inertNoLinks(r.title, 120))}<br><span style="color:#59636e;">${esc(r.why + refs(r))} (${esc(r.rung)}${r.p !== undefined ? `, p=${r.p}` : ''}) · ${esc(r.decidedAt.slice(0, 16).replace('T', ' '))} UTC${verify}</span></li>`,
       );
     }
     html.push('</ul>');
