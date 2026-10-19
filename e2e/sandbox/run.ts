@@ -467,6 +467,14 @@ interface SpecialistStatus {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * The job summary is Markdown rendered on the run page, and parts of each row come from the agents
+ * (some from model output). Keep only plain characters, so no link, image or HTML can render there.
+ */
+function summaryText(s: string): string {
+  return s.replace(/[^\w .,;=#@"'/+-]/g, ' ').slice(0, 300);
+}
+
 /** Mirrors MAX_JOBS_PER_DAY in workers/agents/src/agents/specialists/agent.ts (per instance). */
 const SPECIALIST_JOBS_PER_DAY = 10;
 const capped = (s: SpecialistStatus, today: string) =>
@@ -511,7 +519,7 @@ async function check(state: RunState): Promise<number> {
     const mark = ok ? 'PASS' : s.level === 'must' ? 'FAIL' : 'WARN';
     if (!ok && s.level === 'must') fatal++;
     console.log(`${mark.padEnd(4)} ${s.id.padEnd(28)} ${msg}`);
-    rows.push(`| ${mark} | ${s.id} | ${s.level} | ${msg.replaceAll('|', '/')} |`);
+    rows.push(`| ${mark} | ${s.id} | ${s.level} | ${summaryText(msg)} |`);
   };
 
   for (const c of state.created) {
@@ -597,7 +605,7 @@ async function check(state: RunState): Promise<number> {
       '| --- | --- | --- | --- |',
       ...rows,
       '',
-      `pr-gate e-mail preview: ${report.subject.replaceAll('|', '/')}`,
+      `pr-gate e-mail preview: ${summaryText(report.subject)}`,
       '',
     ].join('\n');
     appendFileSync(summaryFile, table);
