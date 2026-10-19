@@ -99,7 +99,7 @@ function detailOf(d: Decision): Detail {
       ? { why: d.rule, rung: d.rung, issues: d.issues }
       : d.outcome === 'skip'
         ? { why: d.reason, rung: d.rung }
-        : { why: d.reason, rung: 'human' };
+        : { why: d.reason, rung: 'human', ...(d.issue !== undefined ? { issues: [d.issue] } : {}) };
   return p === undefined ? base : { ...base, p };
 }
 
@@ -190,7 +190,8 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
     if (this.state.day !== day) this.setState({ ...this.state, day, closesToday: 0 });
     const reader = new BrokerGitHubReader(this.env.BROKER, this.manifest.id, runId);
     // Open ACK_OBTAINED issues, read at most once per poll and only if a close needs the check.
-    let approved: PublicIssue[] | undefined;
+    // The promise is cached, so a failed read is not repeated for every PR in this poll.
+    let approved: Promise<{ issues: PublicIssue[]; truncated: boolean }> | undefined;
     let jev: JevClient;
     try {
       jev = this.jev();
@@ -248,11 +249,15 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
           },
           listFiles: () => reader.listPullFileDetails(this.repo, pr.number),
           approvedIssuesOf: async (login) => {
-            approved ??= await reader.listOpenIssuesWithLabel(this.repo, ACK_LABEL);
+            approved ??= reader.listOpenIssuesWithLabelChecked(this.repo, ACK_LABEL);
+            const list = await approved;
             const me = login.toLowerCase();
-            return approved
-              .filter((i) => (i.assignees ?? []).some((a) => a.login.toLowerCase() === me))
-              .map((i) => i.number);
+            return {
+              issues: list.issues
+                .filter((i) => (i.assignees ?? []).some((a) => a.login.toLowerCase() === me))
+                .map((i) => i.number),
+              complete: !list.truncated,
+            };
           },
           jev: async (state) => {
             await this.guard();
@@ -371,9 +376,23 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
         detail = excluded.detail, decided_at = excluded.decided_at,
         github_url = excluded.github_url, attestation_id = excluded.attestation_id,
         reported_at = NULL`;
-    this.sql`INSERT INTO events (pr, title, outcome, detail, decided_at, github_url, attestation_id)
-      VALUES (${pr.number}, ${title}, ${outcome}, ${JSON.stringify(detail)}, ${now.toISOString()},
-        ${acted?.githubUrl ?? null}, ${acted?.attestationId ?? null})`;
+    // One event per change: a PR re-decided to the same outcome every poll adds nothing new.
+    const last = this.sql<{ outcome: string; detail: string }>`SELECT outcome, detail FROM events
+      WHERE pr = ${pr.number} ORDER BY id DESC LIMIT 1`[0];
+    const same = last?.outcome === outcome && last.detail === JSON.stringify(detail);
+    if (!same || acted !== undefined)
+      this
+        .sql`INSERT INTO events (pr, title, outcome, detail, decided_at, github_url, attestation_id)
+        VALUES (${pr.number}, ${title}, ${outcome}, ${JSON.stringify(detail)}, ${now.toISOString()},
+          ${acted?.githubUrl ?? null}, ${acted?.attestationId ?? null})`;
+  }
+
+  /** Marks events up to lastId as reported and forgets reported ones older than 30 days. */
+  private markReported(stamp: string, lastId: number): void {
+    this
+      .sql`UPDATE events SET reported_at = ${stamp} WHERE reported_at IS NULL AND id <= ${lastId}`;
+    const cutoff = new Date(Date.parse(stamp) - 30 * 86_400_000).toISOString();
+    this.sql`DELETE FROM events WHERE reported_at IS NOT NULL AND reported_at < ${cutoff}`;
   }
 
   /** Scheduled daily with the triage digest. Sends nothing when nothing happened. */
@@ -403,6 +422,7 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
         why: d.data.why,
         rung: d.data.rung,
         ...(d.data.p !== undefined ? { p: d.data.p } : {}),
+        ...(d.data.issues !== undefined ? { issues: d.data.issues } : {}),
         decidedAt: r.decided_at,
         ...(r.github_url ? { githubUrl: r.github_url } : {}),
         ...(r.attestation_id ? { attestationId: r.attestation_id } : {}),
@@ -412,8 +432,7 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
     const now = new Date();
     const stamp = now.toISOString();
     if (rows.length === 0 && errors.length === 0) {
-      this
-        .sql`UPDATE events SET reported_at = ${stamp} WHERE reported_at IS NULL AND id <= ${lastId}`;
+      this.markReported(stamp, lastId);
       return { ok: true, detail: `nothing to report (${skipped} skipped)` };
     }
     const mail = renderSummary({
@@ -439,8 +458,7 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
       console.warn(JSON.stringify({ event: 'pr-gate.summary.failed', detail }));
       return { ok: false, detail };
     }
-    this
-      .sql`UPDATE events SET reported_at = ${stamp} WHERE reported_at IS NULL AND id <= ${lastId}`;
+    this.markReported(stamp, lastId);
     this.setState({ ...this.state, lastSummaryAt: stamp, lastErrors: [] });
     return { ok: true, detail: `sent ${rows.length} row(s), ${skipped} skipped` };
   }

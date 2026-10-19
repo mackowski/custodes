@@ -93,7 +93,9 @@ function deps(over: Partial<Mocks> = {}): Mocks {
     getIssue: vi.fn((n: number) => Promise.resolve(issue({ number: n }))),
     listFiles: vi.fn(() => Promise.resolve([file(), file({ filename: 'cheatsheets/B.md' })])),
     jev: vi.fn((_state: string) => Promise.resolve(answers(0.95, 'link'))),
-    approvedIssuesOf: vi.fn((_login: string) => Promise.resolve([] as number[])),
+    approvedIssuesOf: vi.fn((_login: string) =>
+      Promise.resolve({ issues: [] as number[], complete: true }),
+    ),
     ...over,
   };
   return d;
@@ -771,7 +773,7 @@ describe('PR #2801 regression: a code-span issue reference was missed and the PR
     const d = deps({
       // The link is unparseable here: nothing references the issue at all.
       listFiles: vi.fn(() => Promise.resolve([file({ status: 'added' })])),
-      approvedIssuesOf: vi.fn(() => Promise.resolve([2770])),
+      approvedIssuesOf: vi.fn(() => Promise.resolve({ issues: [2770], complete: true })),
     });
     const r = await decide(REPO, pull({ body: tick(true, false) }), d);
     expect(d.approvedIssuesOf).toHaveBeenCalledWith('contributor');
@@ -785,9 +787,56 @@ describe('PR #2801 regression: a code-span issue reference was missed and the PR
   });
 
   it('does not consult the safety net for other close rules', async () => {
-    const d = deps({ approvedIssuesOf: vi.fn(() => Promise.resolve([2770])) });
+    const d = deps({
+      approvedIssuesOf: vi.fn(() => Promise.resolve({ issues: [2770], complete: true })),
+    });
     const r = await decide(REPO, pull({ body: tick(false, false) }), d);
     expect(r).toMatchObject({ outcome: 'close', rule: 'ai_disclosure' });
     expect(d.approvedIssuesOf).not.toHaveBeenCalled();
+  });
+});
+
+describe('safety net when the approved-issue list is cut short', () => {
+  it('flags instead of closing: a truncated list cannot prove the author has no approved issue', async () => {
+    const d = deps({
+      listFiles: vi.fn(() => Promise.resolve([file({ status: 'added' })])),
+      approvedIssuesOf: vi.fn(() => Promise.resolve({ issues: [] as number[], complete: false })),
+    });
+    const r = await decide(REPO, pull({ body: tick(true, false) }), d);
+    expect(r).toMatchObject({ outcome: 'flag', reason: 'approval_list_truncated' });
+  });
+
+  it('a failed lookup is an error for the poll, never a close', async () => {
+    const d = deps({
+      listFiles: vi.fn(() => Promise.resolve([file({ status: 'added' })])),
+      approvedIssuesOf: vi.fn(() => Promise.reject(new Error('read failed'))),
+    });
+    await expect(decide(REPO, pull({ body: tick(true, false) }), d)).rejects.toThrow('read failed');
+  });
+});
+
+describe('summary shows the issue behind a flag', () => {
+  it('lists #2770 next to author_has_approved_issue in text and HTML', () => {
+    const out = renderSummary({
+      repo: REPO,
+      rows: [
+        {
+          pr: 2801,
+          title: 'Certificate chains',
+          outcome: 'flag',
+          why: 'author_has_approved_issue',
+          rung: 'human',
+          issues: [2770],
+          decidedAt: '2026-10-19T08:17:00Z',
+        },
+      ],
+      skipped: 0,
+      enforcing: true,
+      verifyUrl: 'https://custodes.work/verify',
+      errors: [],
+      now: NOW,
+    });
+    expect(out.text).toContain('author_has_approved_issue #2770');
+    expect(out.html).toContain('author_has_approved_issue #2770');
   });
 });
