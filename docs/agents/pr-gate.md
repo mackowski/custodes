@@ -3,7 +3,8 @@
 - Version: 0.1.0 · Mode: **hotl**, closing enabled (`PR_GATE_ENFORCE="true"`)
 - Repositories: OWASP/CheatSheetSeries
 - Class: `workers/agents/src/agents/pr-gate.ts` · Logic: `workers/agents/src/agents/pr-gate/`
-- Policy: `agents.pr-gate` (`pr.close`, 5/h) and `reads.pr-gate` (`pulls`, `pull_files`, `issue`).
+- Policy: `agents.pr-gate` (`pr.close`, 5/h) and `reads.pr-gate` (`pulls`, `pull_files`, `issue`,
+  `issues`).
   ADR 0011.
 
 ## Purpose
@@ -58,14 +59,15 @@ on OWASP/CheatSheetSeries. Rotate it per [rotate-pat](../runbooks/rotate-pat.md)
 
 ## Failure modes and what happens
 
-| Failure                                       | What happens                                                                                          |
-| --------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| Jev unavailable, or a mistyped answer         | The PR is flagged for a human, never closed.                                                          |
-| GitHub read failure                           | The PR is recorded as an error and retried next poll. The error appears in the summary.               |
-| Broker refuses the close (rate limit, halted) | Recorded as an error and retried next poll.                                                           |
-| The comment posts but the close fails         | Signed and counted by the broker. The PR is flagged `close_failed` and not retried until new commits. |
-| A maintainer reopens a PR the agent closed    | Reported once (`reopened_after_close`). The agent never acts on that PR again.                        |
-| More than five issue references in the body   | Never closed (`too_many_refs` flag) unless an approved, assigned one is among them.                   |
+| Failure                                       | What happens                                                                                                                                                  |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Jev unavailable, or a mistyped answer         | The PR is flagged for a human, never closed.                                                                                                                  |
+| GitHub read failure                           | The PR is recorded as an error and retried next poll. The error appears in the summary.                                                                       |
+| Broker refuses the close (rate limit, halted) | Recorded as an error and retried next poll.                                                                                                                   |
+| The comment posts but the close fails         | Signed and counted by the broker. The PR is flagged `close_failed` and not retried until new commits.                                                         |
+| A maintainer reopens a PR the agent closed    | Reported once (`reopened_after_close`). The agent never acts on that PR again.                                                                                |
+| A link written in a form the parser misses    | Before a `no_approved_issue` close, the agent checks for an open `ACK_OBTAINED` issue assigned to the author and flags instead (`author_has_approved_issue`). |
+| More than five issue references in the body   | Never closed (`too_many_refs` flag) unless an approved, assigned one is among them.                                                                           |
 
 ## Turning closes off
 
