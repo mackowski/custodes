@@ -6,9 +6,13 @@
  * proposal review (Opus 5.5). Each answer must parse and validate. A parameter the model rejects,
  * a missing BYOK key, a bad gateway token or a truncated answer fails the pipeline here instead of
  * failing every production call. Prints status, token counts and error classes, never content.
+ *
+ * An exhausted Anthropic credit balance is account state, not something a deploy broke: it is a
+ * warning, so fixes to Jev-only agents (pr-gate) still ship (2026-10-20). Production calls fail
+ * the same way until the balance is topped up.
  */
 import process from 'node:process';
-import { AnthropicGateway, parseStructured } from '@custodes/llm';
+import { AnthropicGateway, GatewayError, parseStructured } from '@custodes/llm';
 import { RawAssessment, validateAssessment } from '../src/agents/triage/assess.js';
 import { describeError } from '../src/agents/triage/errors.js';
 import { triageRequest } from '../src/agents/triage/model.js';
@@ -124,6 +128,12 @@ try {
     `model smoke OK (assess): model=${rev.model} stop=${rev.stop_reason} in=${rev.usage.input_tokens} out=${rev.usage.output_tokens} verdict=${review.verdict} dropped=${review.dropped.length}`,
   );
 } catch (err) {
+  if (err instanceof GatewayError && err.status === 400 && /credit balance/i.test(err.message)) {
+    console.log(
+      '::warning::model smoke SKIPPED: the Anthropic credit balance is too low, so the request shape was not checked',
+    );
+    process.exit(0);
+  }
   console.error(`model smoke FAILED: ${describeError(err)}`);
   process.exit(1);
 }
