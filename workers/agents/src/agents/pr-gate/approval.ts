@@ -34,8 +34,12 @@ export const APPROVAL_QUESTIONS = {
 
 export type ApprovalQuestions = typeof APPROVAL_QUESTIONS;
 
-/** Asymmetric like MINOR_BAND: a wrong close costs a contributor, a wrong skip only a review. */
-export const APPROVAL_BAND = { yes: 0.75, no: 0.2 } as const;
+/**
+ * Asymmetric like MINOR_BAND: a wrong close costs a contributor, a wrong skip only a review.
+ * `yes` was 0.75 until agreement given to a different contributor scored exactly 0.75 in the evals;
+ * real agreements score 0.97 and above.
+ */
+export const APPROVAL_BAND = { yes: 0.85, no: 0.2 } as const;
 
 /**
  * Comments and characters per comment given to Jev, sized so the whole state stays under

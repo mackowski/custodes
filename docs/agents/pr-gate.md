@@ -38,7 +38,7 @@ comments. From the rest it removes quoted lines, code blocks and HTML comments.
 
 | Jev answer                                                                      | Outcome                              |
 | ------------------------------------------------------------------------------- | ------------------------------------ |
-| p ≥ 0.75 and `approved`, and a kept comment names the author or is on the PR    | skip `maintainer_approved`           |
+| p ≥ 0.85 and `approved`, and a kept comment names the author or is on the PR    | skip `maintainer_approved`           |
 | p ≤ 0.2 and `rejected` or `unrelated`                                           | **close** (the original rule)        |
 | anything else, or Jev unavailable                                               | flag `maintainer_maybe_approved`     |
 | a "no" when Jev did not see every comment (a full page of 100, over 20, or cut) | flag `maintainer_comments_truncated` |

@@ -41,9 +41,9 @@ Otherwise Jev is asked two questions:
 Jev's state holds only the author's login, the names of existing cheat sheets the PR modifies
 (added or renamed files are left out, because the author chose those names) and up to 20
 maintainer comments of up to 1,400 characters each, inside `untrusted()`. With band
-yes 0.75 / no 0.2:
+yes 0.85 / no 0.2:
 
-- p ≥ 0.75 and `approved` → skip (`maintainer_approved`, listed in the daily summary). This
+- p ≥ 0.85 and `approved` → skip (`maintainer_approved`, listed in the daily summary). This
   needs at least one kept comment that @-mentions the exact author login or is on the PR
   itself. Otherwise it is a flag, because agreement given to someone else in a thread the
   author chose to link is not enough.
@@ -71,7 +71,7 @@ yes 0.75 / no 0.2:
   with its score.
 - A poll costs up to `MAX_LINKED + 1` more reads per would-be close, and at most one more Jev
   call, only when maintainers commented.
-- Bands start at 0.75 / 0.2 and are tuned with `evals/agents/pr-gate-approval`.
+- Bands start at 0.85 / 0.2 and are tuned with `evals/agents/pr-gate-approval`.
 - Comments beyond the first 100 per thread are not read. A full page, or comments cut to fit the
   state, turn a "no" into a flag.
 - Inline review comments are not read (a different endpoint). Agreement given there is missed,
