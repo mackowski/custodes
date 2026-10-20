@@ -1,6 +1,6 @@
 // Deterministic CONTRIBUTING.md checks. Pure functions over GitHub data; no I/O, no model.
 // Everything they read (PR body, file names) is untrusted, so they only ever count and match.
-import type { PublicIssue, PublicPull, PullFile } from '../triage/github.js';
+import type { IssueComment, PublicIssue, PublicPull, PullFile } from '../triage/github.js';
 
 export const ACK_LABEL = 'ACK_OBTAINED';
 export const WAITING_UPDATE_LABEL = 'WAITING_UPDATE';
@@ -112,6 +112,71 @@ export function issueApproval(author: string, issues: readonly PublicIssue[]): I
   return { kind: 'none', unapproved: real.map((i) => i.number) };
 }
 
+/** A comment by a maintainer, quotes and pasted blocks removed. */
+export interface MaintainerComment {
+  thread: number;
+  login: string;
+  body: string;
+  /** The comment @-mentions the PR author by exact login. */
+  mentionsAuthor: boolean;
+}
+
+/** The comments endpoint returns at most this many per read; a full page may mean more exist. */
+export const COMMENTS_PAGE = 100;
+
+/** The agents' own trailer block (an HTML comment, one field per line); quotes cannot fake it. */
+const AGENT_TRAILER = /^Custodes-Agent: [a-z0-9-]+@/m;
+
+/**
+ * Comments by OWNER, MEMBER or COLLABORATOR in the given threads, oldest first per thread, those
+ * that mention the author first. `author_association` comes from GitHub, so only a maintainer can
+ * put text here. Dropped: the author's own comments, bots, agent comments, and in the rest quoted
+ * (`>`) lines, code blocks and HTML comments, which may repeat third-party words. Quotes go first,
+ * so a maintainer who quotes an agent comment keeps their own words. `truncated` when a thread
+ * filled a whole page.
+ */
+export function maintainerComments(
+  author: string,
+  threads: readonly { thread: number; comments: readonly IssueComment[] }[],
+): { comments: MaintainerComment[]; truncated: boolean } {
+  const me = author.toLowerCase();
+  const mention = new RegExp(
+    `(?<![\\w-])@${author.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w-])`,
+    'i',
+  );
+  const out: MaintainerComment[] = [];
+  let truncated = false;
+  for (const t of threads) {
+    if (t.comments.length >= COMMENTS_PAGE) truncated = true;
+    for (const c of t.comments) {
+      const login = c.user?.login ?? '';
+      if (!login || login.toLowerCase() === me) continue;
+      if (c.user?.type === 'Bot' || login.endsWith('[bot]')) continue;
+      if (!TRUSTED_ASSOCIATIONS.has(c.author_association ?? '')) continue;
+      const unquoted = (c.body ?? '')
+        .split(/\r?\n/)
+        .filter((l) => !/^\s*>/.test(l))
+        .join('\n');
+      if (AGENT_TRAILER.test(unquoted)) continue;
+      const body = unquoted
+        .replace(/```[\s\S]*?(```|$)/g, ' ')
+        .replace(/<!--[\s\S]*?(-->|$)/g, ' ')
+        .trim();
+      if (body)
+        out.push({
+          thread: t.thread,
+          login,
+          body,
+          mentionsAuthor: author !== '' && mention.test(body),
+        });
+    }
+  }
+  return {
+    comments: [...out.filter((c) => c.mentionsAuthor), ...out.filter((c) => !c.mentionsAuthor)],
+    truncated,
+  };
+}
+
 /** Above this many changed lines a PR is not a minor fix, whatever it changes. */
 export const MINOR_MAX_LINES = 60;
 
@@ -123,7 +188,7 @@ export type MinorPrefilter =
   /** Small edits to existing cheat sheets: needs a look at the diff. */
   | { kind: 'candidate'; lines: number };
 
-const CONTENT_PATH = /^(cheatsheets|cheatsheets_draft)\/[^/]+\.md$/;
+export const CONTENT_PATH = /^(cheatsheets|cheatsheets_draft)\/[^/]+\.md$/;
 
 /** Cheap structural check that runs before any model sees the diff. */
 export function minorPrefilter(files: readonly PullFile[]): MinorPrefilter {

@@ -1,7 +1,9 @@
 // One PR through the ladder: rules decide almost everything; Jev only judges whether a small diff
-// with no approved issue is a minor fix, and a human gets whatever Jev is unsure about.
+// with no approved issue is a minor fix and, before a close, whether a maintainer agreed to the
+// PR in a comment. A human gets whatever Jev is unsure about.
 import { climb, type Rung, type TraceEntry } from '@custodes/core';
-import type { PublicIssue, PublicPull, PullFile } from '../triage/github.js';
+import type { IssueComment, PublicIssue, PublicPull, PullFile } from '../triage/github.js';
+import { approvalCut, approvalState, approvalSteps, type ApprovalDeps } from './approval.js';
 import { minorSteps, type MinorDeps } from './minor.js';
 import {
   diffText,
@@ -9,13 +11,14 @@ import {
   exemption,
   issueApproval,
   linkedIssueNumbers,
+  maintainerComments,
   MAX_LINKED,
   minorPrefilter,
   type CloseRule,
   type Exemption,
 } from './rules.js';
 
-export type SkipReason = Exemption | 'compliant' | 'minor_fix';
+export type SkipReason = Exemption | 'compliant' | 'minor_fix' | 'maintainer_approved';
 export type FlagReason =
   | 'disclosure_missing'
   | 'disclosure_multiple'
@@ -24,6 +27,8 @@ export type FlagReason =
   | 'too_many_refs'
   | 'author_has_approved_issue'
   | 'approval_list_truncated'
+  | 'maintainer_maybe_approved'
+  | 'maintainer_comments_truncated'
   | 'undecided';
 
 export type Decision =
@@ -40,7 +45,7 @@ export type Decision =
     }
   | { outcome: 'flag'; reason: FlagReason; issue?: number; trace: TraceEntry[] };
 
-export interface DecideDeps extends MinorDeps {
+export interface DecideDeps extends MinorDeps, ApprovalDeps {
   /** The issue, or null when the number is not an issue in this repository (404). */
   getIssue: (n: number) => Promise<PublicIssue | null>;
   listFiles: () => Promise<PullFile[]>;
@@ -49,6 +54,8 @@ export interface DecideDeps extends MinorDeps {
    * if the author has one, the link was probably written in a way we did not parse (PR #2801).
    */
   approvedIssuesOf: (login: string) => Promise<{ issues: number[]; complete: boolean }>;
+  /** Comments on an issue or PR (first page), or null when the number is not one here (404). */
+  listComments: (n: number) => Promise<IssueComment[] | null>;
 }
 
 const ruleTrace = (detail: Record<string, string | number | boolean>): TraceEntry[] => [
@@ -92,6 +99,8 @@ export async function decide(
   const overflow = refs.length > MAX_LINKED;
   const linked = refs.slice(0, MAX_LINKED);
   const issues: PublicIssue[] = [];
+  let files: PullFile[] | undefined;
+  const changedFiles = async () => (files ??= await deps.listFiles());
   for (const n of linked) {
     const issue = await deps.getIssue(n);
     if (issue) issues.push(issue);
@@ -115,8 +124,52 @@ export async function decide(
         return { outcome: 'flag', reason: 'author_has_approved_issue', issue: first, trace };
       // An incomplete list cannot prove the author has no approved issue.
       if (!mine.complete) return { outcome: 'flag', reason: 'approval_list_truncated', trace };
+      d = { ...d, trace };
     }
-    return d;
+    return maintainerCheck(d);
+  };
+  // Before any close for a missing or taken issue (never ai_disclosure: agreement does not replace
+  // the disclosure): did a maintainer agree in this PR or in a thread it links, issues and PRs
+  // alike? Nobody spoke: close. Otherwise Jev, and only a confident no closes (PR #2831).
+  const maintainerCheck = async (d: Extract<Decision, { outcome: 'close' }>): Promise<Decision> => {
+    const threads: { thread: number; comments: IssueComment[] }[] = [];
+    for (const n of [pr.number, ...linked]) {
+      const comments = await deps.listComments(n);
+      if (comments) threads.push({ thread: n, comments });
+    }
+    const said = maintainerComments(author, threads);
+    if (said.comments.length === 0)
+      return {
+        ...d,
+        trace: [
+          ...d.trace,
+          { rung: 'rule', outcome: 'decided', detail: { maintainerComments: 0 } },
+        ],
+      };
+    const state = approvalState(author, await changedFiles(), said.comments);
+    const ladder = await climb(approvalSteps(state, deps));
+    // Comments Jev did not see (a full page, or cut to fit) may hold the agreement (PR #2801 lesson).
+    const partial = said.truncated || approvalCut(said.comments);
+    // A yes must be about this author: a comment naming them, or one on this PR itself. Agreement
+    // given to someone else in a thread the author chose to link is not enough to skip.
+    const addressed = said.comments.some((c) => c.mentionsAuthor || c.thread === pr.number);
+    const trace: TraceEntry[] = [
+      ...d.trace,
+      {
+        rung: 'rule',
+        outcome: 'undecided',
+        detail: { maintainerComments: said.comments.length, partial, addressed },
+      },
+      ...ladder.trace,
+    ];
+    if (!ladder.decided) return { outcome: 'flag', reason: 'maintainer_maybe_approved', trace };
+    if (ladder.value) {
+      if (!addressed) return { outcome: 'flag', reason: 'maintainer_maybe_approved', trace };
+      return { outcome: 'skip', reason: 'maintainer_approved', rung: ladder.rung, trace };
+    }
+    // A no over a partial list proves nothing: the agreement may be in what Jev did not see.
+    if (partial) return { outcome: 'flag', reason: 'maintainer_comments_truncated', trace };
+    return { ...d, trace };
   };
 
   if (approval.kind === 'approved_assigned') {
@@ -152,13 +205,12 @@ export async function decide(
       trace: ruleTrace(base),
     };
 
-  const files = await deps.listFiles();
-  const pre = minorPrefilter(files);
+  const pre = minorPrefilter(await changedFiles());
   if (pre.kind === 'out_of_scope')
     return {
       outcome: 'flag',
       reason: 'out_of_scope',
-      trace: ruleTrace({ ...base, files: files.length }),
+      trace: ruleTrace({ ...base, files: (await changedFiles()).length }),
     };
   if (pre.kind === 'not_minor')
     return close({
@@ -169,7 +221,7 @@ export async function decide(
       trace: ruleTrace({ ...base, notMinor: pre.reason }),
     });
 
-  const ladder = await climb(minorSteps(diffText(files), deps));
+  const ladder = await climb(minorSteps(diffText(await changedFiles()), deps));
   const trace: TraceEntry[] = [
     { rung: 'rule', outcome: 'undecided', detail: { ...base, lines: pre.lines } },
     ...ladder.trace,

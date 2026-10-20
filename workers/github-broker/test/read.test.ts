@@ -124,7 +124,7 @@ describe('broker read()', () => {
 });
 
 describe('broker read() for pr-gate', () => {
-  it('may read pulls, pull files and single issues with the read-only token', async () => {
+  it('may read pulls, pull files, single issues and comments with the read-only token', async () => {
     const fetchImpl = vi.fn((_u: RequestInfo | URL, _i?: RequestInit) =>
       Promise.resolve(Response.json([])),
     );
@@ -134,19 +134,23 @@ describe('broker read() for pr-gate', () => {
       true,
     );
     expect((await read(testEnv, gate({ resource: 'issue', number: 3 }), fetchImpl)).ok).toBe(true);
+    // ADR 0013: maintainer comments are read before a close.
+    expect((await read(testEnv, gate({ resource: 'comments', number: 3 }), fetchImpl)).ok).toBe(
+      true,
+    );
     expect(fetchImpl.mock.calls.map((c) => c[0])).toEqual([
       'https://api.github.com/repos/OWASP/CheatSheetSeries/pulls?state=open&per_page=100&page=1',
       'https://api.github.com/repos/OWASP/CheatSheetSeries/pulls/3/files?per_page=100&page=1',
       'https://api.github.com/repos/OWASP/CheatSheetSeries/issues/3',
+      'https://api.github.com/repos/OWASP/CheatSheetSeries/issues/3/comments?per_page=100&page=1',
     ]);
   });
 
-  it('denies pr-gate timelines, comments and file contents before any network call', async () => {
+  it('denies pr-gate timelines and file contents before any network call', async () => {
     const fetchImpl = vi.fn();
     const gate = (over: Partial<BrokerReadRequest>) => req({ agentId: 'pr-gate', ...over });
     for (const r of [
       gate({ resource: 'timeline', number: 1 }),
-      gate({ resource: 'comments', number: 1 }),
       gate({ resource: 'cheatsheet', file: 'A_Cheat_Sheet.md' }),
     ]) {
       expect(await read(testEnv, r, fetchImpl)).toMatchObject({

@@ -24,9 +24,11 @@ export const TimelineEvent = z.looseObject({
 export type TimelineEvent = z.infer<typeof TimelineEvent>;
 
 export const IssueComment = z.looseObject({
-  user: z.looseObject({ login: z.string() }).nullable(),
+  user: z.looseObject({ login: z.string(), type: z.string().optional() }).nullable(),
   body: z.string().nullable().optional(),
   created_at: z.string(),
+  /** Set by GitHub (OWNER, MEMBER, COLLABORATOR, CONTRIBUTOR, ...); not writable by the commenter. */
+  author_association: z.string().optional(),
 });
 export type IssueComment = z.infer<typeof IssueComment>;
 

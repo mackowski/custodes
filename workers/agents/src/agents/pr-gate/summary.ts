@@ -41,7 +41,7 @@ const SECTIONS: { outcome: SummaryOutcome; heading: string }[] = [
   { outcome: 'error', heading: 'Could not decide (retried next poll)' },
   {
     outcome: 'minor',
-    heading: 'Skipped as minor fixes by Jev (look at the diff if the score is low)',
+    heading: 'Skipped by Jev as minor fixes or agreed by a maintainer (look if the score is low)',
   },
 ];
 
