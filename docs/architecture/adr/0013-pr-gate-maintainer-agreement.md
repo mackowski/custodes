@@ -1,6 +1,6 @@
 # 0013. pr-gate reads maintainer comments and asks Jev about agreement before a close
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-10-20
 - Deciders: Jakub Maćkowski
 
