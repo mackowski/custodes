@@ -17,6 +17,8 @@ on:
       - 'workers/agents/src/agents/specialists/select.ts'
       - 'workers/agents/src/agents/specialists/model.ts'
       - 'workers/agents/src/agents/pr-gate/minor.ts'
+      - 'workers/agents/src/agents/pr-gate/approval.ts'
+      - 'workers/agents/src/agents/pr-gate/rules.ts'
       - 'packages/llm/src/jev.ts'
       - 'packages/llm/src/models.ts'
       - 'packages/llm/src/untrusted.ts'

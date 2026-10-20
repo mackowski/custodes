@@ -39,7 +39,7 @@
     "pr-gate": {
       "tokenBinding": "PAT_READONLY",
       "repos": ["OWASP/CheatSheetSeries", "mackowski/custodes-sandbox"],
-      "resources": ["pulls", "pull_files", "issue", "issues"]
+      "resources": ["pulls", "pull_files", "issue", "issues", "comments"]
     }
   }
 }

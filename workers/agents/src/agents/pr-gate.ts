@@ -12,6 +12,7 @@ import {
 } from '../instances.js';
 import { closeComment } from './pr-gate/comment.js';
 import { decide, type Decision } from './pr-gate/decide.js';
+import { APPROVAL_QUESTIONS } from './pr-gate/approval.js';
 import { MINOR_QUESTIONS } from './pr-gate/minor.js';
 import { ACK_LABEL, CLOSE_FAILED, nextStep, REOPENED, settled } from './pr-gate/rules.js';
 import { renderSummary, type SummaryOutcome, type SummaryRow } from './pr-gate/summary.js';
@@ -37,7 +38,7 @@ export const PR_GATE_INSTANCE = OWASP_INSTANCE;
 /** Closes per UTC day and per poll (per instance); the broker also caps 5 per hour per repository. */
 export const MAX_CLOSES_PER_DAY = 10;
 export const MAX_CLOSES_PER_RUN = 5;
-/** PRs evaluated per poll (each costs up to six reads and one Jev call). */
+/** PRs evaluated per poll (each costs up to a dozen reads and two Jev calls). */
 export const MAX_EVALUATIONS_PER_RUN = 30;
 
 type StoredOutcome = 'skip' | SummaryOutcome;
@@ -91,8 +92,9 @@ function whyOf(row: DecisionRow): string | undefined {
   }
 }
 
+/** The last Jev score: the one that decided (approval comes after the minor-fix question). */
 function jevProbability(d: Decision): number | undefined {
-  for (const t of d.trace) {
+  for (const t of [...d.trace].reverse()) {
     const p = t.rung === 'jev' ? t.detail?.['p'] : undefined;
     if (typeof p === 'number') return p;
   }
@@ -267,6 +269,14 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
               }
             },
             listFiles: () => reader.listPullFileDetails(this.repo, pr.number),
+            listComments: async (n) => {
+              try {
+                return await reader.listComments(this.repo, n);
+              } catch (err) {
+                if (err instanceof GitHubReadError && err.status === 404) return null;
+                throw err;
+              }
+            },
             approvedIssuesOf: async (login) => {
               approved ??= reader.listOpenIssuesWithLabelChecked(this.repo, ACK_LABEL);
               const list = await approved;
@@ -284,6 +294,15 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
                 model: MODELS.decision,
                 state,
                 questions: MINOR_QUESTIONS,
+                metadata: { agentId: this.manifest.id, runId },
+              });
+            },
+            jevApproval: async (state) => {
+              await this.guard();
+              return jev.decide({
+                model: MODELS.decision,
+                state,
+                questions: APPROVAL_QUESTIONS,
                 metadata: { agentId: this.manifest.id, runId },
               });
             },
@@ -433,9 +452,12 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
     let skipped = 0;
     for (const r of pending) {
       const d = Detail.safeParse(JSON.parse(r.detail));
-      // Skips are only counted, except Jev's minor-fix skips: a diff that talked its way past the
-      // gate must be visible to the operator, with its score.
-      const minor = r.outcome === 'skip' && d.success && d.data.why === 'minor_fix';
+      // Skips are only counted, except Jev's: a diff or a maintainer comment that got a PR past
+      // the gate must be visible to the operator, with its score.
+      const minor =
+        r.outcome === 'skip' &&
+        d.success &&
+        (d.data.why === 'minor_fix' || d.data.why === 'maintainer_approved');
       if (r.outcome === 'skip' && !minor) {
         skipped++;
         continue;

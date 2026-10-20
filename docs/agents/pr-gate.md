@@ -4,8 +4,8 @@
 - Repositories: OWASP/CheatSheetSeries, and mackowski/custodes-sandbox for tests (ADR 0012)
 - Class: `workers/agents/src/agents/pr-gate.ts` · Logic: `workers/agents/src/agents/pr-gate/`
 - Policy: `agents.pr-gate` (`pr.close`, 5/h) and `reads.pr-gate` (`pulls`, `pull_files`, `issue`,
-  `issues`).
-  ADR 0011.
+  `issues`, `comments`).
+  ADR 0011, ADR 0013.
 
 ## Purpose
 
@@ -28,13 +28,34 @@ The decision ladder is deterministic rules first, then Jev, then a human. No LLM
 
 Both disclosure options ticked turns a skip into a flag; it is never a close on its own.
 
+**Before every `assigned_to_other` or `no_approved_issue` close** (ADR 0013, after PR #2831), the
+agent reads the comments on the PR and on every issue or PR its body links. It keeps only comments
+by owners, members and collaborators. It drops the author's own comments, bots and agent
+comments. From the rest it removes quoted lines, code blocks and HTML comments.
+
+- **No maintainer comment:** the close goes ahead.
+- **Otherwise:** Jev is asked whether a maintainer agreed that this author make this change.
+
+| Jev answer                                                                      | Outcome                              |
+| ------------------------------------------------------------------------------- | ------------------------------------ |
+| p ≥ 0.75 and `approved`, and a kept comment names the author or is on the PR    | skip `maintainer_approved`           |
+| p ≤ 0.2 and `rejected` or `unrelated`                                           | **close** (the original rule)        |
+| anything else, or Jev unavailable                                               | flag `maintainer_maybe_approved`     |
+| a "no" when Jev did not see every comment (a full page of 100, over 20, or cut) | flag `maintainer_comments_truncated` |
+
+`ai_disclosure` closes skip this step, because agreement does not replace the disclosure.
+
 ## Inputs (all untrusted)
 
 - PR list: title, body, author, labels and head commit.
 - Changed files: names, line counts and patches.
 - Linked issues: labels, assignees and state.
+- Comments on the PR and linked threads (first 100 each), only before a close.
 - The body is only matched with regexes. The diff goes to Jev inside `untrusted()`, clipped to
   30,000 characters.
+- For the agreement question, Jev sees only the author's login, the names of existing cheat sheets
+  the PR modifies, and up to 20 maintainer comments of up to 1,400 characters each, never the PR
+  title or body. Everything is inside `untrusted()`.
 
 ## Actions requested (must match policy)
 
@@ -99,6 +120,10 @@ with the `Diagnose` workflow's Jev step (`scripts/jev-smoke.ts --probe`).
 
 See ADR 0011.
 
+- **An injected maintainer comment** (pasted text) can only push a PR towards skip or flag. Only
+  OWNER, MEMBER or COLLABORATOR text reaches the agreement question, because GitHub sets
+  `author_association`. A "yes" leaves the PR for normal review, and the summary lists it with
+  its score.
 - **An injected diff** can only push its own PR towards "minor" (skip or flag). A close needs
   either a structural rule or Jev at p ≤ 0.15 (confidently "not minor") plus the `new_guidance`
   label.
