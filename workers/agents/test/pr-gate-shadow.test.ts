@@ -108,6 +108,13 @@ describe('shadowed', () => {
     );
   });
 
+  it('stores only a model name that looks like one', () => {
+    expect(reduce('minor', minorAnswers('@cf/cloudflare/clef', 0.5, 'typo'), 1).model).toBe(
+      '@cf/cloudflare/clef',
+    );
+    expect(reduce('minor', minorAnswers('=cmd|x', 0.5, 'typo'), 1).model).toBe('other');
+  });
+
   it('reads the answers by question id, not by order', () => {
     const extra = minorAnswers('m', 0.9, 'typo');
     const res = {
@@ -307,7 +314,7 @@ describe('pr-gate with Clef as a shadow', () => {
     expect(r.rows[0]?.clef_error).toBe('Error');
   });
 
-  it('stops asking Clef for the rest of the poll after it times out', async () => {
+  it('stops asking Clef for the rest of the poll after its first error', async () => {
     fakeJev(0.95, 'link');
     const run = vi.fn(() => Promise.reject(new ClefTimeoutError()));
     const r = await inAgent(fakeBroker([pull(9211), pull(9212)]), { run }, async (agent, i) => {
@@ -407,7 +414,12 @@ describe('one AI Gateway in the agents Worker (ADR 0015)', () => {
 
   it('uses the AI binding in one place only, through ClefClient', () => {
     const uses = Object.entries(sources).flatMap(([file, text]) =>
-      (text.match(/\benv\.AI\b/g) ?? []).map(() => file),
+      // `env.AI`, `env['AI']`, `const { AI } = env`, or any `AI.run(`.
+      (
+        text.match(
+          /\benv\.AI\b|\[\s*['"]AI['"]\s*\]|\{[^}]*\bAI\b[^}]*\}\s*=\s*(?:this\.)?env\b|\bAI\.run\(/g,
+        ) ?? []
+      ).map(() => file),
     );
     expect(Object.keys(sources).length).toBeGreaterThan(10);
     expect(uses).toEqual(['../src/agents/pr-gate.ts']);

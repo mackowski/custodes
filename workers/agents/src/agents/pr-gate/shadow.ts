@@ -39,7 +39,7 @@ interface Answered {
 
 /** Reduces an answer set to the yes/no probability and the choice; anything else is dropped. */
 export function reduce(question: ShadowQuestion, res: Answered, ms: number): ModelCall {
-  const out: ModelCall = { model: res.model.slice(0, 60), ms };
+  const out: ModelCall = { model: /^[\w@./:-]{1,60}$/.test(res.model) ? res.model : 'other', ms };
   const yes = res.answers[KEYS[question].yes];
   const choice = res.answers[KEYS[question].choice];
   if (yes?.type === 'noul') out.p = Math.round(yes.noul * 1000) / 1000;

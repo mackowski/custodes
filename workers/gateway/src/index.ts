@@ -16,7 +16,7 @@ import {
   type InboundEvent,
   type PublicKeyEntry,
 } from '@custodes/schema';
-import { adminWriteAllowed, crossSiteWrite, verifyAccessJwt } from './access.js';
+import { adminWriteAllowed, agentWriteAllowed, crossSiteWrite, verifyAccessJwt } from './access.js';
 import type { GatewayEnv } from './env.js';
 
 interface Vars {
@@ -176,9 +176,8 @@ app.all('/agents/*', async (c) => {
   const actor = await verifyAccessJwt(c.req.raw, c.env.ACCESS_TEAM, c.env.ACCESS_AUD);
   if (!actor) return c.json({ error: 'unauthorized' }, 401);
   const url = new URL(c.req.url);
-  // Ground truth for the Jev vs Clef comparison (ADR 0015) comes from a person, not a service token.
-  if (url.pathname.endsWith('/verdict') && !adminWriteAllowed(actor, c.req.method))
-    return c.json({ error: 'service tokens cannot record verdicts' }, 403);
+  if (!agentWriteAllowed(actor, c.req.method, url.pathname))
+    return c.json({ error: 'service tokens may only trigger run, digest or summary' }, 403);
   url.host = 'agents.internal';
   const headers = new Headers(c.req.raw.headers);
   headers.set('x-custodes-actor', actor.subject);

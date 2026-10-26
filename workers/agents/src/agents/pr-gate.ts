@@ -360,7 +360,7 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
     }
     const clef = this.clef();
     // A hanging Clef must not stretch the poll towards POLL_LOCK_MS: it gets a time budget per poll
-    // and is dropped for the rest of the poll after its first timeout.
+    // and is dropped for the rest of the poll after its first error.
     let clefBudgetMs = CLEF_BUDGET_PER_POLL_MS;
     // The same questions to Clef, never deciding (ADR 0015); answers wait in pendingComparisons.
     const shadow = <Q extends Record<string, JevQuestion>>(questions: Q, state: JevState) =>
@@ -374,7 +374,9 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
             })
         : undefined;
     const record = (c: Comparison) => {
-      clefBudgetMs = c.clef.error?.startsWith('ClefTimeoutError') ? 0 : clefBudgetMs - c.clef.ms;
+      // Any error (timeout, 429 from the gateway): no more Clef this poll, so the shadow cannot
+      // use up the gateway's rate limit that triage's Claude calls share.
+      clefBudgetMs = c.clef.error !== undefined ? 0 : clefBudgetMs - c.clef.ms;
       this.pendingComparisons.push(c);
     };
     const errors: string[] = [];

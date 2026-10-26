@@ -28,8 +28,8 @@ to go through one gateway.
 same enveloped `JevState`, at the same time as Jev (`Promise.allSettled` semantics in
 `pr-gate/shadow.ts`). Only Jev's answer reaches the decision ladder; Jev's errors are thrown
 exactly as before. Clef has a 10-second timeout and a budget of 60 seconds per poll (it is not asked
-again in a poll after a timeout), so a hanging Clef cannot stretch a poll towards the 15-minute
-poll lock. It sits behind the same `guard()`, and its failures are only recorded; storing a
+again in a poll after any error), so a hanging Clef cannot stretch a poll towards the 15-minute
+poll lock, and a failing one cannot use up the gateway rate limit that triage's Claude calls share. It sits behind the same `guard()`, and its failures are only recorded; storing a
 comparison cannot interrupt a poll. Clef is asked only when Jev is; `clef-flash` is not used.
 
 **Comparison table.** Each pair of answers is a row in `model_comparisons` in pr-gate's Durable
@@ -43,7 +43,8 @@ class, then pr-gate's outcome and a `human_verdict`. No PR text and no model tex
 not say who, so it may be the author) or `reopened` (a PR pr-gate closed was reopened). pr-gate's
 own closes that stay closed are left open. The operator can record the right answer to one
 question with `custodes pr-gate verdict <pr> --question minor|approval --answer yes|no`. Service
-tokens cannot: the gateway refuses them, and the agent checks the `x-custodes-actor-via` header the
+tokens cannot: on `/agents/*` the gateway lets them write only to the on-demand `run`, `digest`
+and `summary` steps (an allowlist), and the agent checks the `x-custodes-actor-via` header the
 gateway sets. The log line names who recorded the verdict.
 
 **Reading.** `custodes pr-gate compare [--since] [--csv]` (GET `…/comparisons` on the agent, behind

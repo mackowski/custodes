@@ -1,16 +1,19 @@
 # Rotate Cloudflare API tokens used by CI
 
-Two tokens, stored as GitHub _Environment_ secrets (`ci` for plans and evals, `prod` for applies and deploys), never repository-wide:
+Three tokens, stored as GitHub _Environment_ secrets (`ci` for plans and evals, `prod` for applies and deploys), never repository-wide:
 
-| Secret                           | Scope                                                                                                                        | Used by              |
-| -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | -------------------- |
-| `CLOUDFLARE_API_TOKEN_DEPLOY`    | Workers Scripts: Edit; Workers KV/D1/Queues: Edit; Account Settings: Read                                                    | `deploy-workers.yml` |
-| `CLOUDFLARE_API_TOKEN_TERRAFORM` | Access: Apps and Policies Edit; Email Routing Edit; DNS Edit; AI Gateway Edit; Secrets Store Edit; Workers KV/D1/Queues Edit | `deploy-infra.yml`   |
+| Secret                            | Scope                                                                                                                                | Used by                                      |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------- |
+| `CLOUDFLARE_API_TOKEN_DEPLOY`     | Workers Scripts: Edit; Workers KV/D1/Queues: Edit; Account Settings: Read                                                            | `deploy-workers.yml`                         |
+| `CLOUDFLARE_API_TOKEN_TERRAFORM`  | Access: Apps and Policies Edit; Email Routing Edit; DNS Edit; AI Gateway Edit; Secrets Store Edit; Workers KV/D1/Queues Edit         | `deploy-infra.yml`                           |
+| `CF_WORKERS_AI_EVAL_TOKEN` (`ci`) | Workers AI: Read and Edit (running a model needs both), the custodes account only, TTL 90 days. Can only run models and spend credit | `evals.yml` (Clef shadow provider, ADR 0015) |
 
 1. Create the new token in Cloudflare → My Profile → API Tokens with the exact scopes above and,
    if possible, an IP filter for GitHub's runner ranges and a TTL.
 2. Update the GitHub Environment secret. Re-run the last deploy workflow to confirm.
 3. Roll the old token. Rotate every 90 days or immediately after any CI compromise.
+   For `CF_WORKERS_AI_EVAL_TOKEN`, confirm with the `Evals` workflow: the `[shadow:clef]` lines
+   must show results, not `HTTP 401/403`.
 
 Also rotate the R2 state credentials (`R2_STATE_*`) and the Access service token
 (`terraform output -raw service_token_client_secret`) on the same schedule.

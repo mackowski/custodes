@@ -1,7 +1,7 @@
 import { env } from 'cloudflare:workers';
 import { describe, expect, it } from 'vitest';
 import worker from '../src/index.js';
-import { adminWriteAllowed } from '../src/access.js';
+import { adminWriteAllowed, agentWriteAllowed } from '../src/access.js';
 import type { GatewayEnv } from '../src/env.js';
 
 const testEnv = (): GatewayEnv => ({
@@ -152,5 +152,14 @@ describe('service token on the admin API', () => {
   });
   it('leaves people unrestricted', () => {
     expect(adminWriteAllowed(human, 'POST')).toBe(true);
+  });
+  it('lets a service token write only to on-demand steps on /agents', () => {
+    const base = '/agents/pr-gate-agent/custodes-sandbox';
+    for (const step of ['run', 'digest', 'summary'])
+      expect(agentWriteAllowed(svc, 'POST', `${base}/${step}`), step).toBe(true);
+    for (const path of [`${base}/verdict`, `${base}/verdicts`, `${base}/run/x`, base])
+      expect(agentWriteAllowed(svc, 'POST', path), path).toBe(false);
+    expect(agentWriteAllowed(svc, 'GET', `${base}/comparisons`)).toBe(true);
+    expect(agentWriteAllowed(human, 'POST', `${base}/verdict`)).toBe(true);
   });
 });

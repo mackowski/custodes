@@ -54,3 +54,11 @@ export function crossSiteWrite(req: Request): boolean {
 export function adminWriteAllowed(actor: AdminActor, method: string): boolean {
   return actor.via !== 'access-service-token' || ['GET', 'HEAD'].includes(method);
 }
+
+/**
+ * On `/agents/*` a service token (CI sandbox scenarios) may read, and write only to the on-demand
+ * steps (ADR 0012). Anything else, such as a Jev vs Clef verdict (ADR 0015), needs a person.
+ */
+export function agentWriteAllowed(actor: AdminActor, method: string, path: string): boolean {
+  return adminWriteAllowed(actor, method) || /\/(run|digest|summary)$/.test(path);
+}
