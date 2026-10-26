@@ -4,6 +4,7 @@ import { approvalsCommand } from './commands/approvals.js';
 import { auditCommand } from './commands/audit.js';
 import { keysCommand } from './commands/keys.js';
 import { logsCommand } from './commands/logs.js';
+import { prGateCommand } from './commands/pr-gate.js';
 
 const program = new Command('custodes')
   .description('Operate the Custodes agent fleet. Authenticates through Cloudflare Access.')
@@ -14,7 +15,8 @@ const program = new Command('custodes')
   .addCommand(approvalsCommand())
   .addCommand(auditCommand())
   .addCommand(keysCommand())
-  .addCommand(logsCommand());
+  .addCommand(logsCommand())
+  .addCommand(prGateCommand());
 
 program.parseAsync(process.argv).catch((err: unknown) => {
   process.stderr.write(`error: ${err instanceof Error ? err.message : String(err)}\n`);

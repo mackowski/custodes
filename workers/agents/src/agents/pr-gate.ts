@@ -1,6 +1,13 @@
 import { z } from 'zod';
 import { AgentHaltedError, CustodesAgent } from '@custodes/core/agent';
-import { JevClient, MODELS, type JevTransport } from '@custodes/llm';
+import {
+  ClefClient,
+  JevClient,
+  MODELS,
+  type JevQuestion,
+  type JevState,
+  type JevTransport,
+} from '@custodes/llm';
 import type { AgentManifest } from '@custodes/schema';
 import type { AgentsEnv } from '../env.js';
 import {
@@ -14,6 +21,7 @@ import { closeComment } from './pr-gate/comment.js';
 import { decide, type Decision } from './pr-gate/decide.js';
 import { APPROVAL_QUESTIONS } from './pr-gate/approval.js';
 import { MINOR_QUESTIONS } from './pr-gate/minor.js';
+import { agree, shadowed, type Comparison } from './pr-gate/shadow.js';
 import {
   ACK_LABEL,
   CLOSE_FAILED,
@@ -23,7 +31,12 @@ import {
   settled,
   wakeAt,
 } from './pr-gate/rules.js';
-import { renderSummary, type SummaryOutcome, type SummaryRow } from './pr-gate/summary.js';
+import {
+  renderSummary,
+  type ShadowCounts,
+  type SummaryOutcome,
+  type SummaryRow,
+} from './pr-gate/summary.js';
 import { describeError } from './triage/errors.js';
 import {
   BrokerGitHubReader,
@@ -54,6 +67,42 @@ export const MAX_EVALUATIONS_PER_DAY = 300;
 export const MAX_EVALUATIONS_PER_PR_PER_DAY = 4;
 /** A poll flag older than this belongs to a poll that hung; the next poll may start. */
 export const POLL_LOCK_MS = 15 * 60_000;
+/** Time Clef may take in one poll, in total; it is not asked again once this is spent. */
+export const CLEF_BUDGET_PER_POLL_MS = 60_000;
+/** Jev vs Clef rows are kept this long (ADR 0015): enough to decide on an agreement mode. */
+export const COMPARISON_RETENTION_DAYS = 180;
+
+/** The operator's answer to one question about one PR (ADR 0015). */
+export const VerdictRequest = z
+  .object({
+    pr: z.number().int().positive().max(1_000_000),
+    question: z.enum(['minor', 'approval']),
+    answer: z.enum(['yes', 'no']),
+  })
+  .strict();
+
+export interface ComparisonRow {
+  id: number;
+  pr: number;
+  head_sha: string;
+  state_sha256: string;
+  question: string;
+  jev_model: string | null;
+  jev_p: number | null;
+  jev_choice: string | null;
+  jev_ms: number;
+  jev_tokens: number | null;
+  jev_error: string | null;
+  clef_model: string | null;
+  clef_p: number | null;
+  clef_choice: string | null;
+  clef_ms: number;
+  clef_tokens: number | null;
+  clef_error: string | null;
+  outcome: string | null;
+  human_verdict: string | null;
+  decided_at: string;
+}
 
 type StoredOutcome = 'skip' | SummaryOutcome;
 
@@ -142,6 +191,9 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
   /** When the running poll started. In memory on purpose: a poll does not survive eviction. */
   private pollingSince: number | null = null;
 
+  /** Jev vs Clef answers for the PR being decided; written by store() with its outcome. */
+  private pendingComparisons: Comparison[] = [];
+
   /** The repository is chosen by the instance name only (see instances.ts). */
   private get repo(): string {
     return instanceOf(this.name).repo;
@@ -190,6 +242,29 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
       attestation_id TEXT,
       reported_at    TEXT
     )`;
+    // Jev vs Clef (ADR 0015): numbers and ids only. `outcome` is what pr-gate did (Jev decides).
+    this.sql`CREATE TABLE IF NOT EXISTS model_comparisons (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      pr            INTEGER NOT NULL,
+      head_sha      TEXT NOT NULL,
+      state_sha256  TEXT NOT NULL,
+      question      TEXT NOT NULL,
+      jev_model     TEXT,
+      jev_p         REAL,
+      jev_choice    TEXT,
+      jev_ms        INTEGER NOT NULL,
+      jev_tokens    INTEGER,
+      jev_error     TEXT,
+      clef_model    TEXT,
+      clef_p        REAL,
+      clef_choice   TEXT,
+      clef_ms       INTEGER NOT NULL,
+      clef_tokens   INTEGER,
+      clef_error    TEXT,
+      outcome       TEXT,
+      human_verdict TEXT,
+      decided_at    TEXT NOT NULL
+    )`;
     if (!hadEvents)
       this.sql`INSERT INTO events (pr, title, outcome, detail, decided_at, github_url,
           attestation_id, reported_at)
@@ -213,6 +288,21 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
           ...(this.env.JEV_GATEWAY_PATH ? { path: this.env.JEV_GATEWAY_PATH } : {}),
         };
     return new JevClient({ transport });
+  }
+
+  /** The shadow model, always through the AI Gateway (ADR 0015). Absent if it cannot be built. */
+  private clef(): ClefClient | undefined {
+    try {
+      return new ClefClient({
+        ai: { run: (model, inputs, options) => this.env.AI.run(model, inputs, options) },
+        gatewayId: this.env.AI_GATEWAY_ID,
+      });
+    } catch (err) {
+      console.warn(
+        JSON.stringify({ event: 'pr-gate.clef.unavailable', error: describeError(err) }),
+      );
+      return undefined;
+    }
   }
 
   /**
@@ -268,6 +358,25 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
       this.recordErrors([detail]);
       return { ok: false, detail };
     }
+    const clef = this.clef();
+    // A hanging Clef must not stretch the poll towards POLL_LOCK_MS: it gets a time budget per poll
+    // and is dropped for the rest of the poll after its first timeout.
+    let clefBudgetMs = CLEF_BUDGET_PER_POLL_MS;
+    // The same questions to Clef, never deciding (ADR 0015); answers wait in pendingComparisons.
+    const shadow = <Q extends Record<string, JevQuestion>>(questions: Q, state: JevState) =>
+      clef && clefBudgetMs > 0
+        ? () =>
+            clef.decide({
+              model: MODELS.decisionShadow,
+              state,
+              questions,
+              metadata: { agentId: this.manifest.id, runId },
+            })
+        : undefined;
+    const record = (c: Comparison) => {
+      clefBudgetMs = c.clef.error?.startsWith('ClefTimeoutError') ? 0 : clefBudgetMs - c.clef.ms;
+      this.pendingComparisons.push(c);
+    };
     const errors: string[] = [];
     let listed: Awaited<ReturnType<BrokerGitHubReader['listOpenPulls']>>;
     try {
@@ -299,9 +408,12 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
         // A "would close" is only worth deciding again while a close is still possible today.
         this.enforcing && this.state.closesToday < MAX_CLOSES_PER_DAY,
       );
+      this.pendingComparisons = [];
       if (step === 'reopened') {
         // A maintainer reopened a PR we closed: their call. Report once, never act on it again.
         this.store(pr, 'flag', { why: REOPENED, rung: 'human' }, now);
+        this.sql`UPDATE model_comparisons SET human_verdict = 'reopened'
+          WHERE pr = ${pr.number} AND human_verdict IS NULL`;
         continue;
       }
       if (step === 'leave') continue;
@@ -365,21 +477,35 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
             },
             jev: async (state) => {
               await this.guard();
-              return jev.decide({
-                model: MODELS.decision,
+              return shadowed(
+                'minor',
                 state,
-                questions: MINOR_QUESTIONS,
-                metadata: { agentId: this.manifest.id, runId },
-              });
+                () =>
+                  jev.decide({
+                    model: MODELS.decision,
+                    state,
+                    questions: MINOR_QUESTIONS,
+                    metadata: { agentId: this.manifest.id, runId },
+                  }),
+                shadow(MINOR_QUESTIONS, state),
+                record,
+              );
             },
             jevApproval: async (state) => {
               await this.guard();
-              return jev.decide({
-                model: MODELS.decision,
+              return shadowed(
+                'approval',
                 state,
-                questions: APPROVAL_QUESTIONS,
-                metadata: { agentId: this.manifest.id, runId },
-              });
+                () =>
+                  jev.decide({
+                    model: MODELS.decision,
+                    state,
+                    questions: APPROVAL_QUESTIONS,
+                    metadata: { agentId: this.manifest.id, runId },
+                  }),
+                shadow(APPROVAL_QUESTIONS, state),
+                record,
+              );
             },
           },
           { gateMaintainers: this.sandbox },
@@ -541,6 +667,42 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
         .sql`INSERT INTO events (pr, title, outcome, detail, decided_at, github_url, attestation_id)
         VALUES (${pr.number}, ${title}, ${outcome}, ${JSON.stringify(detail)}, ${now.toISOString()},
           ${acted?.githubUrl ?? null}, ${acted?.attestationId ?? null})`;
+    // Shadow bookkeeping runs after act(): it must never interrupt the poll.
+    try {
+      this.storeComparisons(pr, outcome, now);
+    } catch (err) {
+      console.warn(
+        JSON.stringify({
+          event: 'pr-gate.shadow.store_failed',
+          pr: pr.number,
+          error: describeError(err),
+        }),
+      );
+    }
+    this.pendingComparisons = [];
+  }
+
+  private storeComparisons(pr: PublicPull, outcome: StoredOutcome, now: Date): void {
+    for (const c of this.pendingComparisons) {
+      this.sql`INSERT INTO model_comparisons (pr, head_sha, state_sha256, question,
+          jev_model, jev_p, jev_choice, jev_ms, jev_tokens, jev_error,
+          clef_model, clef_p, clef_choice, clef_ms, clef_tokens, clef_error, outcome, decided_at)
+        VALUES (${pr.number}, ${pr.head.sha}, ${c.stateSha256}, ${c.question},
+          ${c.jev.model ?? null}, ${c.jev.p ?? null}, ${c.jev.choice ?? null}, ${c.jev.ms},
+          ${c.jev.tokens ?? null}, ${c.jev.error ?? null},
+          ${c.clef.model ?? null}, ${c.clef.p ?? null}, ${c.clef.choice ?? null}, ${c.clef.ms},
+          ${c.clef.tokens ?? null}, ${c.clef.error ?? null}, ${outcome}, ${now.toISOString()})`;
+      console.log(
+        JSON.stringify({
+          event: 'pr-gate.shadow',
+          pr: pr.number,
+          question: c.question,
+          jevP: c.jev.p ?? null,
+          clefP: c.clef.p ?? null,
+          clefError: c.clef.error ?? null,
+        }),
+      );
+    }
   }
 
   /** Marks events up to lastId as reported and forgets reported ones older than 30 days. */
@@ -549,6 +711,50 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
       .sql`UPDATE events SET reported_at = ${stamp} WHERE reported_at IS NULL AND id <= ${lastId}`;
     const cutoff = new Date(Date.parse(stamp) - 30 * 86_400_000).toISOString();
     this.sql`DELETE FROM events WHERE reported_at IS NOT NULL AND reported_at < ${cutoff}`;
+    const keep = new Date(Date.parse(stamp) - COMPARISON_RETENTION_DAYS * 86_400_000).toISOString();
+    this.sql`DELETE FROM model_comparisons WHERE decided_at < ${keep}`;
+  }
+
+  /**
+   * Fills human_verdict from what happened to the PRs since (ADR 0015): merged, or closed unmerged
+   * by someone (maybe the author). Our own closes stay open: only a reopen or the operator says
+   * whether they were right.
+   */
+  private async settleVerdicts(): Promise<void> {
+    this.ensureSchema();
+    const pending = this.sql<{ pr: number }>`SELECT DISTINCT pr FROM model_comparisons
+      WHERE human_verdict IS NULL`;
+    if (pending.length === 0) return;
+    const wanted = new Set(pending.map((r) => r.pr));
+    const reader = new BrokerGitHubReader(this.env.BROKER, this.manifest.id, crypto.randomUUID());
+    for (const pr of await reader.listRecentlyClosedPulls(this.repo)) {
+      if (!wanted.has(pr.number)) continue;
+      const ours =
+        this.sql<{ outcome: string }>`SELECT outcome FROM decisions WHERE pr = ${pr.number}`[0]
+          ?.outcome === 'close';
+      // GitHub's list does not say who closed: the author may have. A weak signal, named so.
+      const verdict = pr.merged_at ? 'merged' : ours ? null : 'closed_unmerged';
+      if (verdict)
+        this.sql`UPDATE model_comparisons SET human_verdict = ${verdict}
+          WHERE pr = ${pr.number} AND human_verdict IS NULL`;
+    }
+  }
+
+  /** Jev vs Clef since `since` (all rows when null), for the summary line. */
+  private shadowCounts(since: string | null): ShadowCounts | undefined {
+    const rows = this.sql<ComparisonRow>`SELECT * FROM model_comparisons
+      WHERE decided_at > ${since ?? ''} ORDER BY id`;
+    if (rows.length === 0) return undefined;
+    const disagree = new Set<number>();
+    let agreeing = 0;
+    let clefErrors = 0;
+    for (const r of rows) {
+      if (r.clef_error !== null) clefErrors++;
+      const a = agree(r);
+      if (a === true) agreeing++;
+      if (a === false) disagree.add(r.pr);
+    }
+    return { agree: agreeing, disagree: [...disagree], clefErrors };
   }
 
   /** Scheduled daily with the triage digest. Sends nothing when nothing happened. */
@@ -593,6 +799,7 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
       });
     }
     const errors = [...this.state.lastErrors];
+    const shadow = this.shadowCounts(this.state.lastSummaryAt);
     const mail = renderSummary({
       repo: this.repo,
       rows,
@@ -601,6 +808,7 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
       verifyUrl: `https://${this.env.EMAIL_DOMAIN}/verify`,
       errors,
       now,
+      ...(shadow ? { shadow } : {}),
     });
     return { mail, rows, skipped, errors, lastId };
   }
@@ -613,6 +821,12 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
     }
     const now = new Date();
     const stamp = now.toISOString();
+    try {
+      await this.settleVerdicts();
+    } catch (err) {
+      // Only the comparison data waits a day; the summary itself goes out.
+      console.warn(JSON.stringify({ event: 'pr-gate.verdicts.failed', error: describeError(err) }));
+    }
     const { mail, rows, skipped, errors, lastId } = this.buildSummary(now);
     if (rows.length === 0 && errors.length === 0) {
       this.markReported(stamp, lastId);
@@ -656,6 +870,36 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
           ? await this.sendSummary()
           : await this.poll({ manual: true }),
       );
+    }
+    // Jev vs Clef rows (ADR 0015): ids and numbers only, newest first, optionally since a time.
+    if (request.method === 'GET' && url.pathname.endsWith('/comparisons')) {
+      const since = url.searchParams.get('since');
+      if (since !== null && !Number.isFinite(Date.parse(since)))
+        return Response.json({ error: 'since must be an ISO time' }, { status: 400 });
+      this.ensureSchema();
+      const from = since === null ? '' : new Date(since).toISOString();
+      return Response.json(
+        this.sql<ComparisonRow>`SELECT * FROM model_comparisons WHERE decided_at >= ${from}
+          ORDER BY id DESC LIMIT 5000`,
+      );
+    }
+    // The operator's answer to one question about one PR: the ground truth for the comparison.
+    if (request.method === 'POST' && url.pathname.endsWith('/verdict')) {
+      // The gateway refuses service tokens too; this holds if that route ever changes.
+      if (request.headers.get('x-custodes-actor-via') !== 'access-user')
+        return Response.json({ error: 'verdicts are recorded by people only' }, { status: 403 });
+      const body = VerdictRequest.safeParse(await request.json().catch(() => null));
+      if (!body.success) return Response.json({ error: 'bad verdict' }, { status: 400 });
+      this.ensureSchema();
+      const { pr, question, answer } = body.data;
+      this.sql`UPDATE model_comparisons SET human_verdict = ${answer}
+        WHERE pr = ${pr} AND question = ${question}`;
+      const n =
+        this.sql<{ n: number }>`SELECT COUNT(*) AS n FROM model_comparisons
+        WHERE pr = ${pr} AND question = ${question}`[0]?.n ?? 0;
+      const by = request.headers.get('x-custodes-actor')?.slice(0, 200) ?? null;
+      console.log(JSON.stringify({ event: 'pr-gate.verdict', pr, question, answer, rows: n, by }));
+      return Response.json({ pr, question, answer, rows: n });
     }
     // The summary as it would be e-mailed now, without sending or marking anything.
     if (request.method === 'GET' && url.pathname.endsWith('/report')) {

@@ -176,9 +176,13 @@ app.all('/agents/*', async (c) => {
   const actor = await verifyAccessJwt(c.req.raw, c.env.ACCESS_TEAM, c.env.ACCESS_AUD);
   if (!actor) return c.json({ error: 'unauthorized' }, 401);
   const url = new URL(c.req.url);
+  // Ground truth for the Jev vs Clef comparison (ADR 0015) comes from a person, not a service token.
+  if (url.pathname.endsWith('/verdict') && !adminWriteAllowed(actor, c.req.method))
+    return c.json({ error: 'service tokens cannot record verdicts' }, 403);
   url.host = 'agents.internal';
   const headers = new Headers(c.req.raw.headers);
   headers.set('x-custodes-actor', actor.subject);
+  headers.set('x-custodes-actor-via', actor.via);
   return c.env.AGENTS.fetch(
     new Request(url, { method: c.req.method, headers, body: c.req.raw.body }),
   );

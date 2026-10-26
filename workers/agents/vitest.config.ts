@@ -14,6 +14,8 @@ export default defineConfig({
   plugins: [
     cloudflareTest({
       wrangler: { configPath: './wrangler.jsonc' },
+      // The AI binding (Clef) is remote-only: tests never reach Workers AI, they inject a fake.
+      remoteBindings: false,
       miniflare: {
         kvNamespaces: ['KILL_SWITCH'],
         bindings: {

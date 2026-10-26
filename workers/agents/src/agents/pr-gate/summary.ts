@@ -32,6 +32,27 @@ export interface SummaryInput {
   verifyUrl: string;
   errors: string[];
   now: Date;
+  /** Jev vs Clef since the last summary (ADR 0015); absent when Clef was not asked. */
+  shadow?: ShadowCounts;
+}
+
+export interface ShadowCounts {
+  agree: number;
+  /** PRs where the two models disagreed (validated numbers, at most 10 listed). */
+  disagree: number[];
+  clefErrors: number;
+}
+
+/** One line, counts and PR numbers only. */
+export function shadowLine(s: ShadowCounts): string {
+  const prs = s.disagree.filter((n) => Number.isSafeInteger(n) && n > 0);
+  const list = prs.length
+    ? ` (${prs
+        .slice(0, 10)
+        .map((n) => `#${n}`)
+        .join(', ')})`
+    : '';
+  return `Jev vs Clef: ${s.agree} agree, ${prs.length} disagree${list}, ${s.clefErrors} Clef error(s).`;
 }
 
 const SECTIONS: { outcome: SummaryOutcome; heading: string }[] = [
@@ -98,6 +119,11 @@ export function renderSummary(input: SummaryInput): {
     html.push(
       `<h3 style="margin:16px 0 6px;font-size:15px;">Problems</h3><ul>${input.errors.map((e) => `<li>${esc(inertText(e, 300))}</li>`).join('')}</ul>`,
     );
+  }
+  if (input.shadow) {
+    const l = shadowLine(input.shadow);
+    text.push(l, '');
+    html.push(`<p style="color:#59636e;">${esc(l)}</p>`);
   }
   text.push('Halt the agent with: custodes agents halt pr-gate --reason "..."');
   html.push(
