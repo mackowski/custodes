@@ -41,6 +41,25 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 1
+      # The security review is skipped only when every changed file is documentation: anything under
+      # docs/, or Markdown outside dot-directories (.claude/ skills and agents are prompts) other than
+      # CLAUDE.md. evals/ is not documentation: its providers run in CI with the gateway token. Any
+      # other file, or a failed listing, runs the review.
+      - name: Security review scope
+        id: scope
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -o pipefail
+          if ! files=$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files" --jq '.[].filename'); then
+            echo "security=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          other=$(grep -v -E '^docs/' <<<"$files" | grep -v -E '^[^.][^/]*(/[^.][^/]*)*\.md$' | grep -c . || true)
+          claude_md=$(grep -c -E '(^|/)CLAUDE\.md$' <<<"$files" || true)
+          if [ "$other" -gt 0 ] || [ "$claude_md" -gt 0 ]; then security=true; else security=false; fi
+          echo "changed files: $(grep -c . <<<"$files"), security review: $security"
+          echo "security=$security" >> "$GITHUB_OUTPUT"
       - name: Code review
         id: code_review
         # Advisory: a failure here must not stop the security review below.
@@ -51,12 +70,10 @@ jobs:
           anthropic_organization_id: ${{ env.ANTHROPIC_ORGANIZATION_ID }}
           anthropic_service_account_id: ${{ env.ANTHROPIC_SERVICE_ACCOUNT_ID }}
           anthropic_workspace_id: ${{ env.ANTHROPIC_WORKSPACE_ID }}
-          plugin_marketplaces: |
-            https://github.com/anthropics/claude-code.git
-            https://github.com/cloudflare/skills.git
-          plugins: |
-            code-review@claude-code-plugins
-            cloudflare@cloudflare
+          # Marketplaces install from their default branch: the action takes only `.git` URLs, so no
+          # ref can be pinned. Keep this list to what the review cannot do without.
+          plugin_marketplaces: https://github.com/anthropics/claude-code.git
+          plugins: code-review@claude-code-plugins
           prompt: '/code-review:code-review --comment ${{ github.repository }}/pull/${{ github.event.pull_request.number }}'
           # Exactly the tools the code-review command declares, plus subagents (it launches several)
           # and read-only file tools.
@@ -64,6 +81,7 @@ jobs:
             --allowedTools "Agent,Task,Skill,Read,Grep,Glob,Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr list:*),Bash(gh pr checks:*),Bash(gh pr comment:*),Bash(gh issue view:*),Bash(gh issue list:*),Bash(gh search:*),Bash(gh run list:*),Bash(gh run view:*),mcp__github_inline_comment__create_inline_comment"
             --disallowedTools "Read(//home/runner/work/_temp/**),Read(//proc/**)"
             --max-turns 60
+            --max-budget-usd 2
       # Both action runs write the same execution file; keep the first before the second overwrites it.
       - name: Keep the code review execution log
         if: always()
@@ -72,15 +90,13 @@ jobs:
         run: if [ -n "$FILE" ] && [ -f "$FILE" ]; then cp "$FILE" "$RUNNER_TEMP/code-review-log.json"; fi
       - name: Agent security review
         id: security_review
-        if: always()
+        if: always() && steps.scope.outputs.security != 'false'
         uses: anthropics/claude-code-action@f27be6b65a4652f08a2ba3cff79114829b588967 # v1
         with:
           anthropic_federation_rule_id: ${{ env.ANTHROPIC_FEDERATION_RULE_ID }}
           anthropic_organization_id: ${{ env.ANTHROPIC_ORGANIZATION_ID }}
           anthropic_service_account_id: ${{ env.ANTHROPIC_SERVICE_ACCOUNT_ID }}
           anthropic_workspace_id: ${{ env.ANTHROPIC_WORKSPACE_ID }}
-          plugin_marketplaces: https://github.com/cloudflare/skills.git
-          plugins: cloudflare@cloudflare
           # The skill runs in the read-only security-reviewer subagent, which cannot comment. It returns
           # its report here, and this step posts it: CI output is hidden, so the PR comment is the
           # only place the result shows.
@@ -95,8 +111,10 @@ jobs:
             --allowedTools "Agent,Task,Skill,Read,Grep,Glob,Bash(gh pr diff *),Bash(gh pr view *),Bash(gh pr checks *),Bash(gh pr comment *),Bash(gh run list *),Bash(gh run view *),Bash(git diff *),Bash(git log *),mcp__github_inline_comment__create_inline_comment"
             --disallowedTools "Read(//home/runner/work/_temp/**),Read(//proc/**)"
             --max-turns 60
+            --max-budget-usd 3
       # The action hides its transcript (it can contain file contents). Print metadata only: which
-      # tools ran, which were denied (Bash: first three words of the command), and the outcome.
+      # tools ran, which were denied (Bash: first three words of the command), the outcome and the
+      # cost. The cost also goes to the job summary, so the price of a PR shows without opening logs.
       - name: Review diagnostics (tool names and outcomes only)
         if: always()
         env:
@@ -114,9 +132,11 @@ jobs:
               (.[] | select(.type == "assistant") | .message.content[]? | select(.type == "tool_use")
                 | "tool: \(.name)\(cmd)"),
               (.[] | select(.type == "result")
-                | "result: subtype=\(.subtype) is_error=\(.is_error) turns=\(.num_turns)",
+                | "result: subtype=\(.subtype) is_error=\(.is_error) turns=\(.num_turns) cost_usd=\(.total_cost_usd)",
                   (.permission_denials[]? | "denied: \(.tool_name)\(cmd)"))
             ' "$file" | sort | uniq -c
+            cost=$(jq -r '[.[] | select(.type == "result") | .total_cost_usd // 0] | add // 0' "$file")
+            echo "${name}: \$${cost}" >> "$GITHUB_STEP_SUMMARY"
           done
       - name: Remove the claude-review label so it can be added again
         if: always() && github.event.action == 'labeled'
