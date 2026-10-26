@@ -9,6 +9,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment: ci
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
@@ -34,18 +36,41 @@ jobs:
       - name: GitHub REST rate limit from this runner (unauthenticated)
         if: always()
         run: curl -s https://api.github.com/rate_limit | jq -c '.resources.core'
-      - name: Anthropic API key used by the Claude review workflow (status and error type only)
-        if: always()
+  # A separate job so that no checkout, dependency or install script can reach the OIDC request
+  # token: only curl and jq run while id-token is granted (ADR 0014).
+  anthropic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      id-token: write
+    steps:
+      - name: Anthropic workload identity federation used by the Claude review workflow (status and error type only)
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          FEDERATION: '{"federation_rule_id":"fdrl_01Hi7yzTQMu8ts8f1CZSKLbs","organization_id":"4d42e9fa-ed3c-474e-99e1-c308a08fbb25","service_account_id":"svac_01LeBdNzU478KKwVQ441xT1m","workspace_id":"wrkspc_01BAwpcLfNJaeBPkmMbPGZ2p"}'
         run: |
-          if [ -z "$ANTHROPIC_API_KEY" ]; then echo "ANTHROPIC_API_KEY: not set"; exit 0; fi
-          code=$(curl -s -o "$RUNNER_TEMP/models.json" -w '%{http_code}' https://api.anthropic.com/v1/models?limit=1 \
-            -H "x-api-key: $ANTHROPIC_API_KEY" -H 'anthropic-version: 2023-06-01')
-          echo "GET /v1/models: HTTP $code $(jq -r '(.error.type // "ok") + " " + ((.error.message // "") | .[0:160])' "$RUNNER_TEMP/models.json" 2>/dev/null)"
+          set -o pipefail
+          # The JWT and the access token stay in shell variables and are never printed, so there is
+          # nothing to mask: the step prints status codes and error types only.
+          out="$RUNNER_TEMP/anthropic.json"
+          status() { echo "$1: HTTP $2 $(jq -r '(.error.type // "ok") + " " + ((.error.message // "") | .[0:160])' "$out" 2>/dev/null)"; }
+          jwt=$(curl -sSf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=https://api.anthropic.com" | jq -er .value) \
+            || { echo "GitHub OIDC token: not available"; exit 0; }
+          code=$(jq -n --arg jwt "$jwt" --argjson f "$FEDERATION" \
+              '$f + {grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion: $jwt}' \
+            | curl -s -o "$out" -w '%{http_code}' https://api.anthropic.com/v1/oauth/token \
+              -H 'content-type: application/json' --data @-)
+          token=$(jq -r '.access_token // empty' "$out")
+          # Error type only: federation error messages may echo token claims.
+          echo "POST /v1/oauth/token: HTTP $code $(jq -r '.error.type // "ok"' "$out" 2>/dev/null)"
+          rm -f "$out"
+          if [ -z "$token" ]; then exit 0; fi
+          code=$(curl -s -o "$out" -w '%{http_code}' 'https://api.anthropic.com/v1/models?limit=1' \
+            -H "Authorization: Bearer $token" -H 'anthropic-version: 2023-06-01')
+          status "GET /v1/models" "$code"
           # One output token: also catches billing and model-access errors that /v1/models does not.
-          code=$(curl -s -o "$RUNNER_TEMP/models.json" -w '%{http_code}' https://api.anthropic.com/v1/messages \
-            -H "x-api-key: $ANTHROPIC_API_KEY" -H 'anthropic-version: 2023-06-01' -H 'content-type: application/json' \
+          code=$(curl -s -o "$out" -w '%{http_code}' https://api.anthropic.com/v1/messages \
+            -H "Authorization: Bearer $token" -H 'anthropic-version: 2023-06-01' -H 'content-type: application/json' \
             -d '{"model":"claude-haiku-4-5-20251001","max_tokens":1,"messages":[{"role":"user","content":"ok"}]}')
-          echo "POST /v1/messages: HTTP $code $(jq -r '(.error.type // "ok") + " " + ((.error.message // "") | .[0:160])' "$RUNNER_TEMP/models.json" 2>/dev/null)"
-          rm -f "$RUNNER_TEMP/models.json"
+          status "POST /v1/messages" "$code"
+          rm -f "$out"
