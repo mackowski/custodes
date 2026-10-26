@@ -1,6 +1,6 @@
 # 0014. GitHub Actions authenticate to the Anthropic API with workload identity federation
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-10-26
 - Deciders: Jakub Maćkowski
 
@@ -50,9 +50,7 @@ In the Console, issuer `github-actions` trusts `https://token.actions.githubuser
 
 - the default Anthropic audience.
 
-It maps to one service account with inference access only (never `org:admin`), in a workspace
-used only by CI, separate from the workspace of the AI Gateway key, and with its own monthly spend
-limit. A runaway or abused CI token then cannot use up the production agents' rate limit or budget.
+It maps to one service account in one workspace, with inference access only (never `org:admin`).
 The rule, organization, service account and workspace ids are written in the workflows: they
 identify, they do not authenticate, and only a token GitHub mints for this repository can use them.
 

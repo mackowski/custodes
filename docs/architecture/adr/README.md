@@ -15,6 +15,6 @@
 | [0011](0011-jev-decision-tier-and-pr-gate.md)                | Jev decision tier, and the pr-gate agent closing non-compliant PRs         | accepted                        |
 | [0012](0012-sandbox-repository-and-on-demand-runs.md)        | Sandbox repository, per-repository instances and on-demand runs            | accepted                        |
 | [0013](0013-pr-gate-maintainer-agreement.md)                 | pr-gate reads maintainer comments and asks Jev about agreement             | accepted                        |
-| [0014](0014-anthropic-workload-identity-federation-in-ci.md) | GitHub Actions authenticate to Anthropic with workload identity federation | proposed                        |
+| [0014](0014-anthropic-workload-identity-federation-in-ci.md) | GitHub Actions authenticate to Anthropic with workload identity federation | accepted                        |
 
 Create new records with the `/adr` skill.
