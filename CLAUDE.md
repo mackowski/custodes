@@ -42,13 +42,15 @@ pnpm --filter ./apps/cli build
 
 ## Workflow
 
-Use the skills: `/new-agent`, `/new-tool`, `/threat-model`, `/agent-security-review`, `/adr`,
-`/eval`; humans run `/preview` and `/release`. Delegate research to `cloudflare-researcher`,
+Use the skills: `/grill-plan`, `/new-agent`, `/new-tool`, `/threat-model`, `/agent-security-review`,
+`/adr`, `/eval`; humans run `/preview` and `/release`. Delegate research to `cloudflare-researcher`,
 reviews to `security-reviewer`, tests to `test-writer`. Conventions: `.claude/skills/custodes-conventions`.
 Cloudflare platform knowledge comes from the `cloudflare` plugin declared in `.claude/settings.json`
 (`cloudflare:agents-sdk`, `cloudflare:wrangler`, `cloudflare:cloudflare-one`, `cloudflare:durable-objects`,
 `cloudflare:cloudflare-email-service`, `cloudflare:workers-best-practices`); install it when prompted.
-Read `docs/sdlc.md` once.
+Read `docs/sdlc.md` once. Before implementing a new agent, broker action, policy widening, prompt or
+schema change, model choice or architectural decision, run `/grill-plan` on the agreed plan; if it has
+not been run, say so before writing code.
 
 ## Style
 
