@@ -44,6 +44,32 @@ app.get('/verify/:id', async (c) => {
 });
 
 // ---------- GitHub webhooks (optional per repo; polling is the default) ----------
+
+/**
+ * Only the fields consumers use go on the queue (and into its dead-letter queue): never PR or
+ * issue bodies, and no message near the 128 KB queue limit.
+ */
+function queuedFields(p: GitHubWebhookEnvelope): GitHubWebhookEnvelope {
+  return {
+    ...(p.action !== undefined ? { action: p.action } : {}),
+    repository: { full_name: p.repository.full_name },
+    sender: {
+      login: p.sender.login,
+      ...(p.sender.type !== undefined ? { type: p.sender.type } : {}),
+    },
+    ...(p.issue ? { issue: { number: p.issue.number } } : {}),
+    ...(p.pull_request
+      ? {
+          pull_request: {
+            number: p.pull_request.number,
+            ...(p.pull_request.updated_at !== undefined
+              ? { updated_at: p.pull_request.updated_at }
+              : {}),
+          },
+        }
+      : {}),
+  };
+}
 app.post('/webhooks/github', async (c) => {
   const raw = await c.req.text();
   const ok = await verifyGitHubWebhookSignature(
@@ -60,10 +86,11 @@ app.post('/webhooks/github', async (c) => {
     id: crypto.randomUUID(),
     receivedAt: new Date().toISOString(),
     source: 'github-webhook',
-    event,
-    deliveryId,
+    // Unsigned headers: clipped, and only ever logged or compared.
+    event: event.slice(0, 64),
+    deliveryId: deliveryId.slice(0, 64),
     repo: parsed.data.repository.full_name,
-    payload: parsed.data,
+    payload: queuedFields(parsed.data),
   };
   await c.env.INBOUND.send(msg, { contentType: 'json' });
   return c.json({ queued: msg.id }, 202);

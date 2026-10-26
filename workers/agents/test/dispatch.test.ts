@@ -102,11 +102,11 @@ describe('pr-gate single flight', () => {
     // Calls from the test reach the object one after another, so set the flag the way a running
     // poll does; in production a cron and a wake-up interleave at the broker fetch.
     const busy = await runInDurableObject(gate, async (agent: PrGateAgent) => {
-      (agent as unknown as { polling: boolean }).polling = true;
+      (agent as unknown as { pollingSince: number | null }).pollingSince = Date.now();
       try {
         return await agent.poll();
       } finally {
-        (agent as unknown as { polling: boolean }).polling = false;
+        (agent as unknown as { pollingSince: number | null }).pollingSince = null;
       }
     });
     expect(busy.ok).toBe(false);

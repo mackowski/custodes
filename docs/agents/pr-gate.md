@@ -81,28 +81,30 @@ on OWASP/CheatSheetSeries. Rotate it per [rotate-pat](../runbooks/rotate-pat.md)
   earliest of them settles, so an edit during the grace period does not wait for the next cron.
   This happens with or without a webhook.
 - **One poll at a time:** a poll that starts while another runs (cron, wake-up, sandbox run) does
-  nothing and schedules a wake-up for the next slot, so a PR is never decided or closed twice.
+  nothing and schedules a wake-up for the next slot, so a PR is never decided or closed twice. A
+  poll flag older than 15 minutes (a hung poll) is ignored, and a halted agent schedules nothing.
 - With the webhook installed and the caps not reached, a PR that breaks the guide is closed about
   30–35 minutes after its last change; otherwise at the first poll after that.
 - **07:00 UTC daily** (`0 7 * * *`): sends the summary e-mail. It lists closed PRs, PRs it would
   close, PRs that need a maintainer, and errors. Nothing is sent when nothing happened.
 - **Caps:** at most 30 evaluations and 5 closes per poll, and 300 evaluations and 10 closes per UTC
-  day. The broker also enforces 5 per hour. Closes over a cap are reported as "would close", and a
+  day. One PR is evaluated at most 4 times per UTC day (sandbox runs on demand are exempt), so a few
+  PRs edited over and over cannot use up the daily budget; the summary names a PR that hits it. The broker also enforces 5 per hour. Closes over a cap are reported as "would close", and a
   "would close" is not decided again until a close is possible (enforcing and under the daily cap).
 
 ## Failure modes and what happens
 
-| Failure                                       | What happens                                                                                                                                                       |
-| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Jev unavailable, or a mistyped answer         | The PR is flagged for a human, never closed.                                                                                                                       |
-| GitHub read failure                           | The PR is recorded as an error and retried next poll. The error appears in the summary.                                                                            |
-| Broker refuses the close (rate limit, halted) | Recorded as an error and retried next poll.                                                                                                                        |
-| The comment posts but the close fails         | Signed and counted by the broker. The PR is flagged `close_failed` and not retried until new commits.                                                              |
-| A webhook delivery is lost or the hook is off | The next cron poll finds the PR. Unticking "Active" on the hook stops webhook wake-ups only; polls still schedule their own (kill switch or deploy to stop those). |
-| A burst of new PRs (233 on 2026-10-04)        | One poll per 5-minute slot and one at a time, at most 30 evaluations per poll and 300 per day; closes stay capped per poll, per day and by the broker.             |
-| A maintainer reopens a PR the agent closed    | Reported once (`reopened_after_close`). The agent never acts on that PR again.                                                                                     |
-| A link written in a form the parser misses    | Before a `no_approved_issue` close, the agent checks for an open `ACK_OBTAINED` issue assigned to the author and flags instead (`author_has_approved_issue`).      |
-| More than five issue references in the body   | Never closed (`too_many_refs` flag) unless an approved, assigned one is among them.                                                                                |
+| Failure                                       | What happens                                                                                                                                                             |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Jev unavailable, or a mistyped answer         | The PR is flagged for a human, never closed.                                                                                                                             |
+| GitHub read failure                           | The PR is recorded as an error and retried next poll. The error appears in the summary.                                                                                  |
+| Broker refuses the close (rate limit, halted) | Recorded as an error and retried next poll.                                                                                                                              |
+| The comment posts but the close fails         | Signed and counted by the broker. The PR is flagged `close_failed` and not retried until new commits.                                                                    |
+| A webhook delivery is lost or the hook is off | The next cron poll finds the PR. Unticking "Active" on the hook stops webhook wake-ups only; polls still schedule their own (kill switch or deploy to stop those).       |
+| A burst of new PRs (233 on 2026-10-04)        | One poll per 5-minute slot and one at a time, at most 30 evaluations per poll, 300 per day and 4 per PR per day; closes stay capped per poll, per day and by the broker. |
+| A maintainer reopens a PR the agent closed    | Reported once (`reopened_after_close`). The agent never acts on that PR again.                                                                                           |
+| A link written in a form the parser misses    | Before a `no_approved_issue` close, the agent checks for an open `ACK_OBTAINED` issue assigned to the author and flags instead (`author_has_approved_issue`).            |
+| More than five issue references in the body   | Never closed (`too_many_refs` flag) unless an approved, assigned one is among them.                                                                                      |
 
 ## Testing in the sandbox
 

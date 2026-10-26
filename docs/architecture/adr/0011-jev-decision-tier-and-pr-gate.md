@@ -178,8 +178,10 @@ the webhook installed and the caps not reached, a PR that breaks the guide is no
 30–35 minutes after its last change instead of within about 5 hours; an edit during the grace
 period is picked up if a poll sees it then, otherwise by the next cron. Since polls can now run
 every 5 minutes, only one runs at a time per instance (two would decide and close the same PR
-twice), evaluations are also capped at 300 per UTC day, and a "would close" is not decided again
-once the daily close cap is reached. Rejected: closing at once (the author gets no time to fix the
+twice; a flag older than 15 minutes is ignored), evaluations are also capped at 300 per UTC day and
+at 4 per PR per UTC day (so editing a few PRs over and over cannot spend the budget and switch the
+gate off for the day), and a "would close" is not decided again once the daily close cap is
+reached. Rejected: closing at once (the author gets no time to fix the
 description), a warning comment before the close (a new public side effect), and waking on
 `edited`/`synchronize` (the self-scheduled poll covers them).
 

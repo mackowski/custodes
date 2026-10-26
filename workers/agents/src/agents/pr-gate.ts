@@ -50,6 +50,10 @@ export const MAX_CLOSES_PER_RUN = 5;
 export const MAX_EVALUATIONS_PER_RUN = 30;
 /** And per UTC day: wake-ups can run a poll every 5 minutes, so the per-poll cap alone is no bound. */
 export const MAX_EVALUATIONS_PER_DAY = 300;
+/** And per PR per UTC day, so a few PRs edited over and over cannot use up the daily budget. */
+export const MAX_EVALUATIONS_PER_PR_PER_DAY = 4;
+/** A poll flag older than this belongs to a poll that hung; the next poll may start. */
+export const POLL_LOCK_MS = 15 * 60_000;
 
 type StoredOutcome = 'skip' | SummaryOutcome;
 
@@ -135,8 +139,8 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
     lastErrors: [],
   };
 
-  /** In memory on purpose: a poll does not survive eviction, so neither must its flag. */
-  private polling = false;
+  /** When the running poll started. In memory on purpose: a poll does not survive eviction. */
+  private pollingSince: number | null = null;
 
   /** The repository is chosen by the instance name only (see instances.ts). */
   private get repo(): string {
@@ -170,6 +174,11 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
     )`;
     // Append-only log the summary reads. `decisions` holds only the latest state per PR, so a close
     // followed by a reopen used to overwrite the close before any e-mail reported it (PR #2801).
+    this.sql`CREATE TABLE IF NOT EXISTS evaluations (
+      pr  INTEGER PRIMARY KEY,
+      day TEXT NOT NULL,
+      n   INTEGER NOT NULL
+    )`;
     this.sql`CREATE TABLE IF NOT EXISTS events (
       id             INTEGER PRIMARY KEY AUTOINCREMENT,
       pr             INTEGER NOT NULL,
@@ -214,15 +223,22 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
   async poll(opts: { manual?: boolean } = {}): Promise<{ ok: boolean; detail: string }> {
     // A Durable Object interleaves calls at every await: two polls would decide the same PR, post
     // two close comments and both pass the close caps. One at a time; the other comes back later.
-    if (this.polling) {
-      const at = await this.scheduleWake(nextSlot(new Date()));
+    const started = Date.now();
+    if (this.pollingSince !== null && started - this.pollingSince < POLL_LOCK_MS) {
+      try {
+        await this.guard();
+      } catch (err) {
+        return { ok: false, detail: err instanceof Error ? err.message : 'halted' };
+      }
+      const at = await this.scheduleWake(nextSlot(new Date(started)));
       return { ok: false, detail: `poll in progress; again at ${at.at}` };
     }
-    this.polling = true;
+    this.pollingSince = started;
     try {
       return await this.pollOnce(opts);
     } finally {
-      this.polling = false;
+      // A newer poll may have taken over a stale flag; only the owner clears it.
+      if (this.pollingSince === started) this.pollingSince = null;
     }
   }
 
@@ -236,8 +252,10 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
     const runId = crypto.randomUUID();
     const now = new Date();
     const day = now.toISOString().slice(0, 10);
-    if (this.state.day !== day)
+    if (this.state.day !== day) {
       this.setState({ ...this.state, day, closesToday: 0, evaluationsToday: 0 });
+      this.sql`DELETE FROM evaluations WHERE day <> ${day}`;
+    }
     const reader = new BrokerGitHubReader(this.env.BROKER, this.manifest.id, runId);
     // Open ACK_OBTAINED issues, read at most once per poll and only if a close needs the check.
     // The promise is cached, so a failed read is not repeated for every PR in this poll.
@@ -264,14 +282,11 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
 
     const skipGrace = opts.manual === true && this.sandbox;
     let nextWake: Date | undefined;
+    let overBudget = false;
     let evaluated = 0;
     let closedThisRun = 0;
     for (const pr of listed.pulls) {
       if (evaluated >= MAX_EVALUATIONS_PER_RUN) break;
-      if ((this.state.evaluationsToday ?? 0) >= MAX_EVALUATIONS_PER_DAY) {
-        errors.push(`daily budget of ${MAX_EVALUATIONS_PER_DAY} evaluations reached`);
-        break;
-      }
       const row = this.sql<DecisionRow>`SELECT * FROM decisions WHERE pr = ${pr.number}`[0];
       const step = nextStep(
         pr,
@@ -299,6 +314,17 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
         }
         continue;
       }
+      // Budgets come last, so reopened PRs are still reported once they are spent.
+      if ((this.state.evaluationsToday ?? 0) >= MAX_EVALUATIONS_PER_DAY) {
+        overBudget = true;
+        continue;
+      }
+      const evaluationsOfPr = this.countEvaluation(pr.number, day, skipGrace);
+      if (evaluationsOfPr === null) continue;
+      if (evaluationsOfPr === MAX_EVALUATIONS_PER_PR_PER_DAY)
+        errors.push(
+          `#${pr.number}: evaluated ${MAX_EVALUATIONS_PER_PR_PER_DAY} times today; next try tomorrow`,
+        );
       evaluated++;
       this.setState({ ...this.state, evaluationsToday: (this.state.evaluationsToday ?? 0) + 1 });
       let decision: Decision;
@@ -406,6 +432,7 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
         }),
       );
     }
+    if (overBudget) errors.push(`daily budget of ${MAX_EVALUATIONS_PER_DAY} evaluations reached`);
     this.setState({ ...this.state, lastPollAt: now.toISOString() });
     if (nextWake) await this.scheduleWake(nextWake);
     if (errors.length) this.recordErrors(errors);
@@ -430,6 +457,21 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
     console.log(
       JSON.stringify({ event: 'pr-gate.wake', instance: this.name, ok: r.ok, detail: r.detail }),
     );
+  }
+
+  /**
+   * Counts one evaluation of `pr` today and returns the new count, or null when the PR has had its
+   * share today. Operator runs in the sandbox (`manual`) are counted but never refused.
+   */
+  private countEvaluation(pr: number, day: string, manual: boolean): number | null {
+    const n =
+      this.sql<{ n: number }>`SELECT n FROM evaluations WHERE pr = ${pr} AND day = ${day}`[0]?.n ??
+      0;
+    if (!manual && n >= MAX_EVALUATIONS_PER_PR_PER_DAY) return null;
+    this.sql`INSERT INTO evaluations (pr, day, n) VALUES (${pr}, ${day}, 1)
+      ON CONFLICT(pr) DO UPDATE SET n = CASE WHEN day = excluded.day THEN n + 1 ELSE 1 END,
+        day = excluded.day`;
+    return n + 1;
   }
 
   /** One wake-up per slot: the slot is the payload, which is what idempotent schedules match on. */
