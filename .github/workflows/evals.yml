@@ -20,6 +20,7 @@ on:
       - 'workers/agents/src/agents/pr-gate/approval.ts'
       - 'workers/agents/src/agents/pr-gate/rules.ts'
       - 'packages/llm/src/jev.ts'
+      - 'packages/llm/src/clef.ts'
       - 'packages/llm/src/models.ts'
       - 'packages/llm/src/untrusted.ts'
 permissions: read-all
@@ -50,6 +51,9 @@ jobs:
           # OpenRouter's Decisions API).
           JEV_TRANSPORT: direct
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          # Workers AI Read + Edit only (needed to run models), for the Clef shadow provider (ADR 0015).
+          # Unset: the Clef rows error out, report only.
+          CF_WORKERS_AI_EVAL_TOKEN: ${{ secrets.CF_WORKERS_AI_EVAL_TOKEN }}
         run: |
           # One config per agent that calls a model: evals/agents/<agent>/promptfooconfig.yaml
           for config in agents/*/promptfooconfig.yaml; do

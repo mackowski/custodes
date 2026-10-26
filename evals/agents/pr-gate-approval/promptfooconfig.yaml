@@ -6,6 +6,16 @@ description: pr-gate maintainer-agreement classifier (Jev 1.14) behaviour and pr
 providers:
   - id: file://provider.mjs
     label: jev-1.14-approval
+  # Shadow (ADR 0015): reported side by side, never fails the run (summarize.ts skips `shadow:`).
+  - id: file://../../providers/clef.mjs
+    label: 'shadow:clef'
+    config:
+      questions: ../agents/pr-gate-approval/questions.json
+      source: pr-gate-approval
+      var: state
+      yes: approved
+      choice: stance
+      as: stance
 
 prompts:
   - '{{state}}'

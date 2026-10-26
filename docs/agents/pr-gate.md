@@ -132,6 +132,21 @@ AI Gateway's `openrouter` provider returned 404 for the Decisions API on 2026-10
 When it supports it, set `JEV_TRANSPORT="gateway"` (path: `JEV_GATEWAY_PATH`). Check either route
 with the `Diagnose` workflow's Jev step (`scripts/jev-smoke.ts --probe`).
 
+## Clef shadow (ADR 0015)
+
+Every Jev question is also sent to Cloudflare Clef (`@cf/cloudflare/clef`) through the `custodes`
+AI Gateway, with the same state. Clef never decides: if it fails or times out (10 s; 60 s budget per
+poll), the decision is the same and only the comparison row records the error.
+
+- `model_comparisons` (agent SQLite, 180 days): per question, both probabilities and options,
+  latency, tokens, errors, pr-gate's outcome and `human_verdict`. No PR or model text.
+- `human_verdict` is set at the daily summary from GitHub (`merged`, `closed_unmerged` by someone
+  else, possibly the author, `reopened` after our close) or by the operator:
+  `custodes pr-gate verdict <pr> --question minor|approval --answer yes|no` (people only).
+- `custodes pr-gate compare [--since <iso>] [--csv]` lists the rows; the e-mail has one
+  "Jev vs Clef" line.
+- Evals: both pr-gate suites run `shadow:clef` next to Jev, report only.
+
 ## Threat model
 
 See ADR 0011.

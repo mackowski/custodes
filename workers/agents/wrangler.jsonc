@@ -46,6 +46,9 @@
   // Must match CRON_TRIAGE_POLL / CRON_TRIAGE_PREPARE / CRON_TRIAGE_DIGEST in src/index.ts (UTC).
   // pr-gate shares them (polls on the first two, summary with the digest).
   "triggers": { "crons": ["17 */4 * * *", "30 5 * * *", "0 7 * * *"] },
+  // Workers AI, for Clef (shadow decision model, ADR 0015). Every call names the "custodes" AI
+  // Gateway (ClefClient requires it): all agent model traffic goes through one gateway.
+  "ai": { "binding": "AI", "remote": true },
   "kv_namespaces": [{ "binding": "KILL_SWITCH", "id": "841e2b0dd14d48fbac292217839957a4" }],
   "services": [{ "binding": "BROKER", "service": "custodes-github-broker" }],
   "queues": {

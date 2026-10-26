@@ -71,6 +71,8 @@ export const PublicPull = z.looseObject({
   labels: z.array(z.looseObject({ name: z.string() })),
   created_at: z.string(),
   updated_at: z.string(),
+  /** Set once merged; only closed pull requests have it. */
+  merged_at: z.string().nullable().optional(),
   head: z.looseObject({ sha: z.string() }),
 });
 export type PublicPull = z.infer<typeof PublicPull>;
@@ -287,6 +289,12 @@ export class BrokerGitHubReader {
       if (batch.length < 100) return { pulls: out, truncated: false };
     }
     return { pulls: out, truncated: true };
+  }
+
+  /** The 100 pull requests closed or merged most recently (by last update). */
+  async listRecentlyClosedPulls(repo: string): Promise<PublicPull[]> {
+    const q: ReadQuery = { state: 'closed', sort: 'updated', direction: 'desc', per_page: 100 };
+    return this.read(repo, 'pulls', q, z.array(PublicPull));
   }
 
   /** Changed files with line counts and patches (first 100 files). */

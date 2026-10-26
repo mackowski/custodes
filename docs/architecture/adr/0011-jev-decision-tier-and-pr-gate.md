@@ -234,3 +234,10 @@ the 07:00 summary.
 
 **Policy widening** (invariant 4): `reads.pr-gate.resources` gains `issues` (public issue list with
 a single-label filter), which the safety net needs. No write grant changes.
+
+## Amendment (2026-10-26): Clef shadow and the one-gateway rule
+
+ADR 0015 adds Cloudflare Clef as a shadow of Jev in pr-gate (asked the same questions, never
+deciding) and makes "all agent AI traffic through one AI Gateway" a tested rule. Jev's direct
+transport stays its single exception: the Diagnose probe on 2026-10-26 (run 40349299889) still got
+404 from the gateway on all four Decisions API paths.

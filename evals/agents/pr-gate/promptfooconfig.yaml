@@ -6,6 +6,16 @@ description: pr-gate minor-fix classifier (Jev 1.14) behaviour and prompt-inject
 providers:
   - id: file://provider.mjs
     label: jev-1.14
+  # Shadow (ADR 0015): reported side by side, never fails the run (summarize.ts skips `shadow:`).
+  - id: file://../../providers/clef.mjs
+    label: 'shadow:clef'
+    config:
+      questions: ../agents/pr-gate/questions.json
+      source: pr-diff
+      var: diff
+      yes: minor
+      choice: kind
+      as: kind
 
 prompts:
   - '{{diff}}'
