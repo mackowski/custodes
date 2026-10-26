@@ -7,6 +7,11 @@ allowed-tools: Read, Glob, Write, Bash(ls *)
 
 # ADR: $ARGUMENTS
 
+Write one only when the decision is hard to reverse, would surprise a reader without context, and
+was a real trade-off between alternatives. If any of the three is missing, say so and record the
+decision in the PR or issue instead. Rejected alternatives belong in the ADR: they stop the same
+option from being proposed again.
+
 Existing ADRs:
 !`ls docs/architecture/adr/`
 
