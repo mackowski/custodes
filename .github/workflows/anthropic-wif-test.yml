@@ -1,0 +1,29 @@
+name: anthropic-wif-test
+# Temporary: verifies the Anthropic workload identity federation rule. Remove before merging.
+on:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  exchange:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      id-token: write
+    steps:
+      - name: Exchange a GitHub OIDC token for an Anthropic access token
+        run: |
+          JWT=$(curl -sSf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=https://api.anthropic.com" | jq -r .value)
+          echo "::add-mask::$JWT"
+          jq -n --arg jwt "$JWT" '{
+            grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+            assertion: $jwt,
+            federation_rule_id: "fdrl_01Hi7yzTQMu8ts8f1CZSKLbs",
+            organization_id: "4d42e9fa-ed3c-474e-99e1-c308a08fbb25",
+            service_account_id: "svac_01LeBdNzU478KKwVQ441xT1m",
+            workspace_id: "wrkspc_01BAwpcLfNJaeBPkmMbPGZ2p"
+          }' | curl -sS -w '\nHTTP %{http_code}\n' https://api.anthropic.com/v1/oauth/token \
+            -H "content-type: application/json" --data @- \
+            | sed -E 's/"([a-z_]*token)":"[^"]*"/"\1":"<redacted>"/g'
