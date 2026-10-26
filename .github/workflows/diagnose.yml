@@ -49,18 +49,18 @@ jobs:
           FEDERATION: '{"federation_rule_id":"fdrl_01Hi7yzTQMu8ts8f1CZSKLbs","organization_id":"4d42e9fa-ed3c-474e-99e1-c308a08fbb25","service_account_id":"svac_01LeBdNzU478KKwVQ441xT1m","workspace_id":"wrkspc_01BAwpcLfNJaeBPkmMbPGZ2p"}'
         run: |
           set -o pipefail
+          # The JWT and the access token stay in shell variables and are never printed, so there is
+          # nothing to mask: the step prints status codes and error types only.
           out="$RUNNER_TEMP/anthropic.json"
           status() { echo "$1: HTTP $2 $(jq -r '(.error.type // "ok") + " " + ((.error.message // "") | .[0:160])' "$out" 2>/dev/null)"; }
           jwt=$(curl -sSf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
             "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=https://api.anthropic.com" | jq -er .value) \
             || { echo "GitHub OIDC token: not available"; exit 0; }
-          echo "::add-mask::$jwt"
           code=$(jq -n --arg jwt "$jwt" --argjson f "$FEDERATION" \
               '$f + {grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion: $jwt}' \
             | curl -s -o "$out" -w '%{http_code}' https://api.anthropic.com/v1/oauth/token \
               -H 'content-type: application/json' --data @-)
           token=$(jq -r '.access_token // empty' "$out")
-          if [ -n "$token" ]; then echo "::add-mask::$token"; fi
           # Error type only: federation error messages may echo token claims.
           echo "POST /v1/oauth/token: HTTP $code $(jq -r '.error.type // "ok"' "$out" 2>/dev/null)"
           rm -f "$out"
