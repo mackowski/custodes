@@ -70,12 +70,10 @@ jobs:
           anthropic_organization_id: ${{ env.ANTHROPIC_ORGANIZATION_ID }}
           anthropic_service_account_id: ${{ env.ANTHROPIC_SERVICE_ACCOUNT_ID }}
           anthropic_workspace_id: ${{ env.ANTHROPIC_WORKSPACE_ID }}
-          plugin_marketplaces: |
-            https://github.com/anthropics/claude-code.git
-            https://github.com/cloudflare/skills.git
-          plugins: |
-            code-review@claude-code-plugins
-            cloudflare@cloudflare
+          # Marketplaces install from their default branch: the action takes only `.git` URLs, so no
+          # ref can be pinned. Keep this list to what the review cannot do without.
+          plugin_marketplaces: https://github.com/anthropics/claude-code.git
+          plugins: code-review@claude-code-plugins
           prompt: '/code-review:code-review --comment ${{ github.repository }}/pull/${{ github.event.pull_request.number }}'
           # Exactly the tools the code-review command declares, plus subagents (it launches several)
           # and read-only file tools.
@@ -99,8 +97,6 @@ jobs:
           anthropic_organization_id: ${{ env.ANTHROPIC_ORGANIZATION_ID }}
           anthropic_service_account_id: ${{ env.ANTHROPIC_SERVICE_ACCOUNT_ID }}
           anthropic_workspace_id: ${{ env.ANTHROPIC_WORKSPACE_ID }}
-          plugin_marketplaces: https://github.com/cloudflare/skills.git
-          plugins: cloudflare@cloudflare
           # The skill runs in the read-only security-reviewer subagent, which cannot comment. It returns
           # its report here, and this step posts it: CI output is hidden, so the PR comment is the
           # only place the result shows.
