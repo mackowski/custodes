@@ -1,6 +1,7 @@
 name: Claude review
 # Automated first-pass review of this repository's own PRs. Humans still approve.
-# Secrets are withheld from fork PRs, so this runs only for branches in this repo.
+# Fork PRs get no secrets and no OIDC token (Anthropic access, ADR 0014), so this runs only for
+# branches in this repo.
 # Each run costs about $0.5-2, so not on every push: when a PR is opened or marked ready, and on
 # demand by adding the `claude-review` label (removed again at the end, so it can be re-added).
 on:
@@ -27,6 +28,13 @@ jobs:
       pull-requests: write
       issues: write
       id-token: write
+    # Anthropic access comes from workload identity federation (ADR 0014): the action exchanges this
+    # job's GitHub OIDC token for a short-lived token. These ids identify, they do not authenticate.
+    env:
+      ANTHROPIC_FEDERATION_RULE_ID: fdrl_01Hi7yzTQMu8ts8f1CZSKLbs
+      ANTHROPIC_ORGANIZATION_ID: 4d42e9fa-ed3c-474e-99e1-c308a08fbb25
+      ANTHROPIC_SERVICE_ACCOUNT_ID: svac_01LeBdNzU478KKwVQ441xT1m
+      ANTHROPIC_WORKSPACE_ID: wrkspc_01BAwpcLfNJaeBPkmMbPGZ2p
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -37,7 +45,10 @@ jobs:
         continue-on-error: true
         uses: anthropics/claude-code-action@f27be6b65a4652f08a2ba3cff79114829b588967 # v1
         with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          anthropic_federation_rule_id: ${{ env.ANTHROPIC_FEDERATION_RULE_ID }}
+          anthropic_organization_id: ${{ env.ANTHROPIC_ORGANIZATION_ID }}
+          anthropic_service_account_id: ${{ env.ANTHROPIC_SERVICE_ACCOUNT_ID }}
+          anthropic_workspace_id: ${{ env.ANTHROPIC_WORKSPACE_ID }}
           plugin_marketplaces: |
             https://github.com/anthropics/claude-code.git
             https://github.com/cloudflare/skills.git
@@ -61,7 +72,10 @@ jobs:
         if: always()
         uses: anthropics/claude-code-action@f27be6b65a4652f08a2ba3cff79114829b588967 # v1
         with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          anthropic_federation_rule_id: ${{ env.ANTHROPIC_FEDERATION_RULE_ID }}
+          anthropic_organization_id: ${{ env.ANTHROPIC_ORGANIZATION_ID }}
+          anthropic_service_account_id: ${{ env.ANTHROPIC_SERVICE_ACCOUNT_ID }}
+          anthropic_workspace_id: ${{ env.ANTHROPIC_WORKSPACE_ID }}
           plugin_marketplaces: https://github.com/cloudflare/skills.git
           plugins: cloudflare@cloudflare
           # The skill runs in the read-only security-reviewer subagent, which cannot comment. It returns
