@@ -9,10 +9,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment: ci
-    # id-token: the Anthropic check exchanges this job's OIDC token (ADR 0014).
     permissions:
       contents: read
-      id-token: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
@@ -38,15 +36,24 @@ jobs:
       - name: GitHub REST rate limit from this runner (unauthenticated)
         if: always()
         run: curl -s https://api.github.com/rate_limit | jq -c '.resources.core'
+  # A separate job so that no checkout, dependency or install script can reach the OIDC request
+  # token: only curl and jq run while id-token is granted (ADR 0014).
+  anthropic:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      id-token: write
+    steps:
       - name: Anthropic workload identity federation used by the Claude review workflow (status and error type only)
-        if: always()
         env:
           FEDERATION: '{"federation_rule_id":"fdrl_01Hi7yzTQMu8ts8f1CZSKLbs","organization_id":"4d42e9fa-ed3c-474e-99e1-c308a08fbb25","service_account_id":"svac_01LeBdNzU478KKwVQ441xT1m","workspace_id":"wrkspc_01BAwpcLfNJaeBPkmMbPGZ2p"}'
         run: |
+          set -o pipefail
           out="$RUNNER_TEMP/anthropic.json"
           status() { echo "$1: HTTP $2 $(jq -r '(.error.type // "ok") + " " + ((.error.message // "") | .[0:160])' "$out" 2>/dev/null)"; }
           jwt=$(curl -sSf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=https://api.anthropic.com" | jq -r .value)
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=https://api.anthropic.com" | jq -er .value) \
+            || { echo "GitHub OIDC token: not available"; exit 0; }
           echo "::add-mask::$jwt"
           code=$(jq -n --arg jwt "$jwt" --argjson f "$FEDERATION" \
               '$f + {grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion: $jwt}' \
@@ -54,7 +61,8 @@ jobs:
               -H 'content-type: application/json' --data @-)
           token=$(jq -r '.access_token // empty' "$out")
           if [ -n "$token" ]; then echo "::add-mask::$token"; fi
-          status "POST /v1/oauth/token" "$code"
+          # Error type only: federation error messages may echo token claims.
+          echo "POST /v1/oauth/token: HTTP $code $(jq -r '.error.type // "ok"' "$out" 2>/dev/null)"
           rm -f "$out"
           if [ -z "$token" ]; then exit 0; fi
           code=$(curl -s -o "$out" -w '%{http_code}' 'https://api.anthropic.com/v1/models?limit=1' \
