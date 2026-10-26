@@ -6,7 +6,9 @@ export const GitHubWebhookEnvelope = z.looseObject({
   repository: z.looseObject({ full_name: z.string() }),
   sender: z.looseObject({ login: z.string(), type: z.string().optional() }),
   issue: z.looseObject({ number: z.number().int() }).optional(),
-  pull_request: z.looseObject({ number: z.number().int() }).optional(),
+  pull_request: z
+    .looseObject({ number: z.number().int(), updated_at: z.string().max(40).optional() })
+    .optional(),
 });
 export type GitHubWebhookEnvelope = z.infer<typeof GitHubWebhookEnvelope>;
 

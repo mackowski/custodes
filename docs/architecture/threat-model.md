@@ -27,18 +27,20 @@ agents are allowed to do; high-risk agents should be deployed in their own Worke
 
 ## STRIDE summary
 
-| Threat                 | Example                                   | Control                                                                                     |
-| ---------------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------- |
-| Spoofing               | forged webhook                            | HMAC verification (`verifyGitHubWebhookSignature`)                                          |
-| Spoofing               | forged approval e-mail                    | allow-list + DMARC/DKIM check + HMAC approval token bound to approval id                    |
-| Spoofing               | fake CLI caller                           | Access JWT verified in the Worker (`verifyAccessJwt`), not only at the edge                 |
-| Tampering              | modified audit record                     | Ed25519 signature over canonical JSON; verify endpoint and CLI                              |
-| Tampering              | approval reused for a different action    | approval stores `actionHash`; broker compares; single-use `consume()`                       |
-| Repudiation            | "which agent posted this?"                | trailers + attestation id in every comment                                                  |
-| Information disclosure | token in logs or error                    | errors never include bodies/tokens; structured logs with ids only; hooks block secret files |
-| Denial of service      | agent loops posting comments              | `rateLimitPerHour` per agent and repository, kill switch, AI Gateway rate/spend limits      |
-| Elevation of privilege | agent posts to another repo               | policy `repos`/`actions` allow-list evaluated in the broker                                 |
-| Elevation of privilege | Claude Code deploys to prod from a laptop | hooks deny deploy commands; prod deploy only via protected environment                      |
+| Threat                 | Example                                               | Control                                                                                                                                                                                                                            |
+| ---------------------- | ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Spoofing               | forged webhook                                        | HMAC verification (`verifyGitHubWebhookSignature`)                                                                                                                                                                                 |
+| Tampering              | webhook payload steers pr-gate                        | the event only schedules a poll (time clamped to grace + one slot); repo must be in `INSTANCES`; the poll re-reads every PR through the broker                                                                                     |
+| Denial of service      | PR flood or replayed webhook wakes pr-gate repeatedly | one wake-up per 5-minute slot (idempotent schedule), one poll at a time per instance, 30 evaluations per poll and 300 per day, "would close" not re-decided once the daily close cap is reached, close caps per poll, day and hour |
+| Spoofing               | forged approval e-mail                                | allow-list + DMARC/DKIM check + HMAC approval token bound to approval id                                                                                                                                                           |
+| Spoofing               | fake CLI caller                                       | Access JWT verified in the Worker (`verifyAccessJwt`), not only at the edge                                                                                                                                                        |
+| Tampering              | modified audit record                                 | Ed25519 signature over canonical JSON; verify endpoint and CLI                                                                                                                                                                     |
+| Tampering              | approval reused for a different action                | approval stores `actionHash`; broker compares; single-use `consume()`                                                                                                                                                              |
+| Repudiation            | "which agent posted this?"                            | trailers + attestation id in every comment                                                                                                                                                                                         |
+| Information disclosure | token in logs or error                                | errors never include bodies/tokens; structured logs with ids only; hooks block secret files                                                                                                                                        |
+| Denial of service      | agent loops posting comments                          | `rateLimitPerHour` per agent and repository, kill switch, AI Gateway rate/spend limits                                                                                                                                             |
+| Elevation of privilege | agent posts to another repo                           | policy `repos`/`actions` allow-list evaluated in the broker                                                                                                                                                                        |
+| Elevation of privilege | Claude Code deploys to prod from a laptop             | hooks deny deploy commands; prod deploy only via protected environment                                                                                                                                                             |
 
 ## LLM-specific risks (OWASP Top 10 for LLM Applications)
 

@@ -2,6 +2,7 @@ import { getAgentByName, routeAgentRequest } from 'agents';
 import { InboundEvent } from '@custodes/schema';
 import { PR_GATE_INSTANCE } from './agents/pr-gate.js';
 import { TRIAGE_INSTANCE } from './agents/triage.js';
+import { route } from './dispatch.js';
 import type { AgentsEnv } from './env.js';
 import { allowedAgentPath, unknownInstance } from './instances.js';
 import { REGISTRY } from './registry.js';
@@ -65,8 +66,11 @@ export default {
     });
   },
 
-  /** Webhook events queued by the gateway. Dispatch by repo/event to the agent that owns it. */
-  queue(batch: MessageBatch): void {
+  /**
+   * Webhook events queued by the gateway. Dispatch by repo/event to the agent that owns it; only
+   * pr-gate listens, and only to schedule a poll. Triage stays on its crons.
+   */
+  async queue(batch: MessageBatch, env: AgentsEnv): Promise<void> {
     for (const msg of batch.messages) {
       const parsed = InboundEvent.safeParse(msg.body);
       if (!parsed.success) {
@@ -74,16 +78,44 @@ export default {
         msg.ack();
         continue;
       }
-      // Read-only triage polls on a schedule; webhook events are acknowledged and ignored for now.
-      console.log(
-        JSON.stringify({
-          event: 'queue.received',
-          repo: parsed.data.repo,
-          type: parsed.data.event,
-          delivery: parsed.data.deliveryId,
-        }),
-      );
-      msg.ack();
+      const e = parsed.data;
+      const r = route(e);
+      const ids = {
+        event: 'queue.dispatch',
+        delivery: e.deliveryId,
+        repo: e.repo,
+        type: e.event,
+        action: e.payload.action ?? null,
+      };
+      if (r.agent === null) {
+        console.log(JSON.stringify({ ...ids, outcome: 'ignored', why: r.why }));
+        msg.ack();
+        continue;
+      }
+      try {
+        const gate = await getAgentByName(env.PrGateAgent, r.instance);
+        const wake = await gate.notify(r.updatedAt);
+        console.log(
+          JSON.stringify({
+            ...ids,
+            outcome: 'scheduled',
+            instance: r.instance,
+            pr: r.pr,
+            scheduledFor: wake.at,
+          }),
+        );
+        msg.ack();
+      } catch (err) {
+        // Scheduling is idempotent per slot, so a retry is safe; after three the DLQ keeps it.
+        console.error(
+          JSON.stringify({
+            ...ids,
+            outcome: 'retry',
+            what: err instanceof Error ? err.name : 'error',
+          }),
+        );
+        msg.retry();
+      }
     }
   },
 } satisfies ExportedHandler<AgentsEnv>;

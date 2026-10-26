@@ -207,11 +207,32 @@ export function diffText(files: readonly PullFile[]): string {
 }
 
 /** Act only on a PR nobody touched for this long, so an author mid-edit is not closed. */
-export const GRACE_MS = 3_600_000;
+export const GRACE_MS = 30 * 60_000;
 
 export function settled(pr: PublicPull, now: Date): boolean {
   const at = Date.parse(pr.updated_at);
   return !Number.isNaN(at) && now.getTime() - at >= GRACE_MS;
+}
+
+/** Wake-ups are rounded up to slots, so a burst of events or skipped PRs costs one poll per slot. */
+export const WAKE_SLOT_MS = 5 * 60_000;
+
+/** The first slot boundary after `now`. */
+export function nextSlot(now: Date): Date {
+  return new Date(Math.ceil((now.getTime() + 1) / WAKE_SLOT_MS) * WAKE_SLOT_MS);
+}
+
+/**
+ * When to poll for a PR last updated at `updatedAt`: once its grace period is over, rounded up to a
+ * slot and always in the future. An unparsable or future time (only a hint, from a webhook or a
+ * listing) counts as `now`, so a wake-up is never later than one grace period plus one slot.
+ */
+export function wakeAt(updatedAt: string, now: Date): Date {
+  const parsed = Date.parse(updatedAt);
+  const at = Number.isNaN(parsed) ? now.getTime() : Math.min(parsed, now.getTime());
+  return at + GRACE_MS > now.getTime()
+    ? new Date(Math.ceil((at + GRACE_MS) / WAKE_SLOT_MS) * WAKE_SLOT_MS)
+    : nextSlot(now);
 }
 
 /** Sticky flags: decisions that later polls must not undo by themselves. */
@@ -232,7 +253,8 @@ export interface PriorDecision {
 export function nextStep(
   pr: Pick<PublicPull, 'updated_at'> & { head: { sha: string } },
   prior: PriorDecision | undefined,
-  enforcing: boolean,
+  /** Enforcing and under today's close cap: only then is a "would close" worth deciding again. */
+  canClose: boolean,
 ): 'reopened' | 'decide' | 'leave' {
   if (!prior) return 'decide';
   if (prior.outcome === 'close') return 'reopened';
@@ -241,5 +263,5 @@ export function nextStep(
   if (prior.why === CLOSE_FAILED) return prior.headSha !== pr.head.sha ? 'decide' : 'leave';
   if (prior.headSha !== pr.head.sha || prior.prUpdatedAt !== pr.updated_at) return 'decide';
   if (prior.outcome === 'error') return 'decide';
-  return prior.outcome === 'would_close' && enforcing ? 'decide' : 'leave';
+  return prior.outcome === 'would_close' && canClose ? 'decide' : 'leave';
 }
