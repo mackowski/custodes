@@ -22,6 +22,8 @@ import {
   minorPrefilter,
   nextStep,
   settled,
+  nextSlot,
+  wakeAt,
 } from '../src/agents/pr-gate/rules.js';
 import { renderSummary, type SummaryRow } from '../src/agents/pr-gate/summary.js';
 import type {
@@ -261,10 +263,40 @@ describe('minorPrefilter', () => {
 });
 
 describe('settled', () => {
-  it('requires an hour of quiet and rejects unparsable timestamps', () => {
-    expect(settled(pull({ updated_at: '2026-10-14T08:05:33Z' }), NOW)).toBe(true);
-    expect(settled(pull({ updated_at: '2026-10-14T08:05:34Z' }), NOW)).toBe(false);
+  it('requires 30 minutes of quiet and rejects unparsable timestamps', () => {
+    expect(settled(pull({ updated_at: '2026-10-14T08:35:33Z' }), NOW)).toBe(true);
+    expect(settled(pull({ updated_at: '2026-10-14T08:35:34Z' }), NOW)).toBe(false);
     expect(settled(pull({ updated_at: 'garbage' }), NOW)).toBe(false);
+  });
+});
+
+describe('wakeAt (when a poll comes back for a PR in its grace period)', () => {
+  it('is the end of the grace period, rounded up to a 5-minute slot', () => {
+    expect(wakeAt('2026-10-14T09:00:00Z', NOW).toISOString()).toBe('2026-10-14T09:30:00.000Z');
+    expect(wakeAt('2026-10-14T09:01:00Z', NOW).toISOString()).toBe('2026-10-14T09:35:00.000Z');
+    expect(wakeAt('2026-10-14T09:05:33Z', NOW).toISOString()).toBe('2026-10-14T09:40:00.000Z');
+  });
+
+  it('puts events within one slot on the same wake-up', () => {
+    const a = wakeAt('2026-10-14T09:00:01Z', NOW).toISOString();
+    expect(wakeAt('2026-10-14T09:04:59Z', NOW).toISOString()).toBe(a);
+  });
+
+  it('is never in the past, even for an old PR that was reopened late', () => {
+    expect(wakeAt('2026-01-01T00:00:00Z', NOW).toISOString()).toBe('2026-10-14T09:10:00.000Z');
+  });
+
+  it('nextSlot is the first boundary strictly after now', () => {
+    expect(nextSlot(NOW).toISOString()).toBe('2026-10-14T09:10:00.000Z');
+    expect(nextSlot(new Date('2026-10-14T09:10:00Z')).toISOString()).toBe(
+      '2026-10-14T09:15:00.000Z',
+    );
+  });
+
+  it('treats a future or unparsable hint as now, so it is at most grace plus one slot away', () => {
+    expect(wakeAt('2099-01-01T00:00:00Z', NOW).toISOString()).toBe('2026-10-14T09:40:00.000Z');
+    expect(wakeAt('garbage', NOW).toISOString()).toBe('2026-10-14T09:40:00.000Z');
+    expect(wakeAt('', NOW).toISOString()).toBe('2026-10-14T09:40:00.000Z');
   });
 });
 

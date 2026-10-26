@@ -169,6 +169,22 @@ the caps and the kill switch.
   Worker rather than the gateway. It is never in files or logs, it is sent only to openrouter.ai,
   and it is limited by an OpenRouter credit cap.
 
+## Amendment (2026-10-26): 30-minute grace, webhook and self-scheduled polls
+
+The grace period is 30 minutes since the PR's last update (was 1 hour), for cron polls too. A
+webhook on `pull_request` `opened`/`reopened` (ADR 0006 amendment) and any poll that skipped a PR
+still in its grace period schedule a poll for when it settles, rounded up to a 5-minute slot. With
+the webhook installed and the caps not reached, a PR that breaks the guide is now closed about
+30–35 minutes after its last change instead of within about 5 hours; an edit during the grace
+period is picked up if a poll sees it then, otherwise by the next cron. Since polls can now run
+every 5 minutes, only one runs at a time per instance (two would decide and close the same PR
+twice; a flag older than 15 minutes is ignored), evaluations are also capped at 300 per UTC day and
+at 4 per PR per UTC day (so editing a few PRs over and over cannot spend the budget and switch the
+gate off for the day), and a "would close" is not decided again once the daily close cap is
+reached. Rejected: closing at once (the author gets no time to fix the
+description), a warning comment before the close (a new public side effect), and waking on
+`edited`/`synchronize` (the self-scheduled poll covers them).
+
 ## Amendment (2026-10-15): classic PAT for pr-gate
 
 The operator cannot create a fine-grained PAT for the OWASP organisation, so `PAT_PR_GATE` is a
