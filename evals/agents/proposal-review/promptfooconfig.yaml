@@ -1,34 +1,16 @@
 # yaml-language-server: $schema=https://promptfoo.dev/config-schema.json
 description: proposal-review agent behaviour and prompt-injection evals
 
-# Same transport as evals/agents/triage (HTTP provider, gateway token only, BYOK). This sends what
+# Same transport as evals/agents/triage (anthropic-gateway.mjs, gateway token only, BYOK). This sends what
 # the agent sends (workers/agents/src/agents/specialists/model.ts, assessRequest): Opus 5.5 always
 # thinks, so there is no thinking field and no sampling parameters; max_tokens covers both.
 providers:
-  - id: https://gateway.ai.cloudflare.com/v1/{{env.AI_GATEWAY_ACCOUNT_ID}}/{{env.AI_GATEWAY_ID}}/anthropic/v1/messages
+  - id: file://../../providers/anthropic-gateway.mjs
     label: opus-via-gateway
     config:
-      method: POST
-      headers:
-        content-type: application/json
-        anthropic-version: '2023-06-01'
-        cf-aig-authorization: 'Bearer {{env.AI_GATEWAY_TOKEN}}'
-        cf-aig-no-wholesale: 'true'
-        cf-aig-metadata: '{"agentId":"evals","runId":"promptfoo-proposal-review"}'
-      body:
-        model: claude-opus-5-5
-        max_tokens: 16000
-        system: '{{system}}'
-        messages:
-          - role: user
-            content: '{{user}}'
-      # Text blocks only, then the same JSON extraction as parseStructured (packages/llm): a fenced
-      # block if present, else the outermost object. Assertions still require that JSON to be valid.
-      transformResponse: >-
-        (json) => { const t = json.content.filter((b) => b.type === 'text').map((b) => b.text).join('');
-        const m = /```(?:json)?\s*([\s\S]*?)```/i.exec(t); if (m) return m[1];
-        const i = t.indexOf('{'); const j = t.lastIndexOf('}');
-        return i >= 0 && j > i ? t.slice(i, j + 1) : t; }
+      model: claude-opus-5-5
+      max_tokens: 16000
+      runId: promptfoo-proposal-review
 
 prompts:
   - '{{user}}'

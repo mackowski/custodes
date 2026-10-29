@@ -5,6 +5,9 @@
  *   token (`cf-aig-authorization`).
  * - Every request carries `cf-aig-metadata` (agentId, runId) for attribution and spend limits.
  * - Guardrails / DLP are configured on the gateway itself (see infra/terraform/modules/ai-gateway).
+ * - The stored key is found, not configured: the gateway looks for alias `default`, and when it
+ *   answers that there is none but exactly one other alias exists, that alias is used (and
+ *   remembered per isolate). With several aliases the call fails rather than guess between keys.
  * - Inside a turn, each call is a `chat` span (ADR 0016).
  */
 import { chat, type Turn } from '@custodes/core';
@@ -83,6 +86,30 @@ export function errorTypeOf(body: string): string | undefined {
   }
 }
 
+/** AI Gateway's error for a BYOK alias the provider does not have. */
+const BYOK_ALIAS_MISSING = 2040;
+const BYOK_ALIAS = /^[A-Za-z0-9_-]{1,64}$/;
+
+/**
+ * When `body` is AI Gateway's "no BYOK credential named …" error, the aliases it says are
+ * configured; otherwise undefined. A malformed name makes the list empty, so it is never used.
+ */
+export function byokAliasesOf(body: string): string[] | undefined {
+  try {
+    const parsed = JSON.parse(body) as { internalCode?: unknown; message?: unknown };
+    if (parsed.internalCode !== BYOK_ALIAS_MISSING || typeof parsed.message !== 'string')
+      return undefined;
+    const list = /Configured aliases: (.*)$/.exec(parsed.message)?.[1] ?? '';
+    const aliases = [...list.matchAll(/'([^']*)'/g)].map((m) => m[1] ?? '');
+    return aliases.every((a) => BYOK_ALIAS.test(a)) ? aliases : [];
+  } catch {
+    return undefined;
+  }
+}
+
+/** BYOK alias found per gateway URL, for this isolate. A renamed key is found again on its 2040. */
+const discoveredAliases = new Map<string, string>();
+
 export class AnthropicGateway {
   private readonly url: string;
   private readonly fetchImpl: typeof fetch;
@@ -113,14 +140,33 @@ export class AnthropicGateway {
         'gen_ai.input.messages',
         req.messages.map((m) => ({ role: m.role, parts: [{ type: 'text', content: m.content }] })),
       );
-      const res = await this.fetchImpl(this.url, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(body),
-      });
+      const send = (alias: string | undefined) =>
+        this.fetchImpl(this.url, {
+          method: 'POST',
+          headers: alias !== undefined ? { ...headers, 'cf-aig-byok-alias': alias } : headers,
+          body: JSON.stringify(body),
+        });
+      const known = discoveredAliases.get(this.url);
+      let res = await send(known);
       if (!res.ok) {
-        const text = await res.text();
-        throw new GatewayError(res.status, text.slice(0, 500), errorTypeOf(text));
+        let text = await res.text();
+        const aliases = byokAliasesOf(text);
+        if (aliases) {
+          discoveredAliases.delete(this.url);
+          const only = aliases.length === 1 ? aliases[0] : undefined;
+          if (only !== undefined && only !== known) {
+            discoveredAliases.set(this.url, only);
+            span.set('custodes.byok_alias_discovered', true);
+            res = await send(only);
+            if (!res.ok) text = await res.text();
+          }
+        }
+        if (!res.ok)
+          throw new GatewayError(
+            res.status,
+            text.slice(0, 500),
+            byokAliasesOf(text) ? 'byok_alias_missing' : errorTypeOf(text),
+          );
       }
       const out = await res.json<MessagesResponse>();
       span.set('gen_ai.response.id', out.id);

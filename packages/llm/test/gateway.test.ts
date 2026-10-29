@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   AnthropicGateway,
+  byokAliasesOf,
   GatewayError,
   ModelOutputError,
   type MessagesRequest,
@@ -145,5 +146,128 @@ describe('AnthropicGateway request and error handling', () => {
       ],
     };
     expect(AnthropicGateway.text(res)).toBe('{"a":1}');
+  });
+});
+
+/** AI Gateway's answer when the provider has no key with the requested (or default) alias. */
+const aliasMissing = (asked: string, aliases: string[]) =>
+  Response.json(
+    {
+      success: false,
+      result: [],
+      messages: [],
+      error: [{ code: 2040, message: 'x' }],
+      name: 'AiGatewayError',
+      httpCode: 400,
+      internalCode: 2040,
+      message: `Provider 'anthropic' has no BYOK credential named '${asked}'. Configured aliases: ${aliases.map((a) => `'${a}'`).join(', ')}`,
+    },
+    { status: 400 },
+  );
+const answer = () =>
+  Response.json({
+    id: 'm',
+    model: 'x',
+    stop_reason: 'end_turn',
+    content: [{ type: 'text', text: 'ok' }],
+    usage: { input_tokens: 1, output_tokens: 1 },
+  });
+const request = {
+  model: 'claude-sonnet-5',
+  system: 's',
+  messages: [{ role: 'user' as const, content: 'u' }],
+  max_tokens: 10,
+  metadata: { agentId: 'triage', runId: 'r' },
+};
+const aliasOf = (init: RequestInit | undefined) =>
+  (init?.headers as Record<string, string>)['cf-aig-byok-alias'];
+
+describe('byokAliasesOf', () => {
+  it('reads the configured aliases from the 2040 error only', async () => {
+    expect(byokAliasesOf(await aliasMissing('default', ['cf-custodes-2']).text())).toEqual([
+      'cf-custodes-2',
+    ]);
+    expect(byokAliasesOf(await aliasMissing('default', ['a', 'b_2']).text())).toEqual(['a', 'b_2']);
+    expect(byokAliasesOf('{"error":{"type":"rate_limit_error"}}')).toBeUndefined();
+    expect(byokAliasesOf('not json')).toBeUndefined();
+  });
+
+  it('never returns a malformed alias name', async () => {
+    expect(
+      byokAliasesOf(await aliasMissing('default', ['ok', 'x\r\nset-cookie: a']).text()),
+    ).toEqual([]);
+  });
+});
+
+describe('AnthropicGateway BYOK alias discovery', () => {
+  // Each test uses its own gateway id: discovered aliases are remembered per gateway URL.
+  const gateway = (gatewayId: string, fetchImpl: typeof fetch) =>
+    new AnthropicGateway({ accountId: 'acc', gatewayId, gatewayToken: 'tok', fetchImpl });
+
+  it('sends no alias while the default key works', async () => {
+    const fetchImpl = vi.fn((_u: RequestInfo | URL, _i?: RequestInit) => Promise.resolve(answer()));
+    await gateway('g-default', fetchImpl).messages(request);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(aliasOf(fetchImpl.mock.calls[0]?.[1])).toBeUndefined();
+  });
+
+  it('uses the only configured alias, and remembers it for later calls', async () => {
+    const fetchImpl = vi.fn((_u: RequestInfo | URL, i?: RequestInit) =>
+      Promise.resolve(
+        aliasOf(i) === 'cf-custodes-2' ? answer() : aliasMissing('default', ['cf-custodes-2']),
+      ),
+    );
+    const gw = gateway('g-one', fetchImpl);
+    expect(AnthropicGateway.text(await gw.messages(request))).toBe('ok');
+    await gw.messages(request);
+    expect(fetchImpl.mock.calls.map((c) => aliasOf(c[1]))).toEqual([
+      undefined,
+      'cf-custodes-2',
+      'cf-custodes-2',
+    ]);
+  });
+
+  it('finds the key again after it is renamed', async () => {
+    let current = 'old';
+    const fetchImpl = vi.fn((_u: RequestInfo | URL, i?: RequestInit) =>
+      Promise.resolve(
+        aliasOf(i) === current ? answer() : aliasMissing(aliasOf(i) ?? 'default', [current]),
+      ),
+    );
+    const gw = gateway('g-rename', fetchImpl);
+    await gw.messages(request);
+    current = 'new';
+    await gw.messages(request);
+    expect(fetchImpl.mock.calls.map((c) => aliasOf(c[1]))).toEqual([
+      undefined,
+      'old',
+      'old',
+      'new',
+    ]);
+  });
+
+  it('does not guess between several keys', async () => {
+    const fetchImpl = vi.fn((_u: RequestInfo | URL, _i?: RequestInit) =>
+      Promise.resolve(aliasMissing('default', ['prod', 'testing'])),
+    );
+    const err = await gateway('g-many', fetchImpl)
+      .messages(request)
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(GatewayError);
+    expect((err as GatewayError).errorType).toBe('byok_alias_missing');
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not retry other errors', async () => {
+    const fetchImpl = vi.fn((_u: RequestInfo | URL, _i?: RequestInit) =>
+      Promise.resolve(
+        Response.json({ error: { type: 'rate_limit_error', message: 'm' } }, { status: 429 }),
+      ),
+    );
+    const err = await gateway('g-429', fetchImpl)
+      .messages(request)
+      .catch((e: unknown) => e);
+    expect((err as GatewayError).errorType).toBe('rate_limit_error');
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 });
