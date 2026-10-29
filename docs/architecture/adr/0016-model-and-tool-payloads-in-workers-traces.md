@@ -103,8 +103,31 @@ instance>`, so sandbox and real repositories are separate.
   Sandbox and production are one Worker, so the first deploy traces production: the operator
   checks the first trace for credentials right after it, as the
   [runbook](../../runbooks/agent-traces.md) describes, and records the result here.
+
 - Prompt injection: payloads read back through the Cloudflare MCP server in a Claude Code session
   (CLAUDE.md invariant 6) are untrusted data, never instructions, like AI Gateway logs. CLAUDE.md
   says so; a hook that marks these MCP results as untrusted is #71.
 - Authority and audit are unchanged: tracing adds no binding or credential, and the broker audit
   log in D1 stays the record of side effects. Traces are a debugging aid, not an audit trail.
+
+## First-trace check (2026-10-29)
+
+Done through the Cloudflare MCP server, read-only, after deploy `557fcdd3` and sandbox run 40858052935. Traces: triage `fc3e2178dc8e3b7f8e7a8b5c5445e937` and specialist
+`0c90a660a3d40f791f91608d20e902fb` (`mackowski/custodes-sandbox#56`, Anthropic), pr-gate
+`cdb8aac799b027ec51d8610720bf276c` (`#54`, OpenRouter and Workers AI).
+
+- Span header attributes across all Workers in the last two hours (312 keys): only
+  `http.request.header.{content-type, content-length, accept, accept-encoding, accept-language}`.
+  There is no `authorization`, `cf-aig-authorization` or `x-api-key` key.
+- Workers Logs (on before this ADR) record incoming request headers. `cookie` and
+  `cf-access-jwt-assertion` occur on `custodes-gateway` and `custodes-agents`, and over seven days
+  every value is `REDACTED` by Cloudflare: none is a JWT or a `CF_Authorization` cookie.
+  `x-hub-signature-256` is a payload HMAC, not a secret.
+- Account members: one, the operator (Super Administrator). No OpenTelemetry export destinations.
+  Listing API tokens needs a write scope, which the session did not take; the CI tokens' scopes in
+  `docs/runbooks/rotate-cf-token.md` include no Workers Observability permission.
+- The telemetry query ran from an OAuth connection with `account:read` only, although the API
+  reference lists Workers Observability Write: treat any read access to the account as read
+  access to the payloads.
+- A read that returns 404 (an issue number in a PR body that does not exist) marks the pr-gate
+  trace `error` with `GitHubReadError 404` only; the decision is unaffected.
