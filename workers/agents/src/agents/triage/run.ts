@@ -1,3 +1,4 @@
+import { invokeAgent, type Turn } from '@custodes/core';
 import { AgentHaltedError } from '@custodes/core/agent';
 import { parseStructured } from '@custodes/llm';
 import { RawAssessment, validateAssessment, type Assessment } from './assess.js';
@@ -21,7 +22,9 @@ export interface TriageDeps {
     'listUpdatedIssues' | 'listRecentIssueTitles' | 'listLabels' | 'listCheatSheets'
   >;
   /** Sends one prompt to the model and returns its raw text. */
-  complete(system: string, user: string, issue: number): Promise<string>;
+  complete(system: string, user: string, issue: number, turn?: Turn): Promise<string>;
+  /** The trace turn for one issue (ADR 0016); absent means untraced. */
+  turn?(issue: number): Turn;
   store: TriageStore;
   now(): Date;
 }
@@ -93,13 +96,23 @@ export async function runTriage(
       continue;
     }
     try {
-      const text = await deps.complete(SYSTEM_PROMPT, buildUserMessage(issue, ctx), issue.number);
-      const raw = parseStructured(RawAssessment, text);
-      const assessment = validateAssessment(raw, {
-        issue: issue.number,
-        labels,
-        cheatSheets,
-        recentIssues: recent.map((r) => r.number),
+      const turn = deps.turn?.(issue.number);
+      const assessment = await invokeAgent(turn, async (span) => {
+        const text = await deps.complete(
+          SYSTEM_PROMPT,
+          buildUserMessage(issue, ctx),
+          issue.number,
+          turn,
+        );
+        const raw = parseStructured(RawAssessment, text);
+        const a = validateAssessment(raw, {
+          issue: issue.number,
+          labels,
+          cheatSheets,
+          recentIssues: recent.map((r) => r.number),
+        });
+        span.set('custodes.outcome', a.kind);
+        return a;
       });
       deps.store.save(issue, assessment, deps.now());
       assessedIssues.push({

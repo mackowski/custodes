@@ -17,5 +17,6 @@
 | [0013](0013-pr-gate-maintainer-agreement.md)                  | pr-gate reads maintainer comments and asks Jev about agreement                           | accepted                        |
 | [0014](0014-anthropic-workload-identity-federation-in-ci.md)  | GitHub Actions authenticate to Anthropic with workload identity federation               | accepted                        |
 | [0015](0015-clef-shadow-decision-model-and-one-ai-gateway.md) | Clef as a shadow decision model next to Jev; all agent AI traffic through one AI Gateway | accepted                        |
+| [0016](0016-model-and-tool-payloads-in-workers-traces.md)     | Model and tool payloads in Workers traces                                                | accepted                        |
 
 Create new records with the `/adr` skill.

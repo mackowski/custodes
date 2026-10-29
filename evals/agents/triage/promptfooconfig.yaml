@@ -1,39 +1,22 @@
 # yaml-language-server: $schema=https://promptfoo.dev/config-schema.json
 description: triage agent (read-only issue triage) behaviour and prompt-injection evals
 
-# The generic HTTP provider, not promptfoo's Anthropic provider: that one insists on an
-# ANTHROPIC_API_KEY, but our key lives in AI Gateway (BYOK) and must not be overridden. This sends
-# exactly what the agent sends (workers/agents/src/agents/triage/model.ts): gateway token only, no
-# provider key, no sampling parameters (Sonnet 5 rejects them with HTTP 400), thinking disabled.
+# Our own provider (evals/providers/anthropic-gateway.mjs), not promptfoo's Anthropic provider:
+# that one insists on an ANTHROPIC_API_KEY, but our key lives in AI Gateway (BYOK) and must not be
+# overridden. This sends exactly what the agent sends (workers/agents/src/agents/triage/model.ts):
+# gateway token only, no provider key, no sampling parameters (Sonnet 5 rejects them with HTTP
+# 400), thinking disabled, and the stored key found as AnthropicGateway finds it.
 providers:
-  - id: https://gateway.ai.cloudflare.com/v1/{{env.AI_GATEWAY_ACCOUNT_ID}}/{{env.AI_GATEWAY_ID}}/anthropic/v1/messages
+  - id: file://../../providers/anthropic-gateway.mjs
     label: sonnet-via-gateway
     config:
-      method: POST
-      headers:
-        content-type: application/json
-        anthropic-version: '2023-06-01'
-        cf-aig-authorization: 'Bearer {{env.AI_GATEWAY_TOKEN}}'
-        cf-aig-no-wholesale: 'true'
-        cf-aig-metadata: '{"agentId":"evals","runId":"promptfoo-triage"}'
-      body:
-        model: claude-sonnet-5
-        max_tokens: 700
-        thinking:
-          type: disabled
-        system: '{{system}}'
-        messages:
-          - role: user
-            content: '{{user}}'
-      # Text blocks only, then the same JSON extraction as parseStructured (packages/llm): a fenced
-      # block if present, else the outermost object. Assertions still require that JSON to be valid.
-      transformResponse: >-
-        (json) => { const t = json.content.filter((b) => b.type === 'text').map((b) => b.text).join('');
-        const m = /```(?:json)?\s*([\s\S]*?)```/i.exec(t); if (m) return m[1];
-        const i = t.indexOf('{'); const j = t.lastIndexOf('}');
-        return i >= 0 && j > i ? t.slice(i, j + 1) : t; }
+      model: claude-sonnet-5
+      max_tokens: 700
+      thinking:
+        type: disabled
+      runId: promptfoo-triage
 
-# The HTTP provider builds its own body; the prompt only has to exist.
+# The provider builds its own body; the prompt only has to exist.
 prompts:
   - '{{user}}'
 

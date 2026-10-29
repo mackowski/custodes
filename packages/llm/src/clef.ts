@@ -4,10 +4,14 @@
  *
  * Every call names an AI Gateway, and there is no way to call it without one: all agent model
  * traffic goes through one gateway (ADR 0015). The state is the same enveloped `JevState` that Jev
- * gets, so both models see byte-identical input.
+ * gets, so both models see byte-identical input. Inside a turn, each call is a `chat` span
+ * (ADR 0016).
  */
 import { z } from 'zod';
+import { chat, type Turn } from '@custodes/core';
 import {
+  decisionInput,
+  decisionOutput,
   JevAnswer,
   JevOutputError,
   type JevQuestion,
@@ -73,38 +77,45 @@ export class ClefClient {
     this.timeoutMs = cfg.timeoutMs ?? 10_000;
   }
 
-  async decide<Q extends Record<string, JevQuestion>>(req: ClefRequest<Q>): Promise<ClefResult<Q>> {
+  async decide<Q extends Record<string, JevQuestion>>(
+    req: ClefRequest<Q>,
+    turn?: Turn,
+  ): Promise<ClefResult<Q>> {
     const selector = SELECTOR[req.model];
     if (!selector) throw new Error(`not a Clef model: ${req.model}`);
-    const ac = new AbortController();
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const timeout = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => {
-        ac.abort();
-        reject(new ClefTimeoutError());
-      }, this.timeoutMs);
+    return chat(turn, { provider: 'cloudflare.workers_ai', model: req.model }, async (span) => {
+      span.payload('gen_ai.input.messages', decisionInput(req));
+      const ac = new AbortController();
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const timeout = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          ac.abort();
+          reject(new ClefTimeoutError());
+        }, this.timeoutMs);
+      });
+      let raw: unknown;
+      try {
+        raw = await Promise.race([
+          this.cfg.ai.run(
+            req.model,
+            { model: selector, state: req.state, questions: req.questions },
+            {
+              gateway: { id: this.cfg.gatewayId, metadata: { ...req.metadata } },
+              signal: ac.signal,
+            },
+          ),
+          timeout,
+        ]);
+      } finally {
+        clearTimeout(timer);
+      }
+      const parsed = ClefResponse.safeParse(raw);
+      if (!parsed.success) throw new JevOutputError('(response)');
+      decisionOutput(span, parsed.data);
+      for (const [name, q] of Object.entries(req.questions)) {
+        if (parsed.data.answers[name]?.type !== q.type) throw new JevOutputError(name);
+      }
+      return parsed.data as ClefResult<Q>;
     });
-    let raw: unknown;
-    try {
-      raw = await Promise.race([
-        this.cfg.ai.run(
-          req.model,
-          { model: selector, state: req.state, questions: req.questions },
-          {
-            gateway: { id: this.cfg.gatewayId, metadata: { ...req.metadata } },
-            signal: ac.signal,
-          },
-        ),
-        timeout,
-      ]);
-    } finally {
-      clearTimeout(timer);
-    }
-    const parsed = ClefResponse.safeParse(raw);
-    if (!parsed.success) throw new JevOutputError('(response)');
-    for (const [name, q] of Object.entries(req.questions)) {
-      if (parsed.data.answers[name]?.type !== q.type) throw new JevOutputError(name);
-    }
-    return parsed.data as ClefResult<Q>;
   }
 }
