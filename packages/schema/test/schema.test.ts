@@ -93,3 +93,98 @@ describe('read resource pulls', () => {
     expect(BrokerReadRequest.safeParse({ ...read, file: 'A.md' }).success).toBe(false);
   });
 });
+
+describe('pr.review.inline action', () => {
+  const sha = '0123456789abcdef0123456789abcdef01234567';
+  const comment = { path: 'cheatsheets/A_Cheat_Sheet.md', line: 10, side: 'RIGHT', body: 'fix' };
+  const review = {
+    type: 'pr.review.inline',
+    repo: 'mackowski/custodes-sandbox',
+    pull: 7,
+    commitId: sha,
+    event: 'COMMENT',
+    body: 'summary',
+    comments: [comment],
+  };
+  const ok = (over: Record<string, unknown>) =>
+    BrokerAction.safeParse({ ...review, ...over }).success;
+
+  it('is an enumerated action type and parses a valid review', () => {
+    expect(BrokerActionType.options).toContain('pr.review.inline');
+    expect(ok({})).toBe(true);
+    expect(ok({ event: 'REQUEST_CHANGES', comments: [] })).toBe(true);
+  });
+  it('never allows APPROVE', () => {
+    expect(ok({ event: 'APPROVE' })).toBe(false);
+  });
+  it('pins a full lower-case commit SHA', () => {
+    for (const commitId of ['main', sha.slice(0, 7), sha.toUpperCase(), `${sha}0`]) {
+      expect(ok({ commitId })).toBe(false);
+    }
+  });
+  it('caps comments at 20 and comment bodies at 4000 characters', () => {
+    expect(ok({ comments: Array.from({ length: 20 }, () => comment) })).toBe(true);
+    expect(ok({ comments: Array.from({ length: 21 }, () => comment) })).toBe(false);
+    expect(ok({ comments: [{ ...comment, body: 'x'.repeat(4_001) }] })).toBe(false);
+    expect(ok({ comments: [{ ...comment, body: '' }] })).toBe(false);
+  });
+  it('accepts only RIGHT-side comments with a start line before the end line', () => {
+    expect(ok({ comments: [{ ...comment, side: 'LEFT' }] })).toBe(false);
+    expect(ok({ comments: [{ ...comment, startLine: 8 }] })).toBe(true);
+    expect(ok({ comments: [{ ...comment, startLine: 10 }] })).toBe(false);
+    expect(ok({ comments: [{ ...comment, line: 0 }] })).toBe(false);
+  });
+  it('rejects absolute, dot-segment and odd paths', () => {
+    for (const path of [
+      '/etc/passwd',
+      '../x.md',
+      'a/../b.md',
+      'a/./b.md',
+      'a//b.md',
+      'a b.md',
+      '',
+    ]) {
+      expect(ok({ comments: [{ ...comment, path }] })).toBe(false);
+    }
+  });
+});
+
+describe('read resources pull and pull_file_at_ref', () => {
+  const sha = '0123456789abcdef0123456789abcdef01234567';
+  const base = {
+    agentId: 'cheatsheet-review',
+    runId: '9d7c1e9e-2b1a-4b6e-9a2e-1f7d1c2b3a44',
+    repo: 'mackowski/custodes-sandbox',
+  };
+  const ok = (over: Record<string, unknown>) =>
+    BrokerReadRequest.safeParse({ ...base, ...over }).success;
+
+  it('pull needs a number and nothing else', () => {
+    expect(ok({ resource: 'pull', number: 3 })).toBe(true);
+    expect(ok({ resource: 'pull' })).toBe(false);
+    expect(ok({ resource: 'pull', number: 3, ref: sha })).toBe(false);
+  });
+  it('pull_file_at_ref needs a cheat sheet path and a full SHA, and nothing else', () => {
+    const at = { resource: 'pull_file_at_ref', path: 'cheatsheets/A_Cheat_Sheet.md', ref: sha };
+    expect(ok(at)).toBe(true);
+    expect(ok({ ...at, path: 'cheatsheets_draft/A.md' })).toBe(true);
+    expect(ok({ ...at, ref: undefined })).toBe(false);
+    expect(ok({ ...at, path: undefined })).toBe(false);
+    expect(ok({ ...at, number: 1 })).toBe(false);
+    expect(ok({ ...at, ref: 'main' })).toBe(false);
+    for (const path of [
+      'README.md',
+      '.github/workflows/x.md',
+      'cheatsheets/../README.md',
+      'cheatsheets/a/b.md',
+      'cheatsheets/.hidden.md',
+      'cheatsheets/A.txt',
+    ]) {
+      expect(ok({ ...at, path })).toBe(false);
+    }
+  });
+  it('path and ref are refused on other resources', () => {
+    expect(ok({ resource: 'cheatsheets', ref: sha })).toBe(false);
+    expect(ok({ resource: 'issue', number: 1, path: 'cheatsheets/A.md' })).toBe(false);
+  });
+});

@@ -35,6 +35,7 @@ beforeAll(() => {
     ...env,
     PAT_HELLO: { get: () => Promise.resolve('unused') },
     PAT_PR_GATE: { get: () => Promise.resolve('unused') },
+    PAT_CHEATSHEET_REVIEW: { get: () => Promise.resolve('review-token') },
   };
 });
 
@@ -184,5 +185,40 @@ describe('broker act() at the rate limit', () => {
     expect(sixth.reason).toMatch(/rate limit .* mackowski\/custodes-sandbox/);
     // OWASP has its own budget (the half-done close above used one of its five).
     expect(await act(testEnv, close('OWASP/CheatSheetSeries', 200))).toMatchObject({ ok: true });
+  });
+});
+
+describe('broker act() for cheatsheet-review', () => {
+  it('posts one signed inline review with the agent PAT and attests it', async () => {
+    let sent: { url: string; auth: string; body: { body: string; commit_id: string } } | undefined;
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
+      const url = input instanceof Request ? input.url : String(input);
+      sent = {
+        url: new URL(url).pathname,
+        auth: (init?.headers as Record<string, string>)['authorization'] ?? '',
+        body: JSON.parse(init?.body as string) as { body: string; commit_id: string },
+      };
+      return Promise.resolve(
+        Response.json({ html_url: 'https://github.com/mackowski/custodes-sandbox/pull/3#r1' }),
+      );
+    });
+    const res = await act(testEnv, {
+      ...base,
+      agentId: 'cheatsheet-review',
+      action: {
+        type: 'pr.review.inline',
+        repo: 'mackowski/custodes-sandbox',
+        pull: 3,
+        commitId: '0123456789abcdef0123456789abcdef01234567',
+        event: 'COMMENT',
+        body: 'LLM review',
+        comments: [{ path: 'cheatsheets/A.md', line: 2, side: 'RIGHT', body: 'x' }],
+      },
+    });
+    if (!res.ok) throw new Error(`expected success, got ${res.code}`);
+    expect(sent?.url).toBe('/repos/mackowski/custodes-sandbox/pulls/3/reviews');
+    expect(sent?.auth).toBe('Bearer review-token');
+    expect(sent?.body.commit_id).toBe('0123456789abcdef0123456789abcdef01234567');
+    expect(sent?.body.body).toContain(res.attestationId);
   });
 });

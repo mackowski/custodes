@@ -1,4 +1,4 @@
-import type { BrokerAction } from '@custodes/schema';
+import type { BrokerAction, InlineReviewComment } from '@custodes/schema';
 import type { GitHubIdentity } from './identity.js';
 
 const API = 'https://api.github.com';
@@ -64,6 +64,25 @@ export class GitHubRest {
       body,
     });
   }
+  /** A review with inline comments on the new side of the diff, pinned to `commitId`. */
+  createInlinePullReview(
+    repo: string,
+    pull: number,
+    review: { commitId: string; event: string; body: string; comments: InlineReviewComment[] },
+  ) {
+    return this.call<{ html_url: string }>('POST', `/repos/${repo}/pulls/${pull}/reviews`, {
+      commit_id: review.commitId,
+      event: review.event,
+      body: review.body,
+      comments: review.comments.map((c) => ({
+        path: c.path,
+        line: c.line,
+        side: c.side,
+        body: c.body,
+        ...(c.startLine !== undefined ? { start_line: c.startLine, start_side: c.side } : {}),
+      })),
+    });
+  }
   closePull(repo: string, pull: number) {
     return this.call<{ state: string }>('PATCH', `/repos/${repo}/pulls/${pull}`, {
       state: 'closed',
@@ -99,6 +118,16 @@ export async function executeAction(
         action.event,
         decorate(action.body),
       );
+      return { githubUrl: r.html_url };
+    }
+    case 'pr.review.inline': {
+      // Trailers go on the review body only; inline comments stay short suggestions.
+      const r = await api.createInlinePullReview(action.repo, action.pull, {
+        commitId: action.commitId,
+        event: action.event,
+        body: decorate(action.body),
+        comments: action.comments,
+      });
       return { githubUrl: r.html_url };
     }
     case 'pr.close': {

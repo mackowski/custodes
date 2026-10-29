@@ -47,6 +47,8 @@ const request = fc.record({
     'pull_files',
     'cheatsheet',
     'pulls',
+    'pull',
+    'pull_file_at_ref',
   ),
   query: fc.record(
     {
@@ -59,6 +61,23 @@ const request = fc.record({
   ),
   number: fc.option(fc.integer({ min: -10, max: 2_000_000 }), { nil: undefined }),
   file: fc.option(pathy, { nil: undefined }),
+  path: fc.option(
+    fc.oneof(
+      pathy,
+      pathy.map((p) => `cheatsheets/${p}`),
+      pathy.map((p) => `cheatsheets_draft/${p}`),
+    ),
+    { nil: undefined },
+  ),
+  ref: fc.option(
+    fc.oneof(
+      fc.constant('0123456789abcdef0123456789abcdef01234567'),
+      pathy,
+      fc.constant('main'),
+      fc.constant('0123456789abcdef0123456789abcdef01234567&x=1'),
+    ),
+    { nil: undefined },
+  ),
 });
 
 describe('buildReadPath() properties', () => {
@@ -72,9 +91,11 @@ describe('buildReadPath() properties', () => {
         const path = buildReadPath(parsed.data);
         const [route = '', query = ''] = path.split('?');
         expect(route).toMatch(
-          /^\/repos\/OWASP\/CheatSheetSeries\/(issues(\/\d+(\/(timeline|comments))?)?|labels|contents\/cheatsheets(\/[A-Za-z0-9_.-]+\.md)?|pulls(\/\d+\/files)?)$/,
+          /^\/repos\/OWASP\/CheatSheetSeries\/(issues(\/\d+(\/(timeline|comments))?)?|labels|contents\/cheatsheets(_draft)?(\/[A-Za-z0-9_.-]+\.md)?|pulls(\/\d+(\/files)?)?)$/,
         );
         expect(route).not.toContain('..');
+        if (parsed.data.resource === 'pull_file_at_ref')
+          expect(query).toMatch(/^ref=[0-9a-f]{40}$/);
         expect(path).not.toMatch(/[#\s\\]/);
         expect(
           query

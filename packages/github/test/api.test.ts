@@ -73,6 +73,68 @@ describe('executeAction pr.close', () => {
   });
 });
 
+describe('executeAction pr.review.inline', () => {
+  const sha = '0123456789abcdef0123456789abcdef01234567';
+  it('posts one review pinned to the commit, trailers on the body only, multi-line ranges mapped', async () => {
+    const fetchMock = vi.fn((_url: string, _init: RequestInit) =>
+      Promise.resolve(
+        Response.json({ html_url: 'https://github.com/o/r/pull/7#pullrequestreview-1' }),
+      ),
+    );
+    const api = new GitHubRest(id, fetchMock as unknown as typeof fetch);
+    const r = await executeAction(
+      api,
+      {
+        type: 'pr.review.inline',
+        repo: 'o/r',
+        pull: 7,
+        commitId: sha,
+        event: 'REQUEST_CHANGES',
+        body: 'summary',
+        comments: [
+          { path: 'cheatsheets/A.md', line: 12, side: 'RIGHT', body: 'one' },
+          { path: 'cheatsheets/A.md', line: 20, startLine: 18, side: 'RIGHT', body: 'range' },
+        ],
+      },
+      (b) => `${b}\n--trailer`,
+    );
+    expect(r.githubUrl).toContain('pullrequestreview');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe('https://api.github.com/repos/o/r/pulls/7/reviews');
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body as string)).toEqual({
+      commit_id: sha,
+      event: 'REQUEST_CHANGES',
+      body: 'summary\n--trailer',
+      comments: [
+        { path: 'cheatsheets/A.md', line: 12, side: 'RIGHT', body: 'one' },
+        {
+          path: 'cheatsheets/A.md',
+          line: 20,
+          side: 'RIGHT',
+          body: 'range',
+          start_line: 18,
+          start_side: 'RIGHT',
+        },
+      ],
+    });
+  });
+
+  it('does not leak comment bodies into errors', async () => {
+    const fetchMock = vi.fn(() => Promise.resolve(new Response('Unprocessable', { status: 422 })));
+    const api = new GitHubRest(id, fetchMock);
+    const p = api.createInlinePullReview('o/r', 7, {
+      commitId: sha,
+      event: 'COMMENT',
+      body: 'SECRET-BODY',
+      comments: [{ path: 'a.md', line: 1, side: 'RIGHT', body: 'SECRET-COMMENT' }],
+    });
+    await expect(p).rejects.toThrow(/GitHub 422/);
+    await expect(p).rejects.not.toThrow(/SECRET/);
+  });
+});
+
 describe('GitHubRest default fetch', () => {
   it('calls the global fetch unbound (a bound call throws "Illegal invocation" in Workers)', async () => {
     let receiver: unknown = 'not called';
@@ -125,6 +187,20 @@ describe('buildReadPath', () => {
     ).toBe('/repos/o/r/issues/7/timeline?per_page=100&page=2');
     expect(buildReadPath({ repo: 'o/r', resource: 'comments', query: {}, number: 7 })).toBe(
       '/repos/o/r/issues/7/comments?per_page=100&page=1',
+    );
+    expect(buildReadPath({ repo: 'o/r', resource: 'pull', query: {}, number: 9 })).toBe(
+      '/repos/o/r/pulls/9',
+    );
+    expect(
+      buildReadPath({
+        repo: 'o/r',
+        resource: 'pull_file_at_ref',
+        query: {},
+        path: 'cheatsheets_draft/A_Cheat_Sheet.md',
+        ref: '0123456789abcdef0123456789abcdef01234567',
+      }),
+    ).toBe(
+      '/repos/o/r/contents/cheatsheets_draft/A_Cheat_Sheet.md?ref=0123456789abcdef0123456789abcdef01234567',
     );
     expect(buildReadPath({ repo: 'o/r', resource: 'pull_files', query: {}, number: 9 })).toBe(
       '/repos/o/r/pulls/9/files?per_page=100&page=1',

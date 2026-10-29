@@ -87,8 +87,16 @@ agents are allowed to do; high-risk agents should be deployed in their own Worke
   access, `public_repo` scope only, expiry of 90 days or less, and the broker policy limiting the
   agent to `pr.close` on one repository. Owner: operator. Revisit with a Triage-role bot account or
   a GitHub App.
+- `PAT_CHEATSHEET_REVIEW` is a second classic `public_repo` PAT on the operator's account, for the
+  same reason (ADR 0017). Same exposure if leaked; the broker limits the agent to
+  `pr.review.inline` (never `APPROVE`) and `issue.label.remove`, on the sandbox until its evals
+  pass. Owner: operator. Revisit with the same bot account or GitHub App.
 - Agents in one Worker share a trust domain: the broker trusts the `agentId` a caller in the agents
   Worker sends. Owner: operator. Revisited on 2026-10-15 when pr-gate gained `pr.close` (ADR 0011):
   every agent in the Worker is first-party code reviewed in this repository, readonly agents run no
-  untrusted code, and pr-gate's grant is one action on one repository under caps. Revisit again
-  before any agent runs third-party code or a second write-capable agent shares the Worker.
+  untrusted code, and pr-gate's grant is one action on one repository under caps. Revisited on
+  2026-10-29 when cheatsheet-review became the second write-capable agent (ADR 0017): still
+  first-party code only, and its grant is a review and a label removal under a rate limit. A
+  compromised agent in the Worker could post reviews as cheatsheet-review or close as pr-gate.
+  Revisit again before any agent runs third-party code or a third write-capable agent shares the
+  Worker.

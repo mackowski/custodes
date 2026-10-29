@@ -37,8 +37,14 @@ describe('instances', () => {
       expect(TRIAGE_MANIFEST.repos).toContain(repo);
       expect(PR_GATE_MANIFEST.repos).toContain(repo);
       expect(policy.agents['pr-gate'].repos).toContain(repo);
-      for (const r of Object.values(policy.reads)) expect(r.repos).toContain(repo);
+      for (const [id, r] of Object.entries(policy.reads))
+        if (id !== 'cheatsheet-review') expect(r.repos).toContain(repo);
     }
+  });
+
+  it('keeps cheatsheet-review on the sandbox until its evals pass (ADR 0017)', () => {
+    expect(policy.agents['cheatsheet-review'].repos).toEqual(['mackowski/custodes-sandbox']);
+    expect(policy.reads['cheatsheet-review'].repos).toEqual(['mackowski/custodes-sandbox']);
   });
 
   it('keeps the hello agent and every write grant other than pr-gate off the sandbox', () => {

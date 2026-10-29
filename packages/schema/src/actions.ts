@@ -5,6 +5,29 @@ const issueRef = { repo: GitHubRepo, issue: z.number().int().positive() };
 const pullRef = { repo: GitHubRepo, pull: z.number().int().positive() };
 const label = z.string().min(1).max(50);
 const body = z.string().min(1).max(60_000);
+/** A full commit SHA, so a review is pinned to the exact commit the agent read. */
+export const CommitSha = z.string().regex(/^[0-9a-f]{40}$/);
+/** A repository file path: no leading slash, no `.` or `..` segments. */
+const repoPath = z
+  .string()
+  .min(1)
+  .max(255)
+  .regex(/^[A-Za-z0-9_.-]+(\/[A-Za-z0-9_.-]+)*$/)
+  .refine((p) => !p.split('/').some((seg) => seg === '.' || seg === '..'), 'no dot segments');
+
+/** One inline review comment on the new side of the diff; `startLine` makes it multi-line. */
+export const InlineReviewComment = z
+  .object({
+    path: repoPath,
+    line: z.number().int().positive().max(100_000),
+    startLine: z.number().int().positive().max(100_000).optional(),
+    side: z.literal('RIGHT'),
+    body: z.string().min(1).max(4_000),
+  })
+  .refine((c) => c.startLine === undefined || c.startLine < c.line, {
+    message: 'startLine must be before line',
+  });
+export type InlineReviewComment = z.infer<typeof InlineReviewComment>;
 
 /** Every GitHub side effect an agent may request. Add here first, then to the policy. */
 export const BrokerAction = z.discriminatedUnion('type', [
@@ -25,6 +48,18 @@ export const BrokerAction = z.discriminatedUnion('type', [
     ...pullRef,
     event: z.enum(['COMMENT', 'REQUEST_CHANGES', 'APPROVE']),
     body,
+  }),
+  /**
+   * A review with inline comments (e.g. `suggestion` blocks), pinned to `commitId`. Never APPROVE:
+   * an agent may comment or ask for changes, but approving stays with people.
+   */
+  z.object({
+    type: z.literal('pr.review.inline'),
+    ...pullRef,
+    commitId: CommitSha,
+    event: z.enum(['COMMENT', 'REQUEST_CHANGES']),
+    body,
+    comments: z.array(InlineReviewComment).max(20),
   }),
   /** Posts the (signed) reason as a comment, then closes the pull request. Never merges. */
   z.object({ type: z.literal('pr.close'), ...pullRef, body }),

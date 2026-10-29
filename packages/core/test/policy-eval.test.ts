@@ -157,3 +157,79 @@ describe('evaluatePolicy for pr-gate (real broker policy)', () => {
     ).toMatchObject({ allow: false, code: 'policy_denied' });
   });
 });
+
+describe('evaluatePolicy for cheatsheet-review (real broker policy)', () => {
+  const real = PolicySchema.parse(
+    JSON.parse(
+      readFileSync(
+        new URL('../../../workers/github-broker/policy/policy.json', import.meta.url),
+        'utf8',
+      ),
+    ),
+  );
+  const reviewer = { ...base, agentId: 'cheatsheet-review' };
+  const review = {
+    type: 'pr.review.inline' as const,
+    repo: 'mackowski/custodes-sandbox',
+    pull: 7,
+    commitId: '0123456789abcdef0123456789abcdef01234567',
+    event: 'REQUEST_CHANGES' as const,
+    body: 'x',
+    comments: [],
+  };
+
+  it('lets cheatsheet-review post an inline review and remove a label on the sandbox (hotl)', () => {
+    expect(evaluatePolicy(real, { ...reviewer, action: review })).toEqual({
+      allow: true,
+      needsApproval: false,
+    });
+    expect(
+      evaluatePolicy(real, {
+        ...reviewer,
+        action: {
+          type: 'issue.label.remove',
+          repo: 'mackowski/custodes-sandbox',
+          issue: 7,
+          labels: ['custodes_cheatsheet_review'],
+        },
+      }),
+    ).toEqual({ allow: true, needsApproval: false });
+  });
+  it('denies cheatsheet-review on OWASP until its evals pass, and every other action', () => {
+    expect(
+      evaluatePolicy(real, {
+        ...reviewer,
+        action: { ...review, repo: 'OWASP/CheatSheetSeries' },
+      }),
+    ).toMatchObject({ allow: false, code: 'policy_denied' });
+    for (const action of [
+      { type: 'pr.close' as const, repo: 'mackowski/custodes-sandbox', pull: 7, body: 'x' },
+      { type: 'pr.comment' as const, repo: 'mackowski/custodes-sandbox', pull: 7, body: 'x' },
+      {
+        type: 'pr.review' as const,
+        repo: 'mackowski/custodes-sandbox',
+        pull: 7,
+        event: 'APPROVE' as const,
+        body: 'x',
+      },
+      {
+        type: 'issue.label.add' as const,
+        repo: 'mackowski/custodes-sandbox',
+        issue: 7,
+        labels: ['x'],
+      },
+    ]) {
+      expect(evaluatePolicy(real, { ...reviewer, action })).toMatchObject({
+        allow: false,
+        code: 'policy_denied',
+      });
+    }
+  });
+  it('does not let other agents post inline reviews', () => {
+    for (const agentId of ['pr-gate', 'hello', 'triage']) {
+      expect(evaluatePolicy(real, { ...base, agentId, action: review })).toMatchObject({
+        allow: false,
+      });
+    }
+  });
+});

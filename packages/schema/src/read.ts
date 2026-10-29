@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { CommitSha } from './actions.js';
 import { AgentId, GitHubRepo } from './agent.js';
 
 /**
@@ -21,6 +22,10 @@ export const ReadResource = z.enum([
   'cheatsheet',
   /** Pull requests (state, sort, direction and paging honoured). */
   'pulls',
+  /** One pull request: head SHA, labels, state, author (needs `number`). */
+  'pull',
+  /** A changed cheat sheet at a pull request's head commit (needs `path` and `ref`). */
+  'pull_file_at_ref',
 ]);
 export type ReadResource = z.infer<typeof ReadResource>;
 
@@ -30,10 +35,16 @@ export const NUMBERED_RESOURCES: readonly ReadResource[] = [
   'timeline',
   'comments',
   'pull_files',
+  'pull',
 ];
 
 /** A cheat sheet file name, e.g. `Password_Storage_Cheat_Sheet.md`. No path separators. */
 export const CheatSheetFile = z.string().regex(/^[A-Za-z0-9_-][A-Za-z0-9_.-]{0,119}\.md$/);
+
+/** A cheat sheet or draft path, e.g. `cheatsheets_draft/Foo_Cheat_Sheet.md`. One directory level. */
+export const CheatSheetPath = z
+  .string()
+  .regex(/^cheatsheets(_draft)?\/[A-Za-z0-9_-][A-Za-z0-9_.-]{0,119}\.md$/);
 
 export const ReadQuery = z
   .object({
@@ -61,6 +72,8 @@ export const BrokerReadRequest = z
     query: ReadQuery.default({}),
     number: z.number().int().positive().max(1_000_000).optional(),
     file: CheatSheetFile.optional(),
+    path: CheatSheetPath.optional(),
+    ref: CommitSha.optional(),
   })
   .strict()
   .superRefine((r, ctx) => {
@@ -72,6 +85,12 @@ export const BrokerReadRequest = z
       });
     if ((r.resource === 'cheatsheet') !== (r.file !== undefined))
       ctx.addIssue({ code: 'custom', message: 'file is required for, and only for, cheatsheet' });
+    const atRef = r.resource === 'pull_file_at_ref';
+    if (atRef !== (r.path !== undefined) || atRef !== (r.ref !== undefined))
+      ctx.addIssue({
+        code: 'custom',
+        message: 'path and ref are required for, and only for, pull_file_at_ref',
+      });
   });
 export type BrokerReadRequest = z.infer<typeof BrokerReadRequest>;
 

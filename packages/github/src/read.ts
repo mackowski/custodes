@@ -3,7 +3,7 @@ import type { GitHubIdentity } from './identity.js';
 
 /** Builds the GitHub API path for an allow-listed read. Pure; the only place paths are formed. */
 export function buildReadPath(
-  req: Pick<BrokerReadRequest, 'repo' | 'resource' | 'query' | 'number' | 'file'>,
+  req: Pick<BrokerReadRequest, 'repo' | 'resource' | 'query' | 'number' | 'file' | 'path' | 'ref'>,
 ): string {
   const q = new URLSearchParams();
   for (const [k, v] of Object.entries(req.query)) if (v !== undefined) q.set(k, String(v));
@@ -25,6 +25,12 @@ export function buildReadPath(
       return `/repos/${req.repo}/contents/cheatsheets/${encodeURIComponent(required(req.file))}`;
     case 'pulls':
       return `/repos/${req.repo}/pulls?${pullsQuery(req.query)}`;
+    case 'pull':
+      return `/repos/${req.repo}/pulls/${required(req.number)}`;
+    case 'pull_file_at_ref': {
+      const path = required(req.path).split('/').map(encodeURIComponent).join('/');
+      return `/repos/${req.repo}/contents/${path}?ref=${required(req.ref)}`;
+    }
   }
 }
 
