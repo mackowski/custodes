@@ -7,7 +7,12 @@
   // Agents are reached through the gateway (Access) or by schedule/queue/e-mail, never directly.
   "workers_dev": false,
   "preview_urls": false,
-  "observability": { "enabled": true, "head_sampling_rate": 1 },
+  // Logs as before; traces feed the Agents dashboard (ADR 0016).
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1,
+    "traces": { "enabled": true, "head_sampling_rate": 1 },
+  },
   "vars": {
     "ENVIRONMENT": "prod",
     "AI_GATEWAY_ACCOUNT_ID": "5f62912564df344533c9563904c77662",
@@ -24,6 +29,9 @@
     // the OPENROUTER_API_KEY Worker secret (set by CI). Switch to "gateway" when it is supported.
     "JEV_TRANSPORT": "direct",
     "JEV_GATEWAY_PATH": "api/alpha/decisions",
+    // Records model and tool payloads (prompts, issue and PR text) in trace spans (ADR 0016).
+    // Credentials and error text are never recorded. "false" keeps spans metadata-only.
+    "TRACE_PAYLOADS": "true",
   },
   // Secrets (set by CI on deploy): AI_GATEWAY_TOKEN, APPROVAL_TOKEN_SECRET, OPENROUTER_API_KEY
   "durable_objects": {

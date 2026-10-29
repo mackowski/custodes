@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { invokeAgent, type Turn } from '@custodes/core';
 import { AgentHaltedError, CustodesAgent } from '@custodes/core/agent';
 import { AnthropicGateway } from '@custodes/llm';
 import type { AgentsEnv } from '../../env.js';
@@ -202,7 +203,11 @@ export abstract class SpecialistAgent extends CustodesAgent<AgentsEnv, Specialis
     this.setState({ ...this.state, day, jobsToday: used + 1, lastRunAt: now.toISOString() });
     let more = true;
     try {
-      const result = await this.run(this.repo, job.issue, this.deps(runId));
+      // Its own turn, in the same conversation as triage's (the issue): delegation is a queue.
+      const turn = this.turn(this.repo, job.issue, runId);
+      const result = await invokeAgent(turn, () =>
+        this.run(this.repo, job.issue, this.deps(runId, turn)),
+      );
       if (result === null) this.sql`DELETE FROM results WHERE issue = ${job.issue}`;
       else
         this.sql`INSERT INTO results (issue, issue_updated_at, result, checked_at, reported_at)
@@ -306,7 +311,7 @@ export abstract class SpecialistAgent extends CustodesAgent<AgentsEnv, Specialis
     this.setState({ ...this.state, lastErrors: [e, ...this.state.lastErrors].slice(0, 20) });
   }
 
-  private deps(runId: string): SpecialistDeps {
+  private deps(runId: string, turn: Turn): SpecialistDeps {
     const gateway = new AnthropicGateway({
       accountId: this.env.AI_GATEWAY_ACCOUNT_ID,
       gatewayId: this.env.AI_GATEWAY_ID,
@@ -314,17 +319,17 @@ export abstract class SpecialistAgent extends CustodesAgent<AgentsEnv, Specialis
     });
     const meta = (issue: number) => ({ agentId: this.manifest.id, runId, issue: String(issue) });
     return {
-      reader: new BrokerGitHubReader(this.env.BROKER, this.manifest.id, runId),
+      reader: new BrokerGitHubReader(this.env.BROKER, this.manifest.id, runId, turn),
       select: async (system, user, issue) => {
         await this.guard();
         return AnthropicGateway.text(
-          await gateway.messages(selectRequest(system, user, meta(issue))),
+          await gateway.messages(selectRequest(system, user, meta(issue)), turn),
         );
       },
       assess: async (system, user, issue) => {
         await this.guard();
         return AnthropicGateway.text(
-          await gateway.messages(assessRequest(system, user, meta(issue))),
+          await gateway.messages(assessRequest(system, user, meta(issue)), turn),
         );
       },
     };

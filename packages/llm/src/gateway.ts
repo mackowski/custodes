@@ -5,7 +5,10 @@
  *   token (`cf-aig-authorization`).
  * - Every request carries `cf-aig-metadata` (agentId, runId) for attribution and spend limits.
  * - Guardrails / DLP are configured on the gateway itself (see infra/terraform/modules/ai-gateway).
+ * - Inside a turn, each call is a `chat` span (ADR 0016).
  */
+import { chat, type Turn } from '@custodes/core';
+
 export interface GatewayConfig {
   accountId: string;
   gatewayId: string;
@@ -91,7 +94,7 @@ export class AnthropicGateway {
     this.fetchImpl = cfg.fetchImpl ?? ((input, init) => fetch(input, init));
   }
 
-  async messages(req: MessagesRequest): Promise<MessagesResponse> {
+  async messages(req: MessagesRequest, turn?: Turn): Promise<MessagesResponse> {
     const { metadata, ...body } = req;
     const headers: Record<string, string> = {
       'content-type': 'application/json',
@@ -103,20 +106,41 @@ export class AnthropicGateway {
       'cf-aig-no-wholesale': 'true',
     };
     if (this.cfg.anthropicApiKey) headers['x-api-key'] = this.cfg.anthropicApiKey;
-    const res = await this.fetchImpl(this.url, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(body),
+    return chat(turn, { provider: 'anthropic', model: req.model }, async (span) => {
+      span.set('gen_ai.request.max_tokens', req.max_tokens);
+      span.payload('gen_ai.system_instructions', [{ type: 'text', content: req.system }]);
+      span.payload(
+        'gen_ai.input.messages',
+        req.messages.map((m) => ({ role: m.role, parts: [{ type: 'text', content: m.content }] })),
+      );
+      const res = await this.fetchImpl(this.url, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        throw new GatewayError(res.status, text.slice(0, 500), errorTypeOf(text));
+      }
+      const out = await res.json<MessagesResponse>();
+      span.set('gen_ai.response.id', out.id);
+      span.set('gen_ai.response.model', out.model);
+      // Unvalidated JSON: a 200 without usage must not fail the call because of a span.
+      const usage = out.usage as MessagesResponse['usage'] | undefined;
+      span.set('gen_ai.usage.input_tokens', usage?.input_tokens);
+      span.set('gen_ai.usage.output_tokens', usage?.output_tokens);
+      span.payload('gen_ai.output.messages', [
+        {
+          role: 'assistant',
+          parts: [{ type: 'text', content: AnthropicGateway.text(out) }],
+          finish_reason: out.stop_reason ?? 'unknown',
+        },
+      ]);
+      // A refusal or a cut-off answer has no usable text; say so instead of failing later in parsing.
+      if (out.stop_reason === 'refusal') throw new ModelOutputError('refusal');
+      if (out.stop_reason === 'max_tokens') throw new ModelOutputError('max_tokens');
+      return out;
     });
-    if (!res.ok) {
-      const text = await res.text();
-      throw new GatewayError(res.status, text.slice(0, 500), errorTypeOf(text));
-    }
-    const out = await res.json<MessagesResponse>();
-    // A refusal or a cut-off answer has no usable text; say so instead of failing later in parsing.
-    if (out.stop_reason === 'refusal') throw new ModelOutputError('refusal');
-    if (out.stop_reason === 'max_tokens') throw new ModelOutputError('max_tokens');
-    return out;
   }
 
   /** Convenience: the concatenated text blocks of a response (thinking blocks are skipped). */

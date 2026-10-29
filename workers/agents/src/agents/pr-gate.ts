@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { errorType, invokeAgent, type Turn } from '@custodes/core';
 import { AgentHaltedError, CustodesAgent } from '@custodes/core/agent';
 import {
   ClefClient,
@@ -363,15 +364,22 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
     // and is dropped for the rest of the poll after its first error.
     let clefBudgetMs = CLEF_BUDGET_PER_POLL_MS;
     // The same questions to Clef, never deciding (ADR 0015); answers wait in pendingComparisons.
-    const shadow = <Q extends Record<string, JevQuestion>>(questions: Q, state: JevState) =>
+    const shadow = <Q extends Record<string, JevQuestion>>(
+      questions: Q,
+      state: JevState,
+      turn: Turn,
+    ) =>
       clef && clefBudgetMs > 0
         ? () =>
-            clef.decide({
-              model: MODELS.decisionShadow,
-              state,
-              questions,
-              metadata: { agentId: this.manifest.id, runId },
-            })
+            clef.decide(
+              {
+                model: MODELS.decisionShadow,
+                state,
+                questions,
+                metadata: { agentId: this.manifest.id, runId },
+              },
+              turn,
+            )
         : undefined;
     const record = (c: Comparison) => {
       // Any error (timeout, 429 from the gateway): no more Clef this poll, so the shadow cannot
@@ -441,124 +449,140 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
         );
       evaluated++;
       this.setState({ ...this.state, evaluationsToday: (this.state.evaluationsToday ?? 0) + 1 });
-      let decision: Decision;
-      try {
-        await this.guard();
-        decision = await decide(
-          this.repo,
-          pr,
-          {
-            getIssue: async (n) => {
-              try {
-                return await reader.getIssue(this.repo, n);
-              } catch (err) {
-                // A number in the body that is no issue here (deleted, transferred, a typo).
-                if (err instanceof GitHubReadError && err.status === 404) return null;
-                throw err;
-              }
+      const turn = this.turn(this.repo, pr.number, runId);
+      const turnReader = reader.inTurn(turn);
+      const flow = await invokeAgent(turn, async (span): Promise<'next' | 'stop'> => {
+        let decision: Decision;
+        try {
+          await this.guard();
+          decision = await decide(
+            this.repo,
+            pr,
+            {
+              getIssue: async (n) => {
+                try {
+                  return await turnReader.getIssue(this.repo, n);
+                } catch (err) {
+                  // A number in the body that is no issue here (deleted, transferred, a typo).
+                  if (err instanceof GitHubReadError && err.status === 404) return null;
+                  throw err;
+                }
+              },
+              listFiles: () => turnReader.listPullFileDetails(this.repo, pr.number),
+              listComments: async (n) => {
+                try {
+                  return await turnReader.listComments(this.repo, n);
+                } catch (err) {
+                  if (err instanceof GitHubReadError && err.status === 404) return null;
+                  throw err;
+                }
+              },
+              approvedIssuesOf: async (login) => {
+                approved ??= reader.listOpenIssuesWithLabelChecked(this.repo, ACK_LABEL);
+                const list = await approved;
+                const me = login.toLowerCase();
+                return {
+                  issues: list.issues
+                    .filter((i) => (i.assignees ?? []).some((a) => a.login.toLowerCase() === me))
+                    .map((i) => i.number),
+                  complete: !list.truncated,
+                };
+              },
+              jev: async (state) => {
+                await this.guard();
+                return shadowed(
+                  'minor',
+                  state,
+                  () =>
+                    jev.decide(
+                      {
+                        model: MODELS.decision,
+                        state,
+                        questions: MINOR_QUESTIONS,
+                        metadata: { agentId: this.manifest.id, runId },
+                      },
+                      turn,
+                    ),
+                  shadow(MINOR_QUESTIONS, state, turn),
+                  record,
+                );
+              },
+              jevApproval: async (state) => {
+                await this.guard();
+                return shadowed(
+                  'approval',
+                  state,
+                  () =>
+                    jev.decide(
+                      {
+                        model: MODELS.decision,
+                        state,
+                        questions: APPROVAL_QUESTIONS,
+                        metadata: { agentId: this.manifest.id, runId },
+                      },
+                      turn,
+                    ),
+                  shadow(APPROVAL_QUESTIONS, state, turn),
+                  record,
+                );
+              },
             },
-            listFiles: () => reader.listPullFileDetails(this.repo, pr.number),
-            listComments: async (n) => {
-              try {
-                return await reader.listComments(this.repo, n);
-              } catch (err) {
-                if (err instanceof GitHubReadError && err.status === 404) return null;
-                throw err;
-              }
-            },
-            approvedIssuesOf: async (login) => {
-              approved ??= reader.listOpenIssuesWithLabelChecked(this.repo, ACK_LABEL);
-              const list = await approved;
-              const me = login.toLowerCase();
-              return {
-                issues: list.issues
-                  .filter((i) => (i.assignees ?? []).some((a) => a.login.toLowerCase() === me))
-                  .map((i) => i.number),
-                complete: !list.truncated,
-              };
-            },
-            jev: async (state) => {
-              await this.guard();
-              return shadowed(
-                'minor',
-                state,
-                () =>
-                  jev.decide({
-                    model: MODELS.decision,
-                    state,
-                    questions: MINOR_QUESTIONS,
-                    metadata: { agentId: this.manifest.id, runId },
-                  }),
-                shadow(MINOR_QUESTIONS, state),
-                record,
-              );
-            },
-            jevApproval: async (state) => {
-              await this.guard();
-              return shadowed(
-                'approval',
-                state,
-                () =>
-                  jev.decide({
-                    model: MODELS.decision,
-                    state,
-                    questions: APPROVAL_QUESTIONS,
-                    metadata: { agentId: this.manifest.id, runId },
-                  }),
-                shadow(APPROVAL_QUESTIONS, state),
-                record,
-              );
-            },
-          },
-          { gateMaintainers: this.sandbox },
-        );
-      } catch (err) {
-        if (err instanceof AgentHaltedError) break;
-        const what = describeError(err);
-        this.store(pr, 'error', { why: what.slice(0, 60), rung: 'rule' }, now);
-        errors.push(`#${pr.number}: ${what}`);
-        continue;
-      }
-      const detail = detailOf(decision);
-      if (decision.outcome !== 'close') {
-        this.store(pr, decision.outcome, detail, now);
-      } else if (
-        !this.enforcing ||
-        this.state.closesToday >= MAX_CLOSES_PER_DAY ||
-        closedThisRun >= MAX_CLOSES_PER_RUN
-      ) {
-        this.store(pr, 'would_close', detail, now);
-      } else {
-        closedThisRun++;
-        const outcome = await this.close(pr, decision, runId, now);
-        if (outcome.ok) {
-          this.setState({ ...this.state, closesToday: this.state.closesToday + 1 });
-          this.store(pr, 'close', detail, now, outcome);
-        } else if (outcome.code === 'github_error') {
-          // GitHub may have taken the comment and refused the close. Retrying would post the
-          // comment again every poll, so this is final until the author pushes new commits.
-          this.store(pr, 'flag', { ...detail, why: CLOSE_FAILED, rung: 'human' }, now);
-          errors.push(
-            `#${pr.number}: close failed at GitHub; the comment may be posted, check by hand`,
+            { gateMaintainers: this.sandbox },
           );
-        } else {
-          // Refused before execution (rate limit, approval, halted): nothing happened, retry later.
-          this.store(pr, 'error', { ...detail, why: `close ${outcome.code}`.slice(0, 60) }, now);
-          errors.push(`#${pr.number}: close refused (${outcome.code})`);
-          if (outcome.code === 'halted') break;
+        } catch (err) {
+          if (err instanceof AgentHaltedError) return 'stop';
+          const what = describeError(err);
+          span.set('error.type', errorType(err));
+          span.set('custodes.outcome', 'error');
+          this.store(pr, 'error', { why: what.slice(0, 60), rung: 'rule' }, now);
+          errors.push(`#${pr.number}: ${what}`);
+          return 'next';
         }
-      }
-      console.log(
-        JSON.stringify({
-          event: 'pr-gate.decision',
-          runId,
-          pr: pr.number,
-          outcome: decision.outcome,
-          why: detail.why,
-          rung: detail.rung,
-          ...(detail.p !== undefined ? { p: detail.p } : {}),
-        }),
-      );
+        const detail = detailOf(decision);
+        span.set('custodes.outcome', decision.outcome);
+        span.set('custodes.rung', detail.rung);
+        if (decision.outcome !== 'close') {
+          this.store(pr, decision.outcome, detail, now);
+        } else if (
+          !this.enforcing ||
+          this.state.closesToday >= MAX_CLOSES_PER_DAY ||
+          closedThisRun >= MAX_CLOSES_PER_RUN
+        ) {
+          this.store(pr, 'would_close', detail, now);
+        } else {
+          closedThisRun++;
+          const outcome = await this.close(pr, decision, runId, now, turn);
+          if (outcome.ok) {
+            this.setState({ ...this.state, closesToday: this.state.closesToday + 1 });
+            this.store(pr, 'close', detail, now, outcome);
+          } else if (outcome.code === 'github_error') {
+            // GitHub may have taken the comment and refused the close. Retrying would post the
+            // comment again every poll, so this is final until the author pushes new commits.
+            this.store(pr, 'flag', { ...detail, why: CLOSE_FAILED, rung: 'human' }, now);
+            errors.push(
+              `#${pr.number}: close failed at GitHub; the comment may be posted, check by hand`,
+            );
+          } else {
+            // Refused before execution (rate limit, approval, halted): nothing happened, retry later.
+            this.store(pr, 'error', { ...detail, why: `close ${outcome.code}`.slice(0, 60) }, now);
+            errors.push(`#${pr.number}: close refused (${outcome.code})`);
+            if (outcome.code === 'halted') return 'stop';
+          }
+        }
+        console.log(
+          JSON.stringify({
+            event: 'pr-gate.decision',
+            runId,
+            pr: pr.number,
+            outcome: decision.outcome,
+            why: detail.why,
+            rung: detail.rung,
+            ...(detail.p !== undefined ? { p: detail.p } : {}),
+          }),
+        );
+        return 'next';
+      });
+      if (flow === 'stop') break;
     }
     if (overBudget) errors.push(`daily budget of ${MAX_EVALUATIONS_PER_DAY} evaluations reached`);
     this.setState({ ...this.state, lastPollAt: now.toISOString() });
@@ -614,6 +638,7 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
     d: Extract<Decision, { outcome: 'close' }>,
     runId: string,
     now: Date,
+    turn: Turn,
   ): Promise<
     { ok: true; githubUrl?: string; attestationId: string } | { ok: false; code: string }
   > {
@@ -629,6 +654,7 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
         { type: 'pr.close', repo: this.repo, pull: pr.number, body },
         runId,
         { kind: 'schedule', ref: 'pr-gate.poll' },
+        { turn },
       );
       if (!res.ok) return { ok: false, code: res.code };
       return {

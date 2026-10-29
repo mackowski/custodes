@@ -277,13 +277,15 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
         reader,
         store: this.store(),
         now: () => new Date(),
-        complete: async (system, user, issue) => {
+        complete: async (system, user, issue, turn) => {
           await this.guard(); // re-check between model calls so a halt takes effect mid-run
           const res = await gateway.messages(
             triageRequest(system, user, { agentId: this.manifest.id, runId, issue: String(issue) }),
+            turn,
           );
           return AnthropicGateway.text(res);
         },
+        turn: (issue) => this.turn(this.repo, issue, runId),
       });
       const routed = await this.route(reader, now, opts.prepare === true);
       this.setState({

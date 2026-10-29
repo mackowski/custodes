@@ -5,4 +5,5 @@ export * from './killswitch.js';
 export * from './approval-token.js';
 export * from './policy-eval.js';
 export * from './ladder.js';
+export * from './tracing.js';
 // `./agent` is exported separately because it depends on the Durable Object runtime.

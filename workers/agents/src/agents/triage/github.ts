@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { executeTool, type Turn } from '@custodes/core';
 import { BrokerReadResponse, type BrokerReadRequest, type ReadQuery } from '@custodes/schema';
 
 /** Timeline events we use: label changes and cross-references from pull requests. */
@@ -115,7 +116,13 @@ export class BrokerGitHubReader {
     private readonly broker: BrokerFetcher,
     private readonly agentId: string,
     private readonly runId: string,
+    private readonly turn?: Turn,
   ) {}
+
+  /** The same reader, with every read an `execute_tool` span of `turn` (ADR 0016). */
+  inTurn(turn: Turn): BrokerGitHubReader {
+    return new BrokerGitHubReader(this.broker, this.agentId, this.runId, turn);
+  }
 
   private async read<T extends z.ZodType>(
     repo: string,
@@ -132,15 +139,28 @@ export class BrokerGitHubReader {
       query,
       ...target,
     };
-    const res = await this.broker.fetch('https://broker.internal/v1/read', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(req),
+    // Metadata only, even with payloads on: GitHub data is large and can be read again (ADR 0016).
+    return executeTool(this.turn, `read.${resource}`, async (span) => {
+      span.set('custodes.read.number', target.number);
+      const res = await this.broker.fetch('https://broker.internal/v1/read', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(req),
+      });
+      const text = await res.text();
+      span.set('custodes.read.bytes', text.length);
+      const parsed = BrokerReadResponse.parse(JSON.parse(text));
+      span.set('custodes.read.ok', parsed.ok);
+      if (!parsed.ok) span.set('custodes.read.status', parsed.status);
+      if (!parsed.ok)
+        throw new GitHubReadError(
+          parsed.status,
+          resource,
+          parsed.rateLimited ?? false,
+          parsed.code,
+        );
+      return schema.parse(parsed.data);
     });
-    const parsed = BrokerReadResponse.parse(await res.json());
-    if (!parsed.ok)
-      throw new GitHubReadError(parsed.status, resource, parsed.rateLimited ?? false, parsed.code);
-    return schema.parse(parsed.data);
   }
 
   /** Open issues (not PRs) updated since `since`, oldest update first, so a capped run resumes cleanly. */

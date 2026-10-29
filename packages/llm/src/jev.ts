@@ -9,8 +9,11 @@
  * - `gateway`: Cloudflare AI Gateway's OpenRouter provider with the key stored in the gateway (BYOK).
  *   We send only the gateway token, never `Authorization`, so the stored key is used.
  * - `direct`: OpenRouter with an API key held by the Worker (ADR 0011 fallback).
+ *
+ * Inside a turn, each call is a `chat` span (ADR 0016).
  */
 import { z } from 'zod';
+import { chat, type OperationSpan, type Turn } from '@custodes/core';
 import { GatewayError } from './gateway.js';
 import { clip, untrusted } from './untrusted.js';
 
@@ -140,7 +143,10 @@ export class JevClient {
     this.fetchImpl = cfg.fetchImpl ?? ((input, init) => fetch(input, init));
   }
 
-  async decide<Q extends Record<string, JevQuestion>>(req: JevRequest<Q>): Promise<JevResult<Q>> {
+  async decide<Q extends Record<string, JevQuestion>>(
+    req: JevRequest<Q>,
+    turn?: Turn,
+  ): Promise<JevResult<Q>> {
     const t = this.cfg.transport;
     const headers: Record<string, string> = { 'content-type': 'application/json' };
     const body: Record<string, unknown> = {
@@ -155,20 +161,59 @@ export class JevClient {
       headers['authorization'] = `Bearer ${t.apiKey}`;
       body['trace'] = { trace_id: req.metadata.runId, trace_name: req.metadata.agentId };
     }
-    const res = await this.fetchImpl(this.url, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(body),
+    return chat(turn, { provider: 'openrouter', model: req.model }, async (span) => {
+      span.payload('gen_ai.input.messages', decisionInput(req));
+      const res = await this.fetchImpl(this.url, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        throw new GatewayError(res.status, text.slice(0, 300), openRouterCode(text));
+      }
+      const parsed = JevResponse.safeParse(await res.json());
+      if (!parsed.success) throw new JevOutputError('(response)');
+      decisionOutput(span, parsed.data);
+      for (const [name, q] of Object.entries(req.questions)) {
+        if (parsed.data.answers[name]?.type !== q.type) throw new JevOutputError(name);
+      }
+      return parsed.data as JevResult<Q>;
     });
-    if (!res.ok) {
-      const text = await res.text();
-      throw new GatewayError(res.status, text.slice(0, 300), openRouterCode(text));
-    }
-    const parsed = JevResponse.safeParse(await res.json());
-    if (!parsed.success) throw new JevOutputError('(response)');
-    for (const [name, q] of Object.entries(req.questions)) {
-      if (parsed.data.answers[name]?.type !== q.type) throw new JevOutputError(name);
-    }
-    return parsed.data as JevResult<Q>;
   }
+}
+
+/** The `gen_ai.input.messages` payload of a Jev or Clef call: the state and the questions. */
+export function decisionInput(req: { state: string; questions: Record<string, JevQuestion> }) {
+  return [
+    {
+      role: 'user',
+      parts: [
+        { type: 'text', content: JSON.stringify({ state: req.state, questions: req.questions }) },
+      ],
+    },
+  ];
+}
+
+/** Response attributes of a Jev or Clef call: model, tokens and (as payload) the answers. */
+export function decisionOutput(
+  span: OperationSpan,
+  res: {
+    id?: string;
+    model: string;
+    answers: Record<string, JevAnswer>;
+    usage?: { input_tokens: number; output_tokens: number } | undefined;
+  },
+): void {
+  span.set('gen_ai.response.id', res.id);
+  span.set('gen_ai.response.model', res.model);
+  span.set('gen_ai.usage.input_tokens', res.usage?.input_tokens);
+  span.set('gen_ai.usage.output_tokens', res.usage?.output_tokens);
+  span.payload('gen_ai.output.messages', [
+    {
+      role: 'assistant',
+      parts: [{ type: 'text', content: JSON.stringify(res.answers) }],
+      finish_reason: 'stop',
+    },
+  ]);
 }
