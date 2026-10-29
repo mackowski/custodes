@@ -213,5 +213,6 @@ export function reviewBody(r: ReviewBodyInput): string {
   }
   lines.push('---', `<sub>[How this review works](${DOCS_URL}) · Custodes cheatsheet-review</sub>`);
   const body = lines.join('\n');
-  return body.length > BODY_LIMIT ? `${body.slice(0, BODY_LIMIT)}\n\n…(truncated)` : body;
+  const note = '\n\n…(truncated)';
+  return body.length > BODY_LIMIT ? `${body.slice(0, BODY_LIMIT - note.length)}${note}` : body;
 }

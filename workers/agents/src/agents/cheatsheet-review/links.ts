@@ -129,7 +129,11 @@ export function pageText(html: string): { title: string; text: string } {
     .replace(/&(amp|lt|gt|quot|#39|nbsp);/g, (_, e: string) => ENTITIES[e] ?? ' ')
     .replace(/\s+/g, ' ')
     .trim();
-  return { title: title.replace(/\s+/g, ' ').trim().slice(0, 200), text };
+  const decoded = title.replace(
+    /&(amp|lt|gt|quot|#39|nbsp);/g,
+    (_, e: string) => ENTITIES[e] ?? ' ',
+  );
+  return { title: decoded.replace(/\s+/g, ' ').trim().slice(0, 200), text };
 }
 
 async function readCapped(res: Response): Promise<string> {

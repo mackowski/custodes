@@ -57,7 +57,12 @@ export default class ChatGatewayProvider {
     if (c.transport === 'openrouter') {
       url = `${base}/openrouter/v1/chat/completions`;
       headers['cf-aig-no-wholesale'] = 'true';
-      body = { model: c.model, messages, max_tokens: c.max_tokens, provider: { data_collection: 'deny' } };
+      body = {
+        model: c.model,
+        messages,
+        max_tokens: c.max_tokens,
+        provider: { data_collection: 'deny' },
+      };
     } else {
       const token = env['CF_WORKERS_AI_EVAL_TOKEN'];
       if (!token) return { error: 'CF_WORKERS_AI_EVAL_TOKEN is not set' };
@@ -71,8 +76,13 @@ export default class ChatGatewayProvider {
     /** @type {unknown} */
     const raw = await res.json();
     const r = /** @type {Record<string, unknown>} */ (raw);
-    const payload = /** @type {Record<string, unknown>} */ (c.transport === 'workers-ai' && r['result'] ? r['result'] : r);
-    const choices = /** @type {{ message?: { content?: unknown }, finish_reason?: unknown }[] | undefined} */ (payload['choices']);
+    const payload = /** @type {Record<string, unknown>} */ (
+      c.transport === 'workers-ai' && r['result'] ? r['result'] : r
+    );
+    const choices =
+      /** @type {{ message?: { content?: unknown }, finish_reason?: unknown }[] | undefined} */ (
+        payload['choices']
+      );
     const response = payload['response'];
     const text = Array.isArray(choices)
       ? typeof choices[0]?.message?.content === 'string'
@@ -81,9 +91,15 @@ export default class ChatGatewayProvider {
       : typeof response === 'string'
         ? response
         : JSON.stringify(response ?? '');
-    const usage = /** @type {{ prompt_tokens?: number, completion_tokens?: number } | undefined} */ (payload['usage']);
+    const usage =
+      /** @type {{ prompt_tokens?: number, completion_tokens?: number } | undefined} */ (
+        payload['usage']
+      );
     const prompt = usage?.prompt_tokens ?? 0;
     const completion = usage?.completion_tokens ?? 0;
-    return { output: extract(text), tokenUsage: { prompt, completion, total: prompt + completion } };
+    return {
+      output: extract(text),
+      tokenUsage: { prompt, completion, total: prompt + completion },
+    };
   }
 }
