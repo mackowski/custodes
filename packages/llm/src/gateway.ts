@@ -89,6 +89,7 @@ export function errorTypeOf(body: string): string | undefined {
 /** AI Gateway's error for a BYOK alias the provider does not have. */
 const BYOK_ALIAS_MISSING = 2040;
 const BYOK_ALIAS = /^[A-Za-z0-9_-]{1,64}$/;
+const ALIASES_PREFIX = 'Configured aliases: ';
 
 /**
  * When `body` is AI Gateway's "no BYOK credential named …" error, the aliases it says are
@@ -99,7 +100,9 @@ export function byokAliasesOf(body: string): string[] | undefined {
     const parsed = JSON.parse(body) as { internalCode?: unknown; message?: unknown };
     if (parsed.internalCode !== BYOK_ALIAS_MISSING || typeof parsed.message !== 'string')
       return undefined;
-    const list = /Configured aliases: (.*)$/.exec(parsed.message)?.[1] ?? '';
+    // indexOf, not a regex: the message is not ours, and `/…: (.*)$/` backtracks polynomially.
+    const at = parsed.message.indexOf(ALIASES_PREFIX);
+    const list = at < 0 ? '' : parsed.message.slice(at + ALIASES_PREFIX.length, at + 2000);
     const aliases = [...list.matchAll(/'([^']*)'/g)].map((m) => m[1] ?? '');
     return aliases.every((a) => BYOK_ALIAS.test(a)) ? aliases : [];
   } catch {

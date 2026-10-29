@@ -192,6 +192,14 @@ describe('byokAliasesOf', () => {
     expect(byokAliasesOf('not json')).toBeUndefined();
   });
 
+  it('stays fast on a message repeating its own prefix (CodeQL js/polynomial-redos)', () => {
+    const message = 'Configured aliases: '.repeat(1) + 'Configured aliases: a'.repeat(50_000);
+    const body = JSON.stringify({ internalCode: 2040, message });
+    const started = performance.now();
+    byokAliasesOf(body);
+    expect(performance.now() - started).toBeLessThan(100);
+  });
+
   it('never returns a malformed alias name', async () => {
     expect(
       byokAliasesOf(await aliasMissing('default', ['ok', 'x\r\nset-cookie: a']).text()),

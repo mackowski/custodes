@@ -9,6 +9,7 @@
 /** @typedef {{ model: string, max_tokens: number, thinking?: unknown, runId: string }} GatewayConfig */
 
 const BYOK_ALIAS = /^[A-Za-z0-9_-]{1,64}$/;
+const ALIASES_PREFIX = 'Configured aliases: ';
 
 /**
  * Mirrors byokAliasesOf in packages/llm/src/gateway.ts.
@@ -21,7 +22,9 @@ function byokAliasesOf(body) {
     const raw = JSON.parse(body);
     const parsed = /** @type {{ internalCode?: unknown, message?: unknown }} */ (raw);
     if (parsed.internalCode !== 2040 || typeof parsed.message !== 'string') return undefined;
-    const list = /Configured aliases: (.*)$/.exec(parsed.message)?.[1] ?? '';
+    // indexOf, not a regex: the message is not ours, and `/…: (.*)$/` backtracks polynomially.
+    const at = parsed.message.indexOf(ALIASES_PREFIX);
+    const list = at < 0 ? '' : parsed.message.slice(at + ALIASES_PREFIX.length, at + 2000);
     const aliases = [...list.matchAll(/'([^']*)'/g)].map((m) => m[1] ?? '');
     return aliases.every((a) => BYOK_ALIAS.test(a)) ? aliases : [];
   } catch {
