@@ -44,6 +44,23 @@ export interface ChatModel {
   complete(req: ChatRequest, turn?: Turn): Promise<ChatResult>;
 }
 
+const METADATA_KEY = /^[A-Za-z]{1,30}$/;
+const METADATA_VALUE = /^[A-Za-z0-9_.:/#-]{1,100}$/;
+
+/**
+ * AI Gateway logs keep metadata outside the `TRACE_PAYLOADS` switch, and allow at most 5 entries:
+ * refuse anything but a few id-like values, so no untrusted text can end up there.
+ */
+export function gatewayMetadata(m: ChatRequest['metadata']): Record<string, string> {
+  const entries = Object.entries(m);
+  if (
+    entries.length > 5 ||
+    !entries.every(([k, v]) => METADATA_KEY.test(k) && METADATA_VALUE.test(v))
+  )
+    throw new Error('gateway metadata must be at most 5 id-like entries');
+  return Object.fromEntries(entries);
+}
+
 /** The call did not answer in time. */
 export class ChatTimeoutError extends Error {
   constructor() {
@@ -162,24 +179,29 @@ export class OpenRouterGateway implements ChatModel {
         { role: 'user', content: req.user },
       ],
       max_tokens: req.max_tokens,
+      // Only upstream hosts that neither keep nor train on prompts.
+      provider: {
+        data_collection: 'deny',
+        // Route only to providers that honour response_format, instead of silently ignoring it.
+        ...(req.schema ? { require_parameters: true } : {}),
+      },
     };
     if (req.schema) {
       body['response_format'] = {
         type: 'json_schema',
         json_schema: { name: req.schema.name, strict: true, schema: req.schema.schema },
       };
-      // Route only to providers that honour response_format, instead of silently ignoring it.
-      body['provider'] = { require_parameters: true };
     }
     return chat(turn, { provider: this.provider, model: req.model }, async (span) => {
       requestPayloads(span, req);
+      const metadata = gatewayMetadata(req.metadata);
       const res = await withTimeout(this.cfg.timeoutMs ?? DEFAULT_TIMEOUT_MS, (signal) =>
         this.fetchImpl(this.url, {
           method: 'POST',
           headers: {
             'content-type': 'application/json',
             'cf-aig-authorization': `Bearer ${this.cfg.gatewayToken}`,
-            'cf-aig-metadata': JSON.stringify(req.metadata),
+            'cf-aig-metadata': JSON.stringify(metadata),
             'cf-aig-no-wholesale': 'true',
           },
           body: JSON.stringify(body),
@@ -224,9 +246,10 @@ export class WorkersAiChat implements ChatModel {
       inputs['response_format'] = { type: 'json_schema', json_schema: req.schema.schema };
     return chat(turn, { provider: this.provider, model: req.model }, async (span) => {
       requestPayloads(span, req);
+      const metadata = gatewayMetadata(req.metadata);
       const raw = await withTimeout(this.cfg.timeoutMs ?? DEFAULT_TIMEOUT_MS, (signal) =>
         this.cfg.ai.run(req.model, inputs, {
-          gateway: { id: this.cfg.gatewayId, metadata: { ...req.metadata } },
+          gateway: { id: this.cfg.gatewayId, metadata },
           signal,
         }),
       );

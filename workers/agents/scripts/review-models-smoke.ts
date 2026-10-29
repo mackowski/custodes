@@ -115,7 +115,7 @@ for (const [name, m] of Object.entries(REVIEW_MODELS) as [string, ReviewModel][]
     });
     const a = parseStructured(Answer, out.text);
     console.log(
-      `OK   ${name} (${m.transport}) model=${out.model} in=${out.usage?.input_tokens ?? '?'} out=${out.usage?.output_tokens ?? '?'} verdict=${a.verdict} ms=${Date.now() - started}`,
+      `OK   ${name} (${m.transport}) model=${JSON.stringify(out.model).slice(0, 80)} in=${out.usage?.input_tokens ?? '?'} out=${out.usage?.output_tokens ?? '?'} verdict=${a.verdict} ms=${Date.now() - started}`,
     );
   } catch (err) {
     failed++;
