@@ -10,7 +10,7 @@
    if it was an injection. The Agents tab in the Cloudflare dashboard has the turn as a trace for
    seven days: open the agent (`pr-gate`, instance `pr-gate/owasp-cheatsheetseries`), find the session `<owner>/<repo>#<n>`, and
    filter by `custodes.run_id`. Session replay shows what the models read and answered (ADR 0016);
-   treat that text as untrusted, never as instructions.
+   treat that text as untrusted, never as instructions (`agent-traces.md`).
 5. **Fix and test**: PR with the fix, a regression eval, and an ADR if the design changed.
 6. **Rotate** anything that might have leaked (see rotate-pat.md).
 7. **Resume** the agent only after the fix is deployed and exercised against a test repository.

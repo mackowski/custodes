@@ -89,7 +89,8 @@ type Outcome<T> = { ok: true; value: T } | { ok: false; err: unknown };
 /**
  * Tracing must never change what an agent does:
  * - a span method that throws (or is missing in an older runtime) is ignored;
- * - if `enterSpan` itself throws before running the callback, `fn` runs untraced;
+ * - if `enterSpan` throws before running the callback, `fn` runs untraced; if it throws after,
+ *   the work already started is awaited, never repeated or abandoned;
  * - an error never crosses `enterSpan`, so the runtime cannot record its message on the span
  *   (provider errors quote response bodies). It is rethrown after the span has ended.
  */
@@ -99,46 +100,50 @@ async function traced<T>(
   attributes: Record<string, AttributeValue>,
   fn: (span: OperationSpan) => Promise<T>,
 ): Promise<T> {
-  // Set inside the callback; widened so the checker does not narrow it to `false`.
-  let started = false as boolean;
+  const run = async (span: TraceSpan): Promise<Outcome<T>> => {
+    const guarded = (op: () => unknown) => {
+      try {
+        op();
+      } catch {
+        /* ignored */
+      }
+    };
+    for (const [k, v] of Object.entries(attributes)) guarded(() => span.setAttribute(k, v));
+    const handle: OperationSpan = {
+      set: (k, v) => {
+        if (v !== undefined) guarded(() => span.setAttribute(k, v));
+      },
+      payload: (k, v) => {
+        if (turn.payloads)
+          guarded(() => span.setAttribute(k, typeof v === 'string' ? v : JSON.stringify(v)));
+      },
+    };
+    const outcome = await settle(() => fn(handle));
+    if (!outcome.ok) {
+      guarded(() => span.setAttribute('error.type', errorType(outcome.err)));
+      guarded(() => span.setStatus({ code: 'error' }));
+    }
+    return outcome;
+  };
+  // The work, once the callback has started it. Widened so the checker does not narrow it.
+  let work = undefined as Promise<Outcome<T>> | undefined;
   let outcome: Outcome<T>;
   try {
-    outcome = await turn.tracer.enterSpan(name, async (span): Promise<Outcome<T>> => {
-      started = true;
-      const guarded = (op: () => unknown) => {
-        try {
-          op();
-        } catch {
-          /* ignored */
-        }
-      };
-      for (const [k, v] of Object.entries(attributes)) guarded(() => span.setAttribute(k, v));
-      const handle: OperationSpan = {
-        set: (k, v) => {
-          if (v !== undefined) guarded(() => span.setAttribute(k, v));
-        },
-        payload: (k, v) => {
-          if (turn.payloads)
-            guarded(() => span.setAttribute(k, typeof v === 'string' ? v : JSON.stringify(v)));
-        },
-      };
-      try {
-        return { ok: true, value: await fn(handle) };
-      } catch (err) {
-        guarded(() => span.setAttribute('error.type', errorType(err)));
-        guarded(() => span.setStatus({ code: 'error' }));
-        return { ok: false, err };
-      }
-    });
-  } catch (err) {
-    // The callback never throws, so this is the tracer failing. Before the callback ran, nothing
-    // has happened yet and `fn` runs untraced; after it, running `fn` again could repeat a side
-    // effect, so the failure surfaces.
-    if (started) throw err;
-    return fn(NO_OP);
+    outcome = await turn.tracer.enterSpan(name, (span) => (work = run(span)));
+  } catch {
+    // `run` never rejects, so this is the tracer failing.
+    outcome = work ? await work : await settle(() => fn(NO_OP));
   }
   if (!outcome.ok) throw outcome.err;
   return outcome.value;
+}
+
+async function settle<T>(work: () => Promise<T>): Promise<Outcome<T>> {
+  try {
+    return { ok: true, value: await work() };
+  } catch (err) {
+    return { ok: false, err };
+  }
 }
 
 /** The `invoke_agent` span around one turn. Without a turn, `fn` runs untraced. */

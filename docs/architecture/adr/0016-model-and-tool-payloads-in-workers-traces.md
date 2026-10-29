@@ -64,7 +64,9 @@ instance>`, so sandbox and real repositories are separate.
   from GitHub.
 - A KV flag instead of a Worker var for the payload switch: allows turning it off without a deploy,
   but this is an observability setting, not a safety stop, and should change through review.
-  Disabling traces in the dashboard is the emergency stop.
+  Disabling traces in the dashboard is the emergency stop; it must be followed by a PR that turns
+  them off in `wrangler.jsonc`, or the next deploy turns them on again
+  ([runbook](../../runbooks/agent-traces.md)).
 - `execute_tool` spans for triage delegating to a specialist: the "agent as a tool" convention
   applies only to model tool calls; a specialist opens its own `invoke_agent` with the same
   conversation id instead.
@@ -89,14 +91,20 @@ instance>`, so sandbox and real repositories are separate.
 
 - Confidentiality: anyone with access to Workers Observability on the account can read the
   payloads. Account membership is managed in the dashboard, not Terraform; the operator reviews it
-  once and keeps it to operators.
+  once and keeps it to operators. API tokens need a Workers Observability permission to query
+  telemetry (API reference, telemetry query); the CI deploy token has Workers Scripts, KV, D1,
+  Queues and Account Settings only (`docs/runbooks/rotate-cf-token.md`), so it cannot read them.
 - Secrets: credentials travel in headers, never in the serialized bodies we record. Unit tests set
   canary values for every credential and assert that no span attribute contains them, with
   payloads on. The runtime's automatic `fetch` spans (AI Gateway, OpenRouter, broker) are outside
-  our code: the first sandbox trace is checked for `authorization`, `cf-aig-authorization` and
-  `x-api-key` before this ADR's claim is relied on, and the result is added here.
+  our code. Workers documents their request headers as `content-type`, `content-length`, `accept`
+  and `accept-encoding` only, plus the URL, which carries no credential here
+  ([spans and attributes](https://developers.cloudflare.com/workers/observability/traces/spans-and-attributes/)).
+  Sandbox and production are one Worker, so the first deploy traces production: the operator
+  checks the first trace for credentials right after it, as the
+  [runbook](../../runbooks/agent-traces.md) describes, and records the result here.
 - Prompt injection: payloads read back through the Cloudflare MCP server in a Claude Code session
   (CLAUDE.md invariant 6) are untrusted data, never instructions, like AI Gateway logs. CLAUDE.md
-  says so; a hook that marks these MCP results as untrusted is a follow-up.
+  says so; a hook that marks these MCP results as untrusted is #71.
 - Authority and audit are unchanged: tracing adds no binding or credential, and the broker audit
   log in D1 stays the record of side effects. Traces are a debugging aid, not an audit trail.

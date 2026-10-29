@@ -217,18 +217,42 @@ describe('the tracer itself', () => {
     expect(runs).toBe(1);
   });
 
-  it('never runs the work twice when the tracer fails after its callback', async () => {
+  // A tracer failing after its callback must neither repeat the work (a second PR close) nor
+  // report it as failed while it completes in the background (a lost attestation id).
+  const late = {
+    enterSpan: <T>(_n: string, cb: (s: never) => T): T => {
+      void cb({ setAttribute: () => undefined, setStatus: () => undefined } as never);
+      throw new Error('late failure');
+    },
+  };
+
+  it('awaits the started work once when the tracer fails after its callback', async () => {
     let runs = 0;
-    const late = {
-      enterSpan: <T>(_n: string, cb: (s: never) => T): T => {
-        void cb({ setAttribute: () => undefined, setStatus: () => undefined } as never);
-        throw new Error('late failure');
-      },
-    };
-    await expect(invokeAgent(turnOf(late, false), async () => ++runs)).rejects.toThrow(
-      'late failure',
-    );
+    await expect(
+      invokeAgent(turnOf(late, false), async () => {
+        await Promise.resolve();
+        return ++runs;
+      }),
+    ).resolves.toBe(1);
     expect(runs).toBe(1);
+  });
+
+  it("still reports the work's own error when the tracer fails after its callback", async () => {
+    const err = new StatusError(502, 'down');
+    await expect(invokeAgent(turnOf(late, false), async () => Promise.reject(err))).rejects.toBe(
+      err,
+    );
+  });
+
+  it('catches a synchronous throw from the work', async () => {
+    const err = new Error('sync');
+    const tracer = new RecordingTracer();
+    await expect(
+      invokeAgent(turnOf(tracer, false), () => {
+        throw err;
+      }),
+    ).rejects.toBe(err);
+    expect(tracer.spans[0]?.attributes['error.type']).toBe('Error');
   });
 
   it('never lets an error cross enterSpan, so the runtime cannot record its message', async () => {
