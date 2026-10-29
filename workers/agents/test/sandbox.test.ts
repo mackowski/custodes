@@ -11,6 +11,7 @@ import {
   UnknownInstanceError,
 } from '../src/instances.js';
 import { exemption } from '../src/agents/pr-gate/rules.js';
+import { CHEATSHEET_REVIEW_MANIFEST } from '../src/agents/cheatsheet-review.js';
 import { PR_GATE_MANIFEST } from '../src/agents/pr-gate.js';
 import { TRIAGE_MANIFEST } from '../src/agents/triage.js';
 import type { PublicPull } from '../src/agents/triage/github.js';
@@ -27,6 +28,7 @@ describe('instances', () => {
     expect(instanceOf(SANDBOX_INSTANCE)).toEqual({
       repo: 'mackowski/custodes-sandbox',
       sandbox: true,
+      reviewTrigger: { label: 'custodes_cheatsheet_review', actor: 'mackowski' },
     });
     for (const bad of ['default', 'test', '__proto__', 'constructor', 'toString', ''])
       expect(() => instanceOf(bad)).toThrow(UnknownInstanceError);
@@ -43,6 +45,8 @@ describe('instances', () => {
   });
 
   it('keeps cheatsheet-review on the sandbox until its evals pass (ADR 0017)', () => {
+    expect(instanceOf(OWASP_INSTANCE).reviewTrigger).toBeUndefined();
+    expect(CHEATSHEET_REVIEW_MANIFEST.repos).toEqual(['mackowski/custodes-sandbox']);
     expect(policy.agents['cheatsheet-review'].repos).toEqual(['mackowski/custodes-sandbox']);
     expect(policy.reads['cheatsheet-review'].repos).toEqual(['mackowski/custodes-sandbox']);
   });

@@ -178,10 +178,10 @@ describe('evaluatePolicy for cheatsheet-review (real broker policy)', () => {
     comments: [],
   };
 
-  it('lets cheatsheet-review post an inline review and remove a label on the sandbox, with approval until the agent ships', () => {
+  it('lets cheatsheet-review post an inline review and remove its label on the sandbox (hotl, ADR 0017)', () => {
     expect(evaluatePolicy(real, { ...reviewer, action: review })).toEqual({
       allow: true,
-      needsApproval: true,
+      needsApproval: false,
     });
     expect(
       evaluatePolicy(real, {
@@ -193,7 +193,7 @@ describe('evaluatePolicy for cheatsheet-review (real broker policy)', () => {
           labels: ['custodes_cheatsheet_review'],
         },
       }),
-    ).toEqual({ allow: true, needsApproval: true });
+    ).toEqual({ allow: true, needsApproval: false });
   });
   it('denies cheatsheet-review on OWASP until its evals pass, and every other action', () => {
     expect(

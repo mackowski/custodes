@@ -15,7 +15,10 @@ export class StructuredOutputError extends Error {
  * Model output is untrusted: only what survives the schema reaches the rest of the system.
  */
 export function parseStructured<T extends z.ZodType>(schema: T, text: string): z.infer<T> {
-  const candidate = fencedBlock(text) ?? sliceFirstObject(text);
+  // A bare object first: its strings may hold ``` (code in a suggestion), which is not a fence.
+  const candidate = text.trimStart().startsWith('{')
+    ? sliceFirstObject(text)
+    : (fencedBlock(text) ?? sliceFirstObject(text));
   if (candidate === null) throw new StructuredOutputError('no JSON object found', text);
   let value: unknown;
   try {

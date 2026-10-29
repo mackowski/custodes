@@ -68,6 +68,8 @@ function queuedFields(p: GitHubWebhookEnvelope): GitHubWebhookEnvelope {
           },
         }
       : {}),
+    // A label name is set by a repository's maintainers, not by an author's text (ADR 0017).
+    ...(p.label ? { label: { name: p.label.name.slice(0, 50) } } : {}),
   };
 }
 app.post('/webhooks/github', async (c) => {

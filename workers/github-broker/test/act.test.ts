@@ -214,13 +214,7 @@ describe('broker act() for cheatsheet-review', () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it('needs an approval while the policy entry is hitl', async () => {
-    const fetchSpy = vi.spyOn(globalThis, 'fetch');
-    expect(await act(testEnv, inline('cheatsheet-review'))).toMatchObject({ ok: false });
-    expect(fetchSpy).not.toHaveBeenCalled();
-  });
-
-  it('posts one approved, signed inline review with the agent PAT and a marker on each comment', async () => {
+  it('posts one signed inline review (hotl) with the agent PAT and a marker on each comment', async () => {
     let sent:
       | {
           url: string;
@@ -243,16 +237,7 @@ describe('broker act() for cheatsheet-review', () => {
         Response.json({ html_url: 'https://github.com/mackowski/custodes-sandbox/pull/3#r1' }),
       );
     });
-    const req = inline('cheatsheet-review');
-    const store = new ApprovalStore(env.AUDIT);
-    const approval = await store.create(
-      req,
-      'operator label',
-      await sha256Hex(canonicalJson(req.action)),
-      3600,
-    );
-    expect(await store.decide(approval.id, 'approved', 'tester')).toBe('ok');
-    const res = await act(testEnv, { ...req, approvalId: approval.id });
+    const res = await act(testEnv, inline('cheatsheet-review'));
     if (!res.ok) throw new Error(`expected success, got ${res.code}`);
     expect(sent?.url).toBe('/repos/mackowski/custodes-sandbox/pulls/3/reviews');
     expect(sent?.auth).toBe('Bearer review-token');

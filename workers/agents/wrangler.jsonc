@@ -43,6 +43,8 @@
       { "name": "ProposalReviewAgent", "class_name": "ProposalReviewAgent" },
       // hotl: closes community PRs that break CONTRIBUTING.md (broker policy pr-gate).
       { "name": "PrGateAgent", "class_name": "PrGateAgent" },
+      // hotl: multi-model review when the operator labels a PR (ADR 0017, broker policy cheatsheet-review).
+      { "name": "CheatsheetReviewAgent", "class_name": "CheatsheetReviewAgent" },
     ],
   },
   "migrations": [
@@ -50,12 +52,14 @@
     { "tag": "v2", "new_sqlite_classes": ["TriageAgent"] },
     { "tag": "v3", "new_sqlite_classes": ["ImplementationCheckAgent", "ProposalReviewAgent"] },
     { "tag": "v4", "new_sqlite_classes": ["PrGateAgent"] },
+    { "tag": "v5", "new_sqlite_classes": ["CheatsheetReviewAgent"] },
   ],
   // Must match CRON_TRIAGE_POLL / CRON_TRIAGE_PREPARE / CRON_TRIAGE_DIGEST in src/index.ts (UTC).
   // pr-gate shares them (polls on the first two, summary with the digest).
   "triggers": { "crons": ["17 */4 * * *", "30 5 * * *", "0 7 * * *"] },
-  // Workers AI, for Clef (shadow decision model, ADR 0015). Every call names the "custodes" AI
-  // Gateway (ClefClient requires it): all agent model traffic goes through one gateway.
+  // Workers AI, for Clef (shadow decision model, ADR 0015) and cheatsheet-review's DeepSeek models
+  // (ADR 0017). Every call names the "custodes" AI Gateway (ClefClient and WorkersAiChat require it):
+  // all agent model traffic goes through one gateway.
   "ai": { "binding": "AI", "remote": true },
   "kv_namespaces": [{ "binding": "KILL_SWITCH", "id": "841e2b0dd14d48fbac292217839957a4" }],
   "services": [{ "binding": "BROKER", "service": "custodes-github-broker" }],
