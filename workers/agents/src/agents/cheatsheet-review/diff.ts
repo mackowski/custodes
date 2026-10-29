@@ -62,9 +62,12 @@ export function removedLines(hunks: readonly Hunk[]): DiffLine[] {
   return hunks.flatMap((h) => h.lines.filter((l) => l.kind === '-'));
 }
 
+const TAG: Record<DiffLine['kind'], string> = { '+': 'ADD', '-': 'DEL', ' ': '   ' };
+
 /**
  * The diff as reviewers see it: new-side line numbers on added and context lines, so a finding or
- * a suggestion can name a line that really exists.
+ * a suggestion can name a line that really exists. Words, not `+`/`-`: a `-` marker reads as a
+ * Markdown list item (the scope eval misread a typo fix that way). Format in `DIFF_FORMAT`.
  */
 export function numberedDiff(file: string, hunks: readonly Hunk[]): string {
   const out = [`--- ${file}`];
@@ -72,7 +75,7 @@ export function numberedDiff(file: string, hunks: readonly Hunk[]): string {
     out.push(`@@ new lines ${h.newStart}-${h.newEnd} @@`);
     for (const l of h.lines)
       out.push(
-        `${l.newLine === undefined ? '     ' : String(l.newLine).padStart(5)} ${l.kind} ${l.text}`,
+        `${l.newLine === undefined ? '     ' : String(l.newLine).padStart(5)} ${TAG[l.kind]} | ${l.text}`,
       );
   }
   return out.join('\n');

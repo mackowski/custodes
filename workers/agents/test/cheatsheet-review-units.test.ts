@@ -29,6 +29,7 @@ import {
   modelLine,
   reviewBody,
   reviewEvent,
+  tableCell,
 } from '../src/agents/cheatsheet-review/render.js';
 import { limiter, runRole, type RunnerDeps } from '../src/agents/cheatsheet-review/runner.js';
 import {
@@ -102,8 +103,8 @@ describe('diff', () => {
     const out = numberedDiff('cheatsheets/A.md', parsePatch(PATCH)).split('\n');
     expect(out[0]).toBe('--- cheatsheets/A.md');
     expect(out[1]).toBe('@@ new lines 1-4 @@');
-    expect(out).toContain('    2 + B');
-    expect(out).toContain('      - b');
+    expect(out).toContain('    2 ADD | B');
+    expect(out).toContain('      DEL | b');
   });
 });
 
@@ -1066,5 +1067,13 @@ describe('email.partialReviewMail', () => {
     expect(m.text).toContain('Partial verdict: REQUEST_CHANGES');
     expect(m.text).not.toContain('evil.example.com');
     expect(m.text).toContain('[BLOCKER]');
+  });
+});
+
+describe('render.tableCell', () => {
+  it('escapes backslashes before pipes, so a cell cannot be closed early', () => {
+    expect(tableCell('a|b')).toBe('a\\|b');
+    expect(tableCell('a\\|b')).toBe('a\\\\\\|b');
+    expect(tableCell('end\\')).toBe('end\\\\');
   });
 });

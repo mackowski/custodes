@@ -33,7 +33,8 @@ function byokAliasesOf(body) {
 }
 
 /**
- * Text blocks only, then parseStructured's extraction: a fenced block, else the outermost object.
+ * Text blocks only, then parseStructured's extraction: a bare object first (its strings may hold
+ * ``` from a code suggestion), else a fenced block, else the outermost object.
  * @param {{ content?: { type: string, text?: string }[] }} json
  */
 function extract(json) {
@@ -41,7 +42,7 @@ function extract(json) {
     .filter((b) => b.type === 'text')
     .map((b) => b.text ?? '')
     .join('');
-  const m = /```(?:json)?\s*([\s\S]*?)```/i.exec(t);
+  const m = t.trimStart().startsWith('{') ? null : /```(?:json)?\s*([\s\S]*?)```/i.exec(t);
   if (m) return m[1] ?? '';
   const i = t.indexOf('{');
   const j = t.lastIndexOf('}');

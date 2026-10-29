@@ -31,6 +31,11 @@ export function inertMarkdown(s: string, allowed: ReadonlySet<string>, max = 800
   return linked.replace(/(^|[^\w`])@([A-Za-z0-9][A-Za-z0-9-]{0,38})/g, '$1`@$2`').slice(0, max);
 }
 
+/** One Markdown table cell: backslashes first, so a trailing `\` cannot unescape the `|` after it. */
+export function tableCell(s: string): string {
+  return s.replace(/\\/g, '\\\\').replace(/\|/g, '\\|');
+}
+
 export interface InlineComment {
   path: string;
   line: number;
@@ -183,7 +188,7 @@ export function reviewBody(r: ReviewBodyInput): string {
     );
     for (const x of d.dimensions)
       lines.push(
-        `| ${x.dimension} | ${x.verdict} | ${inertMarkdown(x.headline, a, 240).replace(/\|/g, '\\|')} |`,
+        `| ${x.dimension} | ${x.verdict} | ${tableCell(inertMarkdown(x.headline, a, 240))} |`,
       );
     lines.push('');
   }
