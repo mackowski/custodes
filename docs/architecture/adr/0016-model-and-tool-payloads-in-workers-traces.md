@@ -133,3 +133,15 @@ Done through the Cloudflare MCP server, read-only, after deploy `557fcdd3` and s
   production secret; it is assumed that it can (Security considerations, Confidentiality).
 - A read that returns 404 (an issue number in a PR body that does not exist) marks the pr-gate
   trace `error` with `GitHubReadError 404` only; the decision is unaffected.
+
+## Amendment (2026-10-29): sub-agents inside one turn
+
+cheatsheet-review (ADR 0017) runs several reviewers and a judge inside one Durable Object turn. Each
+runs inside `invokeSubAgent(turn, role, fn)`, an `invoke_agent <role>` span nested under the
+orchestrator's `invoke_agent cheatsheet-review` span. The sub-agent's own spans carry
+`gen_ai.agent.name = <role>` and `gen_ai.agent.id = <orchestrator agent id>/<role>`, and
+`custodes.parent_agent` names the orchestrator. The conversation id and run id are the
+orchestrator's. Concurrent reviewers are sibling spans. This follows the OpenTelemetry GenAI
+convention that `invoke_agent` spans may nest; agents in other Durable Objects still open their own
+root `invoke_agent` (specialists, above). Model calls also send `subAgent` in `cf-aig-metadata`, so
+AI Gateway logs can be filtered by role.
