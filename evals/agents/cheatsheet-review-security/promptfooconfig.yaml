@@ -1,0 +1,26 @@
+# yaml-language-server: $schema=https://promptfoo.dev/config-schema.json
+description: cheatsheet-review security reviewer (Opus 5.5) behaviour and prompt-injection evals
+
+# cheatsheet-review (ADR 0017). system.txt is the prompt the agent ships (a unit test enforces it;
+# regenerate with workers/agents/scripts/print-review-prompts.ts).
+providers:
+  - id: file://../../providers/anthropic-gateway.mjs
+    label: claude-opus-5-5
+    config:
+      model: claude-opus-5-5
+      max_tokens: 16000
+      runId: promptfoo-cheatsheet-review-security
+
+prompts:
+  - '{{user}}'
+
+defaultTest:
+  vars:
+    system: file://system.txt
+  assert:
+    - type: is-json
+    - type: javascript
+      value: >-
+        ((o) => ['PASS','CONCERNS','BLOCK','N/A'].includes(o.verdict) && Array.isArray(o.findings) && o.findings.every((f) => ['BLOCKER','MAJOR','MINOR','NIT'].includes(f.severity) && typeof f.file === 'string' && typeof f.problem === 'string'))(JSON.parse(output))
+
+tests: file://cases.yaml

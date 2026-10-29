@@ -1,0 +1,26 @@
+# yaml-language-server: $schema=https://promptfoo.dev/config-schema.json
+description: cheatsheet-review scope classifier (Haiku 5.5) for small prose edits
+
+# cheatsheet-review (ADR 0017). system.txt is the prompt the agent ships (a unit test enforces it;
+# regenerate with workers/agents/scripts/print-review-prompts.ts).
+providers:
+  - id: file://../../providers/anthropic-gateway.mjs
+    label: claude-haiku-5-5
+    config:
+      model: claude-haiku-5-5
+      max_tokens: 2000
+      runId: promptfoo-cheatsheet-review-scope
+
+prompts:
+  - '{{user}}'
+
+defaultTest:
+  vars:
+    system: file://system.txt
+  assert:
+    - type: is-json
+    - type: javascript
+      value: >-
+        ((o) => ['minor-prose','content'].includes(o.class) && typeof o.why === 'string')(JSON.parse(output))
+
+tests: file://cases.yaml

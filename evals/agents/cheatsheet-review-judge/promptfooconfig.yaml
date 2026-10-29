@@ -1,0 +1,27 @@
+# yaml-language-server: $schema=https://promptfoo.dev/config-schema.json
+description: cheatsheet-review judge (GPT-6.1 Sol via OpenRouter through AI Gateway)
+
+# cheatsheet-review (ADR 0017). system.txt is the prompt the agent ships (a unit test enforces it;
+# regenerate with workers/agents/scripts/print-review-prompts.ts).
+providers:
+  - id: file://../../providers/chat-gateway.mjs
+    label: gpt-6.1-sol
+    config:
+      transport: openrouter
+      model: 'openai/gpt-6.1-sol'
+      max_tokens: 16000
+      runId: promptfoo-cheatsheet-review-judge
+
+prompts:
+  - '{{user}}'
+
+defaultTest:
+  vars:
+    system: file://system.txt
+  assert:
+    - type: is-json
+    - type: javascript
+      value: >-
+        ((o) => ['MERGE','REQUEST_CHANGES','CLOSE'].includes(o.verdict) && Array.isArray(o.mustFix) && Array.isArray(o.suggestions) && o.shouldFix.length <= 5 && o.nits.length <= 3 && typeof o.lowQuality === 'boolean')(JSON.parse(output))
+
+tests: file://cases.yaml
