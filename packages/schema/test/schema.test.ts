@@ -50,6 +50,7 @@ describe('schema', () => {
           mode: 'hotl',
           repos: ['OWASP/CheatSheetSeries'],
           actions: ['issue.comment', 'issue.label.add'],
+          labels: ['bug'],
         },
       },
     });
@@ -122,10 +123,11 @@ describe('pr.review.inline action', () => {
       expect(ok({ commitId })).toBe(false);
     }
   });
-  it('caps comments at 20 and comment bodies at 4000 characters', () => {
+  it('caps comments at 20 and comment bodies at 3900 characters (the broker adds a marker)', () => {
     expect(ok({ comments: Array.from({ length: 20 }, () => comment) })).toBe(true);
     expect(ok({ comments: Array.from({ length: 21 }, () => comment) })).toBe(false);
-    expect(ok({ comments: [{ ...comment, body: 'x'.repeat(4_001) }] })).toBe(false);
+    expect(ok({ comments: [{ ...comment, body: 'x'.repeat(3_900) }] })).toBe(true);
+    expect(ok({ comments: [{ ...comment, body: 'x'.repeat(3_901) }] })).toBe(false);
     expect(ok({ comments: [{ ...comment, body: '' }] })).toBe(false);
   });
   it('accepts only RIGHT-side comments with a start line before the end line', () => {
@@ -209,5 +211,27 @@ describe('label actions and policy token bindings', () => {
     expect(agent('PAT_X')).toBe(true);
     expect(agent('CLOUDFLARE_API_TOKEN')).toBe(false);
     expect(agent('PAT_')).toBe(false);
+  });
+});
+
+describe('policy label grants', () => {
+  const agent = (over: Record<string, unknown>) =>
+    Policy.safeParse({
+      version: 1,
+      agents: {
+        x1: {
+          tokenBinding: 'PAT_X',
+          mode: 'hotl',
+          repos: ['a/b'],
+          actions: ['issue.label.remove'],
+          ...over,
+        },
+      },
+    }).success;
+  it('needs a labels allow-list for a label action', () => {
+    expect(agent({})).toBe(false);
+    expect(agent({ labels: ['custodes_cheatsheet_review'] })).toBe(true);
+    expect(agent({ actions: ['issue.label.add'] })).toBe(false);
+    expect(agent({ actions: ['issue.comment'] })).toBe(true);
   });
 });

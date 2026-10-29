@@ -1,6 +1,7 @@
 name: Deploy Workers
 # Single environment. Every push to main deploys after the `prod` GitHub Environment's required
-# reviewer approves the run. Order matters: broker first (agents and gateway bind to it).
+# reviewer approves the run. Order matters: agent PATs into Secrets Store, then the broker (agents and
+# gateway bind to it). A PAT secret missing from `prod` for a new binding fails the broker deploy.
 on:
   push:
     branches: [main]

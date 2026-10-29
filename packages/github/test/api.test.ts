@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { INLINE_COMMENT_MARKER } from '@custodes/schema';
 import { executeAction, GitHubRest } from '../src/api.js';
 import type { GitHubIdentity } from '../src/identity.js';
 
@@ -108,12 +109,12 @@ describe('executeAction pr.review.inline', () => {
       event: 'REQUEST_CHANGES',
       body: 'summary\n--trailer',
       comments: [
-        { path: 'cheatsheets/A.md', line: 12, side: 'RIGHT', body: 'one' },
+        { path: 'cheatsheets/A.md', line: 12, side: 'RIGHT', body: `${INLINE_COMMENT_MARKER}one` },
         {
           path: 'cheatsheets/A.md',
           line: 20,
           side: 'RIGHT',
-          body: 'range',
+          body: `${INLINE_COMMENT_MARKER}range`,
           start_line: 18,
           start_side: 'RIGHT',
         },

@@ -34,7 +34,9 @@ We will add a `cheatsheet-review` agent and the broker capabilities it needs:
   once; re-adding the label asks for a new review.
 - **Mode `hotl`, sandbox first.** Every run is started by the operator, so the label is the human
   decision to publish; there is no further approval. This departs from "new agents start `hitl`"
-  (ADR 0004). The policy lists only `mackowski/custodes-sandbox` until the agent's evals reach 90%
+  (ADR 0004). The policy entry ships as `hitl` with the broker change and switches to `hotl` only in
+  the pull request that adds the agent, its label and actor check, and its evals, so the grant is
+  never live without the code that justifies it. The policy lists only `mackowski/custodes-sandbox` until the agent's evals reach 90%
   with no injection leak, three sandbox end-to-end runs pass (links only, code, low quality), and the
   operator has reviewed the first five reviews. Adding `OWASP/CheatSheetSeries` is a separate,
   reviewed policy change. There is no daily review cap; the broker's 20 per hour per repository is
@@ -102,7 +104,7 @@ We will add a `cheatsheet-review` agent and the broker capabilities it needs:
 - Reviews appear under the operator's name. A `REQUEST_CHANGES` review blocks merging until the
   operator dismisses it or reviews again, and other maintainers will see it; the operator tells the
   OWASP maintainers before the agent is enabled there, and every review links to the agent's page.
-  Inline comments carry no trailer (only the review body does), so the agent marks each one as an
+  Inline comments carry no trailer (only the review body does), so the broker marks each one as an
   LLM suggestion, and no agent may count review comments by the operator's account as the
   operator's own words.
 - GitHub refuses `REQUEST_CHANGES` on a pull request by the token's owner, so on the operator's own
@@ -127,7 +129,12 @@ We will add a `cheatsheet-review` agent and the broker capabilities it needs:
 - **`hotl` without a broker-side check of the trigger.** The broker never sees the label, so "the
   operator started this run" is enforced by agent code; a compromised agent in the Worker could post
   as cheatsheet-review without it. The sandbox-only policy (pinned by a test) and the rate limit
-  bound that until the OWASP widening, which revisits `requiresApproval` for the first reviews.
+  bound that until the OWASP widening, which sets `requiresApproval: ["pr.review.inline"]` for the
+  first five OWASP reviews.
+- **Inline comments.** They post under the operator's account and carry no trailer, so the broker,
+  not the agent, prefixes each one with a fixed "Custodes LLM suggestion" marker. A steered model
+  cannot post an inline comment that reads as the operator's own.
+- **Label grants.** The policy schema refuses a label action without a `labels` allow-list.
 - **Trigger spoofing.** The sender in the webhook is HMAC-verified but treated as a hint; the GitHub
   timeline's `labeled.actor` decides. Anyone else adding the label causes no action.
 - **Prompt injection.** The pull request body, diff, file contents, file names and fetched pages are

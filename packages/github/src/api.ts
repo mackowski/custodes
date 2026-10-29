@@ -1,4 +1,8 @@
-import type { BrokerAction, InlineReviewComment } from '@custodes/schema';
+import {
+  INLINE_COMMENT_MARKER,
+  type BrokerAction,
+  type InlineReviewComment,
+} from '@custodes/schema';
 import type { GitHubIdentity } from './identity.js';
 
 const API = 'https://api.github.com';
@@ -121,12 +125,12 @@ export async function executeAction(
       return { githubUrl: r.html_url };
     }
     case 'pr.review.inline': {
-      // Trailers go on the review body only; inline comments stay short suggestions.
+      // Trailers go on the review body; each inline comment gets a fixed marker instead.
       const r = await api.createInlinePullReview(action.repo, action.pull, {
         commitId: action.commitId,
         event: action.event,
         body: decorate(action.body),
-        comments: action.comments,
+        comments: action.comments.map((c) => ({ ...c, body: INLINE_COMMENT_MARKER + c.body })),
       });
       return { githubUrl: r.html_url };
     }

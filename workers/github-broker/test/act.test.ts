@@ -7,7 +7,7 @@ import {
   sha256Hex,
   verifyAttestation,
 } from '@custodes/core';
-import type { BrokerRequest } from '@custodes/schema';
+import { INLINE_COMMENT_MARKER, type BrokerRequest } from '@custodes/schema';
 import { act } from '../src/act.js';
 import { keyring, type BrokerEnv } from '../src/env.js';
 import { ApprovalStore, AuditStore } from '../src/store.js';
@@ -189,36 +189,75 @@ describe('broker act() at the rate limit', () => {
 });
 
 describe('broker act() for cheatsheet-review', () => {
-  it('posts one signed inline review with the agent PAT and attests it', async () => {
-    let sent: { url: string; auth: string; body: { body: string; commit_id: string } } | undefined;
+  const inline = (agentId: string): BrokerRequest => ({
+    ...base,
+    agentId,
+    action: {
+      type: 'pr.review.inline',
+      repo: 'mackowski/custodes-sandbox',
+      pull: 3,
+      commitId: '0123456789abcdef0123456789abcdef01234567',
+      event: 'COMMENT',
+      body: 'LLM review',
+      comments: [{ path: 'cheatsheets/A.md', line: 2, side: 'RIGHT', body: 'x' }],
+    },
+  });
+
+  it('denies inline reviews from any other agent before reaching GitHub', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    for (const agentId of ['pr-gate', 'hello']) {
+      expect(await act(testEnv, inline(agentId))).toMatchObject({
+        ok: false,
+        code: 'policy_denied',
+      });
+    }
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('needs an approval while the policy entry is hitl', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    expect(await act(testEnv, inline('cheatsheet-review'))).toMatchObject({ ok: false });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('posts one approved, signed inline review with the agent PAT and a marker on each comment', async () => {
+    let sent:
+      | {
+          url: string;
+          auth: string;
+          body: { body: string; commit_id: string; comments: { body: string }[] };
+        }
+      | undefined;
     vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
       const url = input instanceof Request ? input.url : String(input);
       sent = {
         url: new URL(url).pathname,
         auth: (init?.headers as Record<string, string>)['authorization'] ?? '',
-        body: JSON.parse(init?.body as string) as { body: string; commit_id: string },
+        body: JSON.parse(init?.body as string) as {
+          body: string;
+          commit_id: string;
+          comments: { body: string }[];
+        },
       };
       return Promise.resolve(
         Response.json({ html_url: 'https://github.com/mackowski/custodes-sandbox/pull/3#r1' }),
       );
     });
-    const res = await act(testEnv, {
-      ...base,
-      agentId: 'cheatsheet-review',
-      action: {
-        type: 'pr.review.inline',
-        repo: 'mackowski/custodes-sandbox',
-        pull: 3,
-        commitId: '0123456789abcdef0123456789abcdef01234567',
-        event: 'COMMENT',
-        body: 'LLM review',
-        comments: [{ path: 'cheatsheets/A.md', line: 2, side: 'RIGHT', body: 'x' }],
-      },
-    });
+    const req = inline('cheatsheet-review');
+    const store = new ApprovalStore(env.AUDIT);
+    const approval = await store.create(
+      req,
+      'operator label',
+      await sha256Hex(canonicalJson(req.action)),
+      3600,
+    );
+    expect(await store.decide(approval.id, 'approved', 'tester')).toBe('ok');
+    const res = await act(testEnv, { ...req, approvalId: approval.id });
     if (!res.ok) throw new Error(`expected success, got ${res.code}`);
     expect(sent?.url).toBe('/repos/mackowski/custodes-sandbox/pulls/3/reviews');
     expect(sent?.auth).toBe('Bearer review-token');
     expect(sent?.body.commit_id).toBe('0123456789abcdef0123456789abcdef01234567');
     expect(sent?.body.body).toContain(res.attestationId);
+    expect(sent?.body.comments[0]?.body).toBe(`${INLINE_COMMENT_MARKER}x`);
   });
 });

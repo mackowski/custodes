@@ -20,6 +20,12 @@ const repoPath = z
   .regex(/^[A-Za-z0-9_.-]+(\/[A-Za-z0-9_.-]+)*$/)
   .refine((p) => !p.split('/').some((seg) => seg === '.' || seg === '..'), 'no dot segments');
 
+/**
+ * Added by the broker to every inline comment: they post under a person's account and, unlike the
+ * review body, carry no trailer, so this is what tells readers a model wrote them.
+ */
+export const INLINE_COMMENT_MARKER = '🤖 _Custodes LLM suggestion: please double-check._\n\n';
+
 /** One inline review comment on the new side of the diff; `startLine` makes it multi-line. */
 export const InlineReviewComment = z
   .object({
@@ -27,7 +33,8 @@ export const InlineReviewComment = z
     line: z.number().int().positive().max(100_000),
     startLine: z.number().int().positive().max(100_000).optional(),
     side: z.literal('RIGHT'),
-    body: z.string().min(1).max(4_000),
+    /** The broker prefixes `INLINE_COMMENT_MARKER`, so the posted comment stays under 4000. */
+    body: z.string().min(1).max(3_900),
   })
   .refine((c) => c.startLine === undefined || c.startLine < c.line, {
     message: 'startLine must be before line',

@@ -20,9 +20,9 @@
       "rateLimitPerHour": 5
     },
     "cheatsheet-review": {
-      "$comment": "ADR 0017: multi-model review of a pull request when the operator adds the trigger label; posts one review with inline suggestions (never APPROVE) and removes the label. hotl because every run is started by the operator; sandbox only until its evals pass.",
+      "$comment": "ADR 0017: multi-model review of a pull request when the operator adds the trigger label; posts one review with inline suggestions (never APPROVE) and removes the label. hitl until the agent, its label/actor check and its evals land, then hotl because every run is started by the operator; sandbox only until its evals pass.",
       "tokenBinding": "PAT_CHEATSHEET_REVIEW",
-      "mode": "hotl",
+      "mode": "hitl",
       "repos": ["mackowski/custodes-sandbox"],
       "actions": ["pr.review.inline", "issue.label.remove"],
       "requiresApproval": [],
