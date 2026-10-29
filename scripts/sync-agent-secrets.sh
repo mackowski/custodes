@@ -21,6 +21,12 @@ existing=$(cf "${API}?per_page=100" | jq -r '.result[] | "\(.name) \(.id)"')
 bindings=$(jq -r '[(.agents // {} | .[].tokenBinding), (.reads // {} | .[].tokenBinding)] | unique[]' "$POLICY")
 status=0
 for var in $bindings; do
+  # Only PAT_* names: never copy another CI secret (e.g. a Cloudflare token) into Secrets Store.
+  if [[ ! "$var" =~ ^PAT_[A-Z0-9_]+$ ]]; then
+    echo "::error::${var} is not a PAT_* binding; skipped"
+    status=1
+    continue
+  fi
   value="${!var:-}"
   name="github-pat-$(echo "${var#PAT_}" | tr '[:upper:]_' '[:lower:]-')"
   if [ -z "$value" ]; then

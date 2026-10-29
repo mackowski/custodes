@@ -18,6 +18,16 @@
       "actions": ["pr.close"],
       "requiresApproval": [],
       "rateLimitPerHour": 5
+    },
+    "cheatsheet-review": {
+      "$comment": "ADR 0017: multi-model review of a pull request when the operator adds the trigger label; posts one review with inline suggestions (never APPROVE) and removes the label. hitl until the agent, its label/actor check and its evals land, then hotl because every run is started by the operator; sandbox only until its evals pass.",
+      "tokenBinding": "PAT_CHEATSHEET_REVIEW",
+      "mode": "hitl",
+      "repos": ["mackowski/custodes-sandbox"],
+      "actions": ["pr.review.inline", "issue.label.remove"],
+      "requiresApproval": [],
+      "rateLimitPerHour": 20,
+      "labels": ["custodes_cheatsheet_review"]
     }
   },
   "reads": {
@@ -40,6 +50,19 @@
       "tokenBinding": "PAT_READONLY",
       "repos": ["OWASP/CheatSheetSeries", "mackowski/custodes-sandbox"],
       "resources": ["pulls", "pull_files", "issue", "issues", "comments"]
+    },
+    "cheatsheet-review": {
+      "tokenBinding": "PAT_READONLY",
+      "repos": ["mackowski/custodes-sandbox"],
+      "resources": [
+        "pull",
+        "pull_files",
+        "pull_file_at_ref",
+        "timeline",
+        "issue",
+        "cheatsheets",
+        "cheatsheet"
+      ]
     }
   }
 }

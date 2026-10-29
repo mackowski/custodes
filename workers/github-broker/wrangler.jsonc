@@ -38,6 +38,13 @@
       "store_id": "92c5c38062fc4da98fad1fe4f5a8bda1",
       "secret_name": "github-pat-pr-gate",
     },
+    // cheatsheet-review: fine-grained, mackowski/custodes-sandbox only (Pull requests + Issues: read &
+    // write) until OWASP is added; then a classic public_repo PAT like pr-gate (ADR 0017).
+    {
+      "binding": "PAT_CHEATSHEET_REVIEW",
+      "store_id": "92c5c38062fc4da98fad1fe4f5a8bda1",
+      "secret_name": "github-pat-cheatsheet-review",
+    },
     // Read-only PAT (public repositories only, no permissions) for agent reads via /v1/read.
     {
       "binding": "PAT_READONLY",

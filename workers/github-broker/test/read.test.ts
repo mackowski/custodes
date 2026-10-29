@@ -173,3 +173,63 @@ describe('broker read() for pr-gate', () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 });
+
+describe('broker read() for cheatsheet-review', () => {
+  const sha = '0123456789abcdef0123456789abcdef01234567';
+  const rev = (over: Partial<BrokerReadRequest>) =>
+    req({ agentId: 'cheatsheet-review', repo: 'mackowski/custodes-sandbox', ...over });
+
+  it('reads the pull request and a changed cheat sheet at its head commit', async () => {
+    const fetchImpl = vi.fn((_u: RequestInfo | URL, _i?: RequestInit) =>
+      Promise.resolve(Response.json({})),
+    );
+    expect((await read(testEnv, rev({ resource: 'pull', number: 4 }), fetchImpl)).ok).toBe(true);
+    expect(
+      (
+        await read(
+          testEnv,
+          rev({ resource: 'pull_file_at_ref', path: 'cheatsheets/A_Cheat_Sheet.md', ref: sha }),
+          fetchImpl,
+        )
+      ).ok,
+    ).toBe(true);
+    expect(fetchImpl.mock.calls.map((c) => c[0])).toEqual([
+      'https://api.github.com/repos/mackowski/custodes-sandbox/pulls/4',
+      `https://api.github.com/repos/mackowski/custodes-sandbox/contents/cheatsheets/A_Cheat_Sheet.md?ref=${sha}`,
+    ]);
+  });
+
+  it('denies OWASP and resources outside its list before any network call', async () => {
+    const fetchImpl = vi.fn();
+    for (const r of [
+      rev({ repo: 'OWASP/CheatSheetSeries', resource: 'pull', number: 4 }),
+      rev({ resource: 'comments', number: 4 }),
+      rev({ resource: 'pulls' }),
+    ]) {
+      expect(await read(testEnv, r, fetchImpl)).toMatchObject({
+        ok: false,
+        code: 'policy_denied',
+      });
+    }
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('no other agent may read files at a ref', async () => {
+    const fetchImpl = vi.fn();
+    for (const agentId of ['pr-gate', 'implementation-check', 'triage']) {
+      expect(
+        await read(
+          testEnv,
+          req({
+            agentId,
+            resource: 'pull_file_at_ref',
+            path: 'cheatsheets/A_Cheat_Sheet.md',
+            ref: sha,
+          }),
+          fetchImpl,
+        ),
+      ).toMatchObject({ ok: false, code: 'policy_denied' });
+    }
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+});
