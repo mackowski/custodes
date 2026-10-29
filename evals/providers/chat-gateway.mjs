@@ -5,21 +5,11 @@
 // - transport "workers-ai": the gateway's workers-ai route with CF_WORKERS_AI_EVAL_TOKEN (the agent
 //   uses the AI binding with the same gateway id; CI has no binding).
 // Config (per suite): transport, model, max_tokens, runId. Vars: system, user.
-// Output: the JSON the agent would parse (parseStructured's extraction: a bare object first).
+// Output: the JSON the agent would parse (extract.mjs mirrors parseStructured).
+
+import { extractJson } from './extract.mjs';
 
 /** @typedef {{ transport: 'openrouter' | 'workers-ai', model: string, max_tokens: number, runId: string }} ChatConfig */
-
-/** @param {string} t */
-function extract(t) {
-  const s = t.trimStart();
-  if (!s.startsWith('{')) {
-    const m = /```(?:json)?\s*([\s\S]*?)```/i.exec(t);
-    if (m) return m[1] ?? '';
-  }
-  const i = t.indexOf('{');
-  const j = t.lastIndexOf('}');
-  return i >= 0 && j > i ? t.slice(i, j + 1) : t;
-}
 
 export default class ChatGatewayProvider {
   /** @param {{ id?: string, config: ChatConfig }} options */
@@ -98,7 +88,7 @@ export default class ChatGatewayProvider {
     const prompt = usage?.prompt_tokens ?? 0;
     const completion = usage?.completion_tokens ?? 0;
     return {
-      output: extract(text),
+      output: extractJson(text),
       tokenUsage: { prompt, completion, total: prompt + completion },
     };
   }

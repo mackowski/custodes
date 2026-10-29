@@ -2,7 +2,6 @@
  * One review of a frozen snapshot (ADR 0017): depth, links, independent reviewers in parallel,
  * then the judge, then the multi-model invariant. No side effects: the agent decides what to post.
  */
-import { CONTENT_PATH } from '../pr-gate/rules.js';
 import { addedLines } from './diff.js';
 import {
   judgeMessage,
@@ -23,7 +22,7 @@ import {
 import { invariantBreach, type RoleOutcome } from './lineup.js';
 import { JUDGE_PROMPT, LINK_PROMPT, reviewerPrompt, SCOPE_PROMPT } from './prompts.js';
 import { runRole, type RunnerDeps } from './runner.js';
-import { classify, REVIEWERS_FOR, type ChangeClass, type ReviewerRole } from './scope.js';
+import { classify, isSheet, REVIEWERS_FOR, type ChangeClass, type ReviewerRole } from './scope.js';
 import { LinkAudit, ReviewDecision, ReviewerReport, ScopeAnswer, type Finding } from './types.js';
 
 export interface PipelineDeps extends RunnerDeps {
@@ -58,12 +57,22 @@ async function linkStage(snap: Snapshot, deps: PipelineDeps): Promise<LinkStage>
   const notes: string[] = [];
   const allowed = new Set<string>();
   const external: { link: ReturnType<typeof extractLinks>[number] }[] = [];
-  for (const f of snap.files.filter((x) => CONTENT_PATH.test(x.file.filename))) {
+  for (const f of snap.files.filter((x) => isSheet(x.file.filename))) {
     const self = f.file.filename.split('/').pop() ?? f.file.filename;
     const own = snap.contents.get(f.file.filename);
     for (const link of extractLinks(f.file.filename, addedLines(f.hunks))) {
       if (isExternal(link.url)) {
         external.push({ link });
+        continue;
+      }
+      // javascript:, data:, mailto: and other schemes are never fetched; a person has to look.
+      if (/^[a-z][a-z0-9+.-]*:/i.test(link.url)) {
+        findings.push({
+          severity: 'MAJOR',
+          file: link.file,
+          line: link.line,
+          problem: `Link with an unsupported scheme (${link.url.slice(0, 20)}…): verify by hand; cheat sheets cite https sources.`,
+        });
         continue;
       }
       const check = checkInternal(link.url, self, sheetNames, (file) =>
@@ -89,8 +98,7 @@ async function linkStage(snap: Snapshot, deps: PipelineDeps): Promise<LinkStage>
         line: link.line,
         problem: `Link \`${link.url.slice(0, 300)}\` is broken (HTTP ${got.status}).`,
       });
-    else if (got.kind === 'unreachable')
-      notes.push(`\`${link.url.slice(0, 300).replace(/`/g, '')}\` (${got.why})`);
+    else if (got.kind === 'unreachable') notes.push(`${link.url.slice(0, 300)} (${got.why})`);
     else {
       allowed.add(link.url);
       pages.push({

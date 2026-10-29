@@ -79,6 +79,8 @@ export const PublicPull = z.looseObject({
   /** Set once merged; only closed pull requests have it. */
   merged_at: z.string().nullable().optional(),
   head: z.looseObject({ sha: z.string() }),
+  /** Only on a single-pull read (`pull`), not in listings. */
+  changed_files: z.number().int().nonnegative().optional(),
 });
 export type PublicPull = z.infer<typeof PublicPull>;
 

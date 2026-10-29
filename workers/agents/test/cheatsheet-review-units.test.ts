@@ -25,6 +25,7 @@ import {
 } from '../src/agents/cheatsheet-review/links.js';
 import {
   checkSuggestions,
+  addedRisk,
   inertMarkdown,
   modelLine,
   reviewBody,
@@ -784,7 +785,7 @@ const decision = (over: Partial<ReviewDecision> = {}): ReviewDecision => ({
 });
 
 describe('render.inertMarkdown', () => {
-  const allowed = new Set(['https://ok.example.com/page']);
+  const allowed = new Set(['https://ok.example.com/page', 'https://medium.com/@author/post']);
 
   it('neutralises mentions, html, images and unfetched links, and keeps an allowed link clickable', () => {
     const out = inertMarkdown(
@@ -792,22 +793,69 @@ describe('render.inertMarkdown', () => {
         'see https://ok.example.com/page or https://bad.example.com/x',
       allowed,
     );
-    expect(out).toContain('`@alice`');
-    expect(out).toContain('`@org-team`');
+    expect(out).not.toMatch(/(^|[^＠])@/);
+    expect(out).toContain('＠alice');
     expect(out).not.toContain('<html>');
     expect(out).toContain('&lt;html&gt;');
     expect(out).not.toContain('![');
-    expect(out).toContain('`https://evil.example.com/a.png`');
-    expect(out).toContain('`https://bad.example.com/x`');
-    expect(out).toContain(' https://ok.example.com/page ');
-    expect(out).not.toContain('`https://ok.example.com/page`');
+    expect(out).toContain('https\\[:\\]//evil.example.com/a.png');
+    expect(out).toContain('https\\[:\\]//bad.example.com/x');
+    expect(out).toContain('<https://ok.example.com/page>');
+  });
+
+  it('never yields a live mention from an unfetched URL that contains @ (PR #75 review)', () => {
+    const out = inertMarkdown('see https://medium.com/@attacker/post and `x @victim', allowed);
+    expect(out).not.toMatch(/(^|[^＠])@/);
+    expect(out).toContain('https\\[:\\]//medium.com/＠attacker/post');
+  });
+
+  it('keeps an allowed URL with @ as one autolink', () => {
+    expect(inertMarkdown('cited https://medium.com/@author/post here', allowed)).toBe(
+      'cited <https://medium.com/@author/post> here',
+    );
+  });
+
+  it('turns every other link form into plain text', () => {
+    for (const text of [
+      'go to www.evil.example/login',
+      '[fix](//evil.example/x)',
+      '[fix](https:/evil.example)',
+      '[x]: //evil.example and [docs][x]',
+      'mail me at a@evil.example',
+    ]) {
+      const out = inertMarkdown(text, allowed);
+      expect(out).not.toMatch(/(?<!\\)\[[^\]]*(?<!\\)\]\(/);
+      expect(out).not.toMatch(/(?<!\\)\[[^\]]*(?<!\\)\]:/);
+      expect(out).not.toMatch(/\bwww\./);
+      expect(out).not.toContain('@');
+    }
+  });
+
+  it('truncates before adding markup, so nothing is cut in half', () => {
+    const out = inertMarkdown(`${'z'.repeat(795)} @victim https://x.example/a`, allowed, 800);
+    expect(out).not.toMatch(/(^|[^＠])@/);
   });
 
   it('puts model text on one line and bounds it', () => {
-    const out = inertMarkdown(`a\n\n# heading‮\n${'z'.repeat(2_000)}`, allowed, 100);
+    const out = inertMarkdown(`a\n\n# heading\u202e\n${'z'.repeat(2_000)}`, allowed, 100);
     expect(out).not.toContain('\n');
-    expect(out).not.toContain('‮');
+    expect(out).not.toContain('\u202e');
     expect(out.length).toBeLessThanOrEqual(100);
+  });
+});
+
+describe('render.addedRisk', () => {
+  it('flags links, mentions and HTML a suggestion would add, and allows ones already there', () => {
+    expect(addedRisk('See https://evil.example/login', 'See the docs')).toEqual([
+      'https://evil.example/login',
+    ]);
+    expect(addedRisk('ping @team', 'ping')).toEqual(['@team']);
+    expect(addedRisk('a <script>x</script>', 'a')).toHaveLength(2);
+    expect(addedRisk('go //evil.example/x', 'go')).toHaveLength(1);
+    expect(addedRisk('Use [NIST](https://nist.gov/x).', 'Use [NIST](https://nist.gov/x)')).toEqual(
+      [],
+    );
+    expect(addedRisk('Use Argon2id.', 'Use MD5.')).toEqual([]);
   });
 });
 
@@ -829,7 +877,7 @@ describe('render.checkSuggestions', () => {
     expect(out.comments[0]).toMatchObject({ path: 'cheatsheets/A.md', line: 2, side: 'RIGHT' });
     expect(out.comments[0]).not.toHaveProperty('startLine');
     expect(out.comments[0]?.body).toContain('````suggestion\nBee\n````');
-    expect(out.comments[0]?.body).toContain('`@bob`');
+    expect(out.comments[0]?.body).toContain('＠bob');
   });
 
   it('keeps a multi-line range inside one hunk', () => {
@@ -881,38 +929,51 @@ describe('render.checkSuggestions', () => {
 });
 
 describe('render.reviewEvent', () => {
-  it('asks for changes only for a security or links blocker', () => {
-    expect(reviewEvent(decision({ mustFix: [item()] }), false)).toBe('REQUEST_CHANGES');
+  const BOTH = new Set(['Security', 'Links & sources'] as const);
+
+  it('needs the reviewer itself to have blocked, not only the judge label', () => {
+    expect(reviewEvent(decision({ mustFix: [item()] }), false, new Set())).toBe('COMMENT');
     expect(
-      reviewEvent(decision({ mustFix: [item({ dimension: 'Links & sources' })] }), false),
+      reviewEvent(decision({ mustFix: [item()] }), false, new Set(['Links & sources'] as const)),
+    ).toBe('COMMENT');
+  });
+
+  it('asks for changes only for a security or links blocker', () => {
+    expect(reviewEvent(decision({ mustFix: [item()] }), false, BOTH)).toBe('REQUEST_CHANGES');
+    expect(
+      reviewEvent(decision({ mustFix: [item({ dimension: 'Links & sources' })] }), false, BOTH),
     ).toBe('REQUEST_CHANGES');
   });
 
   it('comments for every other dimension or severity', () => {
     for (const dimension of ['Practicality', 'Duplication & placement', 'Language'] as const)
-      expect(reviewEvent(decision({ mustFix: [item({ dimension })] }), false)).toBe('COMMENT');
-    expect(reviewEvent(decision({ mustFix: [item({ severity: 'MAJOR' })] }), false)).toBe(
+      expect(reviewEvent(decision({ mustFix: [item({ dimension })] }), false, BOTH)).toBe(
+        'COMMENT',
+      );
+    expect(reviewEvent(decision({ mustFix: [item({ severity: 'MAJOR' })] }), false, BOTH)).toBe(
       'COMMENT',
     );
-    expect(reviewEvent(decision({ verdict: 'CLOSE' }), false)).toBe('COMMENT');
+    expect(reviewEvent(decision({ verdict: 'CLOSE' }), false, BOTH)).toBe('COMMENT');
   });
 
   it('asks for changes on CLOSE when there is a security or links blocker (grill-plan Q2)', () => {
-    expect(reviewEvent(decision({ verdict: 'CLOSE', mustFix: [item()] }), false)).toBe(
+    expect(reviewEvent(decision({ verdict: 'CLOSE', mustFix: [item()] }), false, BOTH)).toBe(
       'REQUEST_CHANGES',
     );
   });
 
   it('never asks for changes on the operator own pull request, nor when the verdict is MERGE', () => {
-    expect(reviewEvent(decision({ mustFix: [item()] }), true)).toBe('COMMENT');
-    expect(reviewEvent(decision({ verdict: 'MERGE', mustFix: [item()] }), false)).toBe('COMMENT');
+    expect(reviewEvent(decision({ mustFix: [item()] }), true, BOTH)).toBe('COMMENT');
+    expect(reviewEvent(decision({ verdict: 'MERGE', mustFix: [item()] }), false, BOTH)).toBe(
+      'COMMENT',
+    );
   });
 
   it('only ever yields COMMENT or REQUEST_CHANGES, never APPROVE', () => {
     for (const verdict of ['MERGE', 'REQUEST_CHANGES', 'CLOSE'] as const)
       for (const own of [true, false])
         expect(['COMMENT', 'REQUEST_CHANGES']).toContain(
-          reviewEvent(decision({ verdict, mustFix: [item()] }), own),
+          reviewEvent(decision({ verdict, mustFix: [item()] }), own, BOTH),
         );
   });
 });
@@ -954,10 +1015,10 @@ describe('render.reviewBody', () => {
 
   it('renders model text inert: no raw mention, html or clickable unknown link', () => {
     const body = reviewBody(input());
-    expect(body).toContain('`@everyone`');
-    expect(body).not.toMatch(/(^|[^`\w])@everyone/);
+    expect(body).toContain('＠everyone');
+    expect(body).not.toMatch(/(^|[^＠])@everyone/);
     expect(body).not.toContain('<img');
-    expect(body).toContain('`https://evil.example.com/z`');
+    expect(body).toContain('https\\[:\\]//evil.example.com/z');
   });
 
   it('stays within the broker limit even for a huge input', () => {

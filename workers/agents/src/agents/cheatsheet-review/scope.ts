@@ -3,9 +3,17 @@
  * change"). Deterministic rules settle the common cases; only small prose edits that are neither
  * pure link swaps nor obvious typo fixes are left to a small model. Pure.
  */
-import { CONTENT_PATH } from '../pr-gate/rules.js';
+import { CheatSheetPath } from '@custodes/schema';
 import type { PullFile } from '../triage/github.js';
 import { addedLines, removedLines, type Hunk } from './diff.js';
+
+/**
+ * A cheat sheet or draft under the broker's strict name rule (no newlines, one level). File names
+ * are author-controlled; anything else is never treated as a cheat sheet.
+ */
+export function isSheet(path: string): boolean {
+  return CheatSheetPath.safeParse(path).success;
+}
 
 export type ChangeClass = 'links-only' | 'minor-prose' | 'content' | 'code' | 'out-of-scope';
 
@@ -62,7 +70,7 @@ export function similarity(a: string, b: string): number {
 }
 
 export function classify(files: readonly ScopedFile[]): Scope {
-  const sheets = files.filter((f) => CONTENT_PATH.test(f.file.filename));
+  const sheets = files.filter((f) => isSheet(f.file.filename));
   if (sheets.length === 0)
     return { kind: 'decided', class: 'out-of-scope', why: 'no cheat sheet changed' };
   if (sheets.some((f) => f.file.status === 'added'))

@@ -31,10 +31,10 @@ import { fetchLink } from './cheatsheet-review/links.js';
 import { reviewPipeline } from './cheatsheet-review/pipeline.js';
 import { limiter } from './cheatsheet-review/runner.js';
 import { checkSuggestions, reviewBody, reviewEvent } from './cheatsheet-review/render.js';
-import { fencedLines, type ScopedFile } from './cheatsheet-review/scope.js';
-import { CONTENT_PATH, disclosure, linkedIssueNumbers } from './pr-gate/rules.js';
+import { fencedLines, isSheet, type ScopedFile } from './cheatsheet-review/scope.js';
+import { disclosure, linkedIssueNumbers } from './pr-gate/rules.js';
 import { describeError } from './triage/errors.js';
-import { BrokerGitHubReader, issueLabels } from './triage/github.js';
+import { BrokerGitHubReader, issueLabels, type PublicPull } from './triage/github.js';
 
 export const CHEATSHEET_REVIEW_MANIFEST: AgentManifest = {
   id: 'cheatsheet-review',
@@ -189,6 +189,9 @@ export class CheatsheetReviewAgent extends CustodesAgent<AgentsEnv, CheatsheetRe
     if (!pr.labels.some((l) => l.name === trigger.label))
       return { ok: false, status: 'label_gone', detail: 'trigger label not on the pull request' };
     const timeline = await reader.listTimelineAll(repo, pull);
+    // The broker serves at most 1000 events, oldest first: the latest label event may be missing.
+    if (timeline.length >= 1_000)
+      return { ok: false, status: 'timeline_truncated', detail: 'more than 1000 timeline events' };
     const labelled = timeline
       .filter((e) => e.event === 'labeled' && e.label?.name === trigger.label)
       .at(-1);
@@ -218,6 +221,39 @@ export class CheatsheetReviewAgent extends CustodesAgent<AgentsEnv, CheatsheetRe
         WHERE pull = ${pull} AND label_event = ${labelled.id ?? 0}`;
     };
 
+    try {
+      return await this.reviewClaimed(
+        repo,
+        pull,
+        trigger,
+        runId,
+        turn,
+        span,
+        reader,
+        pr,
+        labelled.id,
+        finish,
+      );
+    } catch (err) {
+      // A row left `running` would hide the failure; the status endpoint shows `error`.
+      finish('error');
+      throw err;
+    }
+  }
+
+  private async reviewClaimed(
+    repo: string,
+    pull: number,
+    trigger: { label: string; actor: string },
+    runId: string,
+    turn: Turn,
+    span: { set: (k: string, v: string | number | boolean | undefined) => void },
+    reader: BrokerGitHubReader,
+    pr: PublicPull,
+    labelEvent: number,
+    finish: (status: string, extra?: Partial<ReviewRow>) => void,
+  ): Promise<ReviewOutcome> {
+    const headSha = pr.head.sha;
     // 2. The frozen snapshot every reviewer sees.
     const snap = await this.snapshot(reader, repo, pr, headSha);
 
@@ -258,7 +294,14 @@ export class CheatsheetReviewAgent extends CustodesAgent<AgentsEnv, CheatsheetRe
     const hunks = new Map(snap.files.map((f) => [f.file.filename, f.hunks]));
     const checked = checkSuggestions(d.suggestions, hunks, result.allowed);
     const ownPull = pr.user?.login.toLowerCase() === trigger.actor.toLowerCase();
-    const event = reviewEvent(d, ownPull);
+    const confirmed = new Set<'Security' | 'Links & sources'>();
+    for (const x of result.reports) {
+      if (x.report.verdict !== 'BLOCK') continue;
+      if (x.role === 'security-reviewer' || x.role === 'security-second-voice')
+        confirmed.add('Security');
+      if (x.role === 'link-auditor') confirmed.add('Links & sources');
+    }
+    const event = reviewEvent(d, ownPull, confirmed);
     const body = reviewBody({
       decision: d,
       outcomes: result.outcomes,
@@ -269,7 +312,18 @@ export class CheatsheetReviewAgent extends CustodesAgent<AgentsEnv, CheatsheetRe
       linkNotes: result.linkNotes,
       allowed: result.allowed,
     });
-    const trig = { kind: 'webhook' as const, ref: `label:${labelled.id}` };
+    const trig = { kind: 'webhook' as const, ref: `label:${labelEvent}` };
+    // The label is the operator's go-ahead: if it was removed, or the author pushed, during the
+    // review, publish nothing (a new label event asks again).
+    const now = await reader.getPull(repo, pull);
+    if (!now.labels.some((l) => l.name === trigger.label)) {
+      finish('cancelled', { change_class: result.changeClass, verdict: d.verdict, models });
+      return { ok: false, status: 'cancelled', detail: 'trigger label removed during the review' };
+    }
+    if (now.head.sha !== headSha || now.state !== 'open') {
+      finish('stale', { change_class: result.changeClass, verdict: d.verdict, models });
+      return { ok: false, status: 'stale', detail: 'pull request changed during the review' };
+    }
     const posted: BrokerResponse = await this.act(
       {
         type: 'pr.review.inline',
@@ -358,9 +412,10 @@ export class CheatsheetReviewAgent extends CustodesAgent<AgentsEnv, CheatsheetRe
     headSha: string,
   ): Promise<Snapshot> {
     const files = await reader.listPullFileDetails(repo, pr.number);
+    const unreviewedFiles = Math.max(0, (pr.changed_files ?? files.length) - files.length);
     const contents = new Map<string, string>();
     for (const f of files
-      .filter((x) => CONTENT_PATH.test(x.filename) && x.status !== 'removed')
+      .filter((x) => isSheet(x.filename) && x.status !== 'removed')
       .slice(0, MAX_FULL_FILES))
       contents.set(f.filename, await reader.getFileAtRef(repo, f.filename, headSha));
     const scoped: ScopedFile[] = files.map((file) => ({
@@ -409,6 +464,7 @@ export class CheatsheetReviewAgent extends CustodesAgent<AgentsEnv, CheatsheetRe
       issues,
       sheetNames,
       related,
+      unreviewedFiles,
     };
   }
 

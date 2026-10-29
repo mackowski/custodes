@@ -16,19 +16,48 @@ export const DOCS_URL =
 /** Upper bound for the review body: the broker allows 60 000 and appends a trailer. */
 const BODY_LIMIT = 55_000;
 
+const URL_IN_TEXT = /https?:\/\/[^\s<>"'`)\]]+/gi;
+/** Placeholders for allowed URLs; inertText has already removed every control character. */
+const SLOT = (i: number) => `\u0001${i}\u0001`;
+
 /**
- * Markdown-safe single line of model text. URLs stay clickable only if `allowed` has them; others
- * become code spans. `@name` becomes a code span so nobody is notified.
+ * Markdown-safe single line of model text, without relying on code spans (model text can hold
+ * stray backticks). Truncated first, then:
+ * - URLs the link auditor fetched become `<url>` autolinks; nothing else can become a link: `[` and
+ *   `]` are escaped (no inline or reference links), `http(s)://` and `www.` are defanged so
+ *   GitHub does not autolink them, and `//host` or `https:/host` are inert as plain text;
+ * - every `@` becomes a full-width `＠`, so no mention and no e-mail autolink, inside URLs too;
+ * - `<` and `>` are escaped, so no HTML.
  */
 export function inertMarkdown(s: string, allowed: ReadonlySet<string>, max = 800): string {
-  const one = inertText(s, max * 2)
-    .replace(/!\[/g, '[')
+  const kept: string[] = [];
+  const text = inertText(s, max).replace(URL_IN_TEXT, (url) => {
+    if (!allowed.has(url)) return url;
+    kept.push(url);
+    return SLOT(kept.length - 1);
+  });
+  const inert = text
+    .replace(/\b(https?):\/\//gi, '$1[:]//')
+    .replace(/\bwww\./gi, 'www[.]')
+    .replace(/@/g, '＠')
     .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
-  const linked = one.replace(/https?:\/\/[^\s)`\]]+/gi, (url) =>
-    allowed.has(url) ? url : `\`${url.replace(/`/g, '')}\``,
-  );
-  return linked.replace(/(^|[^\w`])@([A-Za-z0-9][A-Za-z0-9-]{0,38})/g, '$1`@$2`').slice(0, max);
+    .replace(/>/g, '&gt;')
+    .replace(/[[\]]/g, (c) => `\\${c}`);
+  // \u0001 cannot come from the model: inertText removed every control character first.
+  // eslint-disable-next-line no-control-regex
+  return inert.replace(/\u0001(\d+)\u0001/g, (_, i: string) => `<${kept[Number(i)] ?? ''}>`);
+}
+
+const NONE: ReadonlySet<string> = new Set();
+
+/** Link-like or mention-like tokens a suggestion must not add to the cheat sheet. */
+const RISKY =
+  /https?:\/\/[^\s)<>"'\]]+|\bwww\.[^\s)<>"'\]]+|(?:^|[\s(])\/\/[^\s)<>"'\]]+|@[A-Za-z0-9][A-Za-z0-9-]*|<\/?[A-Za-z][^>]*>/g;
+
+/** Risky tokens in `replacement` that the replaced text does not already contain. */
+export function addedRisk(replacement: string, current: string): string[] {
+  const before = new Set((current.match(RISKY) ?? []).map((t) => t.trim()));
+  return (replacement.match(RISKY) ?? []).map((t) => t.trim()).filter((t) => !before.has(t));
 }
 
 /** One Markdown table cell: backslashes first, so a trailing `\` cannot unescape the `|` after it. */
@@ -81,8 +110,14 @@ export function checkSuggestions(
       reject('replacement contains a four-backtick fence');
       continue;
     }
-    if (currentText(hunks, start, s.line) === s.replacement) {
+    const current = currentText(hunks, start, s.line);
+    if (current === s.replacement) {
       reject('replacement equals the current text');
+      continue;
+    }
+    // One click commits a suggestion into the cheat sheet: it may not add links, mentions or HTML.
+    if (addedRisk(s.replacement, current ?? '').length > 0) {
+      reject('replacement adds a link, mention or HTML; apply it by hand if it is right');
       continue;
     }
     const key = `${s.file}:${start}-${s.line}`;
@@ -127,10 +162,17 @@ export function modelLine(o: RoleOutcome): string {
 }
 
 /** Whether to ask for changes: only for a security or links BLOCKER, never on one's own PR. */
-export function reviewEvent(d: ReviewDecision, ownPull: boolean): 'COMMENT' | 'REQUEST_CHANGES' {
+export function reviewEvent(
+  d: ReviewDecision,
+  ownPull: boolean,
+  /** Dimensions whose own reviewer returned BLOCK: the judge's label alone is not enough. */
+  confirmed: ReadonlySet<'Security' | 'Links & sources'>,
+): 'COMMENT' | 'REQUEST_CHANGES' {
   const blocker = d.mustFix.some(
     (i) =>
-      i.severity === 'BLOCKER' && (i.dimension === 'Security' || i.dimension === 'Links & sources'),
+      i.severity === 'BLOCKER' &&
+      (i.dimension === 'Security' || i.dimension === 'Links & sources') &&
+      confirmed.has(i.dimension),
   );
   return blocker && d.verdict !== 'MERGE' && !ownPull ? 'REQUEST_CHANGES' : 'COMMENT';
 }
@@ -205,7 +247,12 @@ export function reviewBody(r: ReviewBodyInput): string {
     lines.push(...items('Should-fix', d.shouldFix, a), ...items('Nits', d.nits, a));
   }
   if (r.linkNotes.length > 0)
-    lines.push('### Links to verify manually', '', ...r.linkNotes.map((n) => `- ${n}`), '');
+    lines.push(
+      '### Links to verify manually',
+      '',
+      ...r.linkNotes.map((n) => `- ${inertMarkdown(n, NONE, 400)}`),
+      '',
+    );
   if (r.rejected.length > 0) {
     lines.push(
       '### Suggestions not placed inline',

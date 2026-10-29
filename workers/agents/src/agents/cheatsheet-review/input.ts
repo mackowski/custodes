@@ -33,6 +33,8 @@ export interface Snapshot {
   sheetNames: string[];
   /** Up to two existing sheets that look most related, by file name. */
   related: ReadonlyMap<string, string>;
+  /** Changed files GitHub reports beyond the 100 the broker returns: not reviewed. */
+  unreviewedFiles: number;
 }
 
 const BODY_CHARS = 8_000;
@@ -52,7 +54,12 @@ export function processFacts(s: Snapshot): string {
   return [
     'Process facts (established by code, not by the author):',
     `- Repository: ${s.repo}, pull request #${s.pull}, head commit ${s.headSha}`,
-    `- Files changed: ${s.files.length}; net added lines: ${net}`,
+    `- Files changed: ${s.files.length + s.unreviewedFiles}; net added lines in the reviewed files: ${net}`,
+    ...(s.unreviewedFiles > 0
+      ? [
+          `- Only the first ${s.files.length} files were reviewed; ${s.unreviewedFiles} more were not read.`,
+        ]
+      : []),
     `- AI Tool Usage Disclosure section: ${s.disclosure}`,
     `- Linked issues: ${issues}`,
     `- Upstream limits: at most 3 files, and 1500 net added lines without a linked issue.`,
@@ -124,8 +131,11 @@ export function linkMessage(links: readonly LinkInput[]): string {
   return links
     .map((l, i) =>
       [
-        `Link ${i + 1}: ${JSON.stringify(l.url)} (${l.file} line ${l.line})`,
-        untrusted('pr-claim', l.context),
+        `Link ${i + 1}:`,
+        untrusted(
+          'pr-claim',
+          `URL: ${l.url}\nCited in: ${l.file} line ${l.line}\nSentence: ${l.context}`,
+        ),
         untrusted(`page:${new URL(l.url).hostname}`, `Title: ${l.title}\n${l.excerpt}`),
       ].join('\n'),
     )
