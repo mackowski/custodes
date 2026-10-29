@@ -1,4 +1,5 @@
 import type { AgentManifest } from '@custodes/schema';
+import { CHEATSHEET_REVIEW_MANIFEST } from './agents/cheatsheet-review.js';
 import { HELLO_MANIFEST } from './agents/hello.js';
 import { IMPLEMENTATION_CHECK_MANIFEST } from './agents/implementation-check.js';
 import { PR_GATE_MANIFEST } from './agents/pr-gate.js';
@@ -15,4 +16,5 @@ export const REGISTRY: readonly AgentManifest[] = [
   IMPLEMENTATION_CHECK_MANIFEST,
   PROPOSAL_REVIEW_MANIFEST,
   PR_GATE_MANIFEST,
+  CHEATSHEET_REVIEW_MANIFEST,
 ];

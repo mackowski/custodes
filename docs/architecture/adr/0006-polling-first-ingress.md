@@ -47,3 +47,11 @@ per-instance budgets, and the broker's close rate limit for OWASP is counted sep
 The gateway queues only the fields consumers use (action, repository, sender, issue or PR number
 and the PR's `updated_at`), never bodies, so the queue and its dead-letter queue hold no
 contributor text.
+
+## Amendment (2026-10-29): label events for cheatsheet-review
+
+`pull_request.labeled` now wakes cheatsheet-review (ADR 0017) when the label and the sender match an
+instance's `reviewTrigger`. The gateway queues the added label's **name** (at most 50 characters)
+next to the existing fields; still no bodies. As for pr-gate, the event is only a hint: the agent
+re-reads the pull request and its timeline through the broker and acts only if the configured actor
+made the latest `labeled` event for that label.

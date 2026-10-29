@@ -55,3 +55,19 @@ describe('parseStructured (hostile input)', () => {
     ).toBeLessThan(200);
   });
 });
+
+describe('parseStructured with code inside a bare JSON answer', () => {
+  it('does not mistake a ``` inside a string for the answer fence', () => {
+    const S = z.object({ replacement: z.string() });
+    const text = '{"replacement":"```python\\nprint(1)\\n```"}';
+    expect(parseStructured(S, text).replacement).toBe('```python\nprint(1)\n```');
+  });
+});
+
+describe('parseStructured with a fenced answer whose strings hold a fence', () => {
+  it('falls back to the balanced object when the first fence closes inside a string', () => {
+    const S = z.object({ replacement: z.string() });
+    const text = '```json\n{"replacement":"```js\\nx()\\n```"}\n```';
+    expect(parseStructured(S, text).replacement).toBe('```js\nx()\n```');
+  });
+});

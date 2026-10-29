@@ -81,6 +81,69 @@ describe('route (which webhook events wake an agent)', () => {
   });
 });
 
+describe('route: cheatsheet-review trigger label (ADR 0017)', () => {
+  const labeled = (
+    over: { label?: string; sender?: string; repo?: string; action?: string } = {},
+  ) =>
+    event(
+      {
+        repo: over.repo ?? 'mackowski/custodes-sandbox',
+        payload: {
+          action: over.action ?? 'labeled',
+          repository: { full_name: over.repo ?? 'mackowski/custodes-sandbox' },
+          sender: { login: over.sender ?? 'mackowski' },
+          pull_request: { number: 12 },
+          label: { name: over.label ?? 'custodes_cheatsheet_review' },
+        },
+      },
+      over.action ?? 'labeled',
+    );
+
+  it('wakes cheatsheet-review when the configured actor adds the label on the sandbox', () => {
+    expect(route(labeled())).toEqual({
+      agent: 'cheatsheet-review',
+      instance: SANDBOX_INSTANCE,
+      pr: 12,
+    });
+    expect(route(labeled({ sender: 'MacKowski' }))).toMatchObject({ agent: 'cheatsheet-review' });
+  });
+
+  it('ignores another label', () => {
+    expect(route(labeled({ label: 'bug' }))).toEqual({ agent: null, why: 'unhandled_event' });
+  });
+
+  it('ignores the right label added by someone else', () => {
+    expect(route(labeled({ sender: 'attacker' }))).toEqual({
+      agent: null,
+      why: 'unhandled_event',
+    });
+  });
+
+  it('ignores the label on a repository with no trigger configured', () => {
+    expect(route(labeled({ repo: 'OWASP/CheatSheetSeries' }))).toEqual({
+      agent: null,
+      why: 'unhandled_event',
+    });
+  });
+
+  it('ignores an unlabeled event and a labeled event without a label', () => {
+    expect(route(labeled({ action: 'unlabeled' }))).toEqual({
+      agent: null,
+      why: 'unhandled_event',
+    });
+    const e = labeled();
+    expect(route({ ...e, payload: { ...e.payload, label: undefined } })).toEqual({
+      agent: null,
+      why: 'unhandled_event',
+    });
+  });
+
+  it('ignores the label on an issue event', () => {
+    const e = labeled();
+    expect(route({ ...e, event: 'issues' })).toEqual({ agent: null, why: 'unhandled_event' });
+  });
+});
+
 describe('pr-gate notify', () => {
   it('schedules one wake-up per slot, however many events arrive', async () => {
     const gate = await getAgentByName(testEnv.PrGateAgent, SANDBOX_INSTANCE);

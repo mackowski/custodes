@@ -9,6 +9,8 @@ export const GitHubWebhookEnvelope = z.looseObject({
   pull_request: z
     .looseObject({ number: z.number().int(), updated_at: z.string().max(40).optional() })
     .optional(),
+  /** The label a `labeled` event added. Only its name is queued (ADR 0017). */
+  label: z.looseObject({ name: z.string().max(100) }).optional(),
 });
 export type GitHubWebhookEnvelope = z.infer<typeof GitHubWebhookEnvelope>;
 

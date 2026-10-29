@@ -412,7 +412,7 @@ describe('one AI Gateway in the agents Worker (ADR 0015)', () => {
     eager: true,
   });
 
-  it('uses the AI binding in one place only, through ClefClient', () => {
+  it('uses the AI binding only through ClefClient (pr-gate) and WorkersAiChat (cheatsheet-review)', () => {
     const uses = Object.entries(sources).flatMap(([file, text]) =>
       // `env.AI`, `env['AI']`, `const { AI } = env`, or any `AI.run(`.
       (
@@ -422,9 +422,14 @@ describe('one AI Gateway in the agents Worker (ADR 0015)', () => {
       ).map(() => file),
     );
     expect(Object.keys(sources).length).toBeGreaterThan(10);
-    expect(uses).toEqual(['../src/agents/pr-gate.ts']);
+    expect(uses.sort()).toEqual(['../src/agents/cheatsheet-review.ts', '../src/agents/pr-gate.ts']);
     expect(sources['../src/agents/pr-gate.ts']).toMatch(
       /new ClefClient\(\{\s*ai: \{ run: \(model, inputs, options\) => this\.env\.AI\.run\(model, inputs, options\) \}/,
+    );
+    // The only other use: inside `new WorkersAiChat({ ai: …, gatewayId })`, which requires a gateway.
+    expect(sources['../src/agents/cheatsheet-review.ts']?.match(/\bAI\.run\(/g)).toHaveLength(1);
+    expect(sources['../src/agents/cheatsheet-review.ts']).toMatch(
+      /new WorkersAiChat\(\{\s*ai: \{\s*run: \(model, inputs, options\) =>\s*this\.env\.AI\.run\(/,
     );
   });
 });

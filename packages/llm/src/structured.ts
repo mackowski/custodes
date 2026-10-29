@@ -11,22 +11,30 @@ export class StructuredOutputError extends Error {
 }
 
 /**
- * Extracts the first JSON object from model text (fenced or bare) and validates it.
+ * Extracts the JSON object from model text and validates it. Candidates, in order: the first
+ * ```-fenced block, then the first balanced object (string-aware, so ``` inside a string, e.g. code
+ * in a suggestion, neither ends nor starts anything). The first that parses and validates wins: a
+ * fenced answer whose strings hold ``` cuts the fence early, and then the object still parses.
  * Model output is untrusted: only what survives the schema reaches the rest of the system.
  */
 export function parseStructured<T extends z.ZodType>(schema: T, text: string): z.infer<T> {
-  const candidate = fencedBlock(text) ?? sliceFirstObject(text);
-  if (candidate === null) throw new StructuredOutputError('no JSON object found', text);
-  let value: unknown;
-  try {
-    value = JSON.parse(candidate);
-  } catch {
-    throw new StructuredOutputError('invalid JSON', text);
+  const candidates = [fencedBlock(text), sliceFirstObject(text)].filter(
+    (c): c is string => c !== null,
+  );
+  if (candidates.length === 0) throw new StructuredOutputError('no JSON object found', text);
+  let error = 'invalid JSON';
+  for (const candidate of candidates) {
+    let value: unknown;
+    try {
+      value = JSON.parse(candidate);
+    } catch {
+      continue;
+    }
+    const result = schema.safeParse(value);
+    if (result.success) return result.data;
+    error = `schema violation: ${result.error.message}`;
   }
-  const result = schema.safeParse(value);
-  if (!result.success)
-    throw new StructuredOutputError(`schema violation: ${result.error.message}`, text);
-  return result.data;
+  throw new StructuredOutputError(error, text);
 }
 
 /** Content of the first ``` fence (optionally ```json). indexOf, not a regex: linear on any input. */

@@ -12,6 +12,7 @@ export { TriageAgent } from './agents/triage.js';
 export { ImplementationCheckAgent } from './agents/implementation-check.js';
 export { ProposalReviewAgent } from './agents/proposal-review.js';
 export { PrGateAgent } from './agents/pr-gate.js';
+export { CheatsheetReviewAgent } from './agents/cheatsheet-review.js';
 
 /** Must match wrangler.jsonc triggers.crons. */
 export const CRON_TRIAGE_POLL = '17 */4 * * *';
@@ -93,12 +94,15 @@ export default {
         continue;
       }
       try {
-        const gate = await getAgentByName(env.PrGateAgent, r.instance);
-        const wake = await gate.notify(r.updatedAt);
+        const wake =
+          r.agent === 'pr-gate'
+            ? await (await getAgentByName(env.PrGateAgent, r.instance)).notify(r.updatedAt)
+            : await (await getAgentByName(env.CheatsheetReviewAgent, r.instance)).notify(r.pr);
         console.log(
           JSON.stringify({
             ...ids,
             outcome: 'scheduled',
+            agent: r.agent,
             instance: r.instance,
             pr: r.pr,
             scheduledFor: wake.at,

@@ -10,6 +10,11 @@
 export interface RepoInstance {
   repo: string;
   sandbox: boolean;
+  /**
+   * cheatsheet-review (ADR 0017) runs when `actor` adds `label` to a pull request. Absent: the
+   * agent never runs for this repository. The broker policy must list the repository too.
+   */
+  reviewTrigger?: { label: string; actor: string };
 }
 
 export const OWASP_INSTANCE = 'owasp-cheatsheetseries';
@@ -17,7 +22,11 @@ export const SANDBOX_INSTANCE = 'custodes-sandbox';
 
 export const INSTANCES: Readonly<Record<string, RepoInstance>> = {
   [OWASP_INSTANCE]: { repo: 'OWASP/CheatSheetSeries', sandbox: false },
-  [SANDBOX_INSTANCE]: { repo: 'mackowski/custodes-sandbox', sandbox: true },
+  [SANDBOX_INSTANCE]: {
+    repo: 'mackowski/custodes-sandbox',
+    sandbox: true,
+    reviewTrigger: { label: 'custodes_cheatsheet_review', actor: 'mackowski' },
+  },
 };
 
 export const INSTANCE_REPOS: readonly string[] = Object.values(INSTANCES).map((i) => i.repo);

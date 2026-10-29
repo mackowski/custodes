@@ -6,6 +6,8 @@
 // Config (per suite): model, max_tokens, thinking (optional, sent as given), runId (metadata).
 // Vars: system, user. Output: the JSON the agent would parse (parseStructured's extraction).
 
+import { extractJson } from './extract.mjs';
+
 /** @typedef {{ model: string, max_tokens: number, thinking?: unknown, runId: string }} GatewayConfig */
 
 const BYOK_ALIAS = /^[A-Za-z0-9_-]{1,64}$/;
@@ -33,19 +35,16 @@ function byokAliasesOf(body) {
 }
 
 /**
- * Text blocks only, then parseStructured's extraction: a fenced block, else the outermost object.
+ * Text blocks only, then parseStructured's extraction (extract.mjs).
  * @param {{ content?: { type: string, text?: string }[] }} json
  */
 function extract(json) {
-  const t = (json.content ?? [])
-    .filter((b) => b.type === 'text')
-    .map((b) => b.text ?? '')
-    .join('');
-  const m = /```(?:json)?\s*([\s\S]*?)```/i.exec(t);
-  if (m) return m[1] ?? '';
-  const i = t.indexOf('{');
-  const j = t.lastIndexOf('}');
-  return i >= 0 && j > i ? t.slice(i, j + 1) : t;
+  return extractJson(
+    (json.content ?? [])
+      .filter((b) => b.type === 'text')
+      .map((b) => b.text ?? '')
+      .join(''),
+  );
 }
 
 /** Alias found in this eval process, shared by every suite's provider instance. */

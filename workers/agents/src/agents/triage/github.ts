@@ -4,7 +4,11 @@ import { BrokerReadResponse, type BrokerReadRequest, type ReadQuery } from '@cus
 
 /** Timeline events we use: label changes and cross-references from pull requests. */
 export const TimelineEvent = z.looseObject({
+  /** GitHub's event id (label events have one); used to review each label event once. */
+  id: z.number().int().optional(),
   event: z.string(),
+  /** Who caused the event. GitHub-set, not writable by the author. */
+  actor: z.looseObject({ login: z.string() }).nullable().optional(),
   created_at: z.string().optional(),
   label: z.looseObject({ name: z.string() }).optional(),
   source: z
@@ -75,6 +79,8 @@ export const PublicPull = z.looseObject({
   /** Set once merged; only closed pull requests have it. */
   merged_at: z.string().nullable().optional(),
   head: z.looseObject({ sha: z.string() }),
+  /** Only on a single-pull read (`pull`), not in listings. */
+  changed_files: z.number().int().nonnegative().optional(),
 });
 export type PublicPull = z.infer<typeof PublicPull>;
 
@@ -129,7 +135,7 @@ export class BrokerGitHubReader {
     resource: BrokerReadRequest['resource'],
     query: ReadQuery,
     schema: T,
-    target: Pick<BrokerReadRequest, 'number' | 'file'> = {},
+    target: Pick<BrokerReadRequest, 'number' | 'file' | 'path' | 'ref'> = {},
   ): Promise<z.infer<T>> {
     const req: BrokerReadRequest = {
       agentId: this.agentId,
@@ -322,12 +328,44 @@ export class BrokerGitHubReader {
     return this.read(repo, 'pull_files', { per_page: 100 }, z.array(PullFile), { number });
   }
 
+  /** One pull request: head commit, labels, state and author. */
+  async getPull(repo: string, number: number): Promise<PublicPull> {
+    return this.read(repo, 'pull', {}, PublicPull, { number });
+  }
+
+  /** Every timeline event, up to 1000 (the broker serves at most 10 pages of 100). */
+  async listTimelineAll(repo: string, number: number): Promise<TimelineEvent[]> {
+    const out: TimelineEvent[] = [];
+    for (let page = 1; page <= 10; page++) {
+      const batch = await this.read(
+        repo,
+        'timeline',
+        { per_page: 100, page },
+        z.array(TimelineEvent),
+        { number },
+      );
+      out.push(...batch);
+      if (batch.length < 100) break;
+    }
+    return out;
+  }
+
+  /** A cheat sheet or draft (`cheatsheets/…` or `cheatsheets_draft/…`) at a commit. */
+  async getFileAtRef(repo: string, path: string, ref: string): Promise<string> {
+    const f = await this.read(repo, 'pull_file_at_ref', {}, ContentFile, { path, ref });
+    return decodeBase64(f.content);
+  }
+
   /** The Markdown source of one cheat sheet. */
   async getCheatSheet(repo: string, file: string): Promise<string> {
     const f = await this.read(repo, 'cheatsheet', {}, ContentFile, { file });
-    const bin = atob(f.content.replace(/\s/g, ''));
-    return new TextDecoder().decode(Uint8Array.from(bin, (c) => c.charCodeAt(0)));
+    return decodeBase64(f.content);
   }
+}
+
+function decodeBase64(content: string): string {
+  const bin = atob(content.replace(/\s/g, ''));
+  return new TextDecoder().decode(Uint8Array.from(bin, (c) => c.charCodeAt(0)));
 }
 
 export function issueLabels(issue: PublicIssue): string[] {
