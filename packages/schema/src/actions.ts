@@ -3,7 +3,12 @@ import { GitHubRepo } from './agent.js';
 
 const issueRef = { repo: GitHubRepo, issue: z.number().int().positive() };
 const pullRef = { repo: GitHubRepo, pull: z.number().int().positive() };
-const label = z.string().min(1).max(50);
+// `.` and `..` would be collapsed by URL parsing: `/labels/.` becomes "remove every label".
+const label = z
+  .string()
+  .min(1)
+  .max(50)
+  .refine((l) => l !== '.' && l !== '..', 'not a label name');
 const body = z.string().min(1).max(60_000);
 /** A full commit SHA, so a review is pinned to the exact commit the agent read. */
 export const CommitSha = z.string().regex(/^[0-9a-f]{40}$/);

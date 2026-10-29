@@ -225,6 +225,24 @@ describe('evaluatePolicy for cheatsheet-review (real broker policy)', () => {
       });
     }
   });
+  it('may remove only its trigger label', () => {
+    const remove = (labels: string[]) =>
+      evaluatePolicy(real, {
+        ...reviewer,
+        action: {
+          type: 'issue.label.remove',
+          repo: 'mackowski/custodes-sandbox',
+          issue: 7,
+          labels,
+        },
+      });
+    expect(remove(['custodes_cheatsheet_review'])).toMatchObject({ allow: true });
+    expect(remove(['ACK_WAITING'])).toMatchObject({ allow: false, code: 'policy_denied' });
+    expect(remove(['custodes_cheatsheet_review', 'bug'])).toMatchObject({
+      allow: false,
+      code: 'policy_denied',
+    });
+  });
   it('does not let other agents post inline reviews', () => {
     for (const agentId of ['pr-gate', 'hello', 'triage']) {
       expect(evaluatePolicy(real, { ...base, agentId, action: review })).toMatchObject({

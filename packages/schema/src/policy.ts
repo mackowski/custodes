@@ -5,7 +5,7 @@ import { ReadResource } from './read.js';
 
 export const AgentPolicy = z.object({
   /** Name of the Secrets Store binding that holds this agent's GitHub PAT. */
-  tokenBinding: z.string().regex(/^[A-Z][A-Z0-9_]*$/),
+  tokenBinding: z.string().regex(/^PAT_[A-Z0-9_]+$/),
   mode: AgentMode,
   repos: z.array(GitHubRepo).min(1),
   actions: z.array(BrokerActionType).min(1),
@@ -16,13 +16,18 @@ export const AgentPolicy = z.object({
    * in `repos` gets its own budget, so adding a repo widens the agent's total (ADR 0012).
    */
   rateLimitPerHour: z.number().int().positive().default(60),
+  /**
+   * When set, `issue.label.add` and `issue.label.remove` may only name these labels. Without it,
+   * a label grant covers every label in the repository.
+   */
+  labels: z.array(z.string().min(1).max(50)).min(1).optional(),
 });
 export type AgentPolicy = z.infer<typeof AgentPolicy>;
 
 /** Read access through the broker: GET-only, allow-listed resources, with a read-only token. */
 export const ReadPolicy = z.object({
   /** Secrets Store binding holding a PAT limited to public repositories, read-only. */
-  tokenBinding: z.string().regex(/^[A-Z][A-Z0-9_]*$/),
+  tokenBinding: z.string().regex(/^PAT_[A-Z0-9_]+$/),
   repos: z.array(GitHubRepo).min(1),
   /** The only resources this agent may read. Explicit, so a new resource is never granted by default. */
   resources: z.array(ReadResource).min(1),

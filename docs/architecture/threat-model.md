@@ -87,10 +87,11 @@ agents are allowed to do; high-risk agents should be deployed in their own Worke
   access, `public_repo` scope only, expiry of 90 days or less, and the broker policy limiting the
   agent to `pr.close` on one repository. Owner: operator. Revisit with a Triage-role bot account or
   a GitHub App.
-- `PAT_CHEATSHEET_REVIEW` is a second classic `public_repo` PAT on the operator's account, for the
-  same reason (ADR 0017). Same exposure if leaked; the broker limits the agent to
-  `pr.review.inline` (never `APPROVE`) and `issue.label.remove`, on the sandbox until its evals
-  pass. Owner: operator. Revisit with the same bot account or GitHub App.
+- `PAT_CHEATSHEET_REVIEW` (ADR 0017) is a fine-grained PAT for the sandbox only while the agent is
+  sandbox-only, and becomes a second classic `public_repo` PAT when OWASP is added, with the same
+  exposure as `PAT_PR_GATE` if leaked. The broker limits the agent to `pr.review.inline` (never
+  `APPROVE`) and removing its one trigger label. Owner: operator. Revisit with the same bot account
+  or GitHub App.
 - Agents in one Worker share a trust domain: the broker trusts the `agentId` a caller in the agents
   Worker sends. Owner: operator. Revisited on 2026-10-15 when pr-gate gained `pr.close` (ADR 0011):
   every agent in the Worker is first-party code reviewed in this repository, readonly agents run no

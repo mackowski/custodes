@@ -4,7 +4,7 @@ import { AgentId, GitHubRepo } from './agent.js';
 
 /**
  * The only GitHub resources an agent may read through the broker. The broker builds the URL from
- * these fields; callers can never supply a path.
+ * these fields; the only caller-supplied path is `pull_file_at_ref`'s, bound by `CheatSheetPath`.
  */
 export const ReadResource = z.enum([
   'issues',
@@ -24,7 +24,10 @@ export const ReadResource = z.enum([
   'pulls',
   /** One pull request: head SHA, labels, state, author (needs `number`). */
   'pull',
-  /** A changed cheat sheet at a pull request's head commit (needs `path` and `ref`). */
+  /**
+   * A cheat sheet or draft at any commit SHA, e.g. a pull request's head (needs `path` and `ref`).
+   * The broker does not check that the SHA belongs to a pull request; the PAT is read-only.
+   */
   'pull_file_at_ref',
 ]);
 export type ReadResource = z.infer<typeof ReadResource>;

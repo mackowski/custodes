@@ -26,7 +26,8 @@
       "repos": ["mackowski/custodes-sandbox"],
       "actions": ["pr.review.inline", "issue.label.remove"],
       "requiresApproval": [],
-      "rateLimitPerHour": 20
+      "rateLimitPerHour": 20,
+      "labels": ["custodes_cheatsheet_review"]
     }
   },
   "reads": {

@@ -38,17 +38,25 @@ We will add a `cheatsheet-review` agent and the broker capabilities it needs:
   with no injection leak, three sandbox end-to-end runs pass (links only, code, low quality), and the
   operator has reviewed the first five reviews. Adding `OWASP/CheatSheetSeries` is a separate,
   reviewed policy change. There is no daily review cap; the broker's 20 per hour per repository is
-  a fuse against a bug, not a budget.
+  a fuse against a bug, not a budget. Label removals count against it too, so it allows about ten
+  reviews an hour.
 - **Broker action `pr.review.inline`.** One review pinned to a full commit SHA, with at most 20
   RIGHT-side comments (optionally multi-line). Its event is `COMMENT` or `REQUEST_CHANGES`; `APPROVE`
   is not in the schema. The agent asks for changes only when a security or links reviewer found a
   blocker; everything else, including a CLOSE verdict, is a comment. The agent cannot dismiss its own
   earlier review; the operator does that.
 - **Reads `pull` and `pull_file_at_ref`.** The second returns a file under `cheatsheets/` or
-  `cheatsheets_draft/` (one level, validated name) at a 40-character SHA; the broker builds the path.
-- **Token.** A separate classic `public_repo` PAT on the operator's account, `PAT_CHEATSHEET_REVIEW`,
-  for the same reason as `PAT_PR_GATE` (ADR 0011 amendment: no fine-grained PAT for the OWASP
-  organisation). The broker allows it only `pr.review.inline` and `issue.label.remove`.
+  `cheatsheets_draft/` (one level, validated name) at any 40-character SHA. This is the first read
+  with a caller-supplied path (ADR 0010 allowed only file names); the schema bounds it and the broker
+  still builds the URL. The broker does not check that the SHA is the pull request's head.
+- **Label scope.** A new optional `labels` allow-list in the agent policy limits `issue.label.add`
+  and `issue.label.remove`; for this agent it is only `custodes_cheatsheet_review`, so it cannot
+  remove a maintainer's triage labels.
+- **Token.** A separate PAT, `PAT_CHEATSHEET_REVIEW`. While the policy lists only the sandbox it is a
+  fine-grained PAT for `mackowski/custodes-sandbox` alone (Pull requests and Issues: read and
+  write). The pull request that adds OWASP replaces it with a classic `public_repo` PAT, for the same
+  reason as `PAT_PR_GATE` (ADR 0011 amendment: no fine-grained PAT for the OWASP organisation). The
+  broker allows it only `pr.review.inline` and `issue.label.remove`.
 - **Models.** Depth follows the change: deterministic rules first, a small model only for ambiguous
   prose. Links-only and minor prose changes get the links and language reviewers; content and code
   changes get all five dimensions plus a second security reviewer. Every reviewer sees the same
@@ -94,18 +102,32 @@ We will add a `cheatsheet-review` agent and the broker capabilities it needs:
 - Reviews appear under the operator's name. A `REQUEST_CHANGES` review blocks merging until the
   operator dismisses it or reviews again, and other maintainers will see it; the operator tells the
   OWASP maintainers before the agent is enabled there, and every review links to the agent's page.
+  Inline comments carry no trailer (only the review body does), so the agent marks each one as an
+  LLM suggestion, and no agent may count review comments by the operator's account as the
+  operator's own words.
+- GitHub refuses `REQUEST_CHANGES` on a pull request by the token's owner, so on the operator's own
+  pull requests (sandbox tests) the agent posts `COMMENT`.
 - Four model providers mean four ways to fail; fallbacks and the vendor invariant keep reviews
   multi-model, at the cost of an occasional e-mail instead of a review.
 - The deploy now syncs agent PATs into Secrets Store before deploying the broker, so a new binding
-  resolves on its first deploy.
+  resolves on its first deploy. The `github-pat-cheatsheet-review` entry is created by that sync, not
+  by Terraform; adding the agent to Terraform's `agents` later needs a `terraform import` first. The
+  GitHub secret must exist before this merges, or the broker deploy fails.
+- Policy `tokenBinding` names must now start with `PAT_`, and the sync script refuses other names,
+  so a policy typo can never copy another CI secret into Secrets Store.
 
 ## Security considerations
 
-- **Authority.** A second write-capable agent uses a classic PAT that, on GitHub's side, could push to
-  any public repository the operator can write to, including OWASP. The broker limits it to two
-  actions on the sandbox, signs and audits each one, and rate-limits it; the PAT is rotated every
+- **Authority.** A second write-capable agent. On the sandbox its fine-grained PAT reaches only that
+  repository; once OWASP is added, its classic PAT could, on GitHub's side, push to any public
+  repository the operator can write to, including OWASP. The broker limits it to two actions, one
+  label, signs and audits each one, and rate-limits it; the PAT is rotated every
   90 days (`docs/runbooks/rotate-pat.md`). This revisits the threat model's accepted risk for a second
   write agent sharing the Worker; the risk is accepted again for the same reason as pr-gate's.
+- **`hotl` without a broker-side check of the trigger.** The broker never sees the label, so "the
+  operator started this run" is enforced by agent code; a compromised agent in the Worker could post
+  as cheatsheet-review without it. The sandbox-only policy (pinned by a test) and the rate limit
+  bound that until the OWASP widening, which revisits `requiresApproval` for the first reviews.
 - **Trigger spoofing.** The sender in the webhook is HMAC-verified but treated as a hint; the GitHub
   timeline's `labeled.actor` decides. Anyone else adding the label causes no action.
 - **Prompt injection.** The pull request body, diff, file contents, file names and fetched pages are

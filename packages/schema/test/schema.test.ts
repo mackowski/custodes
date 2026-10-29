@@ -188,3 +188,26 @@ describe('read resources pull and pull_file_at_ref', () => {
     expect(ok({ resource: 'issue', number: 1, path: 'cheatsheets/A.md' })).toBe(false);
   });
 });
+
+describe('label actions and policy token bindings', () => {
+  it('refuses `.` and `..` as label names (URL parsing would widen the DELETE)', () => {
+    const remove = (labels: string[]) =>
+      BrokerAction.safeParse({ type: 'issue.label.remove', repo: 'a/b', issue: 1, labels }).success;
+    expect(remove(['custodes_cheatsheet_review'])).toBe(true);
+    expect(remove(['.'])).toBe(false);
+    expect(remove(['..'])).toBe(false);
+    expect(remove(['ok', '..'])).toBe(false);
+  });
+  it('accepts only PAT_* token bindings', () => {
+    const agent = (tokenBinding: string) =>
+      Policy.safeParse({
+        version: 1,
+        agents: {
+          x1: { tokenBinding, mode: 'hotl', repos: ['a/b'], actions: ['issue.comment'] },
+        },
+      }).success;
+    expect(agent('PAT_X')).toBe(true);
+    expect(agent('CLOUDFLARE_API_TOKEN')).toBe(false);
+    expect(agent('PAT_')).toBe(false);
+  });
+});

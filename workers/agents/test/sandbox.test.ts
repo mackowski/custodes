@@ -47,7 +47,7 @@ describe('instances', () => {
     expect(policy.reads['cheatsheet-review'].repos).toEqual(['mackowski/custodes-sandbox']);
   });
 
-  it('keeps the hello agent and every write grant other than pr-gate off the sandbox', () => {
+  it('keeps the hello agent off the sandbox', () => {
     expect(policy.agents.hello.repos).toEqual(['OWASP/CheatSheetSeries']);
   });
 });
