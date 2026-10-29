@@ -6,6 +6,7 @@ import {
   errorType,
   executeTool,
   invokeAgent,
+  invokeSubAgent,
   type Turn,
 } from '../src/tracing.js';
 import { IDENTITY, RecordingTracer, turnOf } from './helpers/recording-tracer.js';
@@ -274,5 +275,49 @@ describe('the tracer itself', () => {
     ).rejects.toBe(err);
     expect(settled).not.toContain('REJECTED');
     expect(JSON.stringify(settled)).not.toContain('SECRET-BODY');
+  });
+});
+
+describe('invokeSubAgent', () => {
+  it('nests sub-agents under the orchestrator, and their model calls under them, with the role as agent name', async () => {
+    const t = new RecordingTracer();
+    const turn = turnOf(t, false);
+    await invokeAgent(turn, async () => {
+      await Promise.all(
+        ['security-reviewer', 'link-auditor'].map((role) =>
+          invokeSubAgent(turn, role, async (sub) => {
+            await chat(sub, { provider: 'anthropic', model: `m-${role}` }, async () => 1);
+          }),
+        ),
+      );
+      await executeTool(turn, 'pr.review.inline', async () => 2);
+    });
+    expect(t.roots).toHaveLength(1);
+    const root = t.roots[0]!;
+    expect(root.children.map((c) => c.name)).toEqual([
+      'invoke_agent security-reviewer',
+      'invoke_agent link-auditor',
+      'execute_tool pr.review.inline',
+    ]);
+    const sec = root.children[0]!;
+    expect(sec.attributes).toMatchObject({
+      'gen_ai.operation.name': 'invoke_agent',
+      'gen_ai.agent.name': 'security-reviewer',
+      'gen_ai.agent.id': `${IDENTITY.agentId}/security-reviewer`,
+      'gen_ai.conversation.id': IDENTITY.conversationId,
+      'custodes.run_id': IDENTITY.runId,
+      'custodes.parent_agent': IDENTITY.agentName,
+    });
+    expect(sec.children.map((c) => c.name)).toEqual(['chat m-security-reviewer']);
+    expect(sec.children[0]!.attributes['gen_ai.agent.name']).toBe('security-reviewer');
+  });
+
+  it('runs untraced without a turn', async () => {
+    const t = new RecordingTracer();
+    const r = await invokeSubAgent(undefined, 'judge', async (sub) =>
+      sub === undefined ? 'ok' : 'x',
+    );
+    expect(r).toBe('ok');
+    expect(t.spans).toHaveLength(0);
   });
 });

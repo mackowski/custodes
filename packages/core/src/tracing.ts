@@ -160,6 +160,38 @@ export function invokeAgent<T>(
   );
 }
 
+/**
+ * The `invoke_agent <role>` span of a sub-agent run inside its orchestrator's turn (ADR 0016
+ * amendment, ADR 0017): e.g. the security reviewer inside cheatsheet-review. It nests under the
+ * orchestrator's `invoke_agent` span, and `fn` gets a turn whose agent name is the role, so the
+ * sub-agent's `chat` and `execute_tool` spans say which role made them. Same conversation and run.
+ */
+export function invokeSubAgent<T>(
+  turn: Turn | undefined,
+  role: string,
+  fn: (sub: Turn | undefined, span: OperationSpan) => Promise<T>,
+): Promise<T> {
+  if (!turn) return fn(undefined, NO_OP);
+  const sub: Turn = {
+    ...turn,
+    identity: {
+      ...turn.identity,
+      agentName: role,
+      agentId: `${turn.identity.agentId}/${role}`,
+    },
+  };
+  return traced(
+    turn,
+    `invoke_agent ${role}`,
+    {
+      'gen_ai.operation.name': 'invoke_agent',
+      ...identityAttributes(sub.identity),
+      'custodes.parent_agent': turn.identity.agentName,
+    },
+    (span) => fn(sub, span),
+  );
+}
+
 /** A `chat` span around one model call. Without a turn, `fn` runs untraced. */
 export function chat<T>(
   turn: Turn | undefined,

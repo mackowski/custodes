@@ -16,3 +16,42 @@ export const MODELS = {
   decisionShadow: '@cf/cloudflare/clef',
 } as const;
 export type ModelTier = keyof typeof MODELS;
+
+/** How a review model is reached; every transport goes through the one AI Gateway (ADR 0015). */
+export type ReviewTransport = 'anthropic' | 'openrouter' | 'workers-ai';
+
+export interface ReviewModel {
+  id: string;
+  transport: ReviewTransport;
+  /** Who trained it: the multi-model invariant counts vendors, not hosts (ADR 0017). */
+  vendor: 'anthropic' | 'openai' | 'meta' | 'deepseek';
+}
+
+/** Every model cheatsheet-review may call, primaries and fallbacks (ADR 0017). */
+export const REVIEW_MODELS = {
+  claudeHaiku: { id: 'claude-haiku-5-5', transport: 'anthropic', vendor: 'anthropic' },
+  claudeSonnet: { id: 'claude-sonnet-5-5', transport: 'anthropic', vendor: 'anthropic' },
+  claudeOpus: { id: 'claude-opus-5-5', transport: 'anthropic', vendor: 'anthropic' },
+  gptLuna: { id: 'openai/gpt-6-luna', transport: 'openrouter', vendor: 'openai' },
+  gptSol: { id: 'openai/gpt-6.1-sol', transport: 'openrouter', vendor: 'openai' },
+  gptAstra: { id: 'openai/gpt-6-astra', transport: 'openrouter', vendor: 'openai' },
+  gptOss20b: { id: '@cf/openai/gpt-oss-20b', transport: 'workers-ai', vendor: 'openai' },
+  museSpark: { id: 'meta/muse-spark-1.3', transport: 'openrouter', vendor: 'meta' },
+  llamaMaverick: { id: 'meta-llama/llama-4-maverick', transport: 'openrouter', vendor: 'meta' },
+  deepseekFlash: {
+    id: '@cf/deepseek-ai/deepseek-v4.1-flash-1017',
+    transport: 'workers-ai',
+    vendor: 'deepseek',
+  },
+  deepseekPro: {
+    id: '@cf/deepseek-ai/deepseek-v4-pro-0813',
+    transport: 'workers-ai',
+    vendor: 'deepseek',
+  },
+  deepseekProOpenRouter: {
+    id: 'deepseek/deepseek-v4-pro',
+    transport: 'openrouter',
+    vendor: 'deepseek',
+  },
+} as const satisfies Record<string, ReviewModel>;
+export type ReviewModelName = keyof typeof REVIEW_MODELS;

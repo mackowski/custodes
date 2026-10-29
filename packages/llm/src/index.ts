@@ -4,3 +4,4 @@ export * from './structured.js';
 export * from './models.js';
 export * from './jev.js';
 export * from './clef.js';
+export * from './chat.js';
