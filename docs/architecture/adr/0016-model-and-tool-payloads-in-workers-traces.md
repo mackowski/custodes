@@ -91,9 +91,11 @@ instance>`, so sandbox and real repositories are separate.
 
 - Confidentiality: anyone with access to Workers Observability on the account can read the
   payloads. Account membership is managed in the dashboard, not Terraform; the operator reviews it
-  once and keeps it to operators. API tokens need a Workers Observability permission to query
-  telemetry (API reference, telemetry query); the CI deploy token has Workers Scripts, KV, D1,
-  Queues and Account Settings only (`docs/runbooks/rotate-cf-token.md`), so it cannot read them.
+  once and keeps it to operators. The API reference lists a Workers Observability permission for
+  telemetry queries, but a read-only OAuth connection ran one (first-trace check below), so any
+  read access to the account is treated as read access to the payloads. That includes the CI
+  deploy token, which has Account Settings: Read (`docs/runbooks/rotate-cf-token.md`); it is a
+  `prod` environment secret used only by the reviewer-gated deploy workflow.
 - Secrets: credentials travel in headers, never in the serialized bodies we record. Unit tests set
   canary values for every credential and assert that no span attribute contains them, with
   payloads on. The runtime's automatic `fetch` spans (AI Gateway, OpenRouter, broker) are outside
@@ -124,10 +126,10 @@ Done through the Cloudflare MCP server, read-only, after deploy `557fcdd3` and s
   every value is `REDACTED` by Cloudflare: none is a JWT or a `CF_Authorization` cookie.
   `x-hub-signature-256` is a payload HMAC, not a secret.
 - Account members: one, the operator (Super Administrator). No OpenTelemetry export destinations.
-  Listing API tokens needs a write scope, which the session did not take; the CI tokens' scopes in
-  `docs/runbooks/rotate-cf-token.md` include no Workers Observability permission.
+  Listing API tokens needs a write scope, which the session did not take.
 - The telemetry query ran from an OAuth connection with `account:read` only, although the API
-  reference lists Workers Observability Write: treat any read access to the account as read
-  access to the payloads.
+  reference lists Workers Observability Write. Whether an API token with Account Settings: Read
+  (the CI deploy token) can do the same was not tested from the session, which would mean using a
+  production secret; it is assumed that it can (Security considerations, Confidentiality).
 - A read that returns 404 (an issue number in a PR body that does not exist) marks the pr-gate
   trace `error` with `GitHubReadError 404` only; the decision is unaffected.
