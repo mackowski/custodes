@@ -148,3 +148,31 @@ jobs:
             cost=$(jq -r '[.[] | select(.type == "result") | .total_cost_usd // 0] | add // 0' "$file")
             echo "${name}: \$${cost}" >> "$GITHUB_STEP_SUMMARY"
           done
+      # No silent green: the job passes only if every review that should run finished with a result.
+      # claude-code-action skips itself (and reports success) when this workflow differs from main,
+      # the code review step swallows its own failure, and a review can stop at its budget cap.
+      - name: Fail when a review did not complete
+        if: always()
+        env:
+          CODE_REVIEW_LOG: ${{ runner.temp }}/code-review-log.json
+          SECURITY_REVIEW_LOG: ${{ steps.security_review.outputs.execution_file }}
+          SECURITY_EXPECTED: ${{ steps.scope.outputs.security != 'false' }}
+        run: |
+          missing=0
+          for name in CODE_REVIEW SECURITY_REVIEW; do
+            if [ "$name" = SECURITY_REVIEW ] && [ "$SECURITY_EXPECTED" != true ]; then
+              echo "SECURITY_REVIEW: skipped, documentation only" >> "$GITHUB_STEP_SUMMARY"
+              continue
+            fi
+            var="${name}_LOG"; file="${!var}"
+            ok=false
+            if [ -n "$file" ] && [ -f "$file" ]; then
+              ok=$(jq -r '[.[] | select(.type == "result")] | (length > 0 and all(.subtype == "success" and .is_error == false))' "$file")
+            fi
+            if [ "$ok" != true ]; then
+              echo "::error::${name} did not complete (no result: skipped because this PR changes the workflow, failed, or hit its budget). This PR has not been reviewed by it."
+              echo "${name}: DID NOT COMPLETE" >> "$GITHUB_STEP_SUMMARY"
+              missing=1
+            fi
+          done
+          exit "$missing"

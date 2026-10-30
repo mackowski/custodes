@@ -45,4 +45,15 @@ function report(r: EvalResult): void {
   }
   if (r.error) console.log(`    error: ${r.error.slice(0, 300)}`);
 }
+// Every suite that was meant to run must have written a result file.
+const written = new Set(
+  readdirSync(dir)
+    .filter((f) => f.endsWith('.json'))
+    .map((f) => f.slice(0, -'.json'.length)),
+);
+for (const suite of (process.env['EXPECTED_SUITES'] ?? '').split(/\s+/).filter(Boolean)) {
+  if (written.has(suite)) continue;
+  console.log(`${suite}: NO RESULT (the suite did not run to the end)`);
+  failed++;
+}
 process.exitCode = failed > 0 ? 1 : 0;

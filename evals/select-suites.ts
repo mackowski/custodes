@@ -2,7 +2,7 @@
 // cost real money, so CI runs only the suites whose agent the change can affect; a change to the
 // shared plumbing runs them all. Reads changed paths (one per line) on stdin, prints suite names
 // separated by spaces. Run with `node evals/select-suites.ts` (Node >= 22.18 strips the types).
-import { readdirSync, readFileSync } from 'node:fs';
+import { readdirSync } from 'node:fs';
 import process from 'node:process';
 import { pathToFileURL } from 'node:url';
 
@@ -73,7 +73,10 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
     console.log(all.join(' '));
     process.exit(0);
   }
-  const changed = readFileSync(0, 'utf8')
+  // Read stdin as a stream: readFileSync(0) fails with EAGAIN on a non-blocking pipe (seen in CI).
+  let input = '';
+  for await (const chunk of process.stdin) input += String(chunk);
+  const changed = input
     .split('\n')
     .map((l) => l.trim())
     .filter(Boolean);
