@@ -60,6 +60,14 @@ for (const { pull } of sample) {
     ),
   ].join('\n\n');
   const r = await call(c, 'terra', { system: PROMPT, user, max_tokens: 8_000 }, `grade:${pull}`);
-  writeJson(file, parseStructured(Grade, r.result.text));
+  let grade: Grade;
+  try {
+    grade = parseStructured(Grade, r.result.text);
+  } catch (err) {
+    // The error can quote the model's answer, which can quote pull request text: name only.
+    console.log(`#${pull} grade unparsable: ${err instanceof Error ? err.name : 'error'}`);
+    continue;
+  }
+  writeJson(file, grade);
   console.log(`#${pull} graded`);
 }

@@ -21,15 +21,19 @@ writes. Snapshots, raw model answers and the spot check stay in `.bench/cheatshe
 
 ```bash
 cd workers/agents
-for s in select run grade report; do
-  pnpm exec esbuild scripts/benchmark/$s.ts --bundle --platform=node --format=esm --outfile=/tmp/bench-$s.mjs --log-level=warning
-done
-
-# The GitHub token only for the step that reads GitHub, not for the whole shell.
-GITHUB_TOKEN=$(gh auth token --user mackowski) ../../scripts/with-secrets.sh node /tmp/bench-select.mjs
-../../scripts/with-secrets.sh node /tmp/bench-run.mjs
-../../scripts/with-secrets.sh node /tmp/bench-grade.mjs
-node /tmp/bench-report.mjs
+# Bundles go to the git-ignored data directory (not a shared /tmp path), and nothing runs if a
+# build fails.
+BIN=../../.bench/bin && mkdir -p "$BIN" &&
+for s in select run deepseek grade report; do
+  pnpm exec esbuild scripts/benchmark/$s.ts --bundle --platform=node --format=esm --outfile="$BIN/bench-$s.mjs" --log-level=warning || exit 1
+done &&
+# select reads only GitHub: the GitHub token alone, no Keychain secrets. Prefer a fine-grained
+# token with no permissions (public repositories, read-only) over `gh auth token`.
+GITHUB_TOKEN=$(gh auth token --user mackowski) node "$BIN/bench-select.mjs" &&
+../../scripts/with-secrets.sh node "$BIN/bench-run.mjs" &&
+../../scripts/with-secrets.sh node "$BIN/bench-deepseek.mjs" &&
+../../scripts/with-secrets.sh node "$BIN/bench-grade.mjs" &&
+node "$BIN/bench-report.mjs"
 ```
 
 Needs `AI_GATEWAY_TOKEN` and `CF_WORKERS_AI_EVAL_TOKEN` (Workers AI read and edit) in the Keychain

@@ -145,3 +145,12 @@ orchestrator's. Concurrent reviewers are sibling spans. This follows the OpenTel
 convention that `invoke_agent` spans may nest; agents in other Durable Objects still open their own
 root `invoke_agent` (specialists, above). Model calls also send `subAgent` in `cf-aig-metadata`, so
 AI Gateway logs can be filtered by role.
+
+## Amendment (2026-10-30): payloads are clipped
+
+Each payload attribute holds at most `PAYLOAD_MAX_CHARS` (8,000) characters
+(`packages/llm/src/gateway.ts`, `clipPayload`), followed by a note with the number of characters
+left out. Larger spans were dropped whole by Workers traces. A trace therefore shows only the start
+of a long prompt, diff or answer: an injection placed after the first 8,000 characters is not in
+the trace. AI Gateway logs keep the full request and response; use them for anything the trace
+cut.
