@@ -33,16 +33,21 @@ Security is never dropped for a change to guidance, whatever its size (`MODELS.m
 
 ### Models (`cheatsheet-review/lineup.ts`)
 
-| Role                  | Model                            | Fallback                     |
-| --------------------- | -------------------------------- | ---------------------------- |
-| scope-classifier      | Claude Haiku 5.5                 | gpt-oss-20b (Workers AI)     |
-| security-reviewer     | Claude Opus 5.5                  | GPT-6 Astra                  |
-| security-second-voice | DeepSeek V4 Pro (Workers AI)     | DeepSeek V4 Pro (OpenRouter) |
-| practicality-reviewer | Muse Spark 1.3                   | Llama 4 Maverick             |
-| duplication-checker   | Muse Spark 1.3                   | Llama 4 Maverick             |
-| link-auditor          | DeepSeek V4.1 Flash (Workers AI) | GPT-6 Luna                   |
-| language-reviewer     | GPT-6 Luna                       | Claude Haiku 5.5             |
-| judge                 | GPT-6.1 Sol                      | Claude Sonnet 5.5            |
+| Role                  | Model                                         | Fallback                                          |
+| --------------------- | --------------------------------------------- | ------------------------------------------------- |
+| scope-classifier      | Claude Haiku 5.5                              | gpt-oss-20b (Workers AI)                          |
+| security-reviewer     | Claude Opus 5.5                               | GPT-6.1 Sol                                       |
+| security-second-voice | DeepSeek V4.1 Flash (Workers AI, high effort) | DeepSeek V4.1 Flash (OpenRouter, fp8+ hosts only) |
+| practicality-reviewer | Claude Sonnet 5.5                             | Muse Spark 1.3                                    |
+| duplication-checker   | Muse Spark 1.3                                | GPT-6.1 Sol                                       |
+| link-auditor          | DeepSeek V4.1 Flash (Workers AI)              | GPT-6 Luna                                        |
+| language-reviewer     | GPT-6 Luna                                    | Claude Haiku 5.5                                  |
+| judge                 | GPT-6 Astra                                   | Claude Sonnet 5.5                                 |
+
+Chosen from a one-off benchmark on 30 OWASP pull requests reviewed by maintainers
+(`workers/agents/scripts/benchmark/REPORT.md`, not run in CI). Known limits: Astra judges by the
+operator's preference (its lead over Sol was within noise), the duplication checker and the link
+auditor were not measured, and the sample is small.
 
 Every call goes through the one AI Gateway (ADR 0015). Anthropic and OpenRouter use the keys stored
 in the gateway; OpenRouter is asked for hosts that keep no prompts. A fallback is never silent: the

@@ -451,11 +451,19 @@ describe('cheatsheet-review: a content pull request', () => {
     expect(r.models.calls.every((c) => c.req.metadata.agentId === 'cheatsheet-review')).toBe(true);
     const via = (role: string) => r.models.calls.find((c) => c.role === role)?.req.model;
     expect(via('security-reviewer')).toBe('claude-opus-5-5');
-    expect(via('security-second-voice')).toBe('@cf/deepseek-ai/deepseek-v4-pro-0813');
-    expect(via('judge')).toBe('openai/gpt-6.1-sol');
+    expect(via('security-second-voice')).toBe('@cf/deepseek-ai/deepseek-v4.1-flash-1017');
+    expect(via('practicality-reviewer')).toBe('claude-sonnet-5-5');
+    expect(via('judge')).toBe('openai/gpt-6-astra');
+    const second = r.models.calls.find((c) => c.role === 'security-second-voice')?.req;
+    expect(second?.reasoning_effort).toBe('high');
+    expect(second?.max_tokens).toBe(24_000);
+    // Only the second voice sets an effort; the other roles keep the model default.
+    expect(
+      r.models.calls.filter((c) => c.req.reasoning_effort !== undefined).map((c) => c.role),
+    ).toEqual(['security-second-voice']);
     const body = reviewActs(r)[0]?.body ?? '';
     expect(body).toContain('claude-opus-5-5');
-    expect(body).toContain('openai/gpt-6.1-sol');
+    expect(body).toContain('openai/gpt-6-astra');
   });
 
   it('posts COMMENT, not a blocking review, when the blocker is not about security or links', async () => {
@@ -488,6 +496,22 @@ describe('cheatsheet-review: a content pull request', () => {
     expect(reviewActs(r)[0]?.body).toContain('~~openai/gpt-6-luna~~');
     expect(reviewActs(r)[0]?.body).toContain('claude-haiku-5-5');
   });
+
+  it('falls back from Workers AI to the same DeepSeek weights on pinned OpenRouter hosts, same effort', async () => {
+    const r = await drive({
+      script: (role, req) =>
+        req.model === '@cf/deepseek-ai/deepseek-v4.1-flash-1017'
+          ? new Error('ChatTimeoutError')
+          : defaultScript(decisionJson())(role, req),
+    });
+    expect(r.out).toMatchObject({ status: 'posted' });
+    const fallback = r.models.calls.find(
+      (c) =>
+        c.role === 'security-second-voice' && c.req.model === 'deepseek/deepseek-v4.1-flash-1017',
+    )?.req;
+    expect(fallback?.hosts).toEqual(['together', 'nebius/fp8', 'parasail/fp8']);
+    expect(fallback?.reasoning_effort).toBe('high');
+  });
 });
 
 describe('cheatsheet-review: failing safe', () => {
@@ -500,7 +524,7 @@ describe('cheatsheet-review: failing safe', () => {
     expect(r.broker.acts).toEqual([]);
     // The judge was asked on both its primary and its fallback model.
     const judged = r.models.calls.filter((c) => c.role === 'judge').map((c) => c.req.model);
-    expect(new Set(judged)).toEqual(new Set(['openai/gpt-6.1-sol', 'claude-sonnet-5-5']));
+    expect(new Set(judged)).toEqual(new Set(['openai/gpt-6-astra', 'claude-sonnet-5-5']));
     expect(r.mail).toHaveLength(1);
     expect(r.mail[0]?.subject).toContain('not posted');
     expect(r.mail[0]?.text).toContain('judge unavailable');
@@ -510,9 +534,9 @@ describe('cheatsheet-review: failing safe', () => {
   it('publishes nothing when both security voices are down', async () => {
     const down = new Set([
       'claude-opus-5-5',
-      'openai/gpt-6-astra',
-      '@cf/deepseek-ai/deepseek-v4-pro-0813',
-      'deepseek/deepseek-v4-pro',
+      'openai/gpt-6.1-sol',
+      '@cf/deepseek-ai/deepseek-v4.1-flash-1017',
+      'deepseek/deepseek-v4.1-flash-1017',
     ]);
     const r = await drive({
       script: (role, req) =>
@@ -770,8 +794,8 @@ describe('cheatsheet-review: tracing', () => {
       expect(span.children[0]?.name).toMatch(/^chat /);
     }
     const judge = roleSpans.find((s) => s.name === 'invoke_agent judge');
-    expect(judge?.children[0]?.name).toBe('chat openai/gpt-6.1-sol');
-    expect(judge?.attributes['custodes.review.model']).toBe('gptSol');
+    expect(judge?.children[0]?.name).toBe('chat openai/gpt-6-astra');
+    expect(judge?.attributes['custodes.review.model']).toBe('gptAstra');
     expect(
       roleSpans.find((s) => s.name === 'invoke_agent security-reviewer')?.children[0]?.name,
     ).toBe('chat claude-opus-5-5');

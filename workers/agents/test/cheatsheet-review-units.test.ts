@@ -12,6 +12,7 @@ import { inOneHunk, numberedDiff, parsePatch } from '../src/agents/cheatsheet-re
 import { lowQualityMail, partialReviewMail } from '../src/agents/cheatsheet-review/email.js';
 import {
   invariantBreach,
+  LINEUP,
   type Role,
   type RoleOutcome,
 } from '../src/agents/cheatsheet-review/lineup.js';
@@ -26,6 +27,7 @@ import {
 import {
   checkSuggestions,
   addedRisk,
+  dimensionsNotRun,
   inertMarkdown,
   modelLine,
   reviewBody,
@@ -484,12 +486,12 @@ const down = (role: Role): RoleOutcome => ({
 
 const fullLineup = (): RoleOutcome[] => [
   ran('security-reviewer', 'claudeOpus'),
-  ran('security-second-voice', 'deepseekPro'),
-  ran('practicality-reviewer', 'museSpark'),
+  ran('security-second-voice', 'deepseekFlash'),
+  ran('practicality-reviewer', 'claudeSonnet'),
   ran('link-auditor', 'deepseekFlash'),
   ran('duplication-checker', 'museSpark'),
   ran('language-reviewer', 'gptLuna'),
-  ran('judge', 'gptSol'),
+  ran('judge', 'gptAstra'),
 ];
 
 describe('lineup.invariantBreach', () => {
@@ -497,13 +499,31 @@ describe('lineup.invariantBreach', () => {
     expect(invariantBreach(fullLineup())).toBeNull();
   });
 
-  it('accepts the security fallback Opus to Astra: still a different vendor from the second voice', () => {
+  it('holds for every primary and fallback combination of the security voices and the judge', () => {
+    const pick = (role: Role) => [LINEUP[role].primary, LINEUP[role].fallback];
+    for (const security of pick('security-reviewer'))
+      for (const second of pick('security-second-voice'))
+        for (const judge of pick('judge')) {
+          const o = fullLineup().map((x) =>
+            x.role === 'security-reviewer'
+              ? ran(x.role, security)
+              : x.role === 'security-second-voice'
+                ? ran(x.role, second)
+                : x.role === 'judge'
+                  ? ran(x.role, judge)
+                  : x,
+          );
+          expect(invariantBreach(o), `${security} ${second} ${judge}`).toBeNull();
+        }
+  });
+
+  it('accepts the security fallback Opus to Sol: still a different vendor from the second voice', () => {
     const o = fullLineup().map((x) =>
       x.role === 'security-reviewer'
         ? ({
             role: x.role,
             status: 'fallback',
-            model: 'gptAstra',
+            model: 'gptSol',
             failed: 'claudeOpus',
             why: 'GatewayError 500',
           } satisfies RoleOutcome)
@@ -535,7 +555,7 @@ describe('lineup.invariantBreach', () => {
 
   it('refuses security voices from one vendor', () => {
     const o = fullLineup().map((x) =>
-      x.role === 'security-second-voice' ? ran(x.role, 'deepseekProOpenRouter') : x,
+      x.role === 'security-second-voice' ? ran(x.role, 'deepseekFlashOpenRouter') : x,
     );
     expect(invariantBreach(o)).toBeNull();
     const same = fullLineup().map((x) =>
@@ -1037,6 +1057,37 @@ describe('render.reviewBody', () => {
     const body = reviewBody(input({ decision: d }));
     expect(body).toContain('Reasons for closing');
     expect(body).not.toContain('should fix me');
+  });
+
+  it('says NOT RUN for a dimension whose every reviewer was unavailable, whatever the judge wrote', () => {
+    const d = decision({
+      dimensions: [
+        { dimension: 'Security', verdict: 'PASS', headline: 'judge guessed' },
+        { dimension: 'Language', verdict: 'PASS', headline: 'fine' },
+      ],
+    });
+    const body = reviewBody(input({ decision: d }));
+    // Only security-reviewer was asked for security here, and it was unavailable.
+    expect(body).toContain('| Security | NOT RUN | reviewer unavailable |');
+    expect(body).not.toContain('judge guessed');
+    // Language ran on its fallback: the judge's verdict stands.
+    expect(body).toContain('| Language | PASS | fine |');
+  });
+});
+
+describe('render.dimensionsNotRun', () => {
+  it('needs every reviewer of a dimension to be unavailable, and only counts dimensions asked for', () => {
+    expect(
+      dimensionsNotRun([down('security-reviewer'), ran('security-second-voice', 'deepseekFlash')]),
+    ).toEqual(new Set());
+    expect(
+      dimensionsNotRun([
+        down('security-reviewer'),
+        down('security-second-voice'),
+        down('link-auditor'),
+      ]),
+    ).toEqual(new Set(['Security', 'Links & sources']));
+    expect(dimensionsNotRun([ran('language-reviewer', 'gptLuna')])).toEqual(new Set());
   });
 });
 

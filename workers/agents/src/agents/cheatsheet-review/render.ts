@@ -8,7 +8,7 @@ import { inertText } from '@custodes/llm';
 import { inOneHunk, type Hunk } from './diff.js';
 import { LINEUP, model, type Role, type RoleOutcome } from './lineup.js';
 import type { ChangeClass } from './scope.js';
-import type { Item, ReviewDecision } from './types.js';
+import type { Dimension, Item, ReviewDecision } from './types.js';
 
 export const DOCS_URL =
   'https://github.com/mackowski/custodes/blob/main/docs/agents/cheatsheet-review.md';
@@ -149,6 +149,28 @@ const ROLE_LABEL: Record<Role, string> = {
   judge: 'decision',
 };
 
+/** Which reviewers speak for each dimension of the table. */
+const DIMENSION_ROLES: Record<Dimension, readonly Role[]> = {
+  Security: ['security-reviewer', 'security-second-voice'],
+  Practicality: ['practicality-reviewer'],
+  'Links & sources': ['link-auditor'],
+  'Duplication & placement': ['duplication-checker'],
+  Language: ['language-reviewer'],
+};
+
+/**
+ * Dimensions that were asked for but whose every reviewer was unavailable. The table says NOT RUN
+ * for them whatever the judge wrote: a verdict there would be the judge's guess, not a review.
+ */
+export function dimensionsNotRun(outcomes: readonly RoleOutcome[]): Set<Dimension> {
+  const out = new Set<Dimension>();
+  for (const [dim, roles] of Object.entries(DIMENSION_ROLES) as [Dimension, readonly Role[]][]) {
+    const asked = outcomes.filter((o) => roles.includes(o.role));
+    if (asked.length > 0 && asked.every((o) => o.status === 'unavailable')) out.add(dim);
+  }
+  return out;
+}
+
 export function modelLine(o: RoleOutcome): string {
   const label = ROLE_LABEL[o.role];
   switch (o.status) {
@@ -221,14 +243,23 @@ export function reviewBody(r: ReviewBodyInput): string {
     r.facts,
     '',
   ];
-  if (d.dimensions.length > 0) {
+  const notRun = dimensionsNotRun(r.outcomes);
+  const rows = [
+    ...d.dimensions.filter((x) => !notRun.has(x.dimension)),
+    ...[...notRun].map((dimension) => ({
+      dimension,
+      verdict: 'NOT RUN' as const,
+      headline: 'reviewer unavailable',
+    })),
+  ];
+  if (rows.length > 0) {
     lines.push(
       '### Dimension verdicts',
       '',
       '| Dimension | Verdict | Headline |',
       '| --- | --- | --- |',
     );
-    for (const x of d.dimensions)
+    for (const x of rows)
       lines.push(
         `| ${x.dimension} | ${x.verdict} | ${tableCell(inertMarkdown(x.headline, a, 240))} |`,
       );

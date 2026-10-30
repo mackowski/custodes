@@ -146,3 +146,21 @@ We will add a `cheatsheet-review` agent and the broker capabilities it needs:
   costs time; the limits above bound it. Workers cannot reach private networks, so this is not an
   SSRF path into Custodes.
 - **Kill switch.** `guard()` runs before every model call, link fetch, broker action and e-mail.
+
+## Amendment 2026-10-30: lineup after the benchmark
+
+A one-off benchmark on 30 OWASP pull requests (`workers/agents/scripts/benchmark/REPORT.md`, run
+by hand, not in CI) changed four roles:
+
+- **Second security voice:** DeepSeek V4.1 Flash at high reasoning effort replaces V4 Pro. It found
+  7 maintainer-raised problems against 4, and had no Workers AI timeouts; V4 Pro timed out (HTTP 408) on 4 to 8 of 27 pull requests. The fallback is the same weights on OpenRouter, restricted to
+  hosts serving fp8 or better.
+- **Practicality:** Claude Sonnet 5.5 replaces Muse Spark 1.3 (13 problems found against 2).
+- **Judge:** GPT-6 Astra replaces GPT-6.1 Sol by the operator's preference: on the same 17 pull
+  requests Astra agreed with the maintainers' outcome 14 times, Sol 13, which is within noise.
+- **Fallbacks:** Opus falls back to Sol (Astra is now the judge); Muse Spark falls back to Sol
+  instead of Llama 4 Maverick, which had no evidence behind it.
+
+Rejected: Muse Wonder as a third security voice (no problem found that Opus or DeepSeek missed, 4
+false blockers). Not measured: the duplication checker (needs repository-wide retrieval) and the
+link auditor (the linked pages have changed since).

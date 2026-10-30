@@ -71,6 +71,8 @@ async function ask<S extends z.ZodType>(
           system,
           user: prompt,
           max_tokens: LINEUP[role].max_tokens,
+          ...(LINEUP[role].effort ? { reasoning_effort: LINEUP[role].effort } : {}),
+          ...(m.hosts ? { hosts: m.hosts } : {}),
           metadata: { agentId: deps.agentId, runId: deps.runId, subAgent: role },
         },
         sub,

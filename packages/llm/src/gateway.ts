@@ -113,6 +113,19 @@ export function byokAliasesOf(body: string): string[] | undefined {
 /** BYOK alias found per gateway URL, for this isolate. A renamed key is found again on its 2040. */
 const discoveredAliases = new Map<string, string>();
 
+/**
+ * Longest text recorded in one payload attribute. Workers traces dropped whole `chat` spans when
+ * their payloads were large (25-60k characters seen, sandbox#64). A `chat` span has three payload
+ * attributes (system, input, output), so 8k each keeps a span under the lowest size seen dropped.
+ */
+export const PAYLOAD_MAX_CHARS = 8_000;
+
+/** Cuts a payload text to PAYLOAD_MAX_CHARS and says how much was left out. */
+export function clipPayload(text: string): string {
+  if (text.length <= PAYLOAD_MAX_CHARS) return text;
+  return `${text.slice(0, PAYLOAD_MAX_CHARS)}\n[... ${String(text.length - PAYLOAD_MAX_CHARS)} characters not recorded]`;
+}
+
 export class AnthropicGateway {
   private readonly url: string;
   private readonly fetchImpl: typeof fetch;
@@ -138,10 +151,15 @@ export class AnthropicGateway {
     if (this.cfg.anthropicApiKey) headers['x-api-key'] = this.cfg.anthropicApiKey;
     return chat(turn, { provider: 'anthropic', model: req.model }, async (span) => {
       span.set('gen_ai.request.max_tokens', req.max_tokens);
-      span.payload('gen_ai.system_instructions', [{ type: 'text', content: req.system }]);
+      span.payload('gen_ai.system_instructions', [
+        { type: 'text', content: clipPayload(req.system) },
+      ]);
       span.payload(
         'gen_ai.input.messages',
-        req.messages.map((m) => ({ role: m.role, parts: [{ type: 'text', content: m.content }] })),
+        req.messages.map((m) => ({
+          role: m.role,
+          parts: [{ type: 'text', content: clipPayload(m.content) }],
+        })),
       );
       const send = (alias: string | undefined) =>
         this.fetchImpl(this.url, {
@@ -181,7 +199,7 @@ export class AnthropicGateway {
       span.payload('gen_ai.output.messages', [
         {
           role: 'assistant',
-          parts: [{ type: 'text', content: AnthropicGateway.text(out) }],
+          parts: [{ type: 'text', content: clipPayload(AnthropicGateway.text(out)) }],
           finish_reason: out.stop_reason ?? 'unknown',
         },
       ]);

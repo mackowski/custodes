@@ -64,6 +64,7 @@ export const Dimension = z.enum([
   'Duplication & placement',
   'Language',
 ]);
+export type Dimension = z.infer<typeof Dimension>;
 
 const Item = z.object({
   dimension: Dimension,
