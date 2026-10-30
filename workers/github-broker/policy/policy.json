@@ -26,6 +26,11 @@
       "repos": ["mackowski/custodes-sandbox"],
       "actions": ["pr.review.inline", "issue.label.remove"],
       "requiresApproval": [],
+      "$comment_requiresApprovalOn": "ADR 0017 amendment: on OWASP a review is posted only after the operator approves it through the e-mailed link. The sandbox is listed too until the approval flow has passed its e2e there; the PR that adds OWASP to repos removes the sandbox entry.",
+      "requiresApprovalOn": {
+        "mackowski/custodes-sandbox": ["pr.review.inline"],
+        "OWASP/CheatSheetSeries": ["pr.review.inline"]
+      },
       "rateLimitPerHour": 20,
       "labels": ["custodes_cheatsheet_review"]
     }

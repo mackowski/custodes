@@ -14,6 +14,7 @@ import { chat, type OperationSpan, type Turn } from '@custodes/core';
 import type { AiRunner } from './clef.js';
 import {
   AnthropicGateway,
+  clipPayload,
   errorTypeOf,
   GatewayError,
   ModelOutputError,
@@ -25,6 +26,13 @@ export interface ChatRequest {
   system: string;
   user: string;
   max_tokens: number;
+  /**
+   * Reasoning effort for models that take one (DeepSeek on Workers AI, OpenRouter reasoning
+   * models). Ignored by Anthropic. Omitted: the model's default.
+   */
+  reasoning_effort?: 'none' | 'low' | 'medium' | 'high' | 'max';
+  /** OpenRouter only: the upstream hosts allowed to serve the call, no fallback to others. */
+  hosts?: readonly string[];
   /** JSON Schema of the expected answer, for providers that can enforce one. */
   schema?: { name: string; schema: Record<string, unknown> };
   /** Sent as `cf-aig-metadata`: ids only (agentId, runId, subAgent). At most 5 entries. */
@@ -70,12 +78,18 @@ export class ChatTimeoutError extends Error {
 }
 
 const DEFAULT_TIMEOUT_MS = 180_000;
+/**
+ * Workers AI answers a synchronous call or fails it with HTTP 408 after about 235 s; DeepSeek at
+ * high effort needs most of that on a long diff. Just under it, so our timeout names the cause.
+ */
+const WORKERS_AI_TIMEOUT_MS = 230_000;
 
 function requestPayloads(span: OperationSpan, req: ChatRequest) {
   span.set('gen_ai.request.max_tokens', req.max_tokens);
-  span.payload('gen_ai.system_instructions', [{ type: 'text', content: req.system }]);
+  if (req.reasoning_effort) span.set('custodes.request.reasoning_effort', req.reasoning_effort);
+  span.payload('gen_ai.system_instructions', [{ type: 'text', content: clipPayload(req.system) }]);
   span.payload('gen_ai.input.messages', [
-    { role: 'user', parts: [{ type: 'text', content: req.user }] },
+    { role: 'user', parts: [{ type: 'text', content: clipPayload(req.user) }] },
   ]);
 }
 
@@ -84,7 +98,11 @@ function resultAttributes(span: OperationSpan, out: ChatResult, finish: string) 
   span.set('gen_ai.usage.input_tokens', out.usage?.input_tokens);
   span.set('gen_ai.usage.output_tokens', out.usage?.output_tokens);
   span.payload('gen_ai.output.messages', [
-    { role: 'assistant', parts: [{ type: 'text', content: out.text }], finish_reason: finish },
+    {
+      role: 'assistant',
+      parts: [{ type: 'text', content: clipPayload(out.text) }],
+      finish_reason: finish,
+    },
   ]);
 }
 
@@ -184,8 +202,10 @@ export class OpenRouterGateway implements ChatModel {
         data_collection: 'deny',
         // Route only to providers that honour response_format, instead of silently ignoring it.
         ...(req.schema ? { require_parameters: true } : {}),
+        ...(req.hosts ? { only: req.hosts, allow_fallbacks: false } : {}),
       },
     };
+    if (req.reasoning_effort) body['reasoning'] = { effort: req.reasoning_effort };
     if (req.schema) {
       body['response_format'] = {
         type: 'json_schema',
@@ -242,12 +262,13 @@ export class WorkersAiChat implements ChatModel {
       ],
       max_tokens: req.max_tokens,
     };
+    if (req.reasoning_effort) inputs['reasoning_effort'] = req.reasoning_effort;
     if (req.schema)
       inputs['response_format'] = { type: 'json_schema', json_schema: req.schema.schema };
     return chat(turn, { provider: this.provider, model: req.model }, async (span) => {
       requestPayloads(span, req);
       const metadata = gatewayMetadata(req.metadata);
-      const raw = await withTimeout(this.cfg.timeoutMs ?? DEFAULT_TIMEOUT_MS, (signal) =>
+      const raw = await withTimeout(this.cfg.timeoutMs ?? WORKERS_AI_TIMEOUT_MS, (signal) =>
         this.cfg.ai.run(req.model, inputs, {
           gateway: { id: this.cfg.gatewayId, metadata },
           signal,

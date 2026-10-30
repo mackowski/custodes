@@ -40,3 +40,6 @@ worker-configuration.d.ts
 # promptfoo results
 evals/output/
 e2e/sandbox/.last-run.json
+
+# one-off benchmark data (third-party PR text and raw model answers)
+.bench/

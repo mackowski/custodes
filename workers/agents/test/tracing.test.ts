@@ -24,8 +24,7 @@ const testEnv = env as AgentsEnv;
 const GW = 'CANARY-GW-4a1e';
 const OR = 'CANARY-OR-c07d';
 const ANT = 'CANARY-ANT-88b2';
-const APPROVAL = 'CANARY-APPROVAL-1f9c';
-const canaries = [GW, OR, ANT, APPROVAL];
+const canaries = [GW, OR, ANT];
 const REPO = 'OWASP/CheatSheetSeries';
 const PAYLOAD_KEYS = [
   'gen_ai.input.messages',
@@ -343,7 +342,7 @@ interface Internals {
     action: unknown,
     runId: string,
     trigger: unknown,
-    opts: { approvalId?: string; turn?: Turn },
+    opts: { turn?: Turn },
   ): Promise<{ ok: boolean }>;
   turn(repo: string, n: number, runId: string): Turn;
 }
@@ -600,7 +599,7 @@ describe('pr-gate tracing', () => {
     expect(r.row?.outcome).toBe('skip');
   });
 
-  it('wraps a close in an execute_tool pr.close span with the action as payload and no approval id', async () => {
+  it('wraps a close in an execute_tool pr.close span with the action as payload', async () => {
     const calls: unknown[] = [];
     const t = new RecordingTracer();
     const res = await inPrGate(fakeBroker([], calls), t, creds, async (agent, i) => {
@@ -611,13 +610,13 @@ describe('pr-gate tracing', () => {
           { type: 'pr.close', repo: SANDBOX, pull: 9408, body },
           'run-act',
           { kind: 'schedule', ref: 'pr-gate.poll' },
-          { approvalId: APPROVAL, turn },
+          { turn },
         ),
       ).then((r) => ({ r, agent }));
     });
     expect(res.r.ok).toBe(true);
-    // The broker did get the approval id; the trace did not.
-    expect(JSON.stringify(calls)).toContain(APPROVAL);
+    // Agents never send an approval id: the broker runs approved actions itself.
+    expect(JSON.stringify(calls)).not.toContain('approvalId');
     const tool = t.named('execute_tool pr.close')[0]!;
     expect(tool.parent).toBe(t.roots[0]);
     expect(tool.attributes).toMatchObject({

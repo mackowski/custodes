@@ -1,5 +1,8 @@
 import type { ApprovalRequest, Attestation, BrokerRequest } from '@custodes/schema';
-import { Attestation as AttestationSchema } from '@custodes/schema';
+import {
+  Attestation as AttestationSchema,
+  BrokerRequest as BrokerRequestSchema,
+} from '@custodes/schema';
 
 export class AuditStore {
   constructor(private readonly db: D1Database) {}
@@ -128,7 +131,8 @@ export class ApprovalStore {
         approval.agentId,
         approval.runId,
         actionHash,
-        JSON.stringify(approval),
+        // The full request rides along so the broker can run exactly it once approved.
+        JSON.stringify({ ...approval, request: req }),
         approval.createdAt,
         approval.expiresAt,
       )
@@ -144,6 +148,19 @@ export class ApprovalStore {
       .bind(id)
       .first<ApprovalRow>();
     return row ? toApproval(row) : null;
+  }
+
+  /** The request an approval was created for, to run once it is approved. */
+  async requestOf(id: string): Promise<BrokerRequest | null> {
+    const row = await this.db
+      .prepare('SELECT request_json FROM approvals WHERE id = ?1')
+      .bind(id)
+      .first<{ request_json: string }>();
+    if (!row) return null;
+    const parsed = BrokerRequestSchema.safeParse(
+      (JSON.parse(row.request_json) as { request?: unknown }).request,
+    );
+    return parsed.success ? parsed.data : null;
   }
 
   async listPending(limit: number): Promise<ApprovalRequest[]> {
@@ -165,16 +182,63 @@ export class ApprovalStore {
     if (!cur) return 'not_found';
     if (cur.status !== 'pending') return 'not_pending';
     if (new Date(cur.expiresAt) < now) {
-      await this.db.prepare(`UPDATE approvals SET status = 'expired' WHERE id = ?1`).bind(id).run();
+      await this.db
+        .prepare(`UPDATE approvals SET status = 'expired' WHERE id = ?1 AND status = 'pending'`)
+        .bind(id)
+        .run();
       return 'expired';
     }
-    await this.db
+    const res = await this.db
       .prepare(
         `UPDATE approvals SET status = ?2, decided_by = ?3, decided_at = ?4 WHERE id = ?1 AND status = 'pending'`,
       )
       .bind(id, decision, by, now.toISOString())
       .run();
-    return 'ok';
+    // Lost a race with another click (approve against reject): the other decision stands.
+    return res.meta.changes === 1 ? 'ok' : 'not_pending';
+  }
+
+  /**
+   * Rejects this agent's pending requests for the same pull request or issue (`superseded`).
+   * Returns how many were replaced.
+   */
+  async supersedePending(
+    agentId: string,
+    target: { repo: string; number: number },
+    keepId: string,
+    now = new Date(),
+  ): Promise<number> {
+    const { results } = await this.db
+      .prepare(
+        `SELECT id, request_json FROM approvals WHERE agent_id = ?1 AND status = 'pending' AND expires_at > ?2 AND id != ?3`,
+      )
+      .bind(agentId, now.toISOString(), keepId)
+      .all<{ id: string; request_json: string }>();
+    let n = 0;
+    for (const row of results) {
+      const a = (JSON.parse(row.request_json) as ApprovalRequest).action;
+      const num = 'pull' in a ? a.pull : a.issue;
+      if (a.repo !== target.repo || num !== target.number) continue;
+      const res = await this.db
+        .prepare(
+          `UPDATE approvals SET status = 'rejected', decided_by = 'superseded', decided_at = ?2 WHERE id = ?1 AND status = 'pending'`,
+        )
+        .bind(row.id, now.toISOString())
+        .run();
+      n += res.meta.changes;
+    }
+    return n;
+  }
+
+  /** Pending, unexpired approval requests of one agent. */
+  async countPending(agentId: string, now = new Date()): Promise<number> {
+    const row = await this.db
+      .prepare(
+        `SELECT COUNT(*) AS n FROM approvals WHERE agent_id = ?1 AND status = 'pending' AND expires_at > ?2`,
+      )
+      .bind(agentId, now.toISOString())
+      .first<{ n: number }>();
+    return row?.n ?? 0;
   }
 
   /** Marks an approved request as used so it cannot authorise a second action. */
@@ -192,7 +256,9 @@ export class ApprovalStore {
 function toApproval(
   row: ApprovalRow,
 ): ApprovalRequest & { actionHash: string; consumedAt: string | null } {
-  const base = JSON.parse(row.request_json) as ApprovalRequest;
+  const { request: _request, ...base } = JSON.parse(row.request_json) as ApprovalRequest & {
+    request?: unknown;
+  };
   return {
     ...base,
     status: row.status,

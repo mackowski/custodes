@@ -25,6 +25,14 @@ export const ApprovalRequest = z.object({
 });
 export type ApprovalRequest = z.infer<typeof ApprovalRequest>;
 
+/** The broker's answer to an agent asking for an approval: the request and its link token. */
+export const ApprovalCreated = z.object({
+  approval: ApprovalRequest,
+  /** `<approvalId>.<exp>.<hmac>`, bound to this approval's exact action (ADR 0017 amendment). */
+  token: z.string().regex(/^[0-9a-f-]{36}\.\d{1,12}\.[A-Za-z0-9_-]{20,100}$/),
+});
+export type ApprovalCreated = z.infer<typeof ApprovalCreated>;
+
 export const HaltRequest = z.object({ reason: z.string().min(3).max(500) });
 
 export const AdminActor = z.object({

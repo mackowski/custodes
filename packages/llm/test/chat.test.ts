@@ -10,7 +10,13 @@ import {
   type ChatRequest,
 } from '../src/chat.js';
 import type { AiRunner } from '../src/clef.js';
-import { AnthropicGateway, GatewayError, ModelOutputError } from '../src/gateway.js';
+import {
+  AnthropicGateway,
+  clipPayload,
+  GatewayError,
+  ModelOutputError,
+  PAYLOAD_MAX_CHARS,
+} from '../src/gateway.js';
 import { RecordingTracer, turnOf } from './helpers/recording-tracer.js';
 
 const GW = 'CANARY-GW-c41e';
@@ -145,6 +151,39 @@ describe('WorkersAiChat', () => {
     expect(options.gateway).toEqual({ id: 'gw', metadata: req.metadata });
     expect(options.signal).toBeInstanceOf(AbortSignal);
     expect(() => new WorkersAiChat({ ai: { run }, gatewayId: ' ' })).toThrow(/AI Gateway id/);
+    expect(inputs).not.toHaveProperty('reasoning_effort');
+  });
+
+  it('passes the reasoning effort to the model', async () => {
+    const run = vi.fn<AiRunner['run']>(() => Promise.resolve(completion()));
+    await new WorkersAiChat({ ai: { run }, gatewayId: 'gw' }).complete({
+      ...req,
+      reasoning_effort: 'high',
+    });
+    expect(run.mock.calls[0]![1]).toMatchObject({ reasoning_effort: 'high' });
+  });
+
+  it('waits up to 230 s by default, just under the Workers AI synchronous limit', async () => {
+    vi.useFakeTimers();
+    try {
+      const run = vi.fn<AiRunner['run']>(
+        (_m, _i, options) =>
+          new Promise((_, reject) => {
+            options.signal?.addEventListener('abort', () => {
+              reject(new Error('aborted'));
+            });
+          }),
+      );
+      const p = new WorkersAiChat({ ai: { run }, gatewayId: 'gw' }).complete(req);
+      let settled = false;
+      p.catch(() => undefined).finally(() => (settled = true));
+      await vi.advanceTimersByTimeAsync(229_000);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1_000);
+      await expect(p).rejects.toBeInstanceOf(ChatTimeoutError);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
@@ -167,7 +206,13 @@ describe('AnthropicChat', () => {
       gatewayToken: GW,
       fetchImpl,
     });
-    const out = await new AnthropicChat(gw).complete({ ...req, model: 'claude-opus-5-5' });
+    // Anthropic takes no reasoning effort or hosts: both are left out of the request.
+    const out = await new AnthropicChat(gw).complete({
+      ...req,
+      model: 'claude-opus-5-5',
+      reasoning_effort: 'high',
+      hosts: ['x'],
+    });
     expect(out).toEqual({
       text: 'ANSWER',
       model: 'claude-opus-5-5-20261001',
@@ -212,6 +257,61 @@ describe('chat spans for review sub-agents', () => {
   });
 });
 
+describe('payload clipping', () => {
+  it('leaves short text alone and cuts long text, saying how much was left out', () => {
+    expect(clipPayload('short')).toBe('short');
+    const long = 'a'.repeat(PAYLOAD_MAX_CHARS + 500);
+    const clipped = clipPayload(long);
+    expect(clipped.startsWith('a'.repeat(PAYLOAD_MAX_CHARS))).toBe(true);
+    expect(clipped).toContain('500 characters not recorded');
+    expect(clipped.length).toBeLessThan(PAYLOAD_MAX_CHARS + 100);
+  });
+
+  it('keeps every chat span small enough to be kept, for each provider', async () => {
+    const big = 'U'.repeat(100_000);
+    const answer = 'A'.repeat(100_000);
+    const anthropicFetch = (() =>
+      Promise.resolve(
+        Response.json({
+          id: 'msg_1',
+          model: 'claude-opus-5-5',
+          stop_reason: 'end_turn',
+          content: [{ type: 'text', text: answer }],
+          usage: { input_tokens: 1, output_tokens: 1 },
+        }),
+      )) as unknown as typeof fetch;
+    const clients = [
+      openRouter(() =>
+        Promise.resolve(
+          Response.json(
+            completion({ choices: [{ message: { content: answer }, finish_reason: 'stop' }] }),
+          ),
+        ),
+      ),
+      new WorkersAiChat({
+        ai: { run: () => Promise.resolve({ response: answer }) },
+        gatewayId: 'gw',
+      }),
+      new AnthropicChat(
+        new AnthropicGateway({
+          accountId: 'a',
+          gatewayId: 'g',
+          gatewayToken: GW,
+          fetchImpl: anthropicFetch,
+        }),
+      ),
+    ];
+    for (const client of clients) {
+      const t = new RecordingTracer();
+      const turn = turnOf(t, true);
+      await invokeAgent(turn, () => client.complete({ ...req, system: big, user: big }, turn));
+      const total = t.allValues().join('').length;
+      expect(total, client.provider).toBeLessThan(25_000);
+      expect(t.allValues().join('|'), client.provider).toContain('characters not recorded');
+    }
+  });
+});
+
 describe('gatewayMetadata', () => {
   it('passes a few id-like entries and refuses free text or more than 5 entries', () => {
     expect(gatewayMetadata(req.metadata)).toEqual(req.metadata);
@@ -233,6 +333,25 @@ describe('gatewayMetadata', () => {
       }),
     ).rejects.toThrow(/id-like/);
     expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('pins the upstream hosts without fallback and passes the reasoning effort', async () => {
+    const fetchImpl = vi.fn((_u: RequestInfo | URL, _i?: RequestInit) =>
+      Promise.resolve(Response.json(completion())),
+    );
+    await openRouter(fetchImpl).complete({
+      ...req,
+      hosts: ['together', 'nebius/fp8'],
+      reasoning_effort: 'high',
+    });
+    const body = JSON.parse(fetchImpl.mock.calls[0]![1]?.body as string) as Record<string, unknown>;
+    expect(body['provider']).toEqual({
+      data_collection: 'deny',
+      require_parameters: true,
+      only: ['together', 'nebius/fp8'],
+      allow_fallbacks: false,
+    });
+    expect(body['reasoning']).toEqual({ effort: 'high' });
   });
 
   it('asks OpenRouter for no-retention hosts even without a schema', async () => {

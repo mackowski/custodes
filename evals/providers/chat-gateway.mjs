@@ -4,12 +4,13 @@
 //   token only, no Unified Billing fallback, upstream hosts that keep no prompts.
 // - transport "workers-ai": the gateway's workers-ai route with CF_WORKERS_AI_EVAL_TOKEN (the agent
 //   uses the AI binding with the same gateway id; CI has no binding).
-// Config (per suite): transport, model, max_tokens, runId. Vars: system, user.
+// Config (per suite): transport, model, max_tokens, runId, optional reasoning_effort. Vars: system,
+// user.
 // Output: the JSON the agent would parse (extract.mjs mirrors parseStructured).
 
 import { extractJson } from './extract.mjs';
 
-/** @typedef {{ transport: 'openrouter' | 'workers-ai', model: string, max_tokens: number, runId: string }} ChatConfig */
+/** @typedef {{ transport: 'openrouter' | 'workers-ai', model: string, max_tokens: number, runId: string, reasoning_effort?: string }} ChatConfig */
 
 export default class ChatGatewayProvider {
   /** @param {{ id?: string, config: ChatConfig }} options */
@@ -52,13 +53,18 @@ export default class ChatGatewayProvider {
         messages,
         max_tokens: c.max_tokens,
         provider: { data_collection: 'deny' },
+        ...(c.reasoning_effort ? { reasoning: { effort: c.reasoning_effort } } : {}),
       };
     } else {
       const token = env['CF_WORKERS_AI_EVAL_TOKEN'];
       if (!token) return { error: 'CF_WORKERS_AI_EVAL_TOKEN is not set' };
       url = `${base}/workers-ai/${c.model}`;
       headers['authorization'] = `Bearer ${token}`;
-      body = { messages, max_tokens: c.max_tokens };
+      body = {
+        messages,
+        max_tokens: c.max_tokens,
+        ...(c.reasoning_effort ? { reasoning_effort: c.reasoning_effort } : {}),
+      };
     }
     const res = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
     // Status only: response bodies can quote the prompt.

@@ -10,9 +10,10 @@ const policy: Policy = {
     triage: {
       tokenBinding: 'PAT_TRIAGE',
       mode: 'hotl',
-      repos: ['OWASP/CheatSheetSeries'],
+      repos: ['OWASP/CheatSheetSeries', 'mackowski/custodes-sandbox'],
       actions: ['issue.comment', 'issue.label.add'],
       requiresApproval: ['issue.label.add'],
+      requiresApprovalOn: { 'mackowski/custodes-sandbox': ['issue.comment'] },
       rateLimitPerHour: 60,
     },
   },
@@ -73,6 +74,53 @@ describe('evaluatePolicy', () => {
   });
 });
 
+describe('evaluatePolicy: approval per repository', () => {
+  const comment = (repo: string): BrokerRequest => ({
+    ...base,
+    action: { type: 'issue.comment', repo, issue: 1, body: 'x' },
+  });
+
+  it('asks for an approval only on the repository that lists the action', () => {
+    expect(evaluatePolicy(policy, comment('mackowski/custodes-sandbox'))).toEqual({
+      allow: true,
+      needsApproval: true,
+    });
+    expect(evaluatePolicy(policy, comment('OWASP/CheatSheetSeries'))).toEqual({
+      allow: true,
+      needsApproval: false,
+    });
+  });
+
+  it('never allows a repository just because it has an approval entry', () => {
+    const p: Policy = {
+      ...policy,
+      agents: {
+        triage: {
+          ...policy.agents['triage']!,
+          requiresApprovalOn: { 'other/repo': ['issue.comment'] },
+        },
+      },
+    };
+    expect(evaluatePolicy(p, comment('other/repo'))).toMatchObject({ allow: false });
+  });
+
+  it('refuses a policy whose per-repository approval names an action the agent lacks', () => {
+    const bad = {
+      version: 1,
+      agents: {
+        a: {
+          tokenBinding: 'PAT_A',
+          mode: 'hotl',
+          repos: ['o/r'],
+          actions: ['issue.comment'],
+          requiresApprovalOn: { 'o/r': ['pr.close'] },
+        },
+      },
+    };
+    expect(PolicySchema.safeParse(bad).success).toBe(false);
+  });
+});
+
 describe('evaluatePolicy for read-only agents', () => {
   it('denies every action even when the policy lists it', () => {
     const ro: Policy = {
@@ -85,6 +133,7 @@ describe('evaluatePolicy for read-only agents', () => {
           repos: ['OWASP/CheatSheetSeries'],
           actions: ['issue.comment'],
           requiresApproval: [],
+          requiresApprovalOn: {},
           rateLimitPerHour: 60,
         },
       },
@@ -178,10 +227,10 @@ describe('evaluatePolicy for cheatsheet-review (real broker policy)', () => {
     comments: [],
   };
 
-  it('lets cheatsheet-review post an inline review and remove its label on the sandbox (hotl, ADR 0017)', () => {
+  it('lets cheatsheet-review post an inline review on the sandbox only with an approval, and remove its label without one (ADR 0017 amendment)', () => {
     expect(evaluatePolicy(real, { ...reviewer, action: review })).toEqual({
       allow: true,
-      needsApproval: false,
+      needsApproval: true,
     });
     expect(
       evaluatePolicy(real, {
@@ -194,6 +243,11 @@ describe('evaluatePolicy for cheatsheet-review (real broker policy)', () => {
         },
       }),
     ).toEqual({ allow: true, needsApproval: false });
+  });
+  it('already asks for an approval to post on OWASP, before OWASP is in its repos', () => {
+    expect(real.agents['cheatsheet-review']?.requiresApprovalOn['OWASP/CheatSheetSeries']).toEqual([
+      'pr.review.inline',
+    ]);
   });
   it('denies cheatsheet-review on OWASP until its evals pass, and every other action', () => {
     expect(

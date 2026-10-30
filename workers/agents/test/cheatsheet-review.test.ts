@@ -37,7 +37,11 @@ interface Scenario {
   files: PullFile[];
   headText: string;
   issues: Record<number, PublicIssue>;
+  /** The broker's answer to every act, or per request. */
   act: unknown;
+  actFor?: (req: BrokerRequest) => unknown;
+  /** Status and body the broker answers an approval request with. */
+  approval?: { status: number; body: unknown };
 }
 
 const issue = (over: Partial<PublicIssue> = {}): PublicIssue => ({
@@ -82,22 +86,53 @@ const pullOf = (over: Partial<PublicPull> = {}): PublicPull => ({
   ...over,
 });
 
+const TOKEN =
+  '6a1f6c1e-0b1e-4c5e-9d55-3f1b1e0e7a02.1900000000.SIGNATURE-abcdefghijklmnopqrstuvwxyz012345';
+const CREATED = {
+  approval: {
+    id: '6a1f6c1e-0b1e-4c5e-9d55-3f1b1e0e7a02',
+    agentId: 'cheatsheet-review',
+    runId: '6a1f6c1e-0b1e-4c5e-9d55-3f1b1e0e7a03',
+    action: { type: 'issue.label.remove', repo: REPO, issue: PR, labels: [LABEL] },
+    rationale: 'r',
+    createdAt: '2026-10-30T10:00:00.000Z',
+    expiresAt: '2026-10-31T10:00:00.000Z',
+    status: 'pending',
+  },
+  token: TOKEN,
+};
+/** The broker asks for an approval of the review and allows everything else. */
+const needsApproval = (req: BrokerRequest) =>
+  req.action.type === 'pr.review.inline'
+    ? { ok: false, code: 'approval_required', reason: 'this action needs a human approval' }
+    : { ok: true, attestationId: '6a1f6c1e-0b1e-4c5e-9d55-3f1b1e0e7a01' };
+
 const b64 = (s: string) => btoa(String.fromCharCode(...new TextEncoder().encode(s)));
 
 /** A broker that answers reads from the scenario and records every read and act. */
 function fakeBroker(sc: Scenario) {
   const reads: { resource: string; ref?: string; path?: string; number?: number }[] = [];
   const acts: BrokerRequest[] = [];
+  const approvals: { request: BrokerRequest; rationale: string }[] = [];
   let pullReads = 0;
   return {
     reads,
     acts,
+    approvals,
     fetch: (url: string, init: RequestInit): Response => {
       const body = JSON.parse(init.body as string) as Record<string, unknown>;
       if (url.endsWith('/v1/act')) {
         const req = BrokerRequest.parse(body); // the real wire schema: an invalid action fails the test
         acts.push(req);
-        return Response.json(sc.act);
+        return Response.json(sc.actFor ? sc.actFor(req) : sc.act);
+      }
+      if (url === 'https://broker.internal/v1/approvals') {
+        approvals.push({
+          request: BrokerRequest.parse(body['request']),
+          rationale: String(body['rationale']),
+        });
+        const a = sc.approval ?? { status: 201, body: CREATED };
+        return Response.json(a.body, { status: a.status });
       }
       expect(url).toBe('https://broker.internal/v1/read');
       const r = body as { resource: string; ref?: string; path?: string; number?: number };
@@ -239,6 +274,8 @@ interface Options {
   fetchImpl?: typeof fetch;
   /** Run again in the same agent (same storage) after the first. */
   runs?: number;
+  /** Every e-mail send fails. */
+  mailFails?: boolean;
 }
 
 const stub = () => getAgentByName(testEnv.CheatsheetReviewAgent, SANDBOX_INSTANCE);
@@ -251,6 +288,7 @@ async function drive(opts: Options = {}): Promise<Run & { outs: ReviewOutcome[] 
   const fetched: string[] = [];
   const email = {
     send: (m: Run['mail'][number]) => {
+      if (opts.mailFails) return Promise.reject(new Error('send failed'));
       mail.push(m);
       return Promise.resolve();
     },
@@ -451,11 +489,19 @@ describe('cheatsheet-review: a content pull request', () => {
     expect(r.models.calls.every((c) => c.req.metadata.agentId === 'cheatsheet-review')).toBe(true);
     const via = (role: string) => r.models.calls.find((c) => c.role === role)?.req.model;
     expect(via('security-reviewer')).toBe('claude-opus-5-5');
-    expect(via('security-second-voice')).toBe('@cf/deepseek-ai/deepseek-v4-pro-0813');
-    expect(via('judge')).toBe('openai/gpt-6.1-sol');
+    expect(via('security-second-voice')).toBe('@cf/deepseek-ai/deepseek-v4.1-flash-1017');
+    expect(via('practicality-reviewer')).toBe('claude-sonnet-5-5');
+    expect(via('judge')).toBe('openai/gpt-6-astra');
+    const second = r.models.calls.find((c) => c.role === 'security-second-voice')?.req;
+    expect(second?.reasoning_effort).toBe('high');
+    expect(second?.max_tokens).toBe(24_000);
+    // Only the second voice sets an effort; the other roles keep the model default.
+    expect(
+      r.models.calls.filter((c) => c.req.reasoning_effort !== undefined).map((c) => c.role),
+    ).toEqual(['security-second-voice']);
     const body = reviewActs(r)[0]?.body ?? '';
     expect(body).toContain('claude-opus-5-5');
-    expect(body).toContain('openai/gpt-6.1-sol');
+    expect(body).toContain('openai/gpt-6-astra');
   });
 
   it('posts COMMENT, not a blocking review, when the blocker is not about security or links', async () => {
@@ -488,6 +534,22 @@ describe('cheatsheet-review: a content pull request', () => {
     expect(reviewActs(r)[0]?.body).toContain('~~openai/gpt-6-luna~~');
     expect(reviewActs(r)[0]?.body).toContain('claude-haiku-5-5');
   });
+
+  it('falls back from Workers AI to the same DeepSeek weights on pinned OpenRouter hosts, same effort', async () => {
+    const r = await drive({
+      script: (role, req) =>
+        req.model === '@cf/deepseek-ai/deepseek-v4.1-flash-1017'
+          ? new Error('ChatTimeoutError')
+          : defaultScript(decisionJson())(role, req),
+    });
+    expect(r.out).toMatchObject({ status: 'posted' });
+    const fallback = r.models.calls.find(
+      (c) =>
+        c.role === 'security-second-voice' && c.req.model === 'deepseek/deepseek-v4.1-flash-1017',
+    )?.req;
+    expect(fallback?.hosts).toEqual(['nebius/fp8', 'parasail/fp8', 'crusoe/fp8']);
+    expect(fallback?.reasoning_effort).toBe('high');
+  });
 });
 
 describe('cheatsheet-review: failing safe', () => {
@@ -500,7 +562,7 @@ describe('cheatsheet-review: failing safe', () => {
     expect(r.broker.acts).toEqual([]);
     // The judge was asked on both its primary and its fallback model.
     const judged = r.models.calls.filter((c) => c.role === 'judge').map((c) => c.req.model);
-    expect(new Set(judged)).toEqual(new Set(['openai/gpt-6.1-sol', 'claude-sonnet-5-5']));
+    expect(new Set(judged)).toEqual(new Set(['openai/gpt-6-astra', 'claude-sonnet-5-5']));
     expect(r.mail).toHaveLength(1);
     expect(r.mail[0]?.subject).toContain('not posted');
     expect(r.mail[0]?.text).toContain('judge unavailable');
@@ -510,9 +572,9 @@ describe('cheatsheet-review: failing safe', () => {
   it('publishes nothing when both security voices are down', async () => {
     const down = new Set([
       'claude-opus-5-5',
-      'openai/gpt-6-astra',
-      '@cf/deepseek-ai/deepseek-v4-pro-0813',
-      'deepseek/deepseek-v4-pro',
+      'openai/gpt-6.1-sol',
+      '@cf/deepseek-ai/deepseek-v4.1-flash-1017',
+      'deepseek/deepseek-v4.1-flash-1017',
     ]);
     const r = await drive({
       script: (role, req) =>
@@ -524,6 +586,48 @@ describe('cheatsheet-review: failing safe', () => {
     });
     expect(r.broker.acts).toEqual([]);
     expect(r.mail).toHaveLength(1);
+  });
+
+  it('asks for an approval where the policy wants one, e-mails the link and removes the label', async () => {
+    const t = new RecordingTracer();
+    const r = await drive({ scenario: scenario({ actFor: needsApproval }), tracer: t });
+    expect(r.out).toMatchObject({ ok: true, status: 'awaiting_approval' });
+    // The approval is for exactly the review the agent tried to post.
+    expect(r.broker.approvals).toHaveLength(1);
+    expect(r.broker.approvals[0]?.request.action).toEqual(reviewActs(r)[0]);
+    expect(r.broker.approvals[0]?.request.agentId).toBe('cheatsheet-review');
+    expect(r.broker.acts.map((a) => a.action.type)).toEqual([
+      'pr.review.inline',
+      'issue.label.remove',
+    ]);
+    const mail = r.mail.find((m) => m.subject.includes('approve the review'));
+    expect(mail?.text).toContain(`https://custodes.work/admin/approvals/link/${TOKEN}`);
+    expect(mail?.html).toContain(`https://custodes.work/admin/approvals/link/${TOKEN}`);
+    // Only code-computed facts in the mail: no model text.
+    expect(mail?.text).not.toContain(MARK);
+    expect(r.rows[0]?.status).toBe('awaiting_approval');
+    // The token is a credential for the operator's click: never in a span.
+    expect(t.allValues().join('|')).not.toContain('SIGNATURE-abcdefghij');
+  });
+
+  it('keeps the label when the approval e-mail cannot be sent, so the wait stays visible', async () => {
+    const r = await drive({ scenario: scenario({ actFor: needsApproval }), mailFails: true });
+    expect(r.out).toMatchObject({ ok: true, status: 'awaiting_approval' });
+    expect(r.broker.acts.map((a) => a.action.type)).toEqual(['pr.review.inline']);
+    expect(r.rows[0]?.status).toBe('awaiting_approval');
+  });
+
+  it('e-mails the partial review and keeps the label when the approval request is refused', async () => {
+    const r = await drive({
+      scenario: scenario({
+        actFor: needsApproval,
+        approval: { status: 403, body: { error: 'nope' } },
+      }),
+    });
+    expect(r.out).toMatchObject({ ok: false, status: 'post_failed' });
+    expect(r.broker.acts.map((a) => a.action.type)).toEqual(['pr.review.inline']);
+    expect(r.mail[0]?.text).toContain('the broker refused the approval request (HTTP 403)');
+    expect(r.rows[0]?.status).toBe('post_failed');
   });
 
   it('e-mails and does not remove the label when the broker refuses the review', async () => {
@@ -770,8 +874,8 @@ describe('cheatsheet-review: tracing', () => {
       expect(span.children[0]?.name).toMatch(/^chat /);
     }
     const judge = roleSpans.find((s) => s.name === 'invoke_agent judge');
-    expect(judge?.children[0]?.name).toBe('chat openai/gpt-6.1-sol');
-    expect(judge?.attributes['custodes.review.model']).toBe('gptSol');
+    expect(judge?.children[0]?.name).toBe('chat openai/gpt-6-astra');
+    expect(judge?.attributes['custodes.review.model']).toBe('gptAstra');
     expect(
       roleSpans.find((s) => s.name === 'invoke_agent security-reviewer')?.children[0]?.name,
     ).toBe('chat claude-opus-5-5');

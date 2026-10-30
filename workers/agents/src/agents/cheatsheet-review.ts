@@ -16,10 +16,15 @@ import {
   type ChatModel,
   type ReviewModel,
 } from '@custodes/llm';
-import type { AgentManifest, BrokerResponse } from '@custodes/schema';
+import type { AgentManifest, BrokerAction, BrokerResponse, Trigger } from '@custodes/schema';
 import type { AgentsEnv } from '../env.js';
 import { instanceOf, UnknownInstanceError, unknownInstance } from '../instances.js';
-import { partialReviewMail, lowQualityMail, type Mail } from './cheatsheet-review/email.js';
+import {
+  approvalMail,
+  partialReviewMail,
+  lowQualityMail,
+  type Mail,
+} from './cheatsheet-review/email.js';
 import { parsePatch } from './cheatsheet-review/diff.js';
 import {
   processFacts,
@@ -70,7 +75,7 @@ interface ReviewRow {
 }
 
 export type ReviewOutcome =
-  | { ok: true; status: 'posted' | 'mailed_only'; detail: string }
+  | { ok: true; status: 'posted' | 'mailed_only' | 'awaiting_approval'; detail: string }
   | { ok: false; status: string; detail: string };
 
 export class CheatsheetReviewAgent extends CustodesAgent<AgentsEnv, CheatsheetReviewState> {
@@ -324,26 +329,90 @@ export class CheatsheetReviewAgent extends CustodesAgent<AgentsEnv, CheatsheetRe
       finish('stale', { change_class: result.changeClass, verdict: d.verdict, models });
       return { ok: false, status: 'stale', detail: 'pull request changed during the review' };
     }
-    const posted: BrokerResponse = await this.act(
-      {
-        type: 'pr.review.inline',
-        repo,
-        pull,
-        commitId: headSha,
+    const review: BrokerAction = {
+      type: 'pr.review.inline',
+      repo,
+      pull,
+      commitId: headSha,
+      event,
+      body,
+      comments: checked.comments.map((c) => ({
+        path: c.path,
+        line: c.line,
+        ...(c.startLine !== undefined ? { startLine: c.startLine } : {}),
+        side: c.side,
+        body: c.body.slice(0, 3_900),
+      })),
+    };
+    const posted: BrokerResponse = await this.act(review, runId, trig, { turn });
+    // Where the policy asks for the operator's approval (OWASP), the review waits for a click on
+    // the e-mailed link; the broker posts exactly this review then (ADR 0017 amendment).
+    if (!posted.ok && posted.code === 'approval_required') {
+      const asked = await this.requestApproval(
+        review,
+        `${d.verdict}, ${event}, ${checked.comments.length} inline suggestion(s); run ${runId}`,
+        runId,
+        trig,
+        { turn },
+      );
+      if (!asked.ok) {
+        await this.mail(
+          partialReviewMail({
+            repo,
+            pull,
+            why: `the broker refused the approval request (HTTP ${asked.status})`,
+            outcomes: result.outcomes,
+            decision: d,
+          }),
+        );
+        finish('post_failed', {
+          change_class: result.changeClass,
+          verdict: d.verdict,
+          event,
+          models,
+        });
+        return { ok: false, status: 'post_failed', detail: `approval request ${asked.status}` };
+      }
+      const { approval, token } = asked.created;
+      const mailed = await this.mail(
+        approvalMail({
+          repo,
+          pull,
+          link: `${this.env.APPROVAL_LINK_BASE}/${token}`,
+          verdict: d.verdict,
+          event,
+          suggestions: checked.comments.length,
+          expiresAt: approval.expiresAt,
+        }),
+      );
+      finish('awaiting_approval', {
+        change_class: result.changeClass,
+        verdict: d.verdict,
         event,
-        body,
-        comments: checked.comments.map((c) => ({
-          path: c.path,
-          line: c.line,
-          ...(c.startLine !== undefined ? { startLine: c.startLine } : {}),
-          side: c.side,
-          body: c.body.slice(0, 3_900),
-        })),
-      },
-      runId,
-      trig,
-      { turn },
-    );
+        models,
+      });
+      // Without the e-mail the operator has no link, so this approval can only expire or be
+      // rejected (`custodes approvals reject`). Keep the label so the pull request shows it; remove
+      // and add it again for a new review and a new link.
+      if (mailed) await this.removeTrigger(repo, pull, trigger.label, runId, trig, turn);
+      if (d.verdict === 'CLOSE' || d.lowQuality)
+        await this.mail(
+          lowQualityMail({
+            repo,
+            pull,
+            author: pr.user?.login ?? 'unknown',
+            title: pr.title,
+            decision: d,
+            reviewUrl: undefined,
+            issues: snap.issues,
+          }),
+        );
+      return {
+        ok: true,
+        status: 'awaiting_approval',
+        detail: `${d.verdict} ${event} ${checked.comments.length} suggestion(s), approval ${approval.id}${mailed ? '' : ', e-mail failed'}`,
+      };
+    }
     if (!posted.ok) {
       await this.mail(
         partialReviewMail({
@@ -370,20 +439,7 @@ export class CheatsheetReviewAgent extends CustodesAgent<AgentsEnv, CheatsheetRe
       models,
       review_url: reviewUrl ?? null,
     });
-    const removed = await this.act(
-      { type: 'issue.label.remove', repo, issue: pull, labels: [trigger.label] },
-      runId,
-      trig,
-      { turn },
-    );
-    if (!removed.ok)
-      console.warn(
-        JSON.stringify({
-          event: 'cheatsheet-review.label_remove_failed',
-          pull,
-          code: removed.code,
-        }),
-      );
+    await this.removeTrigger(repo, pull, trigger.label, runId, trig, turn);
 
     // 6. Low quality: recommend closing, by e-mail only.
     if (d.verdict === 'CLOSE' || d.lowQuality)
@@ -468,7 +524,33 @@ export class CheatsheetReviewAgent extends CustodesAgent<AgentsEnv, CheatsheetRe
     };
   }
 
-  private async mail(m: Mail): Promise<void> {
+  /** The review is done (posted or waiting for approval): a new label event asks again. */
+  private async removeTrigger(
+    repo: string,
+    pull: number,
+    label: string,
+    runId: string,
+    trig: Trigger,
+    turn: Turn,
+  ): Promise<void> {
+    const removed = await this.act(
+      { type: 'issue.label.remove', repo, issue: pull, labels: [label] },
+      runId,
+      trig,
+      { turn },
+    );
+    if (!removed.ok)
+      console.warn(
+        JSON.stringify({
+          event: 'cheatsheet-review.label_remove_failed',
+          pull,
+          code: removed.code,
+        }),
+      );
+  }
+
+  /** Sends one e-mail to the operator; false when it could not be sent (logged). */
+  private async mail(m: Mail): Promise<boolean> {
     try {
       await this.guard();
       await this.env.EMAIL.send({
@@ -478,10 +560,12 @@ export class CheatsheetReviewAgent extends CustodesAgent<AgentsEnv, CheatsheetRe
         text: m.text,
         html: m.html,
       });
+      return true;
     } catch (err) {
       console.warn(
         JSON.stringify({ event: 'cheatsheet-review.mail_failed', error: describeError(err) }),
       );
+      return false;
     }
   }
 

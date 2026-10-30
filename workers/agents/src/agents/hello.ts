@@ -57,7 +57,7 @@ export class HelloAgent extends CustodesAgent<AgentsEnv, HelloState> {
       lastRunAt: new Date().toISOString(),
       lastOutcome: `heartbeat run ${runId} (${triggeredBy.kind})`,
     });
-    // Example of the broker path (hitl → will return approval_required until approved):
+    // Example of the broker path (hitl → returns approval_required; ask with this.requestApproval):
     // const res = await this.act({ type: 'issue.comment', repo: 'OWASP/CheatSheetSeries', issue: 1, body: 'hello' }, runId, triggeredBy);
     return { ok: true, detail: this.state.lastOutcome ?? '' };
   }

@@ -9,6 +9,7 @@ import {
 } from '@custodes/core';
 import { INLINE_COMMENT_MARKER, type BrokerRequest } from '@custodes/schema';
 import { act } from '../src/act.js';
+import { createApproval, decideApproval } from '../src/approvals.js';
 import { keyring, type BrokerEnv } from '../src/env.js';
 import { ApprovalStore, AuditStore } from '../src/store.js';
 
@@ -214,7 +215,16 @@ describe('broker act() for cheatsheet-review', () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it('posts one signed inline review (hotl) with the agent PAT and a marker on each comment', async () => {
+  it('needs an approval to post on the sandbox (ADR 0017 amendment), before reaching GitHub', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    expect(await act(testEnv, inline('cheatsheet-review'))).toMatchObject({
+      ok: false,
+      code: 'approval_required',
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('posts one signed inline review once approved, with the agent PAT and a marker on each comment', async () => {
     let sent:
       | {
           url: string;
@@ -237,7 +247,11 @@ describe('broker act() for cheatsheet-review', () => {
         Response.json({ html_url: 'https://github.com/mackowski/custodes-sandbox/pull/3#r1' }),
       );
     });
-    const res = await act(testEnv, inline('cheatsheet-review'));
+    const created = await createApproval(testEnv, inline('cheatsheet-review'), 'r');
+    if (!created.ok) throw new Error(created.error);
+    const out = await decideApproval(testEnv, created.approval.id, 'approved', 'op@example.org');
+    if (out.result !== 'ok' || out.decision !== 'approved') throw new Error('expected approval');
+    const res = out.executed;
     if (!res.ok) throw new Error(`expected success, got ${res.code}`);
     expect(sent?.url).toBe('/repos/mackowski/custodes-sandbox/pulls/3/reviews');
     expect(sent?.auth).toBe('Bearer review-token');

@@ -2,7 +2,12 @@
  * Which model plays which role, with one explicit fallback each (ADR 0017). Changing a model here
  * is a model choice: run `/grill-plan` and the evals first. Pure.
  */
-import { REVIEW_MODELS, type ReviewModel, type ReviewModelName } from '@custodes/llm';
+import {
+  REVIEW_MODELS,
+  type ChatRequest,
+  type ReviewModel,
+  type ReviewModelName,
+} from '@custodes/llm';
 import type { ReviewerRole } from './scope.js';
 
 export type Role = ReviewerRole | 'scope-classifier' | 'judge';
@@ -11,21 +16,30 @@ export interface Casting {
   primary: ReviewModelName;
   fallback: ReviewModelName;
   max_tokens: number;
+  /** Reasoning effort for both models, where they take one (ChatRequest.reasoning_effort). */
+  effort?: ChatRequest['reasoning_effort'];
 }
 
+/**
+ * Chosen from the one-off benchmark on 30 OWASP pull requests (scripts/benchmark/REPORT.md):
+ * DeepSeek V4.1 Flash found more than V4 Pro without its Workers AI timeouts, and Sonnet found the
+ * most practicality problems. Astra judges by the operator's preference: its lead over Sol was
+ * within noise. The duplication checker was not measured (it needs repository-wide retrieval).
+ */
 export const LINEUP: Readonly<Record<Role, Casting>> = {
   'scope-classifier': { primary: 'claudeHaiku', fallback: 'gptOss20b', max_tokens: 2_000 },
-  'security-reviewer': { primary: 'claudeOpus', fallback: 'gptAstra', max_tokens: 16_000 },
+  'security-reviewer': { primary: 'claudeOpus', fallback: 'gptSol', max_tokens: 16_000 },
   'security-second-voice': {
-    primary: 'deepseekPro',
-    fallback: 'deepseekProOpenRouter',
-    max_tokens: 12_000,
+    primary: 'deepseekFlash',
+    fallback: 'deepseekFlashOpenRouter',
+    max_tokens: 24_000,
+    effort: 'high',
   },
-  'practicality-reviewer': { primary: 'museSpark', fallback: 'llamaMaverick', max_tokens: 8_000 },
-  'duplication-checker': { primary: 'museSpark', fallback: 'llamaMaverick', max_tokens: 8_000 },
+  'practicality-reviewer': { primary: 'claudeSonnet', fallback: 'museSpark', max_tokens: 8_000 },
+  'duplication-checker': { primary: 'museSpark', fallback: 'gptSol', max_tokens: 8_000 },
   'link-auditor': { primary: 'deepseekFlash', fallback: 'gptLuna', max_tokens: 8_000 },
   'language-reviewer': { primary: 'gptLuna', fallback: 'claudeHaiku', max_tokens: 8_000 },
-  judge: { primary: 'gptSol', fallback: 'claudeSonnet', max_tokens: 16_000 },
+  judge: { primary: 'gptAstra', fallback: 'claudeSonnet', max_tokens: 8_000 },
 };
 
 export const SECURITY_ROLES: readonly Role[] = ['security-reviewer', 'security-second-voice'];

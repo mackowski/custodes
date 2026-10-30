@@ -25,6 +25,11 @@ export interface ReviewModel {
   transport: ReviewTransport;
   /** Who trained it: the multi-model invariant counts vendors, not hosts (ADR 0017). */
   vendor: 'anthropic' | 'openai' | 'meta' | 'deepseek';
+  /**
+   * OpenRouter only: the upstream hosts allowed to serve it, with no fallback to others. For open
+   * weights served by many hosts at different quantizations (ADR 0017).
+   */
+  hosts?: readonly string[];
 }
 
 /** Every model cheatsheet-review may call, primaries and fallbacks (ADR 0017). */
@@ -37,21 +42,20 @@ export const REVIEW_MODELS = {
   gptAstra: { id: 'openai/gpt-6-astra', transport: 'openrouter', vendor: 'openai' },
   gptOss20b: { id: '@cf/openai/gpt-oss-20b', transport: 'workers-ai', vendor: 'openai' },
   museSpark: { id: 'meta/muse-spark-1.3', transport: 'openrouter', vendor: 'meta' },
-  llamaMaverick: { id: 'meta-llama/llama-4-maverick', transport: 'openrouter', vendor: 'meta' },
   deepseekFlash: {
     id: '@cf/deepseek-ai/deepseek-v4.1-flash-1017',
     transport: 'workers-ai',
     vendor: 'deepseek',
   },
-  deepseekPro: {
-    id: '@cf/deepseek-ai/deepseek-v4-pro-0813',
-    transport: 'workers-ai',
-    vendor: 'deepseek',
-  },
-  deepseekProOpenRouter: {
-    id: 'deepseek/deepseek-v4-pro',
+  /**
+   * The same weights as `deepseekFlash`, for when Workers AI fails. Many OpenRouter hosts serve it
+   * at fp4; these endpoints serve it at fp8. `data_collection: deny` still applies on top.
+   */
+  deepseekFlashOpenRouter: {
+    id: 'deepseek/deepseek-v4.1-flash-1017',
     transport: 'openrouter',
     vendor: 'deepseek',
+    hosts: ['nebius/fp8', 'parasail/fp8', 'crusoe/fp8'],
   },
 } as const satisfies Record<string, ReviewModel>;
 export type ReviewModelName = keyof typeof REVIEW_MODELS;

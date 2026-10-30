@@ -151,3 +151,47 @@ export function partialReviewMail(input: {
     ]),
   };
 }
+
+/**
+ * The review is ready and waits for the operator's approval (ADR 0017 amendment). The link opens
+ * the full review behind Access and posts it on a click; the e-mail itself carries only facts code
+ * computed, so nothing in it is model text. `link` is built by the agent from the configured base
+ * and the broker's token; it is the only link besides the pull request.
+ */
+export function approvalMail(input: {
+  repo: string;
+  pull: number;
+  link: string;
+  verdict: ReviewDecision['verdict'];
+  event: 'COMMENT' | 'REQUEST_CHANGES';
+  suggestions: number;
+  expiresAt: string;
+}): Mail {
+  const { repo, pull } = input;
+  const facts = `Verdict ${input.verdict}, posted as ${input.event}, ${input.suggestions} inline suggestion(s).`;
+  const subject = `[custodes] cheatsheet-review: approve the review of ${repo}#${pull}`;
+  return {
+    subject,
+    text: [
+      `The review of ${repo}#${pull} is ready and is not posted yet.`,
+      facts,
+      '',
+      `Open it, read it, and approve or reject: ${input.link}`,
+      `Pull request: ${pullUrl(repo, pull)}`,
+      '',
+      `The link works once, only for you (Cloudflare Access), until ${input.expiresAt}. Opening it posts nothing; only the Approve button does.`,
+    ].join('\n'),
+    html: html([
+      [
+        `The review of `,
+        { href: pullUrl(repo, pull), label: `${repo}#${pull}` },
+        ` is ready and is not posted yet.`,
+      ],
+      [facts],
+      [{ href: input.link, label: 'Open the review to approve or reject it' }],
+      [
+        `The link works once, only for you (Cloudflare Access), until ${input.expiresAt}. Opening it posts nothing; only the Approve button does.`,
+      ],
+    ]),
+  };
+}

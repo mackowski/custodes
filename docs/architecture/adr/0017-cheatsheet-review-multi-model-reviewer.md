@@ -146,3 +146,58 @@ We will add a `cheatsheet-review` agent and the broker capabilities it needs:
   costs time; the limits above bound it. Workers cannot reach private networks, so this is not an
   SSRF path into Custodes.
 - **Kill switch.** `guard()` runs before every model call, link fetch, broker action and e-mail.
+
+## Amendment 2026-10-30: lineup after the benchmark
+
+A one-off benchmark on 30 OWASP pull requests (`workers/agents/scripts/benchmark/REPORT.md`, run
+by hand, not in CI) changed four roles:
+
+- **Second security voice:** DeepSeek V4.1 Flash at high reasoning effort replaces V4 Pro. It found
+  7 maintainer-raised problems against 4, and had no Workers AI timeouts; V4 Pro timed out (HTTP 408) on 4 to 8 of 27 pull requests. The fallback is the same weights on OpenRouter, restricted to
+  hosts serving fp8 or better.
+- **Practicality:** Claude Sonnet 5.5 replaces Muse Spark 1.3 (13 problems found against 2).
+- **Judge:** GPT-6 Astra replaces GPT-6.1 Sol by the operator's preference: on the same 17 pull
+  requests Astra agreed with the maintainers' outcome 14 times, Sol 13, which is within noise.
+- **Fallbacks:** Opus falls back to Sol (Astra is now the judge); Muse Spark falls back to Sol
+  instead of Llama 4 Maverick, which had no evidence behind it.
+
+Rejected: Muse Wonder as a third security voice (no problem found that Opus or DeepSeek missed, 4
+false blockers). Not measured: the duplication checker (needs repository-wide retrieval) and the
+link auditor (the linked pages have changed since).
+
+## Amendment 2026-10-30: the operator approves each review on OWASP
+
+On OWASP a review is posted only after the operator has read it and clicked Approve. Policy gets
+`requiresApprovalOn` per repository; cheatsheet-review lists `pr.review.inline` for OWASP and, until
+the flow has passed its end-to-end run there, for the sandbox.
+
+1. The broker answers the review with `approval_required`. The agent asks for an approval
+   (`POST /v1/approvals`) and gets a token, e-mails the operator a link with only code-computed
+   facts in it, removes the trigger label and records `awaiting_approval`.
+2. The link opens `custodes.work/admin/approvals/link/<token>` behind Access. Only a person on
+   `APPROVER_EMAILS` may open it. GET shows the stored review, HTML-escaped, without script, links
+   or framing; only the POST buttons decide, so a mail scanner opening the link decides nothing.
+3. The token is an HMAC over the approval id, agent, action hash and expiry (24 h). The key is
+   generated inside the broker's `Keyring` and never leaves it, so no Worker and no CI secret holds
+   it; `APPROVAL_TOKEN_SECRET` is gone. A token opens only its own approval's exact action.
+4. On approval the broker runs the stored request itself through `act()` (kill switch, rate limit,
+   execute, signed audit), once. A second click finds the approval no longer pending. If the author
+   pushed in the meantime, the review still goes to the commit it was written for.
+
+The broker now has two entrypoints. Agents bind the default one: act, read, and asking for an
+approval. Only the gateway binds `BrokerAdmin`: deciding approvals, the audit log and keys. Before,
+any caller of the broker's service binding, the agents Worker included, could decide an approval or
+rotate a key.
+
+An approval is single-shot: after the decision the broker consumes it whether or not the post
+went through (halted agent, rate limit, GitHub error), and the agents' entrypoint refuses any
+request that carries an `approvalId`. By id (CLI) an approval can only be rejected; approving
+needs the link page, which shows the action. A halted agent cannot ask for approvals, and an agent
+may have at most 20 pending.
+
+Replies to `approve+…@` and `reject+…@` addresses are refused. Mail addresses are case-folded, which
+breaks a base64url token, and a reply cannot prove who clicked as Access does.
+
+Rejected: a bare link without a token (Access alone does not bind the click to the action shown);
+waking the agent to post a draft kept in its storage (more state, same outcome); the token secret
+as a CI secret (the Keyring already keeps keys that never leave the broker).

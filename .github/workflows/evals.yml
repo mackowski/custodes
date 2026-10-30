@@ -3,9 +3,12 @@ name: Evals
 # money). Runs on PRs only when something that changes model behaviour changes: prompts, output
 # schemas, model choice, the untrusted-data rules, or the evals themselves. Run it by hand
 # (workflow_dispatch) for anything else. Needs AI Gateway access: branches in this repository only.
+# Never on a draft: pushes to a draft are where the work happens, and each would pay for the evals
+# again. They run once the PR is marked ready, and on pushes after that (CLAUDE.md, Workflow).
 on:
   workflow_dispatch:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - 'evals/**'
       - '.github/workflows/evals.yml'
@@ -34,7 +37,9 @@ jobs:
   promptfoo:
     if: >-
       github.event_name == 'workflow_dispatch' ||
-      (github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]')
+      (github.event.pull_request.head.repo.full_name == github.repository &&
+       !github.event.pull_request.draft &&
+       github.actor != 'dependabot[bot]')
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: ci

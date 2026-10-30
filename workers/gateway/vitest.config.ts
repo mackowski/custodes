@@ -1,12 +1,18 @@
 import { cloudflareTest } from '@cloudflare/vitest-pool-workers';
 import { defineConfig } from 'vitest/config';
 
-/** Stub for a service binding: answers every request with an empty JSON array. */
+/**
+ * Stub for a service binding: answers every request with an empty JSON array, on the default
+ * entrypoint and on BrokerAdmin (the gateway binds the broker's admin entrypoint).
+ */
 const stubWorker = (name: string) => ({
   name,
   modules: true,
   compatibilityDate: '2026-08-15',
-  script: `export default { fetch() { return new Response('[]', { headers: { 'content-type': 'application/json' } }); } }`,
+  script: `import { WorkerEntrypoint } from 'cloudflare:workers';
+const empty = () => new Response('[]', { headers: { 'content-type': 'application/json' } });
+export class BrokerAdmin extends WorkerEntrypoint { fetch() { return empty(); } }
+export default { fetch: empty };`,
 });
 
 export default defineConfig({
@@ -17,10 +23,7 @@ export default defineConfig({
       miniflare: {
         kvNamespaces: ['KILL_SWITCH'],
         // Test doubles for the secrets normally set with `wrangler secret put`.
-        bindings: {
-          GITHUB_WEBHOOK_SECRET: "It's a Secret to Everybody",
-          APPROVAL_TOKEN_SECRET: 'test-approval-secret',
-        },
+        bindings: { GITHUB_WEBHOOK_SECRET: "It's a Secret to Everybody" },
         // The real broker and agents Workers are separate deployables; stub them here.
         workers: [stubWorker('custodes-github-broker'), stubWorker('custodes-agents')],
       },

@@ -6,6 +6,7 @@
  * through AI Gateway: Anthropic with the stored key, OpenRouter with the stored key (the first
  * real check that the gateway forwards OpenRouter chat completions; it answers 404 for Jev's
  * Decisions API, ADR 0011), and Workers AI over the gateway's REST route (CI has no binding).
+ * Pinned OpenRouter hosts and the reasoning effort the lineup sets go out as the agent sends them.
  * The answer must parse and validate. Prints status, model, token counts and error classes only,
  * never prompts or answers. Exits 1 if any model fails.
  *
@@ -27,6 +28,7 @@ import {
   type ChatModel,
   type ReviewModel,
 } from '@custodes/llm';
+import { LINEUP } from '../src/agents/cheatsheet-review/lineup.js';
 
 // The generated Worker types describe process.env as the Worker's bindings; in CI it is the runner's.
 const env = process.env as unknown as Record<string, string | undefined>;
@@ -97,6 +99,11 @@ const user = untrusted(
   '+ Store user passwords as `md5(password)` so they can be compared quickly at login.',
 );
 
+/** The effort the lineup asks of a model, if any role sets one for it. */
+const effortOf = (name: string) =>
+  Object.values(LINEUP).find((c) => c.effort && (c.primary === name || c.fallback === name))
+    ?.effort;
+
 let failed = 0;
 for (const [name, m] of Object.entries(REVIEW_MODELS) as [string, ReviewModel][]) {
   if (m.transport === 'workers-ai' && !cfToken) {
@@ -104,12 +111,15 @@ for (const [name, m] of Object.entries(REVIEW_MODELS) as [string, ReviewModel][]
     continue;
   }
   const started = Date.now();
+  const effort = effortOf(name);
   try {
     const out = await clients[m.transport].complete({
       model: m.id,
       system,
       user,
-      max_tokens: 2_000,
+      max_tokens: 4_000,
+      ...(effort ? { reasoning_effort: effort } : {}),
+      ...(m.hosts ? { hosts: m.hosts } : {}),
       schema,
       metadata: { agentId: 'smoke', runId: crypto.randomUUID(), subAgent: name },
     });

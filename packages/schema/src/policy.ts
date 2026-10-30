@@ -13,6 +13,12 @@ export const AgentPolicy = z
     /** Subset of `actions` that always needs an approval id, even for hotl agents. */
     requiresApproval: z.array(BrokerActionType).default([]),
     /**
+     * Per repository: actions that need an approval id there, on top of `requiresApproval`. A repo
+     * may be listed before it is in `repos`, so a later widening already comes with its approval
+     * (ADR 0017 amendment: cheatsheet-review publishes on OWASP only after the operator's click).
+     */
+    requiresApprovalOn: z.record(GitHubRepo, z.array(BrokerActionType).min(1)).default({}),
+    /**
      * Max side effects per rolling hour **per repository**; the broker denies above this. Each repo
      * in `repos` gets its own budget, so adding a repo widens the agent's total (ADR 0012).
      */
@@ -28,6 +34,14 @@ export const AgentPolicy = z
       a.labels !== undefined ||
       !a.actions.some((t) => t === 'issue.label.add' || t === 'issue.label.remove'),
     { message: 'a label action needs a labels allow-list', path: ['labels'] },
+  )
+  .refine(
+    (a) =>
+      Object.values(a.requiresApprovalOn).every((list) => list.every((t) => a.actions.includes(t))),
+    {
+      message: 'requiresApprovalOn may only name actions the agent has',
+      path: ['requiresApprovalOn'],
+    },
   );
 export type AgentPolicy = z.infer<typeof AgentPolicy>;
 

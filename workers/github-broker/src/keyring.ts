@@ -1,5 +1,14 @@
 import { DurableObject } from 'cloudflare:workers';
-import { importPrivateKey, toBase64Url, type Ed25519Jwk } from '@custodes/core';
+import {
+  fromBase64Url,
+  importPrivateKey,
+  mintApprovalToken,
+  toBase64Url,
+  verifyApprovalToken,
+  type ApprovalBinding,
+  type ApprovalTokenResult,
+  type Ed25519Jwk,
+} from '@custodes/core';
 import type { PublicKeyEntry } from '@custodes/schema';
 
 // A type alias (not an interface) so it satisfies SqlStorage's Record<string, SqlStorageValue> constraint.
@@ -17,6 +26,10 @@ type KeyRow = {
  * Holds one active Ed25519 signing key per agent, generated on first use. Private keys are
  * created inside this Durable Object and never leave it: callers send bytes and receive a
  * signature. Retired keys stay stored (and published) so historical attestations keep verifying.
+ *
+ * It also holds the one HMAC key behind approval links (ADR 0017 amendment), generated here on
+ * first use: tokens are minted and checked inside this object, so no Worker holds an approval
+ * secret and none is set in CI.
  */
 export class Keyring extends DurableObject {
   constructor(ctx: DurableObjectState, env: Cloudflare.Env) {
@@ -31,6 +44,52 @@ export class Keyring extends DurableObject {
     )`);
     ctx.storage.sql.exec(
       `CREATE INDEX IF NOT EXISTS keys_agent_active ON keys (agent_id, retired_at)`,
+    );
+    ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS approval_key (
+      id         INTEGER PRIMARY KEY CHECK (id = 1),
+      raw        TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    )`);
+  }
+
+  /** A link token for exactly this approval, agent and action. */
+  async approvalToken(
+    binding: ApprovalBinding,
+    ttlSeconds: number,
+    nowMs: number,
+  ): Promise<string> {
+    return mintApprovalToken(binding, await this.approvalKey(), ttlSeconds, new Date(nowMs));
+  }
+
+  /** Checks a link token against the stored approval's binding. */
+  async checkApprovalToken(
+    token: string,
+    binding: ApprovalBinding,
+    nowMs: number,
+  ): Promise<ApprovalTokenResult> {
+    return verifyApprovalToken(token, binding, await this.approvalKey(), new Date(nowMs));
+  }
+
+  private async approvalKey(): Promise<CryptoKey> {
+    let row = this.ctx.storage.sql
+      .exec<{ raw: string }>('SELECT raw FROM approval_key WHERE id = 1')
+      .toArray()[0];
+    if (!row) {
+      const raw = toBase64Url(crypto.getRandomValues(new Uint8Array(32)));
+      this.ctx.storage.sql.exec(
+        'INSERT OR IGNORE INTO approval_key (id, raw, created_at) VALUES (1, ?1, ?2)',
+        raw,
+        new Date().toISOString(),
+      );
+      row = { raw };
+      console.log(JSON.stringify({ event: 'keyring.approval_key_generated' }));
+    }
+    return crypto.subtle.importKey(
+      'raw',
+      fromBase64Url(row.raw),
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['sign', 'verify'],
     );
   }
 

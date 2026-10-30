@@ -53,6 +53,13 @@ Read `docs/sdlc.md` once. Before implementing a new agent, broker action, policy
 schema change, model choice or architectural decision, run `/grill-plan` on the agreed plan; if it has
 not been run, say so before writing code.
 
+**Pull requests stay draft; marking one ready needs the operator's explicit approval.** Ready
+starts the paid CI (Claude review, Opus evals), so it happens once, at the end. Every step of
+the plan goes into the same draft PR. Before asking for ready, run locally everything that
+can run: `pnpm check`, `pnpm scan` (Semgrep, gitleaks, actionlint), `/agent-security-review`
+(repeated after every fix until a pass is clean), and the Diagnose and evals the change touches.
+Then the free checks on the draft (`security.yml`) must be green with no open code scanning alert.
+
 ## Style
 
 TypeScript strict with `exactOptionalPropertyTypes`; exact dependency pins; tests deterministic

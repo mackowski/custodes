@@ -79,11 +79,9 @@ jobs:
           # Worker secrets are pushed on every deploy from the prod environment; nothing is set by hand.
           secrets: |
             AI_GATEWAY_TOKEN
-            APPROVAL_TOKEN_SECRET
             OPENROUTER_API_KEY
         env:
           AI_GATEWAY_TOKEN: ${{ secrets.AI_GATEWAY_TOKEN }}
-          APPROVAL_TOKEN_SECRET: ${{ secrets.APPROVAL_TOKEN_SECRET }}
           # Jev for pr-gate (ADR 0011: AI Gateway cannot forward the Decisions API yet).
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
       - name: Deploy gateway
@@ -95,10 +93,8 @@ jobs:
           command: deploy
           secrets: |
             GITHUB_WEBHOOK_SECRET
-            APPROVAL_TOKEN_SECRET
         env:
           GITHUB_WEBHOOK_SECRET: ${{ secrets.GH_WEBHOOK_SECRET }} # GitHub forbids secret names starting with GITHUB_
-          APPROVAL_TOKEN_SECRET: ${{ secrets.APPROVAL_TOKEN_SECRET }}
       - name: Smoke test
         # A freshly created custom domain can take a minute to resolve on the runner; retry with backoff.
         run: curl --fail --silent --show-error --retry 12 --retry-delay 10 --retry-all-errors https://custodes.work/healthz
