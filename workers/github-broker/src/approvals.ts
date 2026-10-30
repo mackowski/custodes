@@ -45,7 +45,12 @@ export async function createApproval(
   const store = new ApprovalStore(env.AUDIT);
   if ((await store.countPending(req.agentId, now)) >= MAX_PENDING_PER_AGENT)
     return { ok: false, status: 403, error: 'too many pending approvals' };
-  const { approvalId: _ignored, ...request } = req;
+  // Only what the page shows gets posted: `onBehalfOf` would add a mention to the public trailer
+  // that the operator never saw, so it is not carried into an approval.
+  const { approvalId: _ignored, onBehalfOf: _notShown, ...request } = req;
+  // A newer request for the same pull request or issue replaces the older one, so two links for
+  // one target can never both post.
+  const superseded = await store.supersedePending(req.agentId, targetOf(req.action), now);
   const actionHash = await sha256Hex(canonicalJson(req.action));
   const approval = await store.create(request, rationale, actionHash, APPROVAL_TTL_SECONDS, now);
   const token = await keyring(env).approvalToken(
@@ -60,9 +65,15 @@ export async function createApproval(
       agentId: approval.agentId,
       action: req.action.type,
       repo: req.action.repo,
+      superseded,
     }),
   );
   return { ok: true, approval, token };
+}
+
+/** What an action is about: one pull request or issue of one repository. */
+export function targetOf(action: BrokerRequest['action']): { repo: string; number: number } {
+  return { repo: action.repo, number: 'pull' in action ? action.pull : action.issue };
 }
 
 export type TokenLookup =

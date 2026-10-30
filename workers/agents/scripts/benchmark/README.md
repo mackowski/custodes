@@ -27,12 +27,13 @@ BIN=../../.bench/bin && mkdir -p "$BIN" &&
 for s in select run deepseek grade report; do
   pnpm exec esbuild scripts/benchmark/$s.ts --bundle --platform=node --format=esm --outfile="$BIN/bench-$s.mjs" --log-level=warning || exit 1
 done &&
-# select reads only GitHub: the GitHub token alone, no Keychain secrets. Prefer a fine-grained
-# token with no permissions (public repositories, read-only) over `gh auth token`.
-GITHUB_TOKEN=$(gh auth token --user mackowski) node "$BIN/bench-select.mjs" &&
-../../scripts/with-secrets.sh node "$BIN/bench-run.mjs" &&
-../../scripts/with-secrets.sh node "$BIN/bench-deepseek.mjs" &&
-../../scripts/with-secrets.sh node "$BIN/bench-grade.mjs" &&
+# select reads only public GitHub data: give it a fine-grained token with no permissions (public
+# repositories, read-only), never the operator's `gh auth token`.
+GITHUB_TOKEN="$BENCH_READONLY_GITHUB_TOKEN" node "$BIN/bench-select.mjs" &&
+# The model steps get the two tokens they use and nothing else from the Keychain.
+for s in run deepseek grade; do
+  ../../scripts/with-secrets.sh sh -c 'env -i PATH="$PATH" HOME="$HOME" AI_GATEWAY_TOKEN="$AI_GATEWAY_TOKEN" CF_WORKERS_AI_EVAL_TOKEN="$CF_WORKERS_AI_EVAL_TOKEN" node "$0"' "$BIN/bench-$s.mjs" || exit 1
+done &&
 node "$BIN/bench-report.mjs"
 ```
 

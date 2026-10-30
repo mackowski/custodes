@@ -25,8 +25,16 @@ export function isApprover(actor: AdminActor, approverEmails: string): boolean {
   return list.includes(actor.subject.toLowerCase());
 }
 
+/**
+ * HTML-escaped, with invisible characters shown: a bidi override or zero-width character would
+ * otherwise make the text look different from what gets posted. Newlines and tabs stay.
+ */
 export function escapeHtml(s: string): string {
   return s
+    .replace(
+      /(?![\n\t])[\p{Cc}\p{Cf}]/gu,
+      (c) => `⟨U+${(c.codePointAt(0) ?? 0).toString(16).toUpperCase().padStart(4, '0')}⟩`,
+    )
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')

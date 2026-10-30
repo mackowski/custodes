@@ -326,3 +326,39 @@ describe('approval requests are bounded (review L4)', () => {
     expect(last).toMatchObject({ ok: false, error: 'too many pending approvals' });
   });
 });
+
+describe('one live approval per pull request (CI review L1, L2)', () => {
+  it('rejects the older pending request for the same pull request as superseded', async () => {
+    const fetchSpy = githubOk();
+    const older = await created(review('older'));
+    const newer = await created(review('newer'));
+    expect(await approvalByToken(testEnv, older.token)).toMatchObject({
+      approval: { status: 'rejected', decidedBy: 'superseded' },
+    });
+    expect(await decideApproval(testEnv, older.approval.id, 'approved', 'op')).toEqual({
+      result: 'not_pending',
+    });
+    expect(await approvalByToken(testEnv, newer.token)).toMatchObject({
+      approval: { status: 'pending' },
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('leaves requests for other pull requests alone', async () => {
+    const a = await created(review('a'));
+    await created({
+      ...review('b'),
+      action: { ...review('b').action, pull: 99 } as BrokerRequest['action'],
+    });
+    expect(await approvalByToken(testEnv, a.token)).toMatchObject({
+      approval: { status: 'pending' },
+    });
+  });
+
+  it('never carries onBehalfOf, which the page does not show, into what gets posted', async () => {
+    const c = await created({ ...review('x'), onBehalfOf: 'someone' });
+    const { ApprovalStore } = await import('../src/store.js');
+    const stored = await new ApprovalStore(env.AUDIT).requestOf(c.approval.id);
+    expect(stored?.onBehalfOf).toBeUndefined();
+  });
+});

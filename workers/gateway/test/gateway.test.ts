@@ -289,6 +289,21 @@ describe('approval links (ADR 0017 amendment)', () => {
     expect(PAGE_HEADERS['x-frame-options']).toBe('DENY');
   });
 
+  it('show invisible and bidi characters as visible markers', () => {
+    const tricky: ApprovalRequest = {
+      ...approval,
+      action: {
+        ...approval.action,
+        body: 'safe \u202Egnp.exe\u200B end\nnext',
+      } as typeof approval.action,
+    };
+    const html = approvalPage(tricky);
+    expect(html).toContain('⟨U+202E⟩');
+    expect(html).toContain('⟨U+200B⟩');
+    expect(html).not.toContain('\u202E');
+    expect(html).toContain('end\nnext');
+  });
+
   it('show no buttons once the request is decided', () => {
     expect(approvalPage({ ...approval, status: 'approved' })).not.toContain('<form');
   });

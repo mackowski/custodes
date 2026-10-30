@@ -198,6 +198,35 @@ export class ApprovalStore {
     return res.meta.changes === 1 ? 'ok' : 'not_pending';
   }
 
+  /**
+   * Rejects this agent's pending requests for the same pull request or issue (`superseded`).
+   * Returns how many were replaced.
+   */
+  async supersedePending(
+    agentId: string,
+    target: { repo: string; number: number },
+    now = new Date(),
+  ): Promise<number> {
+    const { results } = await this.db
+      .prepare(`SELECT id, request_json FROM approvals WHERE agent_id = ?1 AND status = 'pending'`)
+      .bind(agentId)
+      .all<{ id: string; request_json: string }>();
+    let n = 0;
+    for (const row of results) {
+      const a = (JSON.parse(row.request_json) as ApprovalRequest).action;
+      const num = 'pull' in a ? a.pull : a.issue;
+      if (a.repo !== target.repo || num !== target.number) continue;
+      const res = await this.db
+        .prepare(
+          `UPDATE approvals SET status = 'rejected', decided_by = 'superseded', decided_at = ?2 WHERE id = ?1 AND status = 'pending'`,
+        )
+        .bind(row.id, now.toISOString())
+        .run();
+      n += res.meta.changes;
+    }
+    return n;
+  }
+
   /** Pending, unexpired approval requests of one agent. */
   async countPending(agentId: string, now = new Date()): Promise<number> {
     const row = await this.db
