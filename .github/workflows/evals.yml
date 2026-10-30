@@ -81,7 +81,10 @@ jobs:
           fi
           # Folder names only: nothing else reaches the shell below.
           for s in $suites; do
-            [[ "$s" =~ ^[a-z0-9-]+$ ]] && [ -f "evals/agents/$s/promptfooconfig.yaml" ] || { echo "unknown suite: $s"; exit 1; }
+            if ! [[ "$s" =~ ^[a-z0-9-]+$ ]] || ! [ -f "evals/agents/$s/promptfooconfig.yaml" ]; then
+              echo "unknown suite: $s"
+              exit 1
+            fi
           done
           echo "suites: ${suites:-none}"
           echo "list=$suites" >> "$GITHUB_OUTPUT"
