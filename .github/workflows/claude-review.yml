@@ -2,11 +2,12 @@ name: Claude review
 # Automated first-pass review of this repository's own PRs. Humans still approve.
 # Fork PRs get no secrets and no OIDC token (Anthropic access, ADR 0014), so this runs only for
 # branches in this repo.
-# Each run costs about $0.5-2, so not on every push: when a PR is opened or marked ready, and on
-# demand by adding the `claude-review` label (removed again at the end, so it can be re-added).
+# Each run costs about $1-3, so once per PR: when it is opened as a non-draft, or when a draft is
+# marked ready. Work happens in drafts with local reviews first; ready needs the operator's approval
+# (CLAUDE.md, Workflow). Run it again by hand with draft → ready.
 on:
   pull_request:
-    types: [opened, ready_for_review, reopened, labeled]
+    types: [opened, ready_for_review]
 permissions: read-all
 jobs:
   review:
@@ -14,8 +15,7 @@ jobs:
     if: >-
       github.event.pull_request.head.repo.full_name == github.repository &&
       !github.event.pull_request.draft &&
-      github.actor != 'dependabot[bot]' &&
-      (github.event.action != 'labeled' || github.event.label.name == 'claude-review')
+      github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     # pull-requests/issues write: the reviews post their findings as PR comments (inline or summary).
@@ -88,6 +88,14 @@ jobs:
         env:
           FILE: ${{ steps.code_review.outputs.execution_file }}
         run: if [ -n "$FILE" ] && [ -f "$FILE" ]; then cp "$FILE" "$RUNNER_TEMP/code-review-log.json"; fi
+      # The deep review runs locally before ready (Opus at xhigh, repeated until clean); CI is the
+      # independent second pass at medium effort. The subagent's own `effort` would override a CLI
+      # flag, so it is lowered in this runner's checkout only.
+      - name: Security review at medium effort
+        if: always() && steps.scope.outputs.security != 'false'
+        run: |
+          sed -i 's/^effort: high$/effort: medium/' .claude/agents/security-reviewer.md
+          grep -q '^effort: medium$' .claude/agents/security-reviewer.md
       - name: Agent security review
         id: security_review
         if: always() && steps.scope.outputs.security != 'false'
@@ -102,6 +110,8 @@ jobs:
           # only place the result shows.
           prompt: |
             Run /agent-security-review ${{ github.event.pull_request.number }} and wait for its report.
+            CI lowers `effort` in .claude/agents/security-reviewer.md in this checkout on purpose;
+            review only the PR diff (`gh pr diff`), not local changes to the checkout.
             Then post that report as exactly one comment on PR #${{ github.event.pull_request.number }}
             with `gh pr comment ${{ github.event.pull_request.number }} --body-file -`. Start the
             comment with "Custodes agent security review:" and keep its findings, file:line
@@ -111,7 +121,7 @@ jobs:
             --allowedTools "Agent,Task,Skill,Read,Grep,Glob,Bash(gh pr diff *),Bash(gh pr view *),Bash(gh pr checks *),Bash(gh pr comment *),Bash(gh run list *),Bash(gh run view *),Bash(git diff *),Bash(git log *),mcp__github_inline_comment__create_inline_comment"
             --disallowedTools "Read(//home/runner/work/_temp/**),Read(//proc/**)"
             --max-turns 60
-            --max-budget-usd 3
+            --max-budget-usd 1.5
       # The action hides its transcript (it can contain file contents). Print metadata only: which
       # tools ran, which were denied (Bash: first three words of the command), the outcome and the
       # cost. The cost also goes to the job summary, so the price of a PR shows without opening logs.
@@ -138,9 +148,31 @@ jobs:
             cost=$(jq -r '[.[] | select(.type == "result") | .total_cost_usd // 0] | add // 0' "$file")
             echo "${name}: \$${cost}" >> "$GITHUB_STEP_SUMMARY"
           done
-      - name: Remove the claude-review label so it can be added again
-        if: always() && github.event.action == 'labeled'
+      # No silent green: the job passes only if every review that should run finished with a result.
+      # claude-code-action skips itself (and reports success) when this workflow differs from main,
+      # the code review step swallows its own failure, and a review can stop at its budget cap.
+      - name: Fail when a review did not complete
+        if: always()
         env:
-          GH_TOKEN: ${{ github.token }}
-          PR: ${{ github.event.pull_request.number }}
-        run: gh api -X DELETE "repos/$GITHUB_REPOSITORY/issues/$PR/labels/claude-review" --silent || true
+          CODE_REVIEW_LOG: ${{ runner.temp }}/code-review-log.json
+          SECURITY_REVIEW_LOG: ${{ steps.security_review.outputs.execution_file }}
+          SECURITY_EXPECTED: ${{ steps.scope.outputs.security != 'false' }}
+        run: |
+          missing=0
+          for name in CODE_REVIEW SECURITY_REVIEW; do
+            if [ "$name" = SECURITY_REVIEW ] && [ "$SECURITY_EXPECTED" != true ]; then
+              echo "SECURITY_REVIEW: skipped, documentation only" >> "$GITHUB_STEP_SUMMARY"
+              continue
+            fi
+            var="${name}_LOG"; file="${!var}"
+            ok=false
+            if [ -n "$file" ] && [ -f "$file" ]; then
+              ok=$(jq -r '[.[] | select(.type == "result")] | (length > 0 and all(.subtype == "success" and .is_error == false))' "$file")
+            fi
+            if [ "$ok" != true ]; then
+              echo "::error::${name} did not complete (no result: skipped because this PR changes the workflow, failed, or hit its budget). This PR has not been reviewed by it."
+              echo "${name}: DID NOT COMPLETE" >> "$GITHUB_STEP_SUMMARY"
+              missing=1
+            fi
+          done
+          exit "$missing"

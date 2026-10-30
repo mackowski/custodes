@@ -35,13 +35,13 @@ approvers. The repository encodes how that works so every session behaves the sa
 7. **CI**: lint, typecheck and tests (one `check` job), CodeQL, gitleaks, Semgrep, dependency
    review, Terraform scan, evals, and Claude code review and security review as PR comments. The
    `main` ruleset requires `check`, `codeql`, `gitleaks`, `dependency-review`, `semgrep` and
-   `terraform-scan`. Evals (`promptfoo`) and Claude review (`review`) are advisory. Evals run on a non-draft PR only when a prompt, output schema, model choice, the untrusted-data rules or the evals change (paths in `.github/workflows/evals.yml`), never on a draft; otherwise run them by hand. The free scans (CodeQL, gitleaks, Semgrep, dependency review, Terraform scan) run on every push, drafts included; `pnpm scan` runs Semgrep, gitleaks and actionlint locally in under a minute. Run evals
+   `terraform-scan`. Evals (`promptfoo`) and Claude review (`review`) are advisory. Evals run once per PR (opened as a non-draft, or marked ready), never on a draft and never on later pushes, and only the suites the change can affect (`evals/select-suites.ts`); re-run them by hand with `gh workflow run evals.yml --ref <branch> -f suites="<suites>"`. The free scans (CodeQL, gitleaks, Semgrep, dependency review, Terraform scan) run on every push, drafts included; `pnpm scan` runs Semgrep, gitleaks and actionlint locally in under a minute. Run evals
    yourself before merging a prompt or schema change. Limits of Claude review:
-   - It runs only for same-repo, non-draft, non-dependabot PRs: once when the PR is opened or marked
-     ready, and again whenever someone adds the `claude-review` label (the workflow removes the label
-     afterwards). Pushes do not re-run it. The security review is skipped when every changed file is
-     documentation. Each review is capped with `--max-budget-usd` (2 and 3 USD), and the job
-     summary shows what each one cost.
+   - It runs only for same-repo, non-draft, non-dependabot PRs, once: when the PR is opened as a
+     non-draft or marked ready. Pushes do not re-run it; to run it again, convert to draft and mark
+     ready. The security review is skipped when every changed file is documentation, and runs at
+     medium effort: the deep pass (xhigh) happens locally before ready. Each review is capped with
+     `--max-budget-usd` (2 and 1.5 USD), and the job summary shows what each one cost.
    - It skips itself on a PR that changes `.github/workflows/claude-review.yml`, and the check
      still reports success (seen on #17): `claude-code-action` only runs a workflow identical to
      the one on `main`. That protects the action's own invocation, not Anthropic access. The job
