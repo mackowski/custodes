@@ -189,6 +189,12 @@ approval. Only the gateway binds `BrokerAdmin`: deciding approvals, the audit lo
 any caller of the broker's service binding, the agents Worker included, could decide an approval or
 rotate a key.
 
+An approval is single-shot: after the decision the broker consumes it whether or not the post
+went through (halted agent, rate limit, GitHub error), and the agents' entrypoint refuses any
+request that carries an `approvalId`. By id (CLI) an approval can only be rejected; approving
+needs the link page, which shows the action. A halted agent cannot ask for approvals, and an agent
+may have at most 20 pending.
+
 Replies to `approve+…@` and `reject+…@` addresses are refused. Mail addresses are case-folded, which
 breaks a base64url token, and a reply cannot prove who clicked as Access does.
 

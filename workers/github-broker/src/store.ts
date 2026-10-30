@@ -185,13 +185,25 @@ export class ApprovalStore {
       await this.db.prepare(`UPDATE approvals SET status = 'expired' WHERE id = ?1`).bind(id).run();
       return 'expired';
     }
-    await this.db
+    const res = await this.db
       .prepare(
         `UPDATE approvals SET status = ?2, decided_by = ?3, decided_at = ?4 WHERE id = ?1 AND status = 'pending'`,
       )
       .bind(id, decision, by, now.toISOString())
       .run();
-    return 'ok';
+    // Lost a race with another click (approve against reject): the other decision stands.
+    return res.meta.changes === 1 ? 'ok' : 'not_pending';
+  }
+
+  /** Pending, unexpired approval requests of one agent. */
+  async countPending(agentId: string, now = new Date()): Promise<number> {
+    const row = await this.db
+      .prepare(
+        `SELECT COUNT(*) AS n FROM approvals WHERE agent_id = ?1 AND status = 'pending' AND expires_at > ?2`,
+      )
+      .bind(agentId, now.toISOString())
+      .first<{ n: number }>();
+    return row?.n ?? 0;
   }
 
   /** Marks an approved request as used so it cannot authorise a second action. */

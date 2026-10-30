@@ -26,21 +26,21 @@ export function approvalsCommand(): Command {
       );
     });
 
-  for (const verb of ['approve', 'reject'] as const) {
-    cmd
-      .command(`${verb} <id>`)
-      .description(`${verb} a pending request`)
-      .action(async (id: string, _o, c: Command) => {
-        const cfg = loadConfig(c.optsWithGlobals());
-        print(
-          cfg.json,
-          await new ApiClient(cfg).call(
-            'POST',
-            `/admin/approvals/${encodeURIComponent(id)}/${verb}`,
-            z.unknown(),
-          ),
-        );
-      });
-  }
+  // Approving happens on the page behind the e-mailed link, which shows exactly what will be
+  // posted (ADR 0017 amendment); by id the CLI can only reject.
+  cmd
+    .command('reject <id>')
+    .description('reject a pending request (approve through the e-mailed link)')
+    .action(async (id: string, _o, c: Command) => {
+      const cfg = loadConfig(c.optsWithGlobals());
+      print(
+        cfg.json,
+        await new ApiClient(cfg).call(
+          'POST',
+          `/admin/approvals/${encodeURIComponent(id)}/reject`,
+          z.unknown(),
+        ),
+      );
+    });
   return cmd;
 }

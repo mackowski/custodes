@@ -1,4 +1,10 @@
-import { canonicalJson, evaluatePolicy, parseApprovalToken, sha256Hex } from '@custodes/core';
+import {
+  canonicalJson,
+  evaluatePolicy,
+  KillSwitch,
+  parseApprovalToken,
+  sha256Hex,
+} from '@custodes/core';
 import type { ApprovalRequest, BrokerRequest, BrokerResponse } from '@custodes/schema';
 import { act } from './act.js';
 import { keyring, type BrokerEnv } from './env.js';
@@ -14,6 +20,8 @@ import { ApprovalStore } from './store.js';
  *   was shown, and the agent never needs to come back.
  */
 export const APPROVAL_TTL_SECONDS = 86_400;
+/** Pending requests per agent: a looping agent cannot flood the operator's queue. */
+export const MAX_PENDING_PER_AGENT = 20;
 
 export type CreateApprovalResult =
   | { ok: true; approval: ApprovalRequest; token: string }
@@ -32,15 +40,14 @@ export async function createApproval(
   if (!decision.allow) return { ok: false, status: 403, error: decision.reason };
   if (!decision.needsApproval)
     return { ok: false, status: 403, error: 'this action needs no approval' };
+  if ((await new KillSwitch(env.KILL_SWITCH).state(req.agentId)).halted)
+    return { ok: false, status: 403, error: 'agent is halted' };
+  const store = new ApprovalStore(env.AUDIT);
+  if ((await store.countPending(req.agentId, now)) >= MAX_PENDING_PER_AGENT)
+    return { ok: false, status: 403, error: 'too many pending approvals' };
   const { approvalId: _ignored, ...request } = req;
   const actionHash = await sha256Hex(canonicalJson(req.action));
-  const approval = await new ApprovalStore(env.AUDIT).create(
-    request,
-    rationale,
-    actionHash,
-    APPROVAL_TTL_SECONDS,
-    now,
-  );
+  const approval = await store.create(request, rationale, actionHash, APPROVAL_TTL_SECONDS, now);
   const token = await keyring(env).approvalToken(
     { approvalId: approval.id, agentId: approval.agentId, actionHash },
     APPROVAL_TTL_SECONDS,
@@ -70,7 +77,8 @@ export async function approvalByToken(
 ): Promise<TokenLookup> {
   const parsed = parseApprovalToken(token);
   if (!parsed.ok) return parsed;
-  const stored = await new ApprovalStore(env.AUDIT).get(parsed.approvalId);
+  const store = new ApprovalStore(env.AUDIT);
+  const stored = await store.get(parsed.approvalId);
   if (!stored) return { ok: false, reason: 'not_found' };
   const check = await keyring(env).checkApprovalToken(
     token,
@@ -78,8 +86,12 @@ export async function approvalByToken(
     now.getTime(),
   );
   if (!check.ok) return check;
+  // Show the copy that would run, and only if it is the action the token is bound to.
+  const request = await store.requestOf(stored.id);
+  if (!request || (await sha256Hex(canonicalJson(request.action))) !== stored.actionHash)
+    return { ok: false, reason: 'not_found' };
   const { actionHash: _h, consumedAt: _c, ...approval } = stored;
-  return { ok: true, approval };
+  return { ok: true, approval: { ...approval, action: request.action } };
 }
 
 export type DecideOutcome =
@@ -104,5 +116,7 @@ export async function decideApproval(
   const executed: BrokerResponse = request
     ? await act(env, { ...request, approvalId: id }, now)
     : { ok: false, code: 'approval_invalid', reason: 'stored request is missing' };
+  // Single shot: an approval that did not post (halted, rate limit, error) cannot be spent later.
+  await store.consume(id, now);
   return { result, decision, executed };
 }

@@ -90,7 +90,7 @@ export abstract class CustodesAgent<
     action: BrokerAction,
     runId: string,
     triggeredBy: Trigger,
-    opts: { onBehalfOf?: string; approvalId?: string; turn?: Turn } = {},
+    opts: { onBehalfOf?: string; turn?: Turn } = {},
   ): Promise<BrokerResponse> {
     if (this.manifest.mode === 'readonly') {
       throw new Error(`agent ${this.manifest.id} is read-only and cannot request side effects`);
@@ -103,7 +103,6 @@ export abstract class CustodesAgent<
       triggeredBy,
       action,
       ...(opts.onBehalfOf !== undefined ? { onBehalfOf: opts.onBehalfOf } : {}),
-      ...(opts.approvalId !== undefined ? { approvalId: opts.approvalId } : {}),
     };
     return executeTool(opts.turn, action.type, async (span) => {
       // The action is our own output (it becomes public on GitHub); approval ids are not recorded.

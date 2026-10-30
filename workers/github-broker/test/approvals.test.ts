@@ -2,7 +2,12 @@ import { env } from 'cloudflare:workers';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { KillSwitch } from '@custodes/core';
 import type { BrokerRequest } from '@custodes/schema';
-import { approvalByToken, createApproval, decideApproval } from '../src/approvals.js';
+import {
+  approvalByToken,
+  createApproval,
+  decideApproval,
+  MAX_PENDING_PER_AGENT,
+} from '../src/approvals.js';
 import type { BrokerEnv } from '../src/env.js';
 import broker, { BrokerAdmin } from '../src/index.js';
 import { AuditStore } from '../src/store.js';
@@ -203,5 +208,121 @@ describe('entrypoints', () => {
     const res = await call(admin, `/v1/approvals/token/${c.token}/decide`);
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ result: 'ok', decision: 'approved' });
+  });
+});
+
+describe('single shot (review M1)', () => {
+  it('spends an approval that could not post, so nobody can use it after the halt is lifted', async () => {
+    const fetchSpy = githubOk();
+    const c = await created(review('halted then resumed'));
+    const ks = new KillSwitch(env.KILL_SWITCH);
+    await ks.halt('cheatsheet-review', 'test', 'test');
+    try {
+      expect(
+        await decideApproval(testEnv, c.approval.id, 'approved', 'op@example.org'),
+      ).toMatchObject({ executed: { ok: false, code: 'halted' } });
+    } finally {
+      await ks.resume('cheatsheet-review');
+    }
+    // The broker's own pipeline refuses it now.
+    const { act } = await import('../src/act.js');
+    expect(
+      await act(testEnv, { ...review('halted then resumed'), approvalId: c.approval.id }),
+    ).toMatchObject({
+      ok: false,
+      code: 'approval_invalid',
+    });
+    // And the agents' entrypoint never accepts an approval id at all.
+    const res = await broker.fetch(
+      new Request('https://broker.internal/v1/act', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ...review('halted then resumed'), approvalId: c.approval.id }),
+      }),
+      testEnv,
+      {} as ExecutionContext,
+    );
+    expect(res.status).toBe(400);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('deciding by id (review M2, L1)', () => {
+  const byId = (id: string, decision: string) =>
+    new BrokerAdmin({} as ExecutionContext, testEnv).fetch(
+      new Request(`https://broker.internal/v1/approvals/${id}/decide`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ decision, by: 'op@example.org' }),
+      }),
+    );
+
+  it('may only reject: approving needs the link page, which shows the action', async () => {
+    const fetchSpy = githubOk();
+    const c = await created();
+    expect((await byId(c.approval.id, 'approved')).status).toBe(400);
+    expect(await approvalByToken(testEnv, c.token)).toMatchObject({
+      approval: { status: 'pending' },
+    });
+    const res = await byId(c.approval.id, 'rejected');
+    expect(res.status).toBe(200);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('lets only one of two simultaneous decisions win', async () => {
+    const fetchSpy = githubOk();
+    const c = await created();
+    const [a, b] = await Promise.all([
+      decideApproval(testEnv, c.approval.id, 'approved', 'tab-1'),
+      decideApproval(testEnv, c.approval.id, 'rejected', 'tab-2'),
+    ]);
+    expect([a.result, b.result].filter((r) => r === 'ok')).toHaveLength(1);
+    expect(fetchSpy.mock.calls.length).toBeLessThanOrEqual(1);
+  });
+});
+
+describe('what the page shows (review L2)', () => {
+  it('is the copy that would run, and nothing if that copy no longer matches the hash', async () => {
+    const c = await created(review('original'));
+    expect(await approvalByToken(testEnv, c.token)).toMatchObject({
+      approval: { action: { body: 'original' } },
+    });
+    const row = await env.AUDIT.prepare('SELECT request_json FROM approvals WHERE id = ?1')
+      .bind(c.approval.id)
+      .first<{ request_json: string }>();
+    const stored = JSON.parse(row!.request_json) as { request: BrokerRequest };
+    stored.request = review('swapped');
+    await env.AUDIT.prepare('UPDATE approvals SET request_json = ?2 WHERE id = ?1')
+      .bind(c.approval.id, JSON.stringify(stored))
+      .run();
+    expect(await approvalByToken(testEnv, c.token)).toEqual({ ok: false, reason: 'not_found' });
+  });
+});
+
+describe('approval requests are bounded (review L4)', () => {
+  const hello = (n: number): BrokerRequest => ({
+    ...base,
+    agentId: 'hello',
+    action: { type: 'issue.comment', repo: 'OWASP/CheatSheetSeries', issue: n, body: 'x' },
+  });
+
+  it('are refused while the agent is halted', async () => {
+    const ks = new KillSwitch(env.KILL_SWITCH);
+    await ks.halt('hello', 'test', 'test');
+    try {
+      expect(await createApproval(testEnv, hello(1), 'r')).toMatchObject({
+        ok: false,
+        error: 'agent is halted',
+      });
+    } finally {
+      await ks.resume('hello');
+    }
+  });
+
+  it('stop at the pending cap per agent', async () => {
+    let last: Awaited<ReturnType<typeof createApproval>> | undefined;
+    for (let n = 1; n <= MAX_PENDING_PER_AGENT + 1; n++)
+      last = await createApproval(testEnv, hello(n), 'r');
+    expect(last).toMatchObject({ ok: false, error: 'too many pending approvals' });
   });
 });

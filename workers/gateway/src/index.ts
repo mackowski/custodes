@@ -22,6 +22,8 @@ import {
 } from './approval-page.js';
 import type { GatewayEnv } from './env.js';
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
 interface Vars {
   actor: AdminActor;
 }
@@ -192,18 +194,24 @@ admin.post('/approvals/link/:token', async (c) => {
 admin.post('/approvals/:id/:decision{approve|reject}', async (c) => {
   if (!isApprover(c.get('actor'), c.env.APPROVER_EMAILS))
     return c.json({ error: 'only an approver may decide' }, 403);
-  const decision = c.req.param('decision') === 'approve' ? 'approved' : 'rejected';
-  return proxy(c.env.BROKER, `/v1/approvals/${c.req.param('id')}/decide`, {
+  // Approving needs the link, whose page shows what will be posted; by id only rejecting.
+  if (c.req.param('decision') === 'approve')
+    return c.json({ error: 'approve through the e-mailed link, which shows the action' }, 400);
+  const id = c.req.param('id');
+  if (!UUID.test(id)) return c.json({ error: 'bad approval id' }, 400);
+  return proxy(c.env.BROKER, `/v1/approvals/${id}/decide`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ decision, by: c.get('actor').subject }),
+    body: JSON.stringify({ decision: 'rejected', by: c.get('actor').subject }),
   });
 });
 admin.get('/audit', (c) => {
   const q = new URL(c.req.url).search;
   return proxy(c.env.BROKER, `/v1/attestations${q}`);
 });
-admin.get('/audit/:id', (c) => proxy(c.env.BROKER, `/v1/attestations/${c.req.param('id')}`));
+admin.get('/audit/:id', (c) =>
+  proxy(c.env.BROKER, `/v1/attestations/${encodeURIComponent(c.req.param('id'))}`),
+);
 admin.get('/keys', (c) => proxy(c.env.BROKER, '/v1/keys'));
 admin.post('/keys/:agent/rotate', (c) => {
   const agent = c.req.param('agent');

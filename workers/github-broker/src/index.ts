@@ -29,6 +29,13 @@ agentApp.post('/v1/act', async (c) => {
   const parsed = BrokerRequest.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success)
     return c.json({ ok: false, code: 'invalid', reason: parsed.error.message }, 400);
+  // An approved action is run by the broker when the operator decides; an agent never spends
+  // an approval itself.
+  if (parsed.data.approvalId !== undefined)
+    return c.json(
+      { ok: false, code: 'invalid', reason: 'approved actions are run by the broker' },
+      400,
+    );
   return c.json(await act(c.env, parsed.data));
 });
 
@@ -90,10 +97,15 @@ adminApp.get('/v1/approvals/:id', async (c) => {
   return a ? c.json(a) : c.json({ error: 'not found' }, 404);
 });
 
-/** Decides by id (the operator CLI, behind Access). */
+/**
+ * Rejects by id (the operator CLI, behind Access). Approving needs the link: its page shows what
+ * will be posted, the id alone does not.
+ */
 adminApp.post('/v1/approvals/:id/decide', async (c) => {
   const parsed = Decide.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
+  if (parsed.data.decision !== 'rejected')
+    return c.json({ error: 'approve through the e-mailed link, which shows the action' }, 400);
   const out = await decideApproval(c.env, c.req.param('id'), parsed.data.decision, parsed.data.by);
   return c.json(out, out.result === 'ok' ? 200 : 409);
 });

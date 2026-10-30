@@ -87,6 +87,7 @@ export async function act(
       return deny('approval_invalid', 'approval was for a different action');
     if (approval.status !== 'approved')
       return deny('approval_invalid', `approval status is ${approval.status}`);
+    if (new Date(approval.expiresAt) < now) return deny('approval_invalid', 'approval expired');
     if (!(await approvals.consume(req.approvalId, now)))
       return deny('approval_invalid', 'approval already used');
   }

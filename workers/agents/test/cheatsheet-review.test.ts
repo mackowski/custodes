@@ -274,6 +274,8 @@ interface Options {
   fetchImpl?: typeof fetch;
   /** Run again in the same agent (same storage) after the first. */
   runs?: number;
+  /** Every e-mail send fails. */
+  mailFails?: boolean;
 }
 
 const stub = () => getAgentByName(testEnv.CheatsheetReviewAgent, SANDBOX_INSTANCE);
@@ -286,6 +288,7 @@ async function drive(opts: Options = {}): Promise<Run & { outs: ReviewOutcome[] 
   const fetched: string[] = [];
   const email = {
     send: (m: Run['mail'][number]) => {
+      if (opts.mailFails) return Promise.reject(new Error('send failed'));
       mail.push(m);
       return Promise.resolve();
     },
@@ -605,6 +608,13 @@ describe('cheatsheet-review: failing safe', () => {
     expect(r.rows[0]?.status).toBe('awaiting_approval');
     // The token is a credential for the operator's click: never in a span.
     expect(t.allValues().join('|')).not.toContain('SIGNATURE-abcdefghij');
+  });
+
+  it('keeps the label when the approval e-mail cannot be sent, so the wait stays visible', async () => {
+    const r = await drive({ scenario: scenario({ actFor: needsApproval }), mailFails: true });
+    expect(r.out).toMatchObject({ ok: true, status: 'awaiting_approval' });
+    expect(r.broker.acts.map((a) => a.action.type)).toEqual(['pr.review.inline']);
+    expect(r.rows[0]?.status).toBe('awaiting_approval');
   });
 
   it('e-mails the partial review and keeps the label when the approval request is refused', async () => {

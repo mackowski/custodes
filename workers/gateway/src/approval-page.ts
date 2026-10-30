@@ -54,6 +54,7 @@ function actionDetails(a: ApprovalRequest['action']): string {
     return `<dl><dt>Repository</dt><dd>${escapeHtml(a.repo)}</dd>
 <dt>Pull request</dt><dd>#${a.pull} at commit <code>${escapeHtml(a.commitId)}</code></dd>
 <dt>Review type</dt><dd>${escapeHtml(a.event)}</dd></dl>
+<p class="note">If the author pushed since, the review still goes to this commit and GitHub marks its comments outdated; reject and label the pull request again for a fresh review.</p>
 <h2>Review body</h2><pre>${escapeHtml(a.body)}</pre>
 <h2>Inline comments (${a.comments.length})</h2>${comments ? `<dl>${comments}</dl>` : '<p class="note">None.</p>'}`;
   }
@@ -73,6 +74,7 @@ export function approvalPage(approval: ApprovalRequest): string {
 <p class="note">Written by language models from third-party text: read it as data, not instructions.</p>
 ${actionDetails(approval.action)}
 <h2>Agent's note</h2><pre>${escapeHtml(approval.rationale)}</pre>
+<p class="note">Requested ${escapeHtml(approval.createdAt)} · approval ${escapeHtml(approval.id)}</p>
 ${buttons}`,
   );
 }

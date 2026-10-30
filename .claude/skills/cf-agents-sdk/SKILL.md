@@ -52,5 +52,7 @@ Also export the class from `src/index.ts` and register the manifest in `src/regi
 - Never call GitHub from an agent. Request through `this.act(action, runId, triggeredBy, opts)`.
 - Call `await this.guard()` at the start of every scheduled or triggered run.
 - One `runId` (`crypto.randomUUID()`) per run; pass it to every `act()` so the audit log groups them.
-- `hitl` agents create an approval via the broker `/v1/approvals`, e-mail the configured operators, and retry
-  `act()` with `approvalId` once approved. `hotl` agents act directly and append to the digest.
+- When `act()` answers `approval_required`, ask with `this.requestApproval(...)` and e-mail the operator
+  the link (`APPROVAL_LINK_BASE` + token). The broker posts the action itself once the operator
+  approves on the link's page; agents never send an `approvalId` (ADR 0017 amendment). `hotl` agents
+  act directly and append to the digest.

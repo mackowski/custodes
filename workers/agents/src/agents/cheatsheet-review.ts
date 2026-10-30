@@ -374,7 +374,7 @@ export class CheatsheetReviewAgent extends CustodesAgent<AgentsEnv, CheatsheetRe
         return { ok: false, status: 'post_failed', detail: `approval request ${asked.status}` };
       }
       const { approval, token } = asked.created;
-      await this.mail(
+      const mailed = await this.mail(
         approvalMail({
           repo,
           pull,
@@ -391,7 +391,9 @@ export class CheatsheetReviewAgent extends CustodesAgent<AgentsEnv, CheatsheetRe
         event,
         models,
       });
-      await this.removeTrigger(repo, pull, trigger.label, runId, trig, turn);
+      // Without the e-mail the operator has no link: keep the label so the pull request shows
+      // that something waits (`custodes approvals list` has it too).
+      if (mailed) await this.removeTrigger(repo, pull, trigger.label, runId, trig, turn);
       if (d.verdict === 'CLOSE' || d.lowQuality)
         await this.mail(
           lowQualityMail({
@@ -407,7 +409,7 @@ export class CheatsheetReviewAgent extends CustodesAgent<AgentsEnv, CheatsheetRe
       return {
         ok: true,
         status: 'awaiting_approval',
-        detail: `${d.verdict} ${event} ${checked.comments.length} suggestion(s), approval ${approval.id}`,
+        detail: `${d.verdict} ${event} ${checked.comments.length} suggestion(s), approval ${approval.id}${mailed ? '' : ', e-mail failed'}`,
       };
     }
     if (!posted.ok) {
@@ -546,7 +548,8 @@ export class CheatsheetReviewAgent extends CustodesAgent<AgentsEnv, CheatsheetRe
       );
   }
 
-  private async mail(m: Mail): Promise<void> {
+  /** Sends one e-mail to the operator; false when it could not be sent (logged). */
+  private async mail(m: Mail): Promise<boolean> {
     try {
       await this.guard();
       await this.env.EMAIL.send({
@@ -556,10 +559,12 @@ export class CheatsheetReviewAgent extends CustodesAgent<AgentsEnv, CheatsheetRe
         text: m.text,
         html: m.html,
       });
+      return true;
     } catch (err) {
       console.warn(
         JSON.stringify({ event: 'cheatsheet-review.mail_failed', error: describeError(err) }),
       );
+      return false;
     }
   }
 
