@@ -67,11 +67,14 @@ jobs:
           REQUESTED: ${{ inputs.suites }}
         run: |
           set -o pipefail
+          set -f # no glob expansion of suite names
           if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
             if [ "$REQUESTED" = all ]; then
               suites=$(echo -n | node evals/select-suites.ts --all)
+              # "all" must never quietly become "none".
+              [ -n "$suites" ] || { echo "suite selection printed nothing"; exit 1; }
             else
-              suites="$REQUESTED"
+              suites=$(tr -s '[:space:]' ' ' <<<"$REQUESTED") # one line, single spaces
             fi
           else
             suites=$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files" --jq '.[].filename' | node evals/select-suites.ts)

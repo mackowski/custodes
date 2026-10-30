@@ -4,6 +4,7 @@
 // separated by spaces. Run with `node evals/select-suites.ts` (Node >= 22.18 strips the types).
 import { readdirSync, readFileSync } from 'node:fs';
 import process from 'node:process';
+import { pathToFileURL } from 'node:url';
 
 const AGENTS = 'workers/agents/src/agents/';
 const CHEATSHEET = [
@@ -56,7 +57,7 @@ export function selectSuites(changed: readonly string[], all: readonly string[])
   return all.filter((s) => hit([`evals/agents/${s}/`, ...(SUITE_PATHS[s] ?? [])]));
 }
 
-if (import.meta.url === `file://${process.argv[1] ?? ''}`) {
+if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   const all = readdirSync(new URL('./agents/', import.meta.url), { withFileTypes: true })
     .filter((d) => d.isDirectory())
     .map((d) => d.name)

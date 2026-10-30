@@ -9,3 +9,4 @@
 - [Jev state inputs](jev-state-inputs.md) — author-controlled fields in Jev states (login, file names, linked threads); skip-only injection is Low, close-ward is Medium+
 - [Review patterns](review-patterns.md) — no-op wrapper args still evaluate, error-id sanitizer fields, break/continue in callbacks, render overrides, D1 meta.changes, shown-vs-verified copies, grants surviving pre-consume denials, cleanup skipped on throw, config-pinning tests, dedupe-before-insert races, invisible-char regex gaps
 - [ADR 0016 trace payloads](adr0016-trace-payloads.md) — payload recording accepted; review only its boundaries; 8k clip per payload since 2026-10-30
+- [CI workflows](ci-workflows.md) — once-per-PR paid runs, write access = ci secrets, PR-editable reviewer config; shell-validation checks for workflow steps

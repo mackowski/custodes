@@ -110,6 +110,8 @@ jobs:
           # only place the result shows.
           prompt: |
             Run /agent-security-review ${{ github.event.pull_request.number }} and wait for its report.
+            CI lowers `effort` in .claude/agents/security-reviewer.md in this checkout on purpose;
+            review only the PR diff (`gh pr diff`), not local changes to the checkout.
             Then post that report as exactly one comment on PR #${{ github.event.pull_request.number }}
             with `gh pr comment ${{ github.event.pull_request.number }} --body-file -`. Start the
             comment with "Custodes agent security review:" and keep its findings, file:line
