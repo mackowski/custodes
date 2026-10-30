@@ -207,3 +207,19 @@ export async function call(
   writeJson(LEDGER(), { usd: now.usd + usd, calls: now.calls + 1 });
   return { result, usd };
 }
+
+/** At most `max` model calls at once (the agent's limiter imports the Durable Object runtime). */
+export function limiter(max: number): <T>(work: () => Promise<T>) => Promise<T> {
+  let active = 0;
+  const waiting: (() => void)[] = [];
+  return async (work) => {
+    if (active >= max) await new Promise<void>((r) => waiting.push(r));
+    active++;
+    try {
+      return await work();
+    } finally {
+      active--;
+      waiting.shift()?.();
+    }
+  };
+}

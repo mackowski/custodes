@@ -9,23 +9,17 @@
  */
 import process from 'node:process';
 import { parseStructured } from '@custodes/llm';
-import { parsePatch } from '../../src/agents/cheatsheet-review/diff.js';
-import {
-  judgeMessage,
-  reviewerMessage,
-  type Snapshot,
-} from '../../src/agents/cheatsheet-review/input.js';
+import { judgeMessage, reviewerMessage } from '../../src/agents/cheatsheet-review/input.js';
 import { JUDGE_PROMPT, reviewerPrompt } from '../../src/agents/cheatsheet-review/prompts.js';
-import { limiter } from '../../src/agents/cheatsheet-review/runner.js';
 import {
   classify,
-  fencedLines,
   REVIEWERS_FOR,
   type ReviewerRole,
 } from '../../src/agents/cheatsheet-review/scope.js';
 import { ReviewDecision, ReviewerReport } from '../../src/agents/cheatsheet-review/types.js';
 import {
   BudgetExceeded,
+  limiter,
   call,
   clients,
   dataPath,
@@ -36,6 +30,7 @@ import {
   type ModelName,
 } from './common.js';
 import type { FrozenPull, Stratum } from './select.js';
+import { snapshotOf } from './snapshot.js';
 
 type PromptRole = Exclude<ReviewerRole, 'link-auditor'>;
 
@@ -64,6 +59,10 @@ const CAST: Record<
   'language-reviewer': [{ baseline: 'luna', candidates: [], prompt: 'language-reviewer' }],
 };
 const JUDGES: ModelName[] = ['sol', 'astra'];
+/** BENCH_SKIP=deepseekPro,deepseekFlash leaves models out of this pass (they get their own). */
+const SKIP = new Set((process.env['BENCH_SKIP'] ?? '').split(',').filter(Boolean));
+/** Pull requests reviewed at once; model calls stay capped by `limit`. */
+const PARALLEL_PRS = 3;
 
 export interface Output<T> {
   pull: number;
@@ -75,31 +74,8 @@ export interface Output<T> {
   usd: number;
 }
 
-export function snapshotOf(f: FrozenPull): Snapshot {
-  const contents = new Map(f.contents);
-  return {
-    repo: 'OWASP/CheatSheetSeries',
-    pull: f.pull,
-    headSha: f.sha,
-    author: f.author,
-    title: f.title,
-    body: f.body,
-    files: f.files.map((file) => ({
-      file,
-      hunks: parsePatch(file.patch),
-      codeLines: fencedLines(contents.get(file.filename) ?? ''),
-    })),
-    contents,
-    disclosure: f.disclosure,
-    issues: [],
-    sheetNames: f.sheetNames,
-    related: new Map(f.related),
-    unreviewedFiles: 0,
-  };
-}
-
 const c = clients();
-const limit = limiter(4);
+const limit = limiter(6);
 
 async function ask<T>(
   pull: number,
@@ -155,53 +131,62 @@ async function ask<T>(
 }
 
 const sample = readJson<{ pull: number; stratum: Stratum }[]>(dataPath('sample.json'));
-try {
-  for (const { pull } of sample) {
-    const frozen = readJson<FrozenPull>(dataPath('snapshots', `${pull}.json`));
-    const snap = snapshotOf(frozen);
-    const scope = classify(snap.files);
-    const cls = scope.kind === 'decided' ? scope.class : 'content';
-    const roles = REVIEWERS_FOR[cls].filter((r): r is PromptRole => r !== 'link-auditor');
-    writeJson(dataPath('outputs', String(pull), 'scope.json'), {
-      class: cls,
-      why: scope.kind === 'decided' ? scope.why : 'ambiguous, counted as content',
-    });
+async function review(pull: number): Promise<void> {
+  const frozen = readJson<FrozenPull>(dataPath('snapshots', `${pull}.json`));
+  const snap = snapshotOf(frozen);
+  const scope = classify(snap.files);
+  const cls = scope.kind === 'decided' ? scope.class : 'content';
+  const roles = REVIEWERS_FOR[cls].filter((r): r is PromptRole => r !== 'link-auditor');
+  writeJson(dataPath('outputs', String(pull), 'scope.json'), {
+    class: cls,
+    why: scope.kind === 'decided' ? scope.why : 'ambiguous, counted as content',
+  });
 
-    const jobs: Promise<Output<unknown>>[] = [];
-    const baseline: Promise<Output<unknown>>[] = [];
-    for (const role of roles)
-      for (const cast of CAST[role]) {
-        const system = reviewerPrompt(cast.prompt);
-        const user = reviewerMessage(snap, { withRelated: role === 'duplication-checker' });
-        const mt = role.startsWith('security') ? 16_000 : 8_000;
+  const jobs: Promise<Output<unknown>>[] = [];
+  const baseline: Promise<Output<unknown>>[] = [];
+  for (const role of roles)
+    for (const cast of CAST[role]) {
+      const system = reviewerPrompt(cast.prompt);
+      const user = reviewerMessage(snap, { withRelated: role === 'duplication-checker' });
+      const mt = role.startsWith('security') ? 16_000 : 8_000;
+      if (!SKIP.has(cast.baseline)) {
         const b = ask(pull, role, cast.baseline, ReviewerReport, system, user, mt);
         baseline.push(b);
         jobs.push(b);
-        for (const cand of cast.candidates)
-          jobs.push(ask(pull, role, cand, ReviewerReport, system, user, mt));
       }
-    const base = await Promise.all(baseline);
-    const reports = base
-      .filter((o) => o.ok)
-      .map((o) => ({ role: o.role, report: o.answer as ReviewerReport }));
-    const notRun = roles.filter((r) => !reports.some((x) => x.role === r));
-    for (const j of JUDGES)
-      jobs.push(
-        ask(
-          pull,
-          'judge',
-          j,
-          ReviewDecision,
-          JUDGE_PROMPT,
-          judgeMessage(snap, reports, notRun),
-          16_000,
-        ),
-      );
-    const all = await Promise.all(jobs);
-    console.log(
-      `#${pull} ${cls}: ${all.filter((o) => o.ok).length}/${all.length} ok, total $${spent().usd.toFixed(2)}`,
+      for (const cand of cast.candidates.filter((m) => !SKIP.has(m)))
+        jobs.push(ask(pull, role, cand, ReviewerReport, system, user, mt));
+    }
+  const base = await Promise.all(baseline);
+  const reports = base
+    .filter((o) => o.ok)
+    .map((o) => ({ role: o.role, report: o.answer as ReviewerReport }));
+  const notRun = roles.filter((r) => !reports.some((x) => x.role === r));
+  for (const j of JUDGES)
+    jobs.push(
+      ask(
+        pull,
+        'judge',
+        j,
+        ReviewDecision,
+        JUDGE_PROMPT,
+        judgeMessage(snap, reports, notRun),
+        16_000,
+      ),
     );
-  }
+  const all = await Promise.all(jobs);
+  console.log(
+    `#${pull} ${cls}: ${all.filter((o) => o.ok).length}/${all.length} ok, total $${spent().usd.toFixed(2)}`,
+  );
+}
+
+try {
+  const queue = sample.map((x) => x.pull);
+  await Promise.all(
+    Array.from({ length: PARALLEL_PRS }, async () => {
+      for (let pull = queue.shift(); pull !== undefined; pull = queue.shift()) await review(pull);
+    }),
+  );
 } catch (err) {
   if (err instanceof BudgetExceeded) {
     console.error(err.message);

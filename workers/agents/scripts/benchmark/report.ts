@@ -27,6 +27,9 @@ const tally = (k: string) => {
   return t;
 };
 const unique = { wonder: new Set<string>() };
+/** The targeted DeepSeek pass (deepseek.ts): model × reasoning effort. */
+const DEEPSEEK = ['deepseekPro-low', 'deepseekPro-high', 'deepseekFlash-low', 'deepseekFlash-high'];
+const speed: Record<string, { runs: number; ok: number; timeouts: number; ms: number[] }> = {};
 const verdicts: Record<string, { strict: number; lenient: number; n: number }> = {};
 const verdict = (k: string, got: string | undefined, s: Stratum) => {
   const v = (verdicts[k] ??= { strict: 0, lenient: 0, n: 0 });
@@ -37,7 +40,7 @@ const verdict = (k: string, got: string | undefined, s: Stratum) => {
   if (s === 'clean' ? got === 'MERGE' : got !== 'MERGE') v.lenient++;
 };
 let problems = 0;
-const spot: string[] = [];
+const spot: { pull: number; text: string; note: string }[] = [];
 
 for (const { pull, stratum } of sample) {
   const gradeFile = dataPath('grades', `${pull}.json`);
@@ -54,18 +57,29 @@ for (const { pull, stratum } of sample) {
     const note = match.get(f.id) ?? null;
     if (note && real.has(note)) t.hits.add(`${pull}:${note}`);
     else if (f.severity === 'BLOCKER') t.falseBlockers++;
-    if (note && spot.length < 400) {
+    if (note && real.has(note)) {
       const n = frozen.notes.find((x) => x.id === note);
-      spot.push(
-        `### #${pull} ${f.id} (${f.severity})\n- finding: ${f.text.replace(/\s+/g, ' ')}\n- maintainer: ${(n?.text ?? '').replace(/\s+/g, ' ').slice(0, 400)}\n- grader: same problem\n`,
-      );
+      spot.push({ pull, text: f.text.replace(/\s+/g, ' '), note: (n?.text ?? '').trim() });
     }
   }
   const hit = (src: string) =>
     new Set([...tally(src).hits].filter((h) => h.startsWith(`${pull}:`)));
   for (const h of hit('security-second-voice:museWonder'))
-    if (!hit('security-reviewer:opus').has(h) && !hit('security-second-voice:deepseekPro').has(h))
+    if (
+      !hit('security-reviewer:opus').has(h) &&
+      !DEEPSEEK.some((k) => hit(`security-second-voice:${k}`).has(h))
+    )
       unique.wonder.add(h);
+  for (const k of DEEPSEEK) {
+    const u = new URL(`security-second-voice.${k}.json`, dataPath('outputs', String(pull), 'x'));
+    if (!exists(u)) continue;
+    const o = readJson<{ ok: boolean; error?: string; ms?: number }>(u);
+    const s = (speed[k] ??= { runs: 0, ok: 0, timeouts: 0, ms: [] });
+    s.runs++;
+    if (o.ok) s.ok++;
+    if (o.error === 'timeout' || o.error === 'HTTP 408') s.timeouts++;
+    if (o.ms) s.ms.push(o.ms);
+  }
 
   const dir = dataPath('outputs', String(pull), 'x');
   for (const f of [
@@ -73,6 +87,7 @@ for (const { pull, stratum } of sample) {
     'security-second-voice.deepseekPro',
     'security-second-voice.deepseekFlash',
     'security-second-voice.museWonder',
+    ...DEEPSEEK.map((k) => `security-second-voice.${k}`),
     'practicality-reviewer.museSpark',
     'practicality-reviewer.museWonder',
     'practicality-reviewer.sonnet',
@@ -117,12 +132,22 @@ const row = (k: string) =>
 const sol = verdicts['judge:sol'] ?? { strict: 0, lenient: 0, n: 0 };
 const astra = verdicts['judge:astra'] ?? { strict: 0, lenient: 0, n: 0 };
 const pp = (v: { lenient: number; n: number }) => (v.n ? (100 * v.lenient) / v.n : 0);
+const solFb = t('judge:sol').falseBlockers;
+const astraFb = t('judge:astra').falseBlockers;
+/** Decide only when both judges saw (nearly) the same pull requests; fewer blockers needs some to begin with. */
+const comparable = astra.n >= 25 && sol.n >= 25;
 const judgeToAstra =
-  pp(astra) - pp(sol) >= 10 || t('judge:astra').falseBlockers <= 0.7 * t('judge:sol').falseBlockers;
+  comparable && (pp(astra) - pp(sol) >= 10 || (solFb > 0 && astraFb <= 0.7 * solFb));
 const wonderThird =
   unique.wonder.size >= 3 && t('security-second-voice:museWonder').falseBlockers <= 2;
-const flash = t('security-second-voice:deepseekFlash');
-const pro = t('security-second-voice:deepseekPro');
+const best = (keys: string[]) =>
+  keys
+    .map((k) => t(`security-second-voice:${k}`))
+    .sort((a, b) => b.hits.size - a.hits.size || a.falseBlockers - b.falseBlockers)[0] ?? t('none');
+const flash = best(['deepseekFlash-low', 'deepseekFlash-high']);
+const pro = best(['deepseekPro-low', 'deepseekPro-high']);
+const median = (xs: number[]) =>
+  xs.length ? ([...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)] ?? 0) : 0;
 const toFlash = flash.hits.size >= pro.hits.size - 1 && flash.falseBlockers <= pro.falseBlockers;
 const prac = [
   'practicality-reviewer:museSpark',
@@ -151,6 +176,16 @@ ${[...tallies.keys()]
 
 Muse Wonder as a third security voice found ${unique.wonder.size} problem(s) neither Opus nor DeepSeek V4 Pro found.
 
+## DeepSeek on Workers AI (targeted pass, second-voice prompt)
+
+| Variant | Runs | Answered | Timeouts | Median time | Hits | False blockers | Cost |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+${DEEPSEEK.map((k) => {
+  const s = speed[k] ?? { runs: 0, ok: 0, timeouts: 0, ms: [] };
+  const x = t(`security-second-voice:${k}`);
+  return `| ${k} | ${s.runs} | ${s.ok} | ${s.timeouts} | ${Math.round(median(s.ms) / 1000)} s | ${x.hits.size} | ${x.falseBlockers} | $${x.usd.toFixed(2)} |`;
+}).join('\n')}
+
 ## Verdicts
 
 Expected: clean → MERGE, fixed → REQUEST_CHANGES, closed → CLOSE. Lenient: anything but MERGE counts for fixed and closed.
@@ -165,7 +200,7 @@ ${Object.entries(verdicts)
 
 | Question | Threshold | Result |
 | --- | --- | --- |
-| Judge → Astra | ≥10 pp lenient agreement or ≥30% fewer false blockers | ${judgeToAstra ? '**switch to Astra**' : 'keep Sol'} (${pp(astra).toFixed(0)}% vs ${pp(sol).toFixed(0)}%; false blockers ${t('judge:astra').falseBlockers} vs ${t('judge:sol').falseBlockers}) |
+| Judge → Astra | ≥10 pp lenient agreement or ≥30% fewer false blockers | ${!comparable ? `inconclusive: Astra answered ${astra.n} of ${sample.length} (OpenRouter 402 on the rest)` : judgeToAstra ? '**switch to Astra**' : 'keep Sol'} (${pp(astra).toFixed(0)}% vs ${pp(sol).toFixed(0)}%; false blockers ${t('judge:astra').falseBlockers} vs ${t('judge:sol').falseBlockers}) |
 | Muse Wonder as third security voice | ≥3 unique hits and ≤2 false blockers | ${wonderThird ? '**add**' : 'do not add'} (${unique.wonder.size} unique, ${t('security-second-voice:museWonder').falseBlockers} false blockers) |
 | Second voice → DeepSeek V4.1 Flash | hits ≥ V4 Pro −1 and no more false blockers | ${toFlash ? '**switch to Flash**' : 'keep V4 Pro'} (${flash.hits.size} vs ${pro.hits.size} hits; ${flash.falseBlockers} vs ${pro.falseBlockers} false blockers) |
 | Practicality | most hits, then cheapest | **${prac ?? 'n/a'}** |
@@ -177,9 +212,39 @@ writeFileSync(new URL('workers/agents/scripts/benchmark/REPORT.md', ROOT), repor
 // Ten random matches for the operator's check, seeded so a rerun shows the same ones.
 let seed = 20261029;
 const rnd = () => (seed = (seed * 1103515245 + 12345) % 2 ** 31) / 2 ** 31;
-const picks = [...spot].sort(() => rnd() - 0.5).slice(0, 10);
+// At most one pair per pull request, so one long thread cannot fill the sample.
+const shuffled = [...spot].sort(() => rnd() - 0.5);
+const picks: typeof spot = [];
+for (const x of shuffled)
+  if (picks.length < 10 && !picks.some((p) => p.pull === x.pull)) picks.push(x);
 writeFileSync(
   dataPath('spotcheck.md'),
-  `# Spot check: is each pair the same problem? (≥3 "no" of 10 = distrust the grader)\n\n${picks.join('\n')}`,
+  [
+    '# Kontrola oceniającego (Terra)',
+    '',
+    'Przy każdej parze odpowiedz TAK albo NIE: czy znalezisko modelu i uwaga maintainera dotyczą TEGO SAMEGO problemu?',
+    'Uwaga maintainera bywa długa i wymienia kilka problemów; wystarczy, że jeden z nich to ten sam problem.',
+    '3 lub więcej odpowiedzi NIE z 10 = oceniającemu nie ufamy.',
+    '',
+    ...picks.map((x, i) =>
+      [
+        `## ${i + 1}. PR #${x.pull}`,
+        '',
+        '**Znalezisko modelu:**',
+        '',
+        `> ${x.text}`,
+        '',
+        '**Uwaga maintainera (pełna):**',
+        '',
+        x.note
+          .split('\n')
+          .map((l) => `> ${l}`)
+          .join('\n'),
+        '',
+        '**Twoja ocena:** TAK / NIE',
+        '',
+      ].join('\n'),
+    ),
+  ].join('\n'),
 );
 console.log(report);

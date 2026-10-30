@@ -45,7 +45,18 @@ export function findingsOf(pull: number): Finding[] {
     });
   for (const [role, models] of [
     ['security-reviewer', ['opus']],
-    ['security-second-voice', ['deepseekPro', 'deepseekFlash', 'museWonder']],
+    [
+      'security-second-voice',
+      [
+        'deepseekPro',
+        'deepseekFlash',
+        'museWonder',
+        'deepseekPro-low',
+        'deepseekPro-high',
+        'deepseekFlash-low',
+        'deepseekFlash-high',
+      ],
+    ],
     ['practicality-reviewer', ['museSpark', 'museWonder', 'sonnet']],
     ['duplication-checker', ['museSpark']],
     ['language-reviewer', ['luna']],
