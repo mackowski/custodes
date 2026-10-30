@@ -164,3 +164,34 @@ by hand, not in CI) changed four roles:
 Rejected: Muse Wonder as a third security voice (no problem found that Opus or DeepSeek missed, 4
 false blockers). Not measured: the duplication checker (needs repository-wide retrieval) and the
 link auditor (the linked pages have changed since).
+
+## Amendment 2026-10-30: the operator approves each review on OWASP
+
+On OWASP a review is posted only after the operator has read it and clicked Approve. Policy gets
+`requiresApprovalOn` per repository; cheatsheet-review lists `pr.review.inline` for OWASP and, until
+the flow has passed its end-to-end run there, for the sandbox.
+
+1. The broker answers the review with `approval_required`. The agent asks for an approval
+   (`POST /v1/approvals`) and gets a token, e-mails the operator a link with only code-computed
+   facts in it, removes the trigger label and records `awaiting_approval`.
+2. The link opens `custodes.work/admin/approvals/link/<token>` behind Access. Only a person on
+   `APPROVER_EMAILS` may open it. GET shows the stored review, HTML-escaped, without script, links
+   or framing; only the POST buttons decide, so a mail scanner opening the link decides nothing.
+3. The token is an HMAC over the approval id, agent, action hash and expiry (24 h). The key is
+   generated inside the broker's `Keyring` and never leaves it, so no Worker and no CI secret holds
+   it; `APPROVAL_TOKEN_SECRET` is gone. A token opens only its own approval's exact action.
+4. On approval the broker runs the stored request itself through `act()` (kill switch, rate limit,
+   execute, signed audit), once. A second click finds the approval no longer pending. If the author
+   pushed in the meantime, the review still goes to the commit it was written for.
+
+The broker now has two entrypoints. Agents bind the default one: act, read, and asking for an
+approval. Only the gateway binds `BrokerAdmin`: deciding approvals, the audit log and keys. Before,
+any caller of the broker's service binding, the agents Worker included, could decide an approval or
+rotate a key.
+
+Replies to `approve+…@` and `reject+…@` addresses are refused. Mail addresses are case-folded, which
+breaks a base64url token, and a reply cannot prove who clicked as Access does.
+
+Rejected: a bare link without a token (Access alone does not bind the click to the action shown);
+waking the agent to post a draft kept in its storage (more state, same outcome); the token secret
+as a CI secret (the Keyring already keeps keys that never leave the broker).

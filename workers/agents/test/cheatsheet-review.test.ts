@@ -37,7 +37,11 @@ interface Scenario {
   files: PullFile[];
   headText: string;
   issues: Record<number, PublicIssue>;
+  /** The broker's answer to every act, or per request. */
   act: unknown;
+  actFor?: (req: BrokerRequest) => unknown;
+  /** Status and body the broker answers an approval request with. */
+  approval?: { status: number; body: unknown };
 }
 
 const issue = (over: Partial<PublicIssue> = {}): PublicIssue => ({
@@ -82,22 +86,53 @@ const pullOf = (over: Partial<PublicPull> = {}): PublicPull => ({
   ...over,
 });
 
+const TOKEN =
+  '6a1f6c1e-0b1e-4c5e-9d55-3f1b1e0e7a02.1900000000.SIGNATURE-abcdefghijklmnopqrstuvwxyz012345';
+const CREATED = {
+  approval: {
+    id: '6a1f6c1e-0b1e-4c5e-9d55-3f1b1e0e7a02',
+    agentId: 'cheatsheet-review',
+    runId: '6a1f6c1e-0b1e-4c5e-9d55-3f1b1e0e7a03',
+    action: { type: 'issue.label.remove', repo: REPO, issue: PR, labels: [LABEL] },
+    rationale: 'r',
+    createdAt: '2026-10-30T10:00:00.000Z',
+    expiresAt: '2026-10-31T10:00:00.000Z',
+    status: 'pending',
+  },
+  token: TOKEN,
+};
+/** The broker asks for an approval of the review and allows everything else. */
+const needsApproval = (req: BrokerRequest) =>
+  req.action.type === 'pr.review.inline'
+    ? { ok: false, code: 'approval_required', reason: 'this action needs a human approval' }
+    : { ok: true, attestationId: '6a1f6c1e-0b1e-4c5e-9d55-3f1b1e0e7a01' };
+
 const b64 = (s: string) => btoa(String.fromCharCode(...new TextEncoder().encode(s)));
 
 /** A broker that answers reads from the scenario and records every read and act. */
 function fakeBroker(sc: Scenario) {
   const reads: { resource: string; ref?: string; path?: string; number?: number }[] = [];
   const acts: BrokerRequest[] = [];
+  const approvals: { request: BrokerRequest; rationale: string }[] = [];
   let pullReads = 0;
   return {
     reads,
     acts,
+    approvals,
     fetch: (url: string, init: RequestInit): Response => {
       const body = JSON.parse(init.body as string) as Record<string, unknown>;
       if (url.endsWith('/v1/act')) {
         const req = BrokerRequest.parse(body); // the real wire schema: an invalid action fails the test
         acts.push(req);
-        return Response.json(sc.act);
+        return Response.json(sc.actFor ? sc.actFor(req) : sc.act);
+      }
+      if (url === 'https://broker.internal/v1/approvals') {
+        approvals.push({
+          request: BrokerRequest.parse(body['request']),
+          rationale: String(body['rationale']),
+        });
+        const a = sc.approval ?? { status: 201, body: CREATED };
+        return Response.json(a.body, { status: a.status });
       }
       expect(url).toBe('https://broker.internal/v1/read');
       const r = body as { resource: string; ref?: string; path?: string; number?: number };
@@ -548,6 +583,41 @@ describe('cheatsheet-review: failing safe', () => {
     });
     expect(r.broker.acts).toEqual([]);
     expect(r.mail).toHaveLength(1);
+  });
+
+  it('asks for an approval where the policy wants one, e-mails the link and removes the label', async () => {
+    const t = new RecordingTracer();
+    const r = await drive({ scenario: scenario({ actFor: needsApproval }), tracer: t });
+    expect(r.out).toMatchObject({ ok: true, status: 'awaiting_approval' });
+    // The approval is for exactly the review the agent tried to post.
+    expect(r.broker.approvals).toHaveLength(1);
+    expect(r.broker.approvals[0]?.request.action).toEqual(reviewActs(r)[0]);
+    expect(r.broker.approvals[0]?.request.agentId).toBe('cheatsheet-review');
+    expect(r.broker.acts.map((a) => a.action.type)).toEqual([
+      'pr.review.inline',
+      'issue.label.remove',
+    ]);
+    const mail = r.mail.find((m) => m.subject.includes('approve the review'));
+    expect(mail?.text).toContain(`https://custodes.work/admin/approvals/link/${TOKEN}`);
+    expect(mail?.html).toContain(`https://custodes.work/admin/approvals/link/${TOKEN}`);
+    // Only code-computed facts in the mail: no model text.
+    expect(mail?.text).not.toContain(MARK);
+    expect(r.rows[0]?.status).toBe('awaiting_approval');
+    // The token is a credential for the operator's click: never in a span.
+    expect(t.allValues().join('|')).not.toContain('SIGNATURE-abcdefghij');
+  });
+
+  it('e-mails the partial review and keeps the label when the approval request is refused', async () => {
+    const r = await drive({
+      scenario: scenario({
+        actFor: needsApproval,
+        approval: { status: 403, body: { error: 'nope' } },
+      }),
+    });
+    expect(r.out).toMatchObject({ ok: false, status: 'post_failed' });
+    expect(r.broker.acts.map((a) => a.action.type)).toEqual(['pr.review.inline']);
+    expect(r.mail[0]?.text).toContain('the broker refused the approval request (HTTP 403)');
+    expect(r.rows[0]?.status).toBe('post_failed');
   });
 
   it('e-mails and does not remove the label when the broker refuses the review', async () => {

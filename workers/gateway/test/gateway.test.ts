@@ -1,7 +1,9 @@
 import { env } from 'cloudflare:workers';
 import { describe, expect, it } from 'vitest';
 import worker from '../src/index.js';
+import type { ApprovalRequest } from '@custodes/schema';
 import { adminWriteAllowed, agentWriteAllowed } from '../src/access.js';
+import { approvalPage, isApprover, PAGE_HEADERS, resultPage } from '../src/approval-page.js';
 import type { GatewayEnv } from '../src/env.js';
 
 const testEnv = (): GatewayEnv => ({
@@ -207,5 +209,124 @@ describe('service token on the admin API', () => {
       expect(agentWriteAllowed(svc, 'POST', path), path).toBe(false);
     expect(agentWriteAllowed(svc, 'GET', `${base}/comparisons`)).toBe(true);
     expect(agentWriteAllowed(human, 'POST', `${base}/verdict`)).toBe(true);
+  });
+});
+
+describe('approval links (ADR 0017 amendment)', () => {
+  const token =
+    '9d7c1e9e-2b1a-4b6e-9a2e-1f7d1c2b3a44.1900000000.abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG';
+  const approval: ApprovalRequest = {
+    id: '9d7c1e9e-2b1a-4b6e-9a2e-1f7d1c2b3a44',
+    agentId: 'cheatsheet-review',
+    runId: '9d7c1e9e-2b1a-4b6e-9a2e-1f7d1c2b3a45',
+    action: {
+      type: 'pr.review.inline',
+      repo: 'mackowski/custodes-sandbox',
+      pull: 3,
+      commitId: '0123456789abcdef0123456789abcdef01234567',
+      event: 'COMMENT',
+      body: 'Looks fine <script>alert(1)</script> [x](https://evil.example.com) @everyone',
+      comments: [
+        { path: 'cheatsheets/A.md', line: 4, side: 'RIGHT', body: '<img src=x onerror=alert(1)>' },
+      ],
+    },
+    rationale: '"><b>bold</b>',
+    createdAt: '2026-10-30T10:00:00.000Z',
+    expiresAt: '2026-10-31T10:00:00.000Z',
+    status: 'pending',
+  };
+
+  it('need Access for opening and for deciding', async () => {
+    for (const method of ['GET', 'POST'])
+      expect(
+        (
+          await worker.fetch(
+            new Request(`https://x/admin/approvals/link/${token}`, { method }),
+            testEnv(),
+            ctx,
+          )
+        ).status,
+        method,
+      ).toBe(401);
+  });
+
+  it('refuse a decision posted from another site, before Access', async () => {
+    const res = await worker.fetch(
+      new Request(`https://x/admin/approvals/link/${token}`, {
+        method: 'POST',
+        headers: { 'sec-fetch-site': 'cross-site' },
+      }),
+      testEnv(),
+      ctx,
+    );
+    expect(res.status).toBe(403);
+  });
+
+  it('may be used only by a person on the approver list', () => {
+    const list = 'Op@Example.com, other@example.com';
+    expect(isApprover({ subject: 'op@example.com', via: 'access-user' }, list)).toBe(true);
+    expect(isApprover({ subject: 'mallory@example.com', via: 'access-user' }, list)).toBe(false);
+    expect(
+      isApprover({ subject: 'service:op@example.com', via: 'access-service-token' }, list),
+    ).toBe(false);
+    expect(isApprover({ subject: 'op@example.com', via: 'access-service-token' }, list)).toBe(
+      false,
+    );
+    expect(isApprover({ subject: 'op@example.com', via: 'access-user' }, '')).toBe(false);
+  });
+
+  it('show the stored review escaped, with no script, link or framing, and POST-only buttons', () => {
+    const html = approvalPage(approval);
+    expect(html).not.toContain('<script>');
+    expect(html).not.toContain('<img');
+    expect(html).not.toContain('<b>bold');
+    expect(html).not.toMatch(/<a\s/);
+    expect(html).toContain('&lt;script&gt;alert(1)&lt;/script&gt;');
+    expect(html).toContain('<form method="post">');
+    expect(html).toContain('value="approve"');
+    expect(PAGE_HEADERS['content-security-policy']).toContain("frame-ancestors 'none'");
+    expect(PAGE_HEADERS['content-security-policy']).toContain("default-src 'none'");
+    expect(PAGE_HEADERS['x-frame-options']).toBe('DENY');
+  });
+
+  it('show no buttons once the request is decided', () => {
+    expect(approvalPage({ ...approval, status: 'approved' })).not.toContain('<form');
+  });
+
+  it('link only to a GitHub URL the broker returned after posting', () => {
+    const posted = resultPage({
+      result: 'ok',
+      decision: 'approved',
+      executed: {
+        ok: true,
+        attestationId: '9d7c1e9e-2b1a-4b6e-9a2e-1f7d1c2b3a44',
+        githubUrl: 'https://github.com/mackowski/custodes-sandbox/pull/3#r1',
+      },
+    });
+    expect(posted).toContain('<a href="https://github.com/mackowski/custodes-sandbox/pull/3#r1"');
+    const odd = resultPage({
+      result: 'ok',
+      decision: 'approved',
+      executed: {
+        ok: true,
+        attestationId: '9d7c1e9e-2b1a-4b6e-9a2e-1f7d1c2b3a44',
+        githubUrl: 'https://evil.example.com/x',
+      },
+    });
+    expect(odd).not.toContain('<a ');
+    expect(resultPage({ result: 'not_pending' })).toContain('not_pending');
+  });
+
+  it('refuse replies to approval addresses: approvals are link-only', async () => {
+    let rejected = '';
+    await worker.email({
+      from: 'op@example.com',
+      to: 'approve+abc@custodes.work',
+      headers: new Headers(),
+      setReject: (r: string) => {
+        rejected = r;
+      },
+    } as unknown as ForwardableEmailMessage);
+    expect(rejected).toContain('link');
   });
 });

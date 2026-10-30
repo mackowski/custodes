@@ -14,13 +14,15 @@
     // Application Audience (AUD) tag of the Access application; from `terraform output`.
     "ACCESS_AUD": "0cb7808f9edd99f93ee4cb7ee333f46eb7ee2ad9cc8abd4a05667344cd8c595e",
     "EMAIL_DOMAIN": "custodes.work",
-    // Comma-separated senders allowed to approve by e-mail.
+    // Comma-separated Access identities allowed to decide approvals (link page and CLI).
     "APPROVER_EMAILS": "jkb.mackowski@gmail.com",
   },
-  // Secrets (wrangler secret put): GITHUB_WEBHOOK_SECRET, APPROVAL_TOKEN_SECRET
+  // Secrets (set by CI on deploy): GITHUB_WEBHOOK_SECRET
   "kv_namespaces": [{ "binding": "KILL_SWITCH", "id": "841e2b0dd14d48fbac292217839957a4" }],
   "services": [
-    { "binding": "BROKER", "service": "custodes-github-broker" },
+    // The broker's admin entrypoint (approvals, audit, keys); agents bind its default one, which
+    // cannot decide approvals (ADR 0017 amendment).
+    { "binding": "BROKER", "service": "custodes-github-broker", "entrypoint": "BrokerAdmin" },
     { "binding": "AGENTS", "service": "custodes-agents" },
   ],
   "queues": { "producers": [{ "binding": "INBOUND", "queue": "custodes-inbound" }] },

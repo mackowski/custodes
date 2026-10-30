@@ -1,5 +1,8 @@
 import type { ApprovalRequest, Attestation, BrokerRequest } from '@custodes/schema';
-import { Attestation as AttestationSchema } from '@custodes/schema';
+import {
+  Attestation as AttestationSchema,
+  BrokerRequest as BrokerRequestSchema,
+} from '@custodes/schema';
 
 export class AuditStore {
   constructor(private readonly db: D1Database) {}
@@ -128,7 +131,8 @@ export class ApprovalStore {
         approval.agentId,
         approval.runId,
         actionHash,
-        JSON.stringify(approval),
+        // The full request rides along so the broker can run exactly it once approved.
+        JSON.stringify({ ...approval, request: req }),
         approval.createdAt,
         approval.expiresAt,
       )
@@ -144,6 +148,19 @@ export class ApprovalStore {
       .bind(id)
       .first<ApprovalRow>();
     return row ? toApproval(row) : null;
+  }
+
+  /** The request an approval was created for, to run once it is approved. */
+  async requestOf(id: string): Promise<BrokerRequest | null> {
+    const row = await this.db
+      .prepare('SELECT request_json FROM approvals WHERE id = ?1')
+      .bind(id)
+      .first<{ request_json: string }>();
+    if (!row) return null;
+    const parsed = BrokerRequestSchema.safeParse(
+      (JSON.parse(row.request_json) as { request?: unknown }).request,
+    );
+    return parsed.success ? parsed.data : null;
   }
 
   async listPending(limit: number): Promise<ApprovalRequest[]> {
@@ -192,7 +209,9 @@ export class ApprovalStore {
 function toApproval(
   row: ApprovalRow,
 ): ApprovalRequest & { actionHash: string; consumedAt: string | null } {
-  const base = JSON.parse(row.request_json) as ApprovalRequest;
+  const { request: _request, ...base } = JSON.parse(row.request_json) as ApprovalRequest & {
+    request?: unknown;
+  };
   return {
     ...base,
     status: row.status,

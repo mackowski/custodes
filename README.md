@@ -23,7 +23,7 @@ CLI ──── Cloudflare Access ▶ gateway ─────┘               
 - **The broker** decides. It holds one fine-grained GitHub token per agent, checks a committed
   policy, the kill switch, human approvals and rate limits, executes the action, and signs an audit
   record. Every comment an agent posts ends with an attestation id you can verify.
-- **Humans** approve by e-mail reply or CLI (`hitl` agents), or supervise via digests and a kill
+- **Humans** approve through an e-mailed link behind Cloudflare Access or the CLI (`hitl` agents), or supervise via digests and a kill
   switch (`hotl` agents).
 - **The CLI** (`custodes`) runs, halts and resumes agents, decides approvals, and verifies the audit
   trail, authenticated by Cloudflare Access.

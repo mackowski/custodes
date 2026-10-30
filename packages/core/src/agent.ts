@@ -2,6 +2,7 @@ import * as workers from 'cloudflare:workers';
 import { Agent, type Connection } from 'agents';
 import {
   type AgentManifest,
+  ApprovalCreated,
   type BrokerAction,
   BrokerResponse,
   type BrokerRequest,
@@ -115,6 +116,39 @@ export abstract class CustodesAgent<
       const out = BrokerResponse.parse(await res.json());
       span.set('custodes.broker.outcome', out.ok ? 'ok' : out.code);
       return out;
+    });
+  }
+
+  /**
+   * Asks for a human approval of an action the broker answered with `approval_required`. Returns
+   * the link token to send to the operator; the broker runs the action itself once approved, so
+   * the agent does not come back to it (ADR 0017 amendment). The agent can ask, never decide.
+   */
+  protected async requestApproval(
+    action: BrokerAction,
+    rationale: string,
+    runId: string,
+    triggeredBy: Trigger,
+    opts: { turn?: Turn } = {},
+  ): Promise<{ ok: true; created: ApprovalCreated } | { ok: false; status: number }> {
+    await this.guard();
+    const request: BrokerRequest = {
+      agentId: this.manifest.id,
+      agentVersion: this.manifest.version,
+      runId,
+      triggeredBy,
+      action,
+    };
+    return executeTool(opts.turn, 'approval.request', async (span) => {
+      const res = await this.env.BROKER.fetch('https://broker.internal/v1/approvals', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ request, rationale: rationale.slice(0, 4_000) }),
+      });
+      span.set('custodes.broker.status', res.status);
+      if (res.status !== 201) return { ok: false, status: res.status };
+      // The token is a credential for the operator's click: never put in a span.
+      return { ok: true, created: ApprovalCreated.parse(await res.json()) };
     });
   }
 }

@@ -1,15 +1,10 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import {
-  importPublicKey,
-  KillSwitch,
-  verifyApprovalToken,
-  verifyAttestation,
-} from '@custodes/core';
-import { isTrustedSender, parseApprovalAddress } from '@custodes/email';
+import { importPublicKey, KillSwitch, verifyAttestation } from '@custodes/core';
 import { verifyGitHubWebhookSignature } from '@custodes/github';
 import {
   AgentId,
+  ApprovalRequest,
   GitHubWebhookEnvelope,
   HaltRequest,
   type AdminActor,
@@ -17,6 +12,14 @@ import {
   type PublicKeyEntry,
 } from '@custodes/schema';
 import { adminWriteAllowed, agentWriteAllowed, crossSiteWrite, verifyAccessJwt } from './access.js';
+import {
+  approvalPage,
+  invalidPage,
+  isApprover,
+  PAGE_HEADERS,
+  resultPage,
+  type DecideResult,
+} from './approval-page.js';
 import type { GatewayEnv } from './env.js';
 
 interface Vars {
@@ -147,7 +150,48 @@ admin.post('/agents/:id/resume', async (c) => {
 });
 
 admin.get('/approvals', (c) => proxy(c.env.BROKER, '/v1/approvals'));
+
+// The link in an approval e-mail (ADR 0017 amendment). Access proves who clicks; the token, checked
+// by the broker against the stored approval, proves which action. GET shows, only POST decides.
+admin.get('/approvals/link/:token', async (c) => {
+  if (!isApprover(c.get('actor'), c.env.APPROVER_EMAILS))
+    return c.json({ error: 'only an approver may open approval links' }, 403);
+  const res = await c.env.BROKER.fetch(
+    `https://broker.internal/v1/approvals/token/${encodeURIComponent(c.req.param('token'))}`,
+  );
+  const approval = res.ok ? ApprovalRequest.safeParse(await res.json()) : null;
+  if (!approval?.success) return c.body(invalidPage(), 404, PAGE_HEADERS);
+  return c.body(approvalPage(approval.data), 200, PAGE_HEADERS);
+});
+admin.post('/approvals/link/:token', async (c) => {
+  const actor = c.get('actor');
+  if (!isApprover(actor, c.env.APPROVER_EMAILS))
+    return c.json({ error: 'only an approver may decide' }, 403);
+  const form = await c.req.parseBody();
+  const choice = form['decision'];
+  if (choice !== 'approve' && choice !== 'reject') return c.json({ error: 'bad decision' }, 400);
+  const res = await c.env.BROKER.fetch(
+    `https://broker.internal/v1/approvals/token/${encodeURIComponent(c.req.param('token'))}/decide`,
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        decision: choice === 'approve' ? 'approved' : 'rejected',
+        by: actor.subject,
+      }),
+    },
+  );
+  if (res.status === 404) return c.body(invalidPage(), 404, PAGE_HEADERS);
+  const out = await res.json<DecideResult>();
+  console.log(
+    JSON.stringify({ event: 'admin.approval.link', decision: choice, result: out.result }),
+  );
+  return c.body(resultPage(out), 200, PAGE_HEADERS);
+});
+
 admin.post('/approvals/:id/:decision{approve|reject}', async (c) => {
+  if (!isApprover(c.get('actor'), c.env.APPROVER_EMAILS))
+    return c.json({ error: 'only an approver may decide' }, 403);
   const decision = c.req.param('decision') === 'approve' ? 'approved' : 'rejected';
   return proxy(c.env.BROKER, `/v1/approvals/${c.req.param('id')}/decide`, {
     method: 'POST',
@@ -201,47 +245,13 @@ export default {
   fetch: app.fetch,
 
   /**
-   * Approval by email. Email Routing rule: approve+*@<domain> and reject+*@<domain> → this Worker.
-   * Everything else addressed to agents goes straight to the agents Worker.
+   * Replies to approve+…/reject+… addresses (Email Routing still sends them here) are refused:
+   * approvals happen through the link behind Access, which also checks who clicks (ADR 0017
+   * amendment). A reply cannot carry a token intact: addresses are case-folded.
    */
-  async email(message: ForwardableEmailMessage, env: GatewayEnv): Promise<void> {
-    const allow = env.APPROVER_EMAILS.split(',')
-      .map((s) => s.trim())
-      .filter(Boolean);
-    const trust = isTrustedSender(
-      message.from,
-      message.headers.get('authentication-results'),
-      allow,
-    );
-    if (!trust.trusted) {
-      console.warn(JSON.stringify({ event: 'email.rejected', reason: trust.reason }));
-      message.setReject('Not accepted');
-      return;
-    }
-    const parsed = parseApprovalAddress(message.to);
-    if (!parsed) {
-      message.setReject('Unknown recipient');
-      return;
-    }
-    const tok = await verifyApprovalToken(parsed.token, env.APPROVAL_TOKEN_SECRET);
-    if (!tok.ok) {
-      console.warn(JSON.stringify({ event: 'email.approval.invalid', reason: tok.reason }));
-      return;
-    }
-    await env.BROKER.fetch(`https://broker.internal/v1/approvals/${tok.approvalId}/decide`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        decision: parsed.verb === 'approve' ? 'approved' : 'rejected',
-        by: `email:${message.from}`,
-      }),
-    });
-    console.log(
-      JSON.stringify({
-        event: 'email.approval.decided',
-        approvalId: tok.approvalId,
-        verb: parsed.verb,
-      }),
-    );
+  email(message: ForwardableEmailMessage): Promise<void> {
+    console.warn(JSON.stringify({ event: 'email.approval.refused', reason: 'link_only' }));
+    message.setReject('Approve with the link in the e-mail; replies are not accepted');
+    return Promise.resolve();
   },
 } satisfies ExportedHandler<GatewayEnv>;

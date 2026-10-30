@@ -11,7 +11,7 @@ GitHub (target repos)         Email (Cloudflare Email Service)         Operator 
    │ poll / webhook               │ inbound routing                       │ custodes CLI
    ▼                              ▼                                       ▼ (Access JWT / service token)
 ┌────────────────────────── workers/gateway ────────────────────────────────────────┐
-│ verify webhook HMAC · approval e-mail → decision · Access JWT · admin API · /verify│
+│ verify webhook HMAC · approval link → decision · Access JWT · admin API · /verify│
 └──────────┬──────────────────────────────────────────────┬─────────────────────────┘
            │ Queue (INBOUND) / service binding             │ service binding
 ┌──────────▼──────────── workers/agents ───────────────┐  ┌▼──────── workers/github-broker ─────────────┐
@@ -25,7 +25,7 @@ GitHub (target repos)         Email (Cloudflare Email Service)         Operator 
 ### workers/gateway
 
 The only Worker with a public hostname. Responsibilities: verify GitHub webhook signatures and
-queue events; receive approval e-mails and turn them into decisions; validate the Cloudflare Access
+queue events; serve approval links (behind Access) and turn clicks into decisions; validate the Cloudflare Access
 JWT and expose the admin API used by the CLI; expose `/verify/<attestation-id>` so anyone can check
 an agent's footer against the published keys.
 
@@ -55,10 +55,10 @@ logs. Authenticates through Cloudflare Access (browser login or service token).
 
 ## Human involvement
 
-| Mode                         | Behaviour                                                                                                                                | Controls                                                         |
-| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- |
-| **hitl** (human in the loop) | every side effect is proposed as an approval request; the operators (configured, not hardcoded) get an e-mail and decide by reply or CLI | approval token (HMAC, expiring, single use), action hash binding |
-| **hotl** (human on the loop) | acts within policy, appends to a daily digest                                                                                            | kill switch per agent or fleet-wide, rate limits, audit log      |
+| Mode                         | Behaviour                                                                                                                                                                 | Controls                                                                                      |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| **hitl** (human in the loop) | every side effect is proposed as an approval request; the operators (configured, not hardcoded) get an e-mail with a link and decide on its page behind Access, or by CLI | approval token (HMAC in the broker's Keyring, expiring, bound to the action hash), single use |
+| **hotl** (human on the loop) | acts within policy, appends to a daily digest                                                                                                                             | kill switch per agent or fleet-wide, rate limits, audit log                                   |
 
 ## Identity and attribution
 

@@ -20,7 +20,6 @@ export default defineConfig({
         kvNamespaces: ['KILL_SWITCH'],
         bindings: {
           AI_GATEWAY_TOKEN: 'test',
-          APPROVAL_TOKEN_SECRET: 'test-approval-secret',
           OPENROUTER_API_KEY: 'test',
         },
         workers: [brokerStub],

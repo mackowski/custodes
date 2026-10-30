@@ -34,6 +34,9 @@ export function evaluatePolicy(policy: Policy, req: BrokerRequest): PolicyDecisi
     if (other !== undefined)
       return { allow: false, code: 'policy_denied', reason: `label ${other} not allowed` };
   }
-  const needsApproval = agent.mode === 'hitl' || agent.requiresApproval.includes(req.action.type);
+  const needsApproval =
+    agent.mode === 'hitl' ||
+    agent.requiresApproval.includes(req.action.type) ||
+    (agent.requiresApprovalOn[req.action.repo]?.includes(req.action.type) ?? false);
   return { allow: true, needsApproval };
 }

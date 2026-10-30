@@ -32,8 +32,10 @@
     // Records model and tool payloads (prompts, issue and PR text) in trace spans (ADR 0016).
     // Credentials and error text are never recorded. "false" keeps spans metadata-only.
     "TRACE_PAYLOADS": "true",
+    // Approval links in e-mails (ADR 0017 amendment): the gateway page behind Cloudflare Access.
+    "APPROVAL_LINK_BASE": "https://custodes.work/admin/approvals/link",
   },
-  // Secrets (set by CI on deploy): AI_GATEWAY_TOKEN, APPROVAL_TOKEN_SECRET, OPENROUTER_API_KEY
+  // Secrets (set by CI on deploy): AI_GATEWAY_TOKEN, OPENROUTER_API_KEY
   "durable_objects": {
     "bindings": [
       { "name": "HelloAgent", "class_name": "HelloAgent" },
