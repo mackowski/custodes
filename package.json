@@ -22,6 +22,7 @@
     "build": "pnpm -r run build",
     "check": "pnpm types && pnpm format:check && pnpm lint && pnpm typecheck && pnpm test",
     "actionlint": "actionlint .github/workflows/*.yml",
+    "scan": "semgrep scan --config p/typescript --config p/secrets --config p/github-actions --config p/terraform --error --metrics=off --quiet && gitleaks git --config .gitleaks.toml --log-opts=origin/main..HEAD --no-banner && pnpm actionlint",
     "changeset": "changeset"
   },
   "devDependencies": {
