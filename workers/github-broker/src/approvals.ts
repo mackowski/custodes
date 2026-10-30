@@ -48,11 +48,16 @@ export async function createApproval(
   // Only what the page shows gets posted: `onBehalfOf` would add a mention to the public trailer
   // that the operator never saw, so it is not carried into an approval.
   const { approvalId: _ignored, onBehalfOf: _notShown, ...request } = req;
-  // A newer request for the same pull request or issue replaces the older one, so two links for
-  // one target can never both post.
-  const superseded = await store.supersedePending(req.agentId, targetOf(req.action), now);
   const actionHash = await sha256Hex(canonicalJson(req.action));
   const approval = await store.create(request, rationale, actionHash, APPROVAL_TTL_SECONDS, now);
+  // A newer request for the same pull request or issue replaces the older ones. After the insert,
+  // so two requests at once at worst reject each other (fail closed) instead of both staying live.
+  const superseded = await store.supersedePending(
+    req.agentId,
+    targetOf(req.action),
+    approval.id,
+    now,
+  );
   const token = await keyring(env).approvalToken(
     { approvalId: approval.id, agentId: approval.agentId, actionHash },
     APPROVAL_TTL_SECONDS,

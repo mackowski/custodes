@@ -32,7 +32,10 @@ export function isApprover(actor: AdminActor, approverEmails: string): boolean {
 export function escapeHtml(s: string): string {
   return s
     .replace(
-      /(?![\n\t])[\p{Cc}\p{Cf}]/gu,
+      // Variation selectors are matched on purpose: on their own they can hide text (U+FE0F, which
+      // emoji use, is left out).
+      // eslint-disable-next-line no-misleading-character-class
+      /(?![\n\t])[\p{Cc}\p{Cf}\u115F\u1160\u3164\uFFA0\uFE00-\uFE0E\u{E0100}-\u{E01EF}]/gu,
       (c) => `⟨U+${(c.codePointAt(0) ?? 0).toString(16).toUpperCase().padStart(4, '0')}⟩`,
     )
     .replace(/&/g, '&amp;')
@@ -75,7 +78,7 @@ export function approvalPage(approval: ApprovalRequest): string {
   const buttons = pending
     ? `<form method="post"><button class="approve" name="decision" value="approve">Approve and post</button><button name="decision" value="reject">Reject</button></form>
 <p class="note">Approving posts exactly what is shown above, once. Expires ${escapeHtml(approval.expiresAt)}.</p>`
-    : `<p><strong>This request is ${escapeHtml(approval.status)}.</strong> Nothing more to do here.</p>`;
+    : `<p><strong>This request is ${escapeHtml(approval.status)}${approval.decidedBy === 'superseded' ? ': a newer review of the same pull request replaced it' : ''}.</strong> Nothing more to do here.</p>`;
   return layout(
     `Approve ${approval.agentId}`,
     `<h1>${escapeHtml(approval.agentId)} asks to post</h1>

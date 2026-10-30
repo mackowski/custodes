@@ -205,11 +205,14 @@ export class ApprovalStore {
   async supersedePending(
     agentId: string,
     target: { repo: string; number: number },
+    keepId: string,
     now = new Date(),
   ): Promise<number> {
     const { results } = await this.db
-      .prepare(`SELECT id, request_json FROM approvals WHERE agent_id = ?1 AND status = 'pending'`)
-      .bind(agentId)
+      .prepare(
+        `SELECT id, request_json FROM approvals WHERE agent_id = ?1 AND status = 'pending' AND expires_at > ?2 AND id != ?3`,
+      )
+      .bind(agentId, now.toISOString(), keepId)
       .all<{ id: string; request_json: string }>();
     let n = 0;
     for (const row of results) {

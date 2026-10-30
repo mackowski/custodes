@@ -32,7 +32,7 @@ done &&
 GITHUB_TOKEN="$BENCH_READONLY_GITHUB_TOKEN" node "$BIN/bench-select.mjs" &&
 # The model steps get the two tokens they use and nothing else from the Keychain.
 for s in run deepseek grade; do
-  ../../scripts/with-secrets.sh sh -c 'env -i PATH="$PATH" HOME="$HOME" AI_GATEWAY_TOKEN="$AI_GATEWAY_TOKEN" CF_WORKERS_AI_EVAL_TOKEN="$CF_WORKERS_AI_EVAL_TOKEN" node "$0"' "$BIN/bench-$s.mjs" || exit 1
+  ../../scripts/with-secrets.sh sh -c 'env -i PATH="$PATH" HOME="$HOME" BENCH_SKIP="${BENCH_SKIP-}" AI_GATEWAY_TOKEN="$AI_GATEWAY_TOKEN" CF_WORKERS_AI_EVAL_TOKEN="$CF_WORKERS_AI_EVAL_TOKEN" node "$0"' "$BIN/bench-$s.mjs" || exit 1
 done &&
 node "$BIN/bench-report.mjs"
 ```
