@@ -43,11 +43,12 @@ import { BrokerGitHubReader, issueLabels, type PublicPull } from './triage/githu
 
 export const CHEATSHEET_REVIEW_MANIFEST: AgentManifest = {
   id: 'cheatsheet-review',
-  version: '0.1.0',
+  version: '0.2.0',
   description:
     'Multi-model review of a cheat sheet pull request when the operator adds the trigger label: posts one review with inline suggestions, e-mails a close recommendation for low-quality PRs.',
   mode: 'hotl',
-  repos: ['mackowski/custodes-sandbox'],
+  // OWASP reviews are posted only after the operator approves each one (policy requiresApprovalOn).
+  repos: ['mackowski/custodes-sandbox', 'OWASP/CheatSheetSeries'],
 };
 
 /** At most this many model calls at once: AI Gateway's rate limit is shared by every agent. */

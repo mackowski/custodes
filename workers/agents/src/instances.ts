@@ -21,7 +21,11 @@ export const OWASP_INSTANCE = 'owasp-cheatsheetseries';
 export const SANDBOX_INSTANCE = 'custodes-sandbox';
 
 export const INSTANCES: Readonly<Record<string, RepoInstance>> = {
-  [OWASP_INSTANCE]: { repo: 'OWASP/CheatSheetSeries', sandbox: false },
+  [OWASP_INSTANCE]: {
+    repo: 'OWASP/CheatSheetSeries',
+    sandbox: false,
+    reviewTrigger: { label: 'custodes_cheatsheet_review', actor: 'mackowski' },
+  },
   [SANDBOX_INSTANCE]: {
     repo: 'mackowski/custodes-sandbox',
     sandbox: true,

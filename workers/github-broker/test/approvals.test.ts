@@ -22,7 +22,8 @@ const review = (body = 'LLM review'): BrokerRequest => ({
   ...base,
   action: {
     type: 'pr.review.inline',
-    repo: 'mackowski/custodes-sandbox',
+    // Only OWASP needs the operator's approval for a review (requiresApprovalOn).
+    repo: 'OWASP/CheatSheetSeries',
     pull: 3,
     commitId: '0123456789abcdef0123456789abcdef01234567',
     event: 'COMMENT',
@@ -49,7 +50,7 @@ const githubOk = () =>
     .spyOn(globalThis, 'fetch')
     .mockImplementation(() =>
       Promise.resolve(
-        Response.json({ html_url: 'https://github.com/mackowski/custodes-sandbox/pull/3#r1' }),
+        Response.json({ html_url: 'https://github.com/OWASP/CheatSheetSeries/pull/3#r1' }),
       ),
     );
 
@@ -76,7 +77,7 @@ describe('approval requests', () => {
           ...base,
           action: {
             type: 'issue.label.remove',
-            repo: 'mackowski/custodes-sandbox',
+            repo: 'OWASP/CheatSheetSeries',
             issue: 3,
             labels: ['custodes_cheatsheet_review'],
           },

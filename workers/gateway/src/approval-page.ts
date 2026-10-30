@@ -65,7 +65,7 @@ function actionDetails(a: ApprovalRequest['action']): string {
     return `<dl><dt>Repository</dt><dd>${escapeHtml(a.repo)}</dd>
 <dt>Pull request</dt><dd>#${a.pull} at commit <code>${escapeHtml(a.commitId)}</code></dd>
 <dt>Review type</dt><dd>${escapeHtml(a.event)}</dd></dl>
-<p class="note">If the author pushed since, the review still goes to this commit and GitHub marks its comments outdated; reject and label the pull request again for a fresh review.</p>
+<p class="note">If the author pushed since, the review still goes to this commit and GitHub marks its comments outdated; reject and label the pull request again for a fresh review. If the pull request was closed since, reject.</p>
 <h2>Review body</h2><pre>${escapeHtml(a.body)}</pre>
 <h2>Inline comments (${a.comments.length})</h2>${comments ? `<dl>${comments}</dl>` : '<p class="note">None.</p>'}`;
   }

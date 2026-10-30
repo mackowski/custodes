@@ -24,7 +24,11 @@ const call = (path: string, method = 'GET') =>
 
 describe('instances', () => {
   it('maps instance names to repositories and nothing else', () => {
-    expect(instanceOf(OWASP_INSTANCE)).toEqual({ repo: 'OWASP/CheatSheetSeries', sandbox: false });
+    expect(instanceOf(OWASP_INSTANCE)).toEqual({
+      repo: 'OWASP/CheatSheetSeries',
+      sandbox: false,
+      reviewTrigger: { label: 'custodes_cheatsheet_review', actor: 'mackowski' },
+    });
     expect(instanceOf(SANDBOX_INSTANCE)).toEqual({
       repo: 'mackowski/custodes-sandbox',
       sandbox: true,
@@ -44,11 +48,14 @@ describe('instances', () => {
     }
   });
 
-  it('keeps cheatsheet-review on the sandbox until its evals pass (ADR 0017)', () => {
-    expect(instanceOf(OWASP_INSTANCE).reviewTrigger).toBeUndefined();
-    expect(CHEATSHEET_REVIEW_MANIFEST.repos).toEqual(['mackowski/custodes-sandbox']);
-    expect(policy.agents['cheatsheet-review'].repos).toEqual(['mackowski/custodes-sandbox']);
-    expect(policy.reads['cheatsheet-review'].repos).toEqual(['mackowski/custodes-sandbox']);
+  it('runs cheatsheet-review on the sandbox and OWASP, approving every OWASP post (ADR 0017)', () => {
+    const both = ['mackowski/custodes-sandbox', 'OWASP/CheatSheetSeries'];
+    expect(CHEATSHEET_REVIEW_MANIFEST.repos).toEqual(both);
+    expect(policy.agents['cheatsheet-review'].repos).toEqual(both);
+    expect(policy.reads['cheatsheet-review'].repos).toEqual(both);
+    expect(policy.agents['cheatsheet-review'].requiresApprovalOn).toEqual({
+      'OWASP/CheatSheetSeries': ['pr.review.inline'],
+    });
   });
 
   it('keeps the hello agent off the sandbox', () => {

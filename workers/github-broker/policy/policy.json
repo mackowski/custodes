@@ -20,17 +20,14 @@
       "rateLimitPerHour": 5
     },
     "cheatsheet-review": {
-      "$comment": "ADR 0017: multi-model review of a pull request when the operator adds the trigger label; posts one review with inline suggestions (never APPROVE) and removes the label. hotl because every run is started by the operator (the agent re-checks who added the label in the timeline); sandbox only until its evals pass.",
+      "$comment": "ADR 0017: multi-model review of a pull request when the operator adds the trigger label; posts one review with inline suggestions (never APPROVE) and removes the label. hotl because every run is started by the operator (the agent re-checks who added the label in the timeline). OWASP added 2026-10-30 after the evals and the sandbox end-to-end runs passed; every OWASP review is posted only after the operator approves it (requiresApprovalOn).",
       "tokenBinding": "PAT_CHEATSHEET_REVIEW",
       "mode": "hotl",
-      "repos": ["mackowski/custodes-sandbox"],
+      "repos": ["mackowski/custodes-sandbox", "OWASP/CheatSheetSeries"],
       "actions": ["pr.review.inline", "issue.label.remove"],
       "requiresApproval": [],
-      "$comment_requiresApprovalOn": "ADR 0017 amendment: on OWASP a review is posted only after the operator approves it through the e-mailed link. The sandbox is listed too until the approval flow has passed its e2e there; the PR that adds OWASP to repos removes the sandbox entry.",
-      "requiresApprovalOn": {
-        "mackowski/custodes-sandbox": ["pr.review.inline"],
-        "OWASP/CheatSheetSeries": ["pr.review.inline"]
-      },
+      "$comment_requiresApprovalOn": "ADR 0017 amendment: on OWASP a review is posted only after the operator approves it through the e-mailed link. The sandbox posts directly, for quick end-to-end runs.",
+      "requiresApprovalOn": { "OWASP/CheatSheetSeries": ["pr.review.inline"] },
       "rateLimitPerHour": 20,
       "labels": ["custodes_cheatsheet_review"]
     }
@@ -58,7 +55,7 @@
     },
     "cheatsheet-review": {
       "tokenBinding": "PAT_READONLY",
-      "repos": ["mackowski/custodes-sandbox"],
+      "repos": ["mackowski/custodes-sandbox", "OWASP/CheatSheetSeries"],
       "resources": [
         "pull",
         "pull_files",

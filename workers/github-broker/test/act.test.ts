@@ -190,12 +190,12 @@ describe('broker act() at the rate limit', () => {
 });
 
 describe('broker act() for cheatsheet-review', () => {
-  const inline = (agentId: string): BrokerRequest => ({
+  const inline = (agentId: string, repo = 'OWASP/CheatSheetSeries'): BrokerRequest => ({
     ...base,
     agentId,
     action: {
       type: 'pr.review.inline',
-      repo: 'mackowski/custodes-sandbox',
+      repo,
       pull: 3,
       commitId: '0123456789abcdef0123456789abcdef01234567',
       event: 'COMMENT',
@@ -215,7 +215,21 @@ describe('broker act() for cheatsheet-review', () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it('needs an approval to post on the sandbox (ADR 0017 amendment), before reaching GitHub', async () => {
+  it('posts directly on the sandbox, which needs no approval', async () => {
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(() =>
+        Promise.resolve(
+          Response.json({ html_url: 'https://github.com/mackowski/custodes-sandbox/pull/3#r1' }),
+        ),
+      );
+    expect(
+      await act(testEnv, inline('cheatsheet-review', 'mackowski/custodes-sandbox')),
+    ).toMatchObject({ ok: true });
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('needs an approval to post on OWASP (ADR 0017 amendment), before reaching GitHub', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch');
     expect(await act(testEnv, inline('cheatsheet-review'))).toMatchObject({
       ok: false,
@@ -244,7 +258,7 @@ describe('broker act() for cheatsheet-review', () => {
         },
       };
       return Promise.resolve(
-        Response.json({ html_url: 'https://github.com/mackowski/custodes-sandbox/pull/3#r1' }),
+        Response.json({ html_url: 'https://github.com/OWASP/CheatSheetSeries/pull/3#r1' }),
       );
     });
     const created = await createApproval(testEnv, inline('cheatsheet-review'), 'r');
@@ -253,7 +267,7 @@ describe('broker act() for cheatsheet-review', () => {
     if (out.result !== 'ok' || out.decision !== 'approved') throw new Error('expected approval');
     const res = out.executed;
     if (!res.ok) throw new Error(`expected success, got ${res.code}`);
-    expect(sent?.url).toBe('/repos/mackowski/custodes-sandbox/pulls/3/reviews');
+    expect(sent?.url).toBe('/repos/OWASP/CheatSheetSeries/pulls/3/reviews');
     expect(sent?.auth).toBe('Bearer review-token');
     expect(sent?.body.commit_id).toBe('0123456789abcdef0123456789abcdef01234567');
     expect(sent?.body.body).toContain(res.attestationId);

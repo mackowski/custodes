@@ -13,10 +13,9 @@ from the GitHub token page into a GitHub Environment secret, and CI writes it in
    `custodes-pr-gate`, expiry ≤ 90 days, and tick **only `public_repo`**: no `repo`, `workflow`,
    `admin:*`, `delete_repo` or any other scope. Store it as `PAT_PR_GATE`.
 
-   **`cheatsheet-review`** (ADR 0017): while the broker policy lists only the sandbox, a
-   fine-grained token on your account for `mackowski/custodes-sandbox` only, with Pull requests:
-   read & write and Issues: read & write. When OWASP is added to its policy, replace it with a
-   classic `public_repo` token exactly as for `pr-gate`. Store it as `PAT_CHEATSHEET_REVIEW`.
+   **`cheatsheet-review`** (ADR 0017): a classic `public_repo` token exactly as for `pr-gate`
+   (the policy lists OWASP and the sandbox; there is no fine-grained PAT for the OWASP
+   organisation). Note `custodes-cheatsheet-review`. Store it as `PAT_CHEATSHEET_REVIEW`.
 
 2. In the repository → Settings → Environments → `prod` → add or update the secret
    `PAT_<AGENT>` (upper-case, dashes become underscores: `PAT_HELLO`, `PAT_PR_REVIEW`).

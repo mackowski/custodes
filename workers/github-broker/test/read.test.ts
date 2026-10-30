@@ -199,10 +199,10 @@ describe('broker read() for cheatsheet-review', () => {
     ]);
   });
 
-  it('denies OWASP and resources outside its list before any network call', async () => {
+  it('denies other repositories and resources outside its list before any network call', async () => {
     const fetchImpl = vi.fn();
     for (const r of [
-      rev({ repo: 'OWASP/CheatSheetSeries', resource: 'pull', number: 4 }),
+      rev({ repo: 'OWASP/wstg', resource: 'pull', number: 4 }),
       rev({ resource: 'comments', number: 4 }),
       rev({ resource: 'pulls' }),
     ]) {

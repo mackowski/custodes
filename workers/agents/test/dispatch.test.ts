@@ -119,11 +119,20 @@ describe('route: cheatsheet-review trigger label (ADR 0017)', () => {
     });
   });
 
-  it('ignores the label on a repository with no trigger configured', () => {
+  it('wakes the OWASP instance for the operator label on OWASP, and nobody else', () => {
     expect(route(labeled({ repo: 'OWASP/CheatSheetSeries' }))).toEqual({
+      agent: 'cheatsheet-review',
+      instance: OWASP_INSTANCE,
+      pr: 12,
+    });
+    expect(route(labeled({ repo: 'OWASP/CheatSheetSeries', sender: 'contributor' }))).toEqual({
       agent: null,
       why: 'unhandled_event',
     });
+  });
+
+  it('ignores the label on a repository that is not an instance', () => {
+    expect(route(labeled({ repo: 'OWASP/wstg' }))).toMatchObject({ agent: null });
   });
 
   it('ignores an unlabeled event and a labeled event without a label', () => {
