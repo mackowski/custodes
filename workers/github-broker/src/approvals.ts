@@ -113,10 +113,14 @@ export async function decideApproval(
   console.log(JSON.stringify({ event: 'broker.approval.decided', approvalId: id, decision }));
   if (decision === 'rejected') return { result, decision };
   const request = await store.requestOf(id);
-  const executed: BrokerResponse = request
-    ? await act(env, { ...request, approvalId: id }, now)
-    : { ok: false, code: 'approval_invalid', reason: 'stored request is missing' };
-  // Single shot: an approval that did not post (halted, rate limit, error) cannot be spent later.
-  await store.consume(id, now);
+  let executed: BrokerResponse;
+  try {
+    executed = request
+      ? await act(env, { ...request, approvalId: id }, now)
+      : { ok: false, code: 'approval_invalid', reason: 'stored request is missing' };
+  } finally {
+    // Single shot: an approval that did not post (halted, rate limit, error) cannot be spent later.
+    await store.consume(id, now);
+  }
   return { result, decision, executed };
 }

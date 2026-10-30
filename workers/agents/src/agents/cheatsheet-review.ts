@@ -391,8 +391,9 @@ export class CheatsheetReviewAgent extends CustodesAgent<AgentsEnv, CheatsheetRe
         event,
         models,
       });
-      // Without the e-mail the operator has no link: keep the label so the pull request shows
-      // that something waits (`custodes approvals list` has it too).
+      // Without the e-mail the operator has no link, so this approval can only expire or be
+      // rejected (`custodes approvals reject`). Keep the label so the pull request shows it; remove
+      // and add it again for a new review and a new link.
       if (mailed) await this.removeTrigger(repo, pull, trigger.label, runId, trig, turn);
       if (d.verdict === 'CLOSE' || d.lowQuality)
         await this.mail(

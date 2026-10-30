@@ -182,7 +182,10 @@ export class ApprovalStore {
     if (!cur) return 'not_found';
     if (cur.status !== 'pending') return 'not_pending';
     if (new Date(cur.expiresAt) < now) {
-      await this.db.prepare(`UPDATE approvals SET status = 'expired' WHERE id = ?1`).bind(id).run();
+      await this.db
+        .prepare(`UPDATE approvals SET status = 'expired' WHERE id = ?1 AND status = 'pending'`)
+        .bind(id)
+        .run();
       return 'expired';
     }
     const res = await this.db

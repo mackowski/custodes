@@ -21,7 +21,7 @@ Automation (CI, cron): create an Access service token and export
 
 ```
 custodes agents list | status <agent> | run <agent> | halt <agent|*> --reason ... | resume <agent|*>
-custodes approvals list | approve <id> | reject <id>
+custodes approvals list | reject <id>   # approve through the e-mailed link
 custodes audit list [--agent id] | show <id> | verify <id>
 custodes keys list | rotate <agent>
 custodes logs gateway|agents|broker

@@ -31,11 +31,19 @@ agentApp.post('/v1/act', async (c) => {
     return c.json({ ok: false, code: 'invalid', reason: parsed.error.message }, 400);
   // An approved action is run by the broker when the operator decides; an agent never spends
   // an approval itself.
-  if (parsed.data.approvalId !== undefined)
+  if (parsed.data.approvalId !== undefined) {
+    console.warn(
+      JSON.stringify({
+        event: 'broker.act.approval_id_refused',
+        agentId: parsed.data.agentId,
+        runId: parsed.data.runId,
+      }),
+    );
     return c.json(
       { ok: false, code: 'invalid', reason: 'approved actions are run by the broker' },
       400,
     );
+  }
   return c.json(await act(c.env, parsed.data));
 });
 
