@@ -3,12 +3,19 @@ name: Evals
 # money). Runs on PRs only when something that changes model behaviour changes: prompts, output
 # schemas, model choice, the untrusted-data rules, or the evals themselves. Run it by hand
 # (workflow_dispatch) for anything else. Needs AI Gateway access: branches in this repository only.
-# Never on a draft: pushes to a draft are where the work happens, and each would pay for the evals
-# again. They run once the PR is marked ready, and on pushes after that (CLAUDE.md, Workflow).
+# Once per PR: when it is opened as a non-draft or a draft is marked ready, never on pushes (path
+# filters match the whole PR diff, so every push would pay again). Only the suites the change can
+# affect run (evals/select-suites.ts). After fixes, re-run by hand: workflow_dispatch on the branch
+# with the suites to run (CLAUDE.md, Workflow).
 on:
   workflow_dispatch:
+    inputs:
+      suites:
+        description: 'Suites to run, space-separated folder names under evals/agents, or "all"'
+        required: true
+        default: all
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, ready_for_review]
     paths:
       - 'evals/**'
       - '.github/workflows/evals.yml'
@@ -52,7 +59,31 @@ jobs:
           node-version: 22.23.2
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Select suites
+        id: suites
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          REQUESTED: ${{ inputs.suites }}
+        run: |
+          set -o pipefail
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            if [ "$REQUESTED" = all ]; then
+              suites=$(echo -n | node evals/select-suites.ts --all)
+            else
+              suites="$REQUESTED"
+            fi
+          else
+            suites=$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files" --jq '.[].filename' | node evals/select-suites.ts)
+          fi
+          # Folder names only: nothing else reaches the shell below.
+          for s in $suites; do
+            [[ "$s" =~ ^[a-z0-9-]+$ ]] && [ -f "evals/agents/$s/promptfooconfig.yaml" ] || { echo "unknown suite: $s"; exit 1; }
+          done
+          echo "suites: ${suites:-none}"
+          echo "list=$suites" >> "$GITHUB_OUTPUT"
       - name: Run evals
+        if: steps.suites.outputs.list != ''
         working-directory: evals
         env:
           AI_GATEWAY_ACCOUNT_ID: 5f62912564df344533c9563904c77662
@@ -65,14 +96,14 @@ jobs:
           # Workers AI Read + Edit only (needed to run models), for the Clef shadow provider (ADR 0015).
           # Unset: the Clef rows error out, report only.
           CF_WORKERS_AI_EVAL_TOKEN: ${{ secrets.CF_WORKERS_AI_EVAL_TOKEN }}
+          SUITES: ${{ steps.suites.outputs.list }}
         run: |
           # One config per agent that calls a model: evals/agents/<agent>/promptfooconfig.yaml
-          for config in agents/*/promptfooconfig.yaml; do
-            name=$(basename "$(dirname "$config")")
-            pnpm dlx promptfoo@0.123.1 eval -c "$config" --no-cache -o "output/$name.json" || true
+          for name in $SUITES; do
+            pnpm dlx promptfoo@0.123.1 eval -c "agents/$name/promptfooconfig.yaml" --no-cache -o "output/$name.json" || true
           done
       - name: Summarize results
-        if: always()
+        if: always() && steps.suites.outputs.list != ''
         run: node evals/summarize.ts
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()

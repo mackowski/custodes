@@ -59,6 +59,8 @@ the plan goes into the same draft PR. Before asking for ready, run locally every
 can run: `pnpm check`, `pnpm scan` (Semgrep, gitleaks, actionlint), `/agent-security-review`
 (repeated after every fix until a pass is clean), and the Diagnose and evals the change touches.
 Then the free checks on the draft (`security.yml`) must be green with no open code scanning alert.
+Pushing to a ready PR re-runs nothing paid; re-run evals by hand (`workflow_dispatch`) for the
+suites a fix touched, after asking the operator.
 
 ## Style
 
