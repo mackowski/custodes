@@ -251,6 +251,12 @@ describe('evaluatePolicy for cheatsheet-review (real broker policy)', () => {
     expect(
       evaluatePolicy(real, {
         ...reviewer,
+        action: { ...review, repo: 'OWASP/CheatSheetSeries', event: 'COMMENT' },
+      }),
+    ).toEqual({ allow: true, needsApproval: true });
+    expect(
+      evaluatePolicy(real, {
+        ...reviewer,
         action: {
           type: 'issue.label.remove',
           repo: 'OWASP/CheatSheetSeries',
@@ -281,29 +287,32 @@ describe('evaluatePolicy for cheatsheet-review (real broker policy)', () => {
         labels: ['x'],
       },
     ]) {
-      expect(evaluatePolicy(real, { ...reviewer, action })).toMatchObject({
+      for (const repo of ['mackowski/custodes-sandbox', 'OWASP/CheatSheetSeries'])
+        expect(
+          evaluatePolicy(real, { ...reviewer, action: { ...action, repo } }),
+          `${action.type} ${repo}`,
+        ).toMatchObject({ allow: false, code: 'policy_denied' });
+    }
+  });
+  it('may remove only its trigger label, on both repositories', () => {
+    for (const repo of ['mackowski/custodes-sandbox', 'OWASP/CheatSheetSeries']) {
+      const remove = (labels: string[]) =>
+        evaluatePolicy(real, {
+          ...reviewer,
+          action: { type: 'issue.label.remove', repo, issue: 7, labels },
+        });
+      expect(remove(['custodes_cheatsheet_review'])).toMatchObject({ allow: true });
+      expect(remove(['ACK_WAITING'])).toMatchObject({ allow: false, code: 'policy_denied' });
+      expect(remove(['custodes_cheatsheet_review', 'bug'])).toMatchObject({
         allow: false,
         code: 'policy_denied',
       });
     }
   });
-  it('may remove only its trigger label', () => {
-    const remove = (labels: string[]) =>
-      evaluatePolicy(real, {
-        ...reviewer,
-        action: {
-          type: 'issue.label.remove',
-          repo: 'mackowski/custodes-sandbox',
-          issue: 7,
-          labels,
-        },
-      });
-    expect(remove(['custodes_cheatsheet_review'])).toMatchObject({ allow: true });
-    expect(remove(['ACK_WAITING'])).toMatchObject({ allow: false, code: 'policy_denied' });
-    expect(remove(['custodes_cheatsheet_review', 'bug'])).toMatchObject({
-      allow: false,
-      code: 'policy_denied',
-    });
+
+  it('grants no agent issue.label.add: the review trigger is a label only the operator adds', () => {
+    for (const [id, a] of Object.entries(real.agents))
+      expect(a.actions.includes('issue.label.add'), id).toBe(false);
   });
   it('does not let other agents post inline reviews', () => {
     for (const agentId of ['pr-gate', 'hello', 'triage']) {
