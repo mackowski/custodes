@@ -1076,7 +1076,7 @@ describe('render.reviewBody', () => {
 });
 
 describe('render.dimensionsNotRun', () => {
-  it('needs every reviewer of a dimension to be unavailable, and only counts dimensions asked for', () => {
+  it('needs every reviewer of a dimension to be unavailable, and never marks links (their HTTP checks still run)', () => {
     expect(
       dimensionsNotRun([down('security-reviewer'), ran('security-second-voice', 'deepseekFlash')]),
     ).toEqual(new Set());
@@ -1086,7 +1086,7 @@ describe('render.dimensionsNotRun', () => {
         down('security-second-voice'),
         down('link-auditor'),
       ]),
-    ).toEqual(new Set(['Security', 'Links & sources']));
+    ).toEqual(new Set(['Security']));
     expect(dimensionsNotRun([ran('language-reviewer', 'gptLuna')])).toEqual(new Set());
   });
 });

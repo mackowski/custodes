@@ -149,11 +149,13 @@ const ROLE_LABEL: Record<Role, string> = {
   judge: 'decision',
 };
 
-/** Which reviewers speak for each dimension of the table. */
-const DIMENSION_ROLES: Record<Dimension, readonly Role[]> = {
+/**
+ * Which reviewers speak for each dimension of the table. Links & sources is left out: its HTTP
+ * and anchor checks are deterministic and still run, and can still block, without the model.
+ */
+const DIMENSION_ROLES: Partial<Record<Dimension, readonly Role[]>> = {
   Security: ['security-reviewer', 'security-second-voice'],
   Practicality: ['practicality-reviewer'],
-  'Links & sources': ['link-auditor'],
   'Duplication & placement': ['duplication-checker'],
   Language: ['language-reviewer'],
 };

@@ -49,13 +49,13 @@ export const REVIEW_MODELS = {
   },
   /**
    * The same weights as `deepseekFlash`, for when Workers AI fails. Many OpenRouter hosts serve it
-   * at fp4; these serve it at fp8 or better and keep no prompts.
+   * at fp4; these endpoints serve it at fp8. `data_collection: deny` still applies on top.
    */
   deepseekFlashOpenRouter: {
     id: 'deepseek/deepseek-v4.1-flash-1017',
     transport: 'openrouter',
     vendor: 'deepseek',
-    hosts: ['together', 'nebius/fp8', 'parasail/fp8'],
+    hosts: ['nebius/fp8', 'parasail/fp8', 'crusoe/fp8'],
   },
 } as const satisfies Record<string, ReviewModel>;
 export type ReviewModelName = keyof typeof REVIEW_MODELS;

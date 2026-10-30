@@ -509,7 +509,7 @@ describe('cheatsheet-review: a content pull request', () => {
       (c) =>
         c.role === 'security-second-voice' && c.req.model === 'deepseek/deepseek-v4.1-flash-1017',
     )?.req;
-    expect(fallback?.hosts).toEqual(['together', 'nebius/fp8', 'parasail/fp8']);
+    expect(fallback?.hosts).toEqual(['nebius/fp8', 'parasail/fp8', 'crusoe/fp8']);
     expect(fallback?.reasoning_effort).toBe('high');
   });
 });

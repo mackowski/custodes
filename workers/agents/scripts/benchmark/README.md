@@ -24,8 +24,9 @@ cd workers/agents
 for s in select run grade report; do
   pnpm exec esbuild scripts/benchmark/$s.ts --bundle --platform=node --format=esm --outfile=/tmp/bench-$s.mjs --log-level=warning
 done
-export GITHUB_TOKEN=$(gh auth token --user mackowski)   # public reads, rate limit only
-../../scripts/with-secrets.sh node /tmp/bench-select.mjs
+
+# The GitHub token only for the step that reads GitHub, not for the whole shell.
+GITHUB_TOKEN=$(gh auth token --user mackowski) ../../scripts/with-secrets.sh node /tmp/bench-select.mjs
 ../../scripts/with-secrets.sh node /tmp/bench-run.mjs
 ../../scripts/with-secrets.sh node /tmp/bench-grade.mjs
 node /tmp/bench-report.mjs
