@@ -1,12 +1,11 @@
 # cheatsheet-review
 
-- Version: 0.1.0 · Mode: **hotl** (every run is started by the operator's label; ADR 0017)
-- Repositories: mackowski/custodes-sandbox only, until the evals pass (then OWASP/CheatSheetSeries
-  in a separate, reviewed policy change)
+- Version: 0.2.0 · Mode: **hotl** (every run is started by the operator's label; ADR 0017)
+- Repositories: mackowski/custodes-sandbox (posts directly) and OWASP/CheatSheetSeries (every
+  review waits for the operator's approval on the e-mailed link)
 - Class: `workers/agents/src/agents/cheatsheet-review.ts` · Logic: `workers/agents/src/agents/cheatsheet-review/`
 - Policy: `agents.cheatsheet-review` (`pr.review.inline`, `issue.label.remove` limited to the trigger
-  label, 20/h; `pr.review.inline` needs the operator's approval on the sandbox and OWASP,
-  `requiresApprovalOn`) and `reads.cheatsheet-review` (`pull`, `pull_files`, `pull_file_at_ref`, `timeline`,
+  label, 20/h; `pr.review.inline` needs the operator's approval on OWASP, `requiresApprovalOn`) and `reads.cheatsheet-review` (`pull`, `pull_files`, `pull_file_at_ref`, `timeline`,
   `issue`, `cheatsheets`, `cheatsheet`). ADR 0017.
 
 ## Purpose
@@ -72,8 +71,7 @@ published: the operator gets the partial review by e-mail and the label stays on
 - `pr.review.inline` on the pull request, pinned to the head commit: `COMMENT`, or
   `REQUEST_CHANGES` only when a security or links reviewer found a BLOCKER and the pull request is
   not the trigger actor's own (GitHub refuses that). Never `APPROVE` (not in the schema).
-- Where the policy asks for an approval (`requiresApprovalOn`: OWASP, and the sandbox until the
-  flow has passed its end-to-end run), the review is not posted by the agent. The agent asks the
+- Where the policy asks for an approval (`requiresApprovalOn`: OWASP), the review is not posted by the agent. The agent asks the
   broker for an approval and e-mails the operator a link (only code-computed facts in the mail).
   The link opens the exact review behind Access; the Approve button makes the broker post it once.
   Opening the link decides nothing. ADR 0017 amendment 2026-10-30.
@@ -85,10 +83,9 @@ published: the operator gets the partial review by e-mail and the label stays on
 
 `PAT_CHEATSHEET_REVIEW`, held by the broker only:
 
-- While the policy lists only the sandbox: fine-grained, `mackowski/custodes-sandbox`, Pull
-  requests and Issues read & write.
-- With OWASP: classic `public_repo` on the operator's account, as for pr-gate (no fine-grained PAT
-  for the OWASP organisation). See `docs/runbooks/rotate-pat.md`.
+- Classic `public_repo` on the operator's account, as for pr-gate: there is no fine-grained PAT for
+  the OWASP organisation. The broker still limits it to two actions, one label and two
+  repositories. See `docs/runbooks/rotate-pat.md`.
 
 ## Schedule / triggers
 
@@ -239,11 +236,9 @@ The label can also be removed from the repository's label list; nothing triggers
 
 ### Required changes before merge
 
-- None open from this model. Before OWASP is added: the evals pass (≥90%, no injection leak), three
-  sandbox end-to-end runs (links only, code, low quality), and one end-to-end run of the approval
-  link on the sandbox (e-mail, open, approve, posted once; a second click does nothing). Every
-  OWASP review then waits for the operator's approval (`requiresApprovalOn`, ADR 0017 amendment);
-  the PR that adds OWASP removes the sandbox entry.
+- None open. OWASP was added on 2026-10-30 after the evals passed (100% on every suite), the
+  sandbox end-to-end runs (links only, code, low quality) and the approval-link run on sandbox#64
+  (e-mail, open, approve, posted once). Every OWASP review waits for the operator's approval.
 
 ### Accepted risks
 

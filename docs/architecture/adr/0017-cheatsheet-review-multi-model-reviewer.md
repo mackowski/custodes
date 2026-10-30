@@ -201,3 +201,13 @@ breaks a base64url token, and a reply cannot prove who clicked as Access does.
 Rejected: a bare link without a token (Access alone does not bind the click to the action shown);
 waking the agent to post a draft kept in its storage (more state, same outcome); the token secret
 as a CI secret (the Keyring already keeps keys that never leave the broker).
+
+## Amendment 2026-10-30: enabled on OWASP
+
+`OWASP/CheatSheetSeries` is added to the agent's repositories, reads and instances, with the same
+trigger (the operator's `custodes_cheatsheet_review` label). Every OWASP review waits for the
+operator's approval on the e-mailed link; the sandbox entry is removed from `requiresApprovalOn`, so
+the sandbox posts directly for quick end-to-end runs. Preconditions met: all eval suites at 100%,
+sandbox end-to-end runs, and the approval link run on sandbox#64. Operator steps before merging:
+`PAT_CHEATSHEET_REVIEW` becomes a classic `public_repo` PAT, the label exists on OWASP, and the
+OWASP maintainers are told.
