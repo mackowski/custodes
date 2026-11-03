@@ -12,7 +12,7 @@ overrides:
   vite: 8.3.3
   launch-editor: 2.14.2
   minimatch: 11.0.1
-  zod: 4.6.7
+  '@cloudflare/vitest-pool-workers>zod': 4.6.7
 
 importers:
 
@@ -1476,7 +1476,7 @@ packages:
       just-bash: ^3.0.0
       react: ^19.0.0
       vite: 8.3.3
-      zod: 4.6.7
+      zod: ^4.0.0
     peerDependenciesMeta:
       '@ai-sdk/provider':
         optional: true

@@ -27,4 +27,4 @@ overrides:
   vite: 8.3.3 # Dependabot vite + launch-editor alerts, via vitest; dev/test only
   launch-editor: 2.14.2 # Dependabot alerts, via @changesets/cli and vite; dev only
   minimatch: 11.0.1 # DoS via globparts amplification, no 10.x fix; via eslint, dev only
-  zod: 4.6.7 # memory exhaustion alert (fixed in 4.6.6); @cloudflare/vitest-pool-workers pins 4.4.3, dev/test only
+  '@cloudflare/vitest-pool-workers>zod': 4.6.7 # memory exhaustion alert (fixed in 4.6.6); scoped so runtime zod stays under normal Dependabot bumps; @cloudflare/vitest-pool-workers pins 4.4.3, dev/test only
