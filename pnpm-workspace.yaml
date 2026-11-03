@@ -23,4 +23,8 @@ overrides:
   sharp: 0.35.5 # GHSA-wq5f-xc86-pv6w (librsvg), via @cloudflare/vitest-pool-workers > miniflare
   shell-quote: 1.11.0 # GHSA-pqg4-j6r4-53mv, via @changesets/cli > launch-editor; dev only
   esbuild: 0.28.2 # GHSA-g7r4-m6w7-qqqr (fixed in 0.28.1), via tsup and vite; build/dev only
-  undici: 7.29.1 # GHSA-3wwx-pv8p-q78v, via miniflare (wrangler, vitest-pool-workers); dev/test only
+  undici: 7.30.1 # GHSA-3wwx-pv8p-q78v and later undici advisories, via miniflare (wrangler, vitest-pool-workers); dev/test only
+  vite: 8.3.3 # Dependabot vite + launch-editor alerts, via vitest; dev/test only
+  launch-editor: 2.14.2 # Dependabot alerts, via @changesets/cli and vite; dev only
+  minimatch: 11.0.1 # DoS via globparts amplification, no 10.x fix; via eslint, dev only
+  zod: 4.6.7 # memory exhaustion alert (fixed in 4.6.6); @cloudflare/vitest-pool-workers pins 4.4.3, dev/test only
