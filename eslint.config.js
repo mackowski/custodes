@@ -58,6 +58,7 @@ export default defineConfig(
       'scripts/**/*.ts',
       'apps/cli/**/*.ts',
       'evals/**/*.mjs',
+      '.claude/hooks/**/*.mjs',
     ],
     languageOptions: { globals: { ...globals.node } },
   },

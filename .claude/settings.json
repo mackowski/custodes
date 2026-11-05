@@ -101,6 +101,16 @@
             "timeout": 60
           }
         ]
+      },
+      {
+        "matcher": "mcp__plugin_cloudflare_cloudflare__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/untrusted-mcp.mjs",
+            "timeout": 10
+          }
+        ]
       }
     ],
     "Stop": [
