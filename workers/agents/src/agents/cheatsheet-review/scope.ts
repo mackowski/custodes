@@ -133,6 +133,39 @@ export function similarity(a: string, b: string): number {
   return 1 - (prev[b.length] ?? 0) / Math.max(a.length, b.length);
 }
 
+/**
+ * True when every change in these hunks is a removed line directly replaced by an added line that
+ * differs only in link targets: within one contiguous block (a run of removed lines followed by a
+ * run of added lines), equal counts, paired in order. A line moved across hunks or sheets, or any
+ * unpaired line, is not a link change (#92 review round 8).
+ */
+function onlyLinkTargets(hunks: readonly Hunk[]): boolean {
+  for (const h of hunks) {
+    let dels: string[] = [];
+    let adds: string[] = [];
+    const flush = (): boolean => {
+      const ok =
+        dels.length === adds.length &&
+        dels.every((r, i) => {
+          const t = adds[i] ?? '';
+          return t !== r && withoutUrls(t) === withoutUrls(r);
+        });
+      dels = [];
+      adds = [];
+      return ok;
+    };
+    for (const l of h.lines) {
+      if (l.kind === '-') {
+        if (adds.length > 0 && !flush()) return false;
+        dels.push(l.text);
+      } else if (l.kind === '+') adds.push(l.text);
+      else if ((dels.length > 0 || adds.length > 0) && !flush()) return false;
+    }
+    if ((dels.length > 0 || adds.length > 0) && !flush()) return false;
+  }
+  return true;
+}
+
 export function classify(files: readonly ScopedFile[], unreviewedFiles = 0): Scope {
   // Files GitHub did not return (beyond the first 100) were never looked at: full review.
   if (unreviewedFiles > 0)
@@ -167,11 +200,7 @@ export function classify(files: readonly ScopedFile[], unreviewedFiles = 0): Sco
   const r = removed.map((l) => l.text);
   const securityUrl = securityRelevantChange(a, r);
   if (securityUrl) return { kind: 'decided', class: 'content', why: securityUrl };
-  if (
-    a.length > 0 &&
-    a.length === r.length &&
-    a.every((t, i) => t !== r[i] && withoutUrls(t) === withoutUrls(r[i] ?? ''))
-  )
+  if (a.length > 0 && sheets.every((f) => onlyLinkTargets(f.hunks)))
     return { kind: 'decided', class: 'links-only', why: 'only link targets changed' };
 
   if (a.some((t) => /^\s{0,3}#{1,6}\s/.test(t)))
