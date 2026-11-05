@@ -4,6 +4,7 @@
  * author or fetched from the web goes in an `untrusted()` envelope. Pure.
  */
 import { clip, untrusted } from '@custodes/llm';
+import { quoteBody } from '../specialists/implementation.js';
 import type { Disclosure } from '../pr-gate/rules.js';
 import { numberedDiff } from './diff.js';
 import type { ScopedFile } from './scope.js';
@@ -165,14 +166,6 @@ export function linkMessage(links: readonly LinkInput[]): string {
       ].join('\n'),
     )
     .join('\n\n');
-}
-
-/** Every body line quoted, so no comment can pose as a code-built header (same as quoteBody in #88). */
-function quoteBody(body: string): string {
-  return body
-    .split(/\r\n|[\n\r\v\f\u0085\u2028\u2029]/)
-    .map((l) => `> ${l}`)
-    .join('\n');
 }
 
 /** Code-built headers, quoted bodies, 1,500 characters each, 8,000 in all (newest kept). */

@@ -106,13 +106,15 @@ export interface CurrentIssue {
 /**
  * Issues that changed since we first saw any pending item open (minus slack for a change during a
  * poll), as they are now. Issues not in the map have not changed since. Fails open: on error the
- * map is empty, nothing is dropped or changed, and the error is reported.
+ * map is empty, nothing is dropped or changed, and the error is reported. `status.complete` is false
+ * after an error or truncation, so callers can stop trusting stored thread state.
  */
 export async function currentSince(
   reader: Pick<BrokerGitHubReader, 'listIssuesUpdatedSince'>,
   repo: string,
   seenOpenAt: readonly string[],
   errors: string[],
+  status: { complete: boolean } = { complete: true },
 ): Promise<Map<number, CurrentIssue>> {
   const first = earliest(seenOpenAt);
   const out = new Map<number, CurrentIssue>();
@@ -122,6 +124,7 @@ export async function currentSince(
   const since = new Date(Date.parse(first) - CLOSE_SLACK_MS).toISOString();
   try {
     const { issues, truncated } = await reader.listIssuesUpdatedSince(repo, since);
+    if (truncated) status.complete = false;
     if (truncated)
       errors.push('issue-state check truncated at 300; some items may not reflect recent changes');
     for (const i of issues)
@@ -134,9 +137,31 @@ export async function currentSince(
         updatedAt: i.updated_at,
       });
   } catch (err) {
+    status.complete = false;
     errors.push(`issue-state check: ${describeError(err)}`);
   }
   return out;
+}
+
+/** Marks implementation checks of issues that changed after the check ran. */
+export function markChangedChecks<
+  T extends {
+    issue: number;
+    issueUpdatedAt: string;
+    result: { changedSinceCheck?: boolean | undefined };
+  },
+>(
+  list: T[],
+  current: ReadonlyMap<number, CurrentIssue>,
+  /** False when the issue-state read failed or was cut off: then every check counts as changed. */
+  complete = true,
+): T[] {
+  return list.map((x) => {
+    const now = current.get(x.issue);
+    const changed =
+      !complete || (now !== undefined && Date.parse(now.updatedAt) > Date.parse(x.issueUpdatedAt));
+    return changed ? { ...x, result: { ...x.result, changedSinceCheck: true } } : x;
+  });
 }
 
 export function closedIn(current: ReadonlyMap<number, CurrentIssue>): Set<number> {

@@ -10,6 +10,7 @@
     "scripts/**/*.ts",
     "evals/**/*.ts",
     "evals/**/*.mjs",
+    ".claude/hooks/**/*.mjs",
     "e2e/**/*.ts"
   ]
 }

@@ -43,7 +43,15 @@
     "implementation-check": {
       "tokenBinding": "PAT_READONLY",
       "repos": ["OWASP/CheatSheetSeries", "mackowski/custodes-sandbox"],
-      "resources": ["issue", "timeline", "pull_files", "cheatsheets", "cheatsheet"]
+      "resources": [
+        "issue",
+        "comments",
+        "timeline",
+        "pull",
+        "pull_files",
+        "cheatsheets",
+        "cheatsheet"
+      ]
     },
     "proposal-review": {
       "tokenBinding": "PAT_READONLY",

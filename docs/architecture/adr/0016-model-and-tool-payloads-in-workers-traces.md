@@ -108,7 +108,9 @@ instance>`, so sandbox and real repositories are separate.
 
 - Prompt injection: payloads read back through the Cloudflare MCP server in a Claude Code session
   (CLAUDE.md invariant 6) are untrusted data, never instructions, like AI Gateway logs. CLAUDE.md
-  says so; a hook that marks these MCP results as untrusted is #71.
+  says so, and the `PostToolUse` hook `.claude/hooks/untrusted-mcp.mjs` (#71, control C24) adds a
+  notice to every Cloudflare MCP result and wraps its text in an `<untrusted>` envelope, failing
+  open to the original result.
 - Authority and audit are unchanged: tracing adds no binding or credential, and the broker audit
   log in D1 stays the record of side effects. Traces are a debugging aid, not an audit trail.
 
