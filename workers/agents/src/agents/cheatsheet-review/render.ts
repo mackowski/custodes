@@ -52,7 +52,7 @@ const NONE: ReadonlySet<string> = new Set();
 
 /** Link-like or mention-like tokens a suggestion must not add to the cheat sheet. */
 const RISKY =
-  /https?:\/\/[^\s)<>"'\]]+|\bwww\.[^\s)<>"'\]]+|(?:^|[\s(])\/\/[^\s)<>"'\]]+|@[A-Za-z0-9][A-Za-z0-9-]*|<\/?[A-Za-z][^>]*>/g;
+  /https?:\/\/[^\s)<>"'\]]+|\bwww\.[^\s)<>"'\]]+|(?:^|[\s(])\/\/[^\s)<>"'\]]+|@[A-Za-z0-9][A-Za-z0-9-]*|<\/?[A-Za-z][^>]*>/gi;
 
 /** Risky tokens in `replacement` that the replaced text does not already contain. */
 export function addedRisk(replacement: string, current: string): string[] {

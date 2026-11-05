@@ -1650,3 +1650,17 @@ describe('render.inertCode and rejected suggestions', () => {
     expect(body).not.toContain('````text');
   });
 });
+
+describe('link checks ignore case (#92 review round 2)', () => {
+  it('addedRisk catches upper-case schemes and www', () => {
+    expect(addedRisk('[source](HTTPS://evil.example/x)', '')).toEqual(['HTTPS://evil.example/x']);
+    expect(addedRisk('see WWW.evil.example/x', '')).toEqual(['WWW.evil.example/x']);
+    expect(addedRisk('Http://evil.example', '')).toHaveLength(1);
+  });
+
+  it('inertCode removes upper-case links too', () => {
+    expect(inertCode('[source](HTTPS://evil.example/x) and WWW.evil.example/y')).toBe(
+      '[source]([removed]) and [removed]',
+    );
+  });
+});
