@@ -11,6 +11,7 @@ import {
   pct,
   planDigest,
   proposalActions,
+  proposalWaitReason,
   pullUrl,
   VERDICT,
   waitReason,
@@ -221,6 +222,11 @@ function proposalCard(
       (r.reviewPr && !r.injectionDetected
         ? `<div style="margin-top:10px;">${button(pullUrl(repo, r.reviewPr), `Review PR #${r.reviewPr}`)}</div>`
         : '') +
+      (r.priorDecision
+        ? label('Follows a maintainer decision') +
+          para(`#${r.priorDecision.issue}: ${r.priorDecision.summary}`) +
+          `<div>${link(issueUrl(repo, r.priorDecision.issue), `Open #${r.priorDecision.issue}`)}</div>`
+        : '') +
       (r.linkedPrs.length
         ? label('Linked pull requests') +
           list(
@@ -288,6 +294,16 @@ export function renderDigestHtml(input: DigestInput): string {
       'Other updated issues',
       plan.rest.map((i) => triageCard(i, repo)),
     ),
+    plan.waitingProposals.length
+      ? `<details style="margin:22px 0 10px;"><summary style="font-size:15px;font-weight:600;color:${C.text};cursor:pointer;">Community proposals waiting on the author, nothing to do <span style="color:${C.muted};font-weight:400;">(${plan.waitingProposals.length})</span></summary>` +
+        list(
+          plan.waitingProposals.map(
+            (p) =>
+              `${link(issueUrl(repo, p.issue), `#${p.issue}`)} ${esc(inert(p.result.title, 100))}: ${esc(proposalWaitReason(p.result))}`,
+          ),
+        ) +
+        '</details>'
+      : '',
     plan.wait.length
       ? `<details style="margin:22px 0 10px;"><summary style="font-size:15px;font-weight:600;color:${C.text};cursor:pointer;">Accepted issues in progress, nothing to do <span style="color:${C.muted};font-weight:400;">(${plan.wait.length})</span></summary>` +
         list(

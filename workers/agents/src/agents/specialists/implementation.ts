@@ -114,7 +114,7 @@ export function isMaintainer(c: Pick<IssueComment, 'author_association'>): boole
   return MAINTAINER_ASSOCIATIONS.has(c.author_association ?? '');
 }
 
-function isBot(c: IssueComment): boolean {
+export function isBot(c: IssueComment): boolean {
   return c.user?.type === 'Bot' || (c.user?.login ?? '').endsWith('[bot]');
 }
 
@@ -226,6 +226,45 @@ export function labelAppliedAt(timeline: TimelineEvent[], label: string): string
   return at;
 }
 
+/** The code-built "Last comment" line, outside any envelope. */
+export function lastCommentLine(state: ThreadState | null, coversEnd: boolean): string {
+  return state
+    ? `Last comment: by @${state.lastCommentBy} (${state.lastByMaintainer ? 'maintainer' : 'not a maintainer'}) on ${state.lastCommentAt.slice(0, 10)}`
+    : `Last comment: ${coversEnd ? '(none)' : 'unknown (not all comments were read)'}`;
+}
+
+/**
+ * Human comments for a prompt: code-built headers, quoted bodies, at most the last
+ * MAX_COMMENTS, and over the character budget the oldest go first (the newest say where the work
+ * stands). The caller wraps the result in an untrusted envelope.
+ */
+export function formatThread(comments: IssueComment[], maxChars = MAX_THREAD_CHARS): string {
+  const entries = comments
+    .filter((c) => !isBot(c))
+    .slice(-MAX_COMMENTS)
+    .map(
+      (c) =>
+        `--- comment by @${safeLogin(c.user?.login)} on ${c.created_at.slice(0, 10)}\n${quoteBody(clip(c.body ?? '', 1500))}`,
+    );
+  while (entries.length > 1 && entries.join('\n').length > maxChars) entries.shift();
+  return entries.join('\n');
+}
+
+/**
+ * Comments come oldest first, 100 a page: the page with the newest (the broker allows 10), and
+ * whether that page reaches the end of the thread.
+ */
+export async function readNewestComments(
+  reader: Pick<SpecialistDeps['reader'], 'listComments'>,
+  repo: string,
+  issue: PublicIssue,
+): Promise<{ comments: IssueComment[]; coversEnd: boolean }> {
+  if (issue.comments <= 0) return { comments: [], coversEnd: true };
+  const page = Math.min(MAX_COMMENT_PAGES, Math.ceil(issue.comments / 100));
+  const comments = await reader.listComments(repo, issue.number, page > 1 ? page : undefined);
+  return { comments, coversEnd: issue.comments <= page * 100 };
+}
+
 export function buildImplementationMessage(
   repo: string,
   issue: PublicIssue,
@@ -242,20 +281,8 @@ export function buildImplementationMessage(
 ): string {
   const comments = discussion.comments ?? [];
   const coversEnd = discussion.coversEnd ?? issue.comments <= comments.length;
-  const state = threadState(issue, comments, coversEnd);
-  const lastLine = state
-    ? `Last comment: by @${state.lastCommentBy} (${state.lastByMaintainer ? 'maintainer' : 'not a maintainer'}) on ${state.lastCommentAt.slice(0, 10)}`
-    : `Last comment: ${coversEnd ? '(none)' : 'unknown (not all comments were read)'}`;
-  const entries = comments
-    .filter((c) => !isBot(c))
-    .slice(-MAX_COMMENTS)
-    .map(
-      (c) =>
-        `--- comment by @${safeLogin(c.user?.login)} on ${c.created_at.slice(0, 10)}\n${quoteBody(clip(c.body ?? '', 1500))}`,
-    );
-  // Over budget, the oldest comments go first: the newest say where the work stands.
-  while (entries.length > 1 && entries.join('\n').length > MAX_THREAD_CHARS) entries.shift();
-  const thread = entries.join('\n');
+  const lastLine = lastCommentLine(threadState(issue, comments, coversEnd), coversEnd);
+  const thread = formatThread(comments);
   const prs = pulls.length
     ? pulls
         .map(
@@ -391,13 +418,7 @@ export async function checkImplementation(
   const picked = validateSelection(selection, cheatSheets);
   const names = [...new Set([...pulls.flatMap((p) => p.files), ...picked])].slice(0, MAX_FILES);
   const files = await loadCheatSheets(repo, names, deps);
-  // Comments come oldest first, 100 a page: read the page with the newest (the broker allows 10).
-  const commentPage = Math.min(MAX_COMMENT_PAGES, Math.ceil(issue.comments / 100));
-  const comments =
-    issue.comments > 0
-      ? await deps.reader.listComments(repo, issueNumber, commentPage > 1 ? commentPage : undefined)
-      : [];
-  const coversEnd = issue.comments <= commentPage * 100;
+  const { comments, coversEnd } = await readNewestComments(deps.reader, repo, issue);
   const assignees = (issue.assignees ?? [])
     .map((a) => safeLogin(a.login))
     .filter((l) => l !== 'unknown');

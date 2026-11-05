@@ -180,8 +180,29 @@ export const VERDICT: Record<ProposalReview['verdict'], string> = {
   unclear: 'unclear',
 };
 
+/**
+ * A proposal where a maintainer spoke last within WAIT_MS and nothing is left to do: the author
+ * has the next step. Decided by code from GitHub-set data; a flagged review is never collapsed.
+ */
+export function proposalWaiting(r: ProposalReview, now: Date): boolean {
+  const t = r.thread;
+  if (r.injectionDetected || !t?.lastByMaintainer || !recent(t.lastCommentAt, now)) return false;
+  const closing = r.verdict === 'already_covered' || r.verdict === 'not_applicable';
+  return (
+    !closing &&
+    r.reviewPr === null &&
+    r.assignTo === null &&
+    r.addLabels.length === 0 &&
+    r.removeLabels.length === 0
+  );
+}
+
 export function proposalActions(r: ProposalReview): string[] {
   const out: string[] = [];
+  if (r.thread && !r.thread.lastByMaintainer)
+    out.push(
+      `answer the latest comment (by @${r.thread.lastCommentBy} on ${r.thread.lastCommentAt.slice(0, 10)})`,
+    );
   // The model's reading, not a check: anyone can open a PR that mentions an issue.
   if (r.reviewPr) {
     const by = r.linkedPrs.find((p) => p.number === r.reviewPr)?.author;
@@ -211,6 +232,11 @@ function proposalItem(
     `  ${issueUrl(repo, it.issue)}`,
     `  proposal review: ${VERDICT[r.verdict]}   makes sense: ${r.makesSense ? 'yes' : 'no'}   confidence: ${pct(r.confidence)}`,
     `  recommended: ${r.injectionDetected ? INJECTED : actions.join('; ') || '(no change)'}`,
+    ...(r.priorDecision
+      ? [
+          `  follows a maintainer decision in #${r.priorDecision.issue} (${issueUrl(repo, r.priorDecision.issue)}): ${r.priorDecision.summary}`,
+        ]
+      : []),
     ...(r.linkedPrs.length
       ? [
           `  linked PRs: ${r.linkedPrs.map((p) => `#${p.number} ${p.state} by @${p.author} ${pullUrl(repo, p.number)}`).join(', ')}`,
@@ -228,6 +254,12 @@ function proposalItem(
   ];
 }
 
+export function proposalWaitReason(r: ProposalReview): string {
+  return r.thread
+    ? `last comment by maintainer @${r.thread.lastCommentBy} on ${r.thread.lastCommentAt.slice(0, 10)}`
+    : 'waiting on the author';
+}
+
 /** Which item goes in which section, shared by the text and HTML renderings. */
 export interface DigestPlan {
   close: SpecialistItem<ImplementationCheck>[];
@@ -236,6 +268,8 @@ export interface DigestPlan {
   wait: SpecialistItem<ImplementationCheck>[];
   keep: SpecialistItem<ImplementationCheck>[];
   proposals: SpecialistItem<ProposalReview>[];
+  /** Proposals where the author has the next step (one line each). */
+  waitingProposals: SpecialistItem<ProposalReview>[];
   triageFor: (issue: number) => DigestItem | undefined;
   urgent: DigestItem[];
   rest: DigestItem[];
@@ -260,7 +294,9 @@ export function planDigest(input: DigestInput): DigestPlan {
     (i) => i.assessment.needsMaintainer || i.assessment.injectionDetected,
   );
   const rest = remaining.filter((i) => !urgent.includes(i));
-  const actions = close.length + reply.length + review.length + input.proposals.length;
+  const waitingProposals = input.proposals.filter((p) => proposalWaiting(p.result, input.now));
+  const proposals = input.proposals.filter((p) => !waitingProposals.includes(p));
+  const actions = close.length + reply.length + review.length + proposals.length;
   const day = input.now.toISOString().slice(0, 10);
   const counts = [
     actions ? `${actions} recommendation(s)` : null,
@@ -273,7 +309,8 @@ export function planDigest(input: DigestInput): DigestPlan {
     review,
     wait,
     keep,
-    proposals: input.proposals,
+    proposals,
+    waitingProposals,
     triageFor: (issue) => byIssue.get(issue),
     urgent,
     rest,
@@ -300,8 +337,14 @@ export function renderDigest(input: DigestInput): Omit<Digest, 'html'> {
     ),
     ...section(
       'Community proposals: recommended actions',
-      input.proposals.flatMap((p) => proposalItem(p, plan.triageFor(p.issue), repo)),
+      plan.proposals.flatMap((p) => proposalItem(p, plan.triageFor(p.issue), repo)),
     ),
+    ...section('Community proposals waiting on the author (nothing to do)', [
+      ...plan.waitingProposals.map(
+        (p) => `- #${p.issue} ${inert(p.result.title, 100)}: ${proposalWaitReason(p.result)}`,
+      ),
+      ...(plan.waitingProposals.length ? [''] : []),
+    ]),
     ...section(
       'Accepted issues where a contributor is waiting for an answer',
       reply.flatMap((i) => implementationItem(i, repo, now)),

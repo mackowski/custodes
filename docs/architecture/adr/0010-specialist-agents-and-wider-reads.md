@@ -142,3 +142,7 @@ implementation-check never saw comments, assignees or open pull requests.
   open PR.
 - Comment bodies are quoted line by line (`> `) in both specialists, so no comment can pose as a
   code-built comment header.
+- proposal-review gets the same thread handling (newest comments, quoted bodies, "Last comment"
+  line, "waiting on the author" in the digest) and reads up to three referenced issues, keeping only
+  maintainer comments, so it follows decisions maintainers already took elsewhere (#85). No policy
+  change: `reads.proposal-review` already allows `issue` and `comments`.
