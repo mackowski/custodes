@@ -11,6 +11,7 @@ export interface SpecialistDeps {
     | 'listCheatSheets'
     | 'listLabels'
     | 'getCheatSheet'
+    | 'getPull'
   >;
   /** Fast model: picks the cheat sheets to read. Returns raw text. */
   select(system: string, user: string, issue: number): Promise<string>;

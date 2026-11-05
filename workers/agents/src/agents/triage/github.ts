@@ -282,9 +282,10 @@ export class BrokerGitHubReader {
     return out;
   }
 
-  /** The first 100 comments. */
-  async listComments(repo: string, number: number): Promise<IssueComment[]> {
-    return this.read(repo, 'comments', { per_page: 100 }, z.array(IssueComment), { number });
+  /** 100 comments, oldest first: the first page, or `page` (1-10). */
+  async listComments(repo: string, number: number, page?: number): Promise<IssueComment[]> {
+    const query = page === undefined ? { per_page: 100 } : { per_page: 100, page };
+    return this.read(repo, 'comments', query, z.array(IssueComment), { number });
   }
 
   /** Paths changed by a pull request (first 100). */

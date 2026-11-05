@@ -5,14 +5,16 @@ import type { ImplementationCheck } from '../specialists/implementation.js';
 import type { ProposalReview } from '../specialists/proposal.js';
 import { inertNoLinks as inert, type Assessment } from './assess.js';
 import {
-  ACTION,
+  actionLine,
   INJECTED,
   issueUrl,
   pct,
   planDigest,
   proposalActions,
+  proposalWaitReason,
   pullUrl,
   VERDICT,
+  waitReason,
   type DigestInput,
   type DigestItem,
   type SpecialistItem,
@@ -160,7 +162,11 @@ const IMPLEMENTED_TONE: Record<ImplementationCheck['implemented'], Tone> = {
   unclear: 'gray',
 };
 
-function implementationCard(it: SpecialistItem<ImplementationCheck>, repo: string): string {
+function implementationCard(
+  it: SpecialistItem<ImplementationCheck>,
+  repo: string,
+  now: Date,
+): string {
   const r = it.result;
   const links = [...r.evidence.map((e) => e.url), ...r.mergedPrs.map((n) => pullUrl(repo, n))];
   return card(
@@ -171,8 +177,11 @@ function implementationCard(it: SpecialistItem<ImplementationCheck>, repo: strin
       `Confidence ${pct(r.confidence)}`,
       'gray',
     )}${r.ackAt ? badge(`Accepted ${r.ackAt.slice(0, 10)}`, 'blue') : ''}</div>` +
+      (r.changedSinceCheck
+        ? `<div style="margin-top:8px;">${badge('Changed after this check', 'amber')}</div>`
+        : '') +
       label('Suggested action') +
-      para(r.injectionDetected ? INJECTED : ACTION[r.recommendation]) +
+      para(actionLine(r, now)) +
       evidence(r.evidence, r.mergedPrs, repo) +
       label('Explanation (model-generated)') +
       para(r.explanation) +
@@ -215,6 +224,13 @@ function proposalCard(
           : para('No change')) +
       (r.reviewPr && !r.injectionDetected
         ? `<div style="margin-top:10px;">${button(pullUrl(repo, r.reviewPr), `Review PR #${r.reviewPr}`)}</div>`
+        : '') +
+      (r.priorDecision
+        ? label('Follows a maintainer decision') +
+          para(
+            `#${r.priorDecision.issue}, referenced by ${r.priorDecision.via ?? 'unknown'}: ${r.priorDecision.summary}`,
+          ) +
+          `<div>${link(issueUrl(repo, r.priorDecision.issue), `Open #${r.priorDecision.issue}`)}</div>`
         : '') +
       (r.linkedPrs.length
         ? label('Linked pull requests') +
@@ -261,15 +277,19 @@ export function renderDigestHtml(input: DigestInput): string {
   const body = [
     section(
       'Accepted issues that look implemented',
-      plan.close.map((i) => implementationCard(i, repo)),
+      plan.close.map((i) => implementationCard(i, repo, input.now)),
     ),
     section(
       'Community proposals: recommended actions',
       plan.proposals.map((p) => proposalCard(p, plan.triageFor(p.issue), repo)),
     ),
     section(
+      'Accepted issues where a contributor is waiting for an answer',
+      plan.reply.map((i) => implementationCard(i, repo, input.now)),
+    ),
+    section(
       'Accepted issues that may be partly implemented',
-      plan.review.map((i) => implementationCard(i, repo)),
+      plan.review.map((i) => implementationCard(i, repo, input.now)),
     ),
     section(
       'Needs attention',
@@ -279,6 +299,26 @@ export function renderDigestHtml(input: DigestInput): string {
       'Other updated issues',
       plan.rest.map((i) => triageCard(i, repo)),
     ),
+    plan.waitingProposals.length
+      ? `<details style="margin:22px 0 10px;"><summary style="font-size:15px;font-weight:600;color:${C.text};cursor:pointer;">Community proposals waiting on the author, nothing to do <span style="color:${C.muted};font-weight:400;">(${plan.waitingProposals.length})</span></summary>` +
+        list(
+          plan.waitingProposals.map(
+            (p) =>
+              `${link(issueUrl(repo, p.issue), `#${p.issue}`)} ${esc(inert(p.result.title, 100))}: ${esc(proposalWaitReason(p.result))}`,
+          ),
+        ) +
+        '</details>'
+      : '',
+    plan.wait.length
+      ? `<details style="margin:22px 0 10px;"><summary style="font-size:15px;font-weight:600;color:${C.text};cursor:pointer;">Accepted issues in progress, nothing to do <span style="color:${C.muted};font-weight:400;">(${plan.wait.length})</span></summary>` +
+        list(
+          plan.wait.map(
+            (i) =>
+              `${link(issueUrl(repo, i.issue), `#${i.issue}`)} ${esc(inert(i.result.title, 100))}: ${esc(waitReason(i.result, input.now))}`,
+          ),
+        ) +
+        '</details>'
+      : '',
     plan.keep.length
       ? `<h2 style="margin:22px 0 10px;font-size:15px;color:${C.text};">Accepted issues still open work</h2>` +
         list(

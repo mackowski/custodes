@@ -108,3 +108,52 @@ reviewed again after every comment, several times a day.
   linked PR is not vetted. The digest says the model _reads_ it as doing the work, and the
   maintainer reviews the PR before any merge. A review flagged for possible injection stays in the
   digest even if the issue was accepted in the meantime. Owner: the maintainer.
+
+## Amendment (2026-11-05): implementation-check reads the thread
+
+The digests for OWASP/CheatSheetSeries#2791 and #2805 suggested "review by hand" and a comment
+asking whether work was still planned. A maintainer had asked exactly that two days earlier, and
+in #2805 the structure and file name were agreed and the contributor had announced a PR.
+implementation-check never saw comments, assignees or open pull requests.
+
+- implementation-check now reads the issue comments (the last 30 human comments, at most 12,000
+  characters, newest kept), the assignees, and the linked pull requests from the timeline. For up to
+  three open linked PRs it reads the pull request for its `updated_at`.
+- **Policy widening:** `reads.implementation-check.resources` gains `comments` and `pull`. These are
+  the same public, GET-only data `proposal-review`, `pr-gate` and `cheatsheet-review` already read,
+  through `PAT_READONLY`, on the same two repositories.
+- Code, not the model, adjusts the digest's suggestion from GitHub data, never from
+  comment text (`author_association`, dates, PR state): a maintainer (`OWNER`, `MEMBER`, `COLLABORATOR`)
+  commented last within 14 days, or an open linked PR by an assignee was updated within 14 days, means "waiting on
+  the contributor": one line in a collapsed section, no suggested comment. A non-maintainer
+  commented last means "answer the latest comment". "Looks implemented" always wins, and a result
+  flagged for possible injection stays in full view. The window is measured when the digest is
+  sent, so a stored result cannot hold an issue in "waiting" past 14 days.
+- The prompt tells the model that only the code-built "Last comment" and "Maintainers in this
+  thread" lines say who is a maintainer, and that a suggested comment never repeats a question,
+  request or deadline a maintainer already posted.
+- **Accepted risk:** `MEMBER` covers every member of the OWASP organisation, not only Cheat Sheet
+  Series maintainers. The worst case is an issue shown as "waiting" for up to 14 days, in the
+  private digest, with no GitHub side effect. Comment text cannot change the association. Owner:
+  the maintainer.
+- Only open PRs by an assignee count: anyone can open a fork PR that mentions an issue and push to
+  it, which would otherwise keep the issue in "waiting" indefinitely. A PR by someone else shows the
+  issue in full, which is the cheap mistake. A contributor's last comment ("answer it") outranks an
+  open PR.
+- Comment bodies are quoted line by line (`> `) in both specialists, so no comment can pose as a
+  code-built comment header.
+- proposal-review gets the same thread handling (newest comments, quoted bodies, "Last comment"
+  line, "waiting on the author" in the digest) and reads up to three referenced issues, keeping only
+  maintainer comments, so it follows decisions maintainers already took elsewhere (#85). No policy
+  change: `reads.proposal-review` already allows `issue` and `comments`.
+- References are collected from maintainers' comments first (newest first, quoted lines ignored),
+  then from the issue body, so the author cannot crowd out a maintainer's pointer. The digest says
+  who pointed at the issue a decision came from ("the issue body" or "maintainer @login").
+- **Accepted risk:** the author can still point the review at an issue of their choice through the
+  body, and any `MEMBER` (OWASP organisation member) comment there counts as a maintainer comment
+  the model may follow as `priorDecision`. The effect stays in the private digest, which names the
+  issue and who referenced it, with a link; an eval covers an off-topic member comment carrying an
+  instruction. Owner: the maintainer.
+- When the digest's issue-state read fails or is cut off at 300, every stored check and review counts
+  as changed for that digest, so nothing collapses on stale thread state. A `priorDecision` needs an
+  issue that had maintainer comments to show.

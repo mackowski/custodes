@@ -153,6 +153,7 @@ describe('validateProposalReview() properties', () => {
         (r, current, assignees) => {
           const raw: RawProposalReview = {
             verdict: 'real_gap',
+            priorDecision: null,
             makesSense: true,
             evidence: [],
             injectionDetected: false,
@@ -209,6 +210,7 @@ describe('renderDigestHtml() properties', () => {
         const review = validateProposalReview(
           {
             verdict: 'real_gap',
+            priorDecision: null,
             makesSense: true,
             evidence: [],
             addLabels: [],
