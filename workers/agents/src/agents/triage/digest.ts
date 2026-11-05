@@ -99,20 +99,66 @@ function flagsLine(r: { injectionDetected: boolean; dropped: string[] }): string
 /** Model text may be attacker-steered: no paste-ready comment or one-click recommendation. */
 export const INJECTED = 'review by hand (possible prompt injection; no comment suggested)';
 
-export const ACTION: Record<ImplementationCheck['recommendation'], string> = {
+/** What the digest suggests for an accepted issue: the check's verdict, adjusted for the thread. */
+export type FollowUp = ImplementationCheck['recommendation'] | 'wait' | 'reply';
+
+export const ACTION: Record<FollowUp, string> = {
   close: 'close the issue with a comment pointing to the evidence',
   review: 'review by hand; it may be partly done',
   keep: 'keep open',
+  wait: 'nothing to do; waiting on the contributor',
+  reply: 'answer the latest comment',
 };
 
-function implementationItem(it: SpecialistItem<ImplementationCheck>, repo: string): string[] {
+/** A maintainer comment or open PR newer than this means the work is moving. */
+export const WAIT_MS = 14 * 86_400_000;
+
+const recent = (at: string, now: Date) => now.getTime() - Date.parse(at) < WAIT_MS;
+
+/**
+ * Decided by code from GitHub-set data (comment author association, dates, PR state), never by
+ * the model. "Looks implemented" always wins; a possible injection keeps the item in full view.
+ */
+export function followUp(r: ImplementationCheck, now: Date): FollowUp {
+  if (r.injectionDetected || r.recommendation === 'close') return r.recommendation;
+  const t = r.thread;
+  if (t?.lastByMaintainer && recent(t.lastCommentAt, now)) return 'wait';
+  if (r.openPrs.some((p) => recent(p.updatedAt, now))) return 'wait';
+  if (t && !t.lastByMaintainer) return 'reply';
+  return r.recommendation;
+}
+
+/** One line on why an issue needs nothing now. */
+export function waitReason(r: ImplementationCheck, now: Date): string {
+  const t = r.thread;
+  if (t?.lastByMaintainer && recent(t.lastCommentAt, now))
+    return `last comment by maintainer @${t.lastCommentBy} on ${t.lastCommentAt.slice(0, 10)}`;
+  const pr = r.openPrs.find((p) => recent(p.updatedAt, now));
+  return pr
+    ? `open PR #${pr.number} by @${pr.author}, updated ${pr.updatedAt.slice(0, 10)}`
+    : 'in progress';
+}
+
+export function actionLine(r: ImplementationCheck, now: Date): string {
+  if (r.injectionDetected) return INJECTED;
+  const f = followUp(r, now);
+  if (f === 'reply' && r.thread)
+    return `${ACTION.reply} (by @${r.thread.lastCommentBy} on ${r.thread.lastCommentAt.slice(0, 10)})`;
+  return ACTION[f];
+}
+
+function implementationItem(
+  it: SpecialistItem<ImplementationCheck>,
+  repo: string,
+  now: Date,
+): string[] {
   const r = it.result;
   return [
     `#${it.issue} ${inert(r.title, 120)}`,
     `  ${issueUrl(repo, it.issue)}`,
     `  implementation check: implemented=${r.implemented}   confidence: ${pct(r.confidence)}` +
       (r.ackAt ? `   accepted ${r.ackAt.slice(0, 10)}` : ''),
-    `  suggested action: ${r.injectionDetected ? INJECTED : ACTION[r.recommendation]}`,
+    `  suggested action: ${actionLine(r, now)}`,
     ...evidenceLines(r.evidence, r.mergedPrs, repo),
     `  explanation (model-generated): ${r.explanation}`,
     ...(r.injectionDetected ? [] : commentBlock(r.suggestedComment, r.evidence, r.mergedPrs, repo)),
@@ -180,7 +226,9 @@ function proposalItem(
 /** Which item goes in which section, shared by the text and HTML renderings. */
 export interface DigestPlan {
   close: SpecialistItem<ImplementationCheck>[];
+  reply: SpecialistItem<ImplementationCheck>[];
   review: SpecialistItem<ImplementationCheck>[];
+  wait: SpecialistItem<ImplementationCheck>[];
   keep: SpecialistItem<ImplementationCheck>[];
   proposals: SpecialistItem<ProposalReview>[];
   triageFor: (issue: number) => DigestItem | undefined;
@@ -193,15 +241,21 @@ export function planDigest(input: DigestInput): DigestPlan {
   const { repo, items } = input;
   const reviewed = new Set(input.proposals.map((p) => p.issue));
   const byIssue = new Map(items.map((i) => [i.issue, i]));
-  const close = input.implementation.filter((i) => i.result.recommendation === 'close');
-  const review = input.implementation.filter((i) => i.result.recommendation === 'review');
-  const keep = input.implementation.filter((i) => i.result.recommendation === 'keep');
+  const by = (f: FollowUp) =>
+    input.implementation.filter((i) => followUp(i.result, input.now) === f);
+  const [close, reply, review, keep, wait] = [
+    by('close'),
+    by('reply'),
+    by('review'),
+    by('keep'),
+    by('wait'),
+  ];
   const remaining = items.filter((i) => !reviewed.has(i.issue));
   const urgent = remaining.filter(
     (i) => i.assessment.needsMaintainer || i.assessment.injectionDetected,
   );
   const rest = remaining.filter((i) => !urgent.includes(i));
-  const actions = close.length + review.length + input.proposals.length;
+  const actions = close.length + reply.length + review.length + input.proposals.length;
   const day = input.now.toISOString().slice(0, 10);
   const counts = [
     actions ? `${actions} recommendation(s)` : null,
@@ -210,7 +264,9 @@ export function planDigest(input: DigestInput): DigestPlan {
   ].filter(Boolean);
   return {
     close,
+    reply,
     review,
+    wait,
     keep,
     proposals: input.proposals,
     triageFor: (issue) => byIssue.get(issue),
@@ -224,7 +280,8 @@ export function planDigest(input: DigestInput): DigestPlan {
 export function renderDigest(input: DigestInput): Omit<Digest, 'html'> {
   const { repo, errors } = input;
   const plan = planDigest(input);
-  const { close, review, keep, urgent, rest, subject } = plan;
+  const { close, reply, review, wait, keep, urgent, rest, subject } = plan;
+  const now = input.now;
   const section = (title: string, lines: string[]) =>
     lines.length ? [`== ${title} ==`, '', ...lines] : [];
   const text = [
@@ -234,15 +291,19 @@ export function renderDigest(input: DigestInput): Omit<Digest, 'html'> {
     '',
     ...section(
       'Accepted issues that look implemented',
-      close.flatMap((i) => implementationItem(i, repo)),
+      close.flatMap((i) => implementationItem(i, repo, now)),
     ),
     ...section(
       'Community proposals: recommended actions',
       input.proposals.flatMap((p) => proposalItem(p, plan.triageFor(p.issue), repo)),
     ),
     ...section(
+      'Accepted issues where a contributor is waiting for an answer',
+      reply.flatMap((i) => implementationItem(i, repo, now)),
+    ),
+    ...section(
       'Accepted issues that may be partly implemented',
-      review.flatMap((i) => implementationItem(i, repo)),
+      review.flatMap((i) => implementationItem(i, repo, now)),
     ),
     ...section(
       'Needs attention',
@@ -252,6 +313,12 @@ export function renderDigest(input: DigestInput): Omit<Digest, 'html'> {
       'Other updated issues',
       rest.flatMap((i) => triageItem(i, repo)),
     ),
+    ...section('Accepted issues in progress (nothing to do)', [
+      ...wait.map(
+        (i) => `- #${i.issue} ${inert(i.result.title, 100)}: ${waitReason(i.result, now)}`,
+      ),
+      ...(wait.length ? [''] : []),
+    ]),
     ...section('Accepted issues still open work', [
       ...keep.map(
         (i) =>

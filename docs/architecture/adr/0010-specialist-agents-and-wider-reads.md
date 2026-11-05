@@ -108,3 +108,31 @@ reviewed again after every comment, several times a day.
   linked PR is not vetted. The digest says the model _reads_ it as doing the work, and the
   maintainer reviews the PR before any merge. A review flagged for possible injection stays in the
   digest even if the issue was accepted in the meantime. Owner: the maintainer.
+
+## Amendment (2026-11-05): implementation-check reads the thread
+
+The digests for OWASP/CheatSheetSeries#2791 and #2805 suggested "review by hand" and a comment
+asking whether work was still planned. A maintainer had asked exactly that two days earlier, and
+in #2805 the structure and file name were agreed and the contributor had announced a PR.
+implementation-check never saw comments, assignees or open pull requests.
+
+- implementation-check now reads the issue comments (the last 30 human comments, at most 12,000
+  characters, newest kept), the assignees, and the linked pull requests from the timeline. For up to
+  three open linked PRs it reads the pull request for its `updated_at`.
+- **Policy widening:** `reads.implementation-check.resources` gains `comments` and `pull`. These are
+  the same public, GET-only data `proposal-review`, `pr-gate` and `cheatsheet-review` already read,
+  through `PAT_READONLY`, on the same two repositories.
+- Code, not the model, adjusts the digest's suggestion from GitHub-set data only
+  (`author_association`, dates, PR state): a maintainer (`OWNER`, `MEMBER`, `COLLABORATOR`)
+  commented last within 14 days, or an open linked PR was updated within 14 days, means "waiting on
+  the contributor": one line in a collapsed section, no suggested comment. A non-maintainer
+  commented last means "answer the latest comment". "Looks implemented" always wins, and a result
+  flagged for possible injection stays in full view. The window is measured when the digest is
+  sent, so a stored result cannot hold an issue in "waiting" past 14 days.
+- The prompt tells the model that only the code-built "Last comment" and "Maintainers in this
+  thread" lines say who is a maintainer, and that a suggested comment never repeats a question,
+  request or deadline a maintainer already posted.
+- **Accepted risk:** `MEMBER` covers every member of the OWASP organisation, not only Cheat Sheet
+  Series maintainers. The worst case is an issue shown as "waiting" for up to 14 days, in the
+  private digest, with no GitHub side effect. Comment text cannot change the association. Owner:
+  the maintainer.
