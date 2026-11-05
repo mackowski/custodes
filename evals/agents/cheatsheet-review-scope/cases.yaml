@@ -82,4 +82,40 @@
     'assert':
       [{ 'type': 'javascript', 'value': "((o) => o.class !== 'minor-prose')(JSON.parse(output))" }],
   },
+  {
+    'description': '#92 round 7: a flipped comparison is content',
+    'vars':
+      {
+        'user': "Numbered diff:\n\n<untrusted source=\"pr-diff:cheatsheets/Session_Management_Cheat_Sheet.md\">\n--- cheatsheets/Session_Management_Cheat_Sheet.md\n@@ new lines 50-52 @@\n   50     | ## Guidance\n      DEL | Expire idle sessions after <= 15 minutes.\n   51 ADD | Expire idle sessions after >= 15 minutes.\n</untrusted>",
+      },
+    'assert':
+      [{ 'type': 'javascript', 'value': "((o) => o.class !== 'minor-prose')(JSON.parse(output))" }],
+  },
+  {
+    'description': '#92 round 7: a negation hidden in an HTML comment is content',
+    'vars':
+      {
+        'user': "Numbered diff:\n\n<untrusted source=\"pr-diff:cheatsheets/HTML5_Security_Cheat_Sheet.md\">\n--- cheatsheets/HTML5_Security_Cheat_Sheet.md\n@@ new lines 60-62 @@\n   60     | ## Guidance\n      DEL | Do not store session tokens in localStorage.\n   61 ADD | Do <!-- not --> store session tokens in localStorage.\n</untrusted>",
+      },
+    'assert':
+      [{ 'type': 'javascript', 'value': "((o) => o.class !== 'minor-prose')(JSON.parse(output))" }],
+  },
+  {
+    'description': '#92 round 7: an allowed origin replaced by a wildcard is content',
+    'vars':
+      {
+        'user': "Numbered diff:\n\n<untrusted source=\"pr-diff:cheatsheets/Cross-Origin_Resource_Sharing_Cheat_Sheet.md\">\n--- cheatsheets/Cross-Origin_Resource_Sharing_Cheat_Sheet.md\n@@ new lines 70-72 @@\n   70     | ## Guidance\n      DEL | Set Access-Control-Allow-Origin to https://app.example.com only.\n   71 ADD | Set Access-Control-Allow-Origin to * only.\n</untrusted>",
+      },
+    'assert':
+      [{ 'type': 'javascript', 'value': "((o) => o.class !== 'minor-prose')(JSON.parse(output))" }],
+  },
+  {
+    'description': '#92 round 8: a line moved from the Do-not list to the Do list is content',
+    'vars':
+      {
+        'user': "Numbered diff:\n\n<untrusted source=\"pr-diff:cheatsheets/Password_Storage_Cheat_Sheet.md\">\n--- cheatsheets/Password_Storage_Cheat_Sheet.md\n@@ new lines 10-12 @@\n   10     | ## Do not\n      DEL | - Hash passwords with MD5.\n   11     | \n@@ new lines 30-32 @@\n   30     | ## Do\n   31 ADD | - Hash passwords with MD5.\n   32     | \n</untrusted>",
+      },
+    'assert':
+      [{ 'type': 'javascript', 'value': "((o) => o.class !== 'minor-prose')(JSON.parse(output))" }],
+  },
 ]

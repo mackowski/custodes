@@ -252,9 +252,27 @@ describe('scope.classify', () => {
       ],
     ];
     for (const [before, after] of pairs)
-      expect(classify([scoped(patchOf([before], [after]))])).not.toMatchObject({
-        class: 'minor-prose',
-      });
+      expect(classify([scoped(patchOf([before], [after]))])).toEqual({ kind: 'ambiguous' });
+  });
+
+  it('never calls a guidance line moved across hunks or sheets with a link tweak links-only (#92 round 8)', () => {
+    const across = [
+      '@@ -3,1 +3,0 @@',
+      '-- Hash passwords with [MD5](https://en.wikipedia.org/wiki/MD5).',
+      '@@ -20,0 +19,1 @@',
+      '+- Hash passwords with [MD5](https://en.wikipedia.org/wiki/MD5#Algorithm).',
+    ].join('\n');
+    expect(classify([scoped(across)])).not.toMatchObject({ class: 'links-only' });
+    const del = '@@ -3,1 +3,0 @@\n-- Hash passwords with [MD5](https://en.wikipedia.org/wiki/MD5).';
+    const add =
+      '@@ -3,0 +3,1 @@\n+- Hash passwords with [MD5](https://en.wikipedia.org/wiki/MD5#Algorithm).';
+    expect(classify([scoped(del), scoped(add)])).not.toMatchObject({ class: 'links-only' });
+    // A real in-place link swap stays links-only.
+    expect(
+      classify([
+        scoped(patchOf(['See [a](https://x.example/1).'], ['See [a](https://x.example/2).'])),
+      ]),
+    ).toMatchObject({ class: 'links-only' });
   });
 
   it('reviews a PR with unread files as content', () => {
