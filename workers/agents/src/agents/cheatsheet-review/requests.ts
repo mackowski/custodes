@@ -4,6 +4,7 @@
  * `author_association` (OWNER, MEMBER, COLLABORATOR), the filter of ADR 0013; bots and this
  * agent's own posted reviews are left out. The bodies stay untrusted. Pure.
  */
+import { AGENT_TRAILER } from '../pr-gate/rules.js';
 import { safeLogin } from '../triage/prompt.js';
 import type { IssueComment, PullReview } from '../triage/github.js';
 
@@ -28,14 +29,28 @@ interface Authored {
   body?: string | null | undefined;
 }
 
-function counts(x: Authored): boolean {
+/** Lines of a body that are not Markdown quotes (a maintainer quoting the bot keeps their own words). */
+function unquoted(body: string): string {
+  return body
+    .split(/\r?\n/)
+    .filter((l) => !/^\s*>/.test(l))
+    .join('\n');
+}
+
+function counts(x: Authored, prAuthor: string): boolean {
   const login = x.user?.login ?? '';
+  const body = x.body ?? '';
+  const own = unquoted(body);
   return (
     MAINTAINER.has(x.author_association ?? '') &&
     x.user?.type !== 'Bot' &&
     !login.endsWith('[bot]') &&
-    (x.body ?? '').trim() !== '' &&
-    !(x.body ?? '').includes(OWN_REVIEW_MARKER)
+    // The PR author is never their own maintainer (as in pr-gate's maintainerComments, ADR 0013).
+    login.toLowerCase() !== prAuthor.toLowerCase() &&
+    body.trim() !== '' &&
+    // Anything an agent posted: the broker trailer (cannot be left out) or this agent's notice.
+    !AGENT_TRAILER.test(own) &&
+    !own.includes(OWN_REVIEW_MARKER)
   );
 }
 
@@ -43,16 +58,19 @@ function counts(x: Authored): boolean {
 export function maintainerRequests(
   comments: readonly IssueComment[],
   reviews: readonly PullReview[],
+  prAuthor = '',
 ): MaintainerRequest[] {
   const all: MaintainerRequest[] = [
-    ...comments.filter(counts).map((c) => ({
-      by: safeLogin(c.user?.login),
-      at: c.created_at,
-      kind: 'comment' as const,
-      body: c.body ?? '',
-    })),
+    ...comments
+      .filter((c) => counts(c, prAuthor))
+      .map((c) => ({
+        by: safeLogin(c.user?.login),
+        at: c.created_at,
+        kind: 'comment' as const,
+        body: c.body ?? '',
+      })),
     ...reviews
-      .filter((r) => counts(r) && r.state !== 'PENDING')
+      .filter((r) => counts(r, prAuthor) && r.state !== 'PENDING')
       .map((r) => ({
         by: safeLogin(r.user?.login),
         at: r.submitted_at ?? '',

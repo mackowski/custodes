@@ -524,12 +524,15 @@ export class CheatsheetReviewAgent extends CustodesAgent<AgentsEnv, CheatsheetRe
     // #91: earlier maintainer requests (conversation comments and review summaries) and the size
     // of each changed sheet before and after. A failed read leaves them out, never the review.
     let requests: MaintainerRequest[] = [];
+    let requestsTruncated = false;
     try {
       const [comments, reviews] = await Promise.all([
         reader.listComments(repo, pr.number),
         reader.listPullReviews(repo, pr.number),
       ]);
-      requests = maintainerRequests(comments, reviews);
+      requests = maintainerRequests(comments, reviews, author);
+      // Both reads return the first 100, oldest first: say so instead of showing stale requests as current.
+      if (comments.length >= 100 || reviews.length >= 100) requestsTruncated = true;
     } catch (err) {
       console.warn(
         JSON.stringify({ event: 'cheatsheet-review.requests_read_failed', error: errorType(err) }),
@@ -554,6 +557,7 @@ export class CheatsheetReviewAgent extends CustodesAgent<AgentsEnv, CheatsheetRe
     }
     return {
       requests,
+      requestsTruncated,
       sizes,
       repo,
       pull: pr.number,

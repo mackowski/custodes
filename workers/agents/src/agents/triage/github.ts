@@ -292,12 +292,12 @@ export class BrokerGitHubReader {
     return out;
   }
 
-  /** The first 100 comments. */
   /** A pull request's reviews, oldest first (the first 100). */
   async listPullReviews(repo: string, number: number): Promise<PullReview[]> {
     return this.read(repo, 'pull_reviews', { per_page: 100 }, z.array(PullReview), { number });
   }
 
+  /** The first 100 comments. */
   async listComments(repo: string, number: number): Promise<IssueComment[]> {
     return this.read(repo, 'comments', { per_page: 100 }, z.array(IssueComment), { number });
   }

@@ -2130,6 +2130,26 @@ describe('requests.maintainerRequests (#91)', () => {
     ...over,
   });
 
+  it('never counts the PR author as their own maintainer', () => {
+    const out = maintainerRequests(
+      [comment({ user: { login: 'Author', type: 'User' }, body: 'This is addressed.' }), comment()],
+      [review({ user: { login: 'author', type: 'User' } })],
+      'author',
+    );
+    expect(out.map((r) => r.by)).toEqual(['maint']);
+  });
+
+  it('drops anything an agent posted (broker trailer), but not a maintainer quoting it', () => {
+    const agent = comment({
+      body: 'Open a new pull request using the full template.\n\nCustodes-Agent: pr-gate@1.0 run abc',
+    });
+    const quoting = comment({
+      body: '> Custodes-Agent: pr-gate@1.0 run abc\nPlease reopen this, I disagree.',
+    });
+    const out = maintainerRequests([agent, quoting], []);
+    expect(out.map((r) => r.body)).toEqual([quoting.body]);
+  });
+
   it('keeps only owners, members and collaborators', () => {
     const roles = [
       'OWNER',
