@@ -6,7 +6,7 @@ import { issueLabels, type IssueComment, type PublicIssue } from '../triage/gith
 import { isSafeName, safeLogin } from '../triage/prompt.js';
 import { list, text, unit } from './lenient.js';
 import { RawEvidence, sanitizeComment, VerifiedEvidence, verifyEvidence } from './evidence.js';
-import { linkedPulls, MAX_FILES, type LinkedPull } from './implementation.js';
+import { linkedPulls, MAX_FILES, quoteBody, type LinkedPull } from './implementation.js';
 import { loadCheatSheets, type SpecialistDeps } from './run.js';
 import { buildSelectMessage, RawSelection, SELECT_PROMPT, validateSelection } from './select.js';
 
@@ -140,7 +140,7 @@ export function buildProposalMessage(
     .slice(0, MAX_COMMENTS)
     .map(
       (c) =>
-        `--- comment by @${safeLogin(c.user?.login)} on ${c.created_at.slice(0, 10)}\n${clip(c.body ?? '', 1500)}`,
+        `--- comment by @${safeLogin(c.user?.login)} on ${c.created_at.slice(0, 10)}\n${quoteBody(clip(c.body ?? '', 1500))}`,
     )
     .join('\n');
   return [

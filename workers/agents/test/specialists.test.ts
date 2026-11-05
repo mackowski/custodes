@@ -1207,14 +1207,19 @@ describe('follow-up decided from the thread', () => {
 });
 
 describe('checkImplementation reads the thread', () => {
-  const pullEvent = (n: number, state: string, merged: string | null = null): TimelineEvent => ({
+  const pullEvent = (
+    n: number,
+    state: string,
+    merged: string | null = null,
+    author = 'dev',
+  ): TimelineEvent => ({
     event: 'cross-referenced',
     source: {
       issue: {
         number: n,
         state,
         title: `PR ${n}`,
-        user: { login: 'dev' },
+        user: { login: author },
         pull_request: { merged_at: merged },
         repository: { full_name: repo },
       },
@@ -1304,6 +1309,7 @@ describe('checkImplementation reads the thread', () => {
     );
     const deps = fakeDeps({
       getPull,
+      getIssue: (_r, n) => Promise.resolve(issue(n, { assignees: [{ login: 'dev' }] })),
       listTimeline: () =>
         Promise.resolve([
           pullEvent(10, 'open'),
@@ -1323,6 +1329,19 @@ describe('checkImplementation reads the thread', () => {
     ]);
   });
 
+  it('ignores open PRs by people who are not assigned', async () => {
+    const getPull = vi.fn((_r: string, n: number) => Promise.resolve(pull(n, 'open')));
+    const deps = fakeDeps({
+      getPull,
+      getIssue: (_r, n) => Promise.resolve(issue(n, { assignees: [{ login: 'dev' }] })),
+      listTimeline: () =>
+        Promise.resolve([pullEvent(10, 'open', null, 'stranger'), pullEvent(11, 'open')]),
+    });
+    const r = await checkImplementation(repo, 1, deps);
+    expect(getPull.mock.calls.map((c) => c[1])).toEqual([11]);
+    expect(r?.openPrs.map((p) => p.number)).toEqual([11]);
+  });
+
   it('skips a linked PR that cannot be read instead of failing the check', async () => {
     const getPull = vi.fn((_r: string, n: number) =>
       n === 10
@@ -1331,6 +1350,7 @@ describe('checkImplementation reads the thread', () => {
     );
     const deps = fakeDeps({
       getPull,
+      getIssue: (_r, n) => Promise.resolve(issue(n, { assignees: [{ login: 'dev' }] })),
       listTimeline: () => Promise.resolve([pullEvent(10, 'open'), pullEvent(14, 'open')]),
     });
     const r = await checkImplementation(repo, 1, deps);

@@ -404,7 +404,10 @@ export async function checkImplementation(
   const linkedPrs = linkedPulls(repo, timeline);
   // The timeline has no PR activity date; read the open ones (bounded) for their updated_at.
   const openPrs: OpenLinkedPull[] = [];
-  for (const p of linkedPrs.filter((x) => x.state === 'open').slice(0, MAX_OPEN_PR_READS)) {
+  // Only PRs by an assignee count: anyone can open a fork PR that mentions the issue.
+  const assigned = new Set(assignees);
+  const candidates = linkedPrs.filter((x) => x.state === 'open' && assigned.has(x.author));
+  for (const p of candidates.slice(0, MAX_OPEN_PR_READS)) {
     // A hint, not evidence: a PR that cannot be read (deleted, spam-flagged author) is skipped.
     const pr = await deps.reader.getPull(repo, p.number).catch(() => null);
     if (pr?.state === 'open')
