@@ -23,6 +23,6 @@ defaultTest:
     - type: is-json
     - type: javascript
       value: >-
-        ((o) => Array.isArray(o.links) && o.links.every((l) => ['OK','WRONG-PAGE','UNSUPPORTED','LOW-AUTHORITY','STALE'].includes(l.status)))(JSON.parse(output))
+        ((o) => Array.isArray(o.links) && o.links.every((l) => ['OK','WRONG-PAGE','UNSUPPORTED','LOW-AUTHORITY','STALE','SAME-RESOURCE','DIFFERENT-RESOURCE'].includes(l.status)))(JSON.parse(output))
 
 tests: file://cases.yaml
