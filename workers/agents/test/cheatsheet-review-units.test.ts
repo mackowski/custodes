@@ -2145,7 +2145,7 @@ describe('render #89 sections', () => {
     );
     expect(body).toContain('### Links checked');
     expect(body).toContain('| `https://new.example.com/x` | moved | SAME-RESOURCE |');
-    const row = body.split('\n').find((l) => l.includes('b.example.com')) ?? '';
+    const row = body.split('\n').find((l) => l.endsWith('| new | broken (HTTP 404) |')) ?? '';
     expect(row.split('`')).toHaveLength(3); // the hostile backtick cannot break out of the code span
     expect(row).toMatch(/\| new \| broken \(HTTP 404\) \|$/);
   });
