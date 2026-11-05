@@ -29,15 +29,23 @@ export interface Casting {
 export const LINEUP: Readonly<Record<Role, Casting>> = {
   'scope-classifier': { primary: 'claudeHaiku', fallback: 'gptOss20b', max_tokens: 2_000 },
   'security-reviewer': { primary: 'claudeOpus', fallback: 'gptSol', max_tokens: 16_000 },
+  // #79.6: at 'high' the reasoning used the whole budget on larger PRs (#2884); the benchmark
+  // found 'low' as good (7 hits each) and faster.
   'security-second-voice': {
     primary: 'deepseekFlash',
     fallback: 'deepseekFlashOpenRouter',
     max_tokens: 24_000,
-    effort: 'high',
+    effort: 'low',
   },
   'practicality-reviewer': { primary: 'claudeSonnet', fallback: 'museSpark', max_tokens: 8_000 },
   'duplication-checker': { primary: 'museSpark', fallback: 'gptSol', max_tokens: 8_000 },
-  'link-auditor': { primary: 'deepseekFlash', fallback: 'gptLuna', max_tokens: 8_000 },
+  // Explicit: unset, Workers AI defaults DeepSeek to 'high' (same max_tokens risk as above).
+  'link-auditor': {
+    primary: 'deepseekFlash',
+    fallback: 'gptLuna',
+    max_tokens: 8_000,
+    effort: 'low',
+  },
   'language-reviewer': { primary: 'gptLuna', fallback: 'claudeHaiku', max_tokens: 8_000 },
   judge: { primary: 'gptAstra', fallback: 'claudeSonnet', max_tokens: 8_000 },
 };

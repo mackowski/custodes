@@ -97,3 +97,24 @@ export const ReviewDecision = z.object({
   replyToAuthor: z.string().max(1_500).optional(),
 });
 export type ReviewDecision = z.infer<typeof ReviewDecision>;
+
+/**
+ * #79.3, enforced in code after the judge: "Must-fix" holds only BLOCKER and MAJOR. MINOR moves to
+ * should-fix and NIT to nits, ahead of what was there (the caps bound model output; a moved finding
+ * is never dropped). A REQUEST_CHANGES with nothing left to must-fix becomes MERGE; CLOSE and
+ * low-quality decisions are left alone.
+ */
+export function normaliseDecision(d: ReviewDecision): ReviewDecision {
+  const minor = d.mustFix.filter((i) => i.severity === 'MINOR');
+  const nit = d.mustFix.filter((i) => i.severity === 'NIT');
+  const mustFix = d.mustFix.filter((i) => i.severity === 'BLOCKER' || i.severity === 'MAJOR');
+  const verdict =
+    d.verdict === 'REQUEST_CHANGES' && mustFix.length === 0 && !d.lowQuality ? 'MERGE' : d.verdict;
+  return {
+    ...d,
+    verdict,
+    mustFix,
+    shouldFix: [...minor, ...d.shouldFix],
+    nits: [...nit, ...d.nits],
+  };
+}

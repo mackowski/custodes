@@ -37,7 +37,8 @@ import { reviewPipeline } from './cheatsheet-review/pipeline.js';
 import { limiter } from './cheatsheet-review/runner.js';
 import { checkSuggestions, reviewBody, reviewEvent } from './cheatsheet-review/render.js';
 import { fencedLines, isSheet, type ScopedFile } from './cheatsheet-review/scope.js';
-import { disclosure, linkedIssueNumbers } from './pr-gate/rules.js';
+import { disclosure } from './pr-gate/rules.js';
+import { reviewIssueRefs } from './cheatsheet-review/refs.js';
 import { describeError } from './triage/errors.js';
 import { BrokerGitHubReader, issueLabels, type PublicPull } from './triage/github.js';
 
@@ -384,6 +385,7 @@ export class CheatsheetReviewAgent extends CustodesAgent<AgentsEnv, CheatsheetRe
           event,
           suggestions: checked.comments.length,
           expiresAt: approval.expiresAt,
+          injectionRoles: result.injectionRoles,
         }),
       );
       finish('awaiting_approval', {
@@ -486,7 +488,7 @@ export class CheatsheetReviewAgent extends CustodesAgent<AgentsEnv, CheatsheetRe
       related.set(name, await reader.getCheatSheet(repo, name));
     const author = pr.user?.login ?? '';
     const issues: IssueFacts[] = [];
-    for (const n of linkedIssueNumbers(pr.body, repo).slice(0, 3)) {
+    for (const n of reviewIssueRefs(pr.body, repo)) {
       try {
         const issue = await reader.getIssue(repo, n);
         if (issue.pull_request !== undefined) continue;

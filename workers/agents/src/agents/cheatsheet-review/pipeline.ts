@@ -23,7 +23,14 @@ import { invariantBreach, type RoleOutcome } from './lineup.js';
 import { JUDGE_PROMPT, LINK_PROMPT, reviewerPrompt, SCOPE_PROMPT } from './prompts.js';
 import { runRole, type RunnerDeps } from './runner.js';
 import { classify, isSheet, REVIEWERS_FOR, type ChangeClass, type ReviewerRole } from './scope.js';
-import { LinkAudit, ReviewDecision, ReviewerReport, ScopeAnswer, type Finding } from './types.js';
+import {
+  LinkAudit,
+  ReviewDecision,
+  ReviewerReport,
+  ScopeAnswer,
+  type Finding,
+  normaliseDecision,
+} from './types.js';
 
 export interface PipelineDeps extends RunnerDeps {
   fetchLink: (url: string) => Promise<FetchedLink>;
@@ -42,6 +49,8 @@ export interface PipelineResult {
   /** Links to verify by hand (401/403/429/5xx, timeouts, refused hosts). */
   linkNotes: string[];
   injectionSeen: boolean;
+  /** The reviewer roles whose reports saw instruction-like text (#79.9). */
+  injectionRoles: ReviewerRole[];
 }
 
 interface LinkStage {
@@ -215,10 +224,11 @@ export async function reviewPipeline(snap: Snapshot, deps: PipelineDeps): Promis
     classWhy: scope.why,
     outcomes,
     reports,
-    decision: judged.answer,
+    decision: judged.answer && normaliseDecision(judged.answer),
     breach: invariantBreach(outcomes),
     allowed: links?.allowed ?? new Set(),
     linkNotes: links?.notes ?? [],
     injectionSeen: reports.some((x) => x.report.injectionSeen === true),
+    injectionRoles: reports.filter((x) => x.report.injectionSeen === true).map((x) => x.role),
   };
 }

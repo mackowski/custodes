@@ -33,16 +33,16 @@ Security is never dropped for a change to guidance, whatever its size (`MODELS.m
 
 ### Models (`cheatsheet-review/lineup.ts`)
 
-| Role                  | Model                                         | Fallback                                         |
-| --------------------- | --------------------------------------------- | ------------------------------------------------ |
-| scope-classifier      | Claude Haiku 5.5                              | gpt-oss-20b (Workers AI)                         |
-| security-reviewer     | Claude Opus 5.5                               | GPT-6.1 Sol                                      |
-| security-second-voice | DeepSeek V4.1 Flash (Workers AI, high effort) | DeepSeek V4.1 Flash (OpenRouter, fp8 hosts only) |
-| practicality-reviewer | Claude Sonnet 5.5                             | Muse Spark 1.3                                   |
-| duplication-checker   | Muse Spark 1.3                                | GPT-6.1 Sol                                      |
-| link-auditor          | DeepSeek V4.1 Flash (Workers AI)              | GPT-6 Luna                                       |
-| language-reviewer     | GPT-6 Luna                                    | Claude Haiku 5.5                                 |
-| judge                 | GPT-6 Astra                                   | Claude Sonnet 5.5                                |
+| Role                  | Model                                        | Fallback                                         |
+| --------------------- | -------------------------------------------- | ------------------------------------------------ |
+| scope-classifier      | Claude Haiku 5.5                             | gpt-oss-20b (Workers AI)                         |
+| security-reviewer     | Claude Opus 5.5                              | GPT-6.1 Sol                                      |
+| security-second-voice | DeepSeek V4.1 Flash (Workers AI, low effort) | DeepSeek V4.1 Flash (OpenRouter, fp8 hosts only) |
+| practicality-reviewer | Claude Sonnet 5.5                            | Muse Spark 1.3                                   |
+| duplication-checker   | Muse Spark 1.3                               | GPT-6.1 Sol                                      |
+| link-auditor          | DeepSeek V4.1 Flash (Workers AI, low effort) | GPT-6 Luna                                       |
+| language-reviewer     | GPT-6 Luna                                   | Claude Haiku 5.5                                 |
+| judge                 | GPT-6 Astra                                  | Claude Sonnet 5.5                                |
 
 Chosen from a one-off benchmark on 30 OWASP pull requests reviewed by maintainers
 (`workers/agents/scripts/benchmark/REPORT.md`, not run in CI). Known limits: Astra judges by the
@@ -51,7 +51,18 @@ auditor were not measured, and the sample is small.
 
 Every call goes through the one AI Gateway (ADR 0015). Anthropic and OpenRouter use the keys stored
 in the gateway; OpenRouter is asked for hosts that keep no prompts. A fallback is never silent: the
-review header strikes through the model that failed and names the one used instead.
+review header strikes through the model that failed and names the one used instead, with the
+reason in words ("reasoning used the whole token budget", "rate limited"). When the primary ran out
+of tokens, the fallback runs with low effort and half again the budget: retrying the setting that
+failed would fail the same way (#79, OWASP/CheatSheetSeries#2884).
+
+**After the judge, code enforces** (#79): "Must-fix" holds only BLOCKER and MAJOR (MINOR moves to
+should-fix, NIT to nits), and a REQUEST_CHANGES with nothing left to must-fix becomes MERGE. Going
+over the upstream file or line limits without a linked issue is a code-written "Scope note" under
+"Scope & process", never a finding; pr-gate enforces the process. Linked issues are read from
+`#N`, issue URLs and "issue N" in the body (`refs.ts`; pr-gate's parser is unchanged). A
+suggestion that cannot be placed inline is listed with its replacement text in a code block, links
+defanged and mentions neutralised, so it can be applied by hand.
 
 **Multi-model invariant** (`invariantBreach`): when both security voices are asked for, both
 answer and come from different vendors, and the judge is a different model from both. Every review
@@ -76,7 +87,10 @@ published: the operator gets the partial review by e-mail and the label stays on
   The link opens the exact review behind Access; the Approve button makes the broker post it once.
   Opening the link decides nothing. ADR 0017 amendment 2026-10-30.
 - `issue.label.remove` of `custodes_cheatsheet_review` after posting or after asking for the
-  approval, so adding it again asks for a new review.
+  approval, so adding it again asks for a new review. On OWASP the label therefore disappears about
+  a minute after the operator adds it, before anything is posted: **the removal means the review is
+  ready and the approval e-mail was sent.** Moving the removal to the broker after the decision was
+  considered and left out (#80); it would need a follow-up action on approval tokens and an ADR.
 - E-mail to `OPERATOR_EMAIL` only (`send_email.allowed_destination_addresses`).
 
 ## PAT scopes
@@ -117,6 +131,7 @@ repository is a fuse against a bug.
 | The approval link is not used within 24 h        | The approval expires; nothing is posted. Label the pull request again for a new review.            |
 | The author pushes before the operator approves   | The review is posted on the commit it was written for; GitHub marks its comments outdated.         |
 | The review posts but the label removal fails     | Logged; the label event is already recorded, so it is not reviewed twice.                          |
+| A reviewer sees instruction-like text            | Its own span carries `custodes.review.injection_seen`; the approval e-mail names the role.         |
 
 Runs are listed (ids, class, verdict, event, models, review URL; no content) at the agent's status
 endpoint through the gateway. Traces show one `invoke_agent cheatsheet-review` per run with an

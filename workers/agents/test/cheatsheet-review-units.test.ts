@@ -3,13 +3,18 @@ import { z } from 'zod';
 import { AgentHaltedError } from '@custodes/core/agent';
 import {
   GatewayError,
+  ModelOutputError,
   type ChatModel,
   type ChatRequest,
   type ReviewModel,
   type ReviewModelName,
 } from '@custodes/llm';
 import { inOneHunk, numberedDiff, parsePatch } from '../src/agents/cheatsheet-review/diff.js';
-import { lowQualityMail, partialReviewMail } from '../src/agents/cheatsheet-review/email.js';
+import {
+  approvalMail,
+  lowQualityMail,
+  partialReviewMail,
+} from '../src/agents/cheatsheet-review/email.js';
 import {
   invariantBreach,
   LINEUP,
@@ -28,20 +33,34 @@ import {
   checkSuggestions,
   addedRisk,
   dimensionsNotRun,
+  inertCode,
   inertMarkdown,
   modelLine,
+  readableWhy,
   reviewBody,
   reviewEvent,
   tableCell,
 } from '../src/agents/cheatsheet-review/render.js';
-import { limiter, runRole, type RunnerDeps } from '../src/agents/cheatsheet-review/runner.js';
+import {
+  fallbackAfterMaxTokens,
+  limiter,
+  runRole,
+  type RunnerDeps,
+} from '../src/agents/cheatsheet-review/runner.js';
 import {
   classify,
   fencedLines,
   REVIEWERS_FOR,
   type ScopedFile,
 } from '../src/agents/cheatsheet-review/scope.js';
-import type { Item, ReviewDecision } from '../src/agents/cheatsheet-review/types.js';
+import { processFacts, type Snapshot } from '../src/agents/cheatsheet-review/input.js';
+import { MAX_REVIEW_REFS, reviewIssueRefs } from '../src/agents/cheatsheet-review/refs.js';
+import {
+  normaliseDecision,
+  type Item,
+  type ReviewDecision,
+} from '../src/agents/cheatsheet-review/types.js';
+import { RecordingTracer, turnOf } from './helpers/recording-tracer.js';
 import type { PullFile } from '../src/agents/triage/github.js';
 
 // ---------- diff ----------
@@ -1187,5 +1206,407 @@ describe('render.tableCell', () => {
     expect(tableCell('a|b')).toBe('a\\|b');
     expect(tableCell('a\\|b')).toBe('a\\\\\\|b');
     expect(tableCell('end\\')).toBe('end\\\\');
+  });
+});
+
+// ---------- #79 round 1 ----------
+
+describe('lineup effort', () => {
+  it('runs both DeepSeek roles at low effort and leaves the others at the model default', () => {
+    expect(LINEUP['security-second-voice'].effort).toBe('low');
+    expect(LINEUP['link-auditor'].effort).toBe('low');
+    const others = Object.entries(LINEUP).filter(
+      ([r]) => r !== 'security-second-voice' && r !== 'link-auditor',
+    );
+    expect(others.map(([, c]) => c.effort)).toEqual(others.map(() => undefined));
+  });
+});
+
+describe('runner after max_tokens', () => {
+  // security-second-voice: primary deepseekFlash (workers-ai), fallback deepseekFlashOpenRouter (openrouter).
+  const second = (f: Fake) => runRole(f.deps, 'security-second-voice', Answer, 'sys', 'user');
+
+  it('computes low effort and a budget half again as large, rounded up', () => {
+    expect(fallbackAfterMaxTokens({ ...LINEUP['security-second-voice'] })).toEqual({
+      effort: 'low',
+      max_tokens: 36_000,
+    });
+    expect(fallbackAfterMaxTokens({ ...LINEUP.judge, max_tokens: 3_333 })).toEqual({
+      effort: 'low',
+      max_tokens: 5_000,
+    });
+  });
+
+  it('retries the fallback with low effort and 1.5x tokens when the primary ran out of tokens', async () => {
+    const f = fake({
+      'workers-ai': () => new ModelOutputError('max_tokens'),
+      openrouter: () => GOOD,
+    });
+    const r = await second(f);
+    expect(r.outcome).toMatchObject({ status: 'fallback', failed: 'deepseekFlash' });
+    expect(f.calls[0]?.req).toMatchObject({ max_tokens: 24_000, reasoning_effort: 'low' });
+    const fb = f.calls.find((c) => c.transport === 'openrouter')?.req;
+    expect(fb).toMatchObject({ max_tokens: 36_000, reasoning_effort: 'low' });
+  });
+
+  it('gives a role without a set effort low effort on the fallback after max_tokens', async () => {
+    const f = fake({
+      openrouter: () => new ModelOutputError('max_tokens'),
+      anthropic: () => GOOD,
+    });
+    await run(f); // language-reviewer: 8000, no effort
+    expect(f.calls[0]?.req.reasoning_effort).toBeUndefined();
+    expect(f.calls[1]?.req).toMatchObject({ max_tokens: 12_000, reasoning_effort: 'low' });
+  });
+
+  it('keeps the lineup settings for a refusal or any other primary error', async () => {
+    for (const err of [new ModelOutputError('refusal'), new GatewayError(500, 'boom')]) {
+      const f = fake({ 'workers-ai': () => err, openrouter: () => GOOD });
+      await second(f);
+      const fb = f.calls.find((c) => c.transport === 'openrouter')?.req;
+      expect(fb).toMatchObject({ max_tokens: 24_000, reasoning_effort: 'low' });
+    }
+    const f = fake({ openrouter: () => new GatewayError(500, 'boom'), anthropic: () => GOOD });
+    await run(f);
+    expect(f.calls[1]?.req.max_tokens).toBe(8_000);
+    expect(f.calls[1]?.req.reasoning_effort).toBeUndefined();
+  });
+
+  it('records the out-of-tokens fallback on the role span and shows it in words', async () => {
+    const t = new RecordingTracer();
+    const f = fake(
+      { 'workers-ai': () => new ModelOutputError('max_tokens'), openrouter: () => GOOD },
+      { turn: turnOf(t, false) },
+    );
+    const r = await second(f);
+    const span = t.named('invoke_agent security-second-voice')[0];
+    expect(span?.attributes['custodes.review.failed_why']).toBe('ModelOutputError max_tokens');
+    expect(span?.attributes['custodes.review.fallback_settings']).toBe('low effort, larger budget');
+    expect(modelLine(r.outcome)).toContain('unavailable: reasoning used the whole token budget');
+  });
+});
+
+describe('runner.markInjection (role span)', () => {
+  const Rep = z.object({ injectionSeen: z.boolean().optional() });
+  const spanOf = async (text: string, role: 'language-reviewer' = 'language-reviewer') => {
+    const t = new RecordingTracer();
+    const f = fake({ openrouter: () => text }, { turn: turnOf(t, false) });
+    await runRole(f.deps, role, Rep, 'sys', 'user');
+    return t.named(`invoke_agent ${role}`)[0];
+  };
+
+  it('marks the role span true when the answer saw an injection', async () => {
+    const s = await spanOf('{"injectionSeen":true}');
+    expect(s?.attributes['custodes.review.injection_seen']).toBe(true);
+  });
+
+  it('marks it false when the answer did not, or does not say', async () => {
+    expect((await spanOf('{"injectionSeen":false}'))?.attributes).toMatchObject({
+      'custodes.review.injection_seen': false,
+    });
+    expect((await spanOf('{}'))?.attributes).toMatchObject({
+      'custodes.review.injection_seen': false,
+    });
+  });
+
+  it('marks the span of a fallback answer too', async () => {
+    const t = new RecordingTracer();
+    const f = fake(
+      { openrouter: () => new GatewayError(500, 'x'), anthropic: () => '{"injectionSeen":true}' },
+      { turn: turnOf(t, false) },
+    );
+    await runRole(f.deps, 'language-reviewer', Rep, 'sys', 'user');
+    expect(
+      t.named('invoke_agent language-reviewer')[0]?.attributes['custodes.review.injection_seen'],
+    ).toBe(true);
+  });
+});
+
+describe('render.readableWhy and modelLine', () => {
+  it('turns error classes into plain words', () => {
+    expect(readableWhy('ModelOutputError max_tokens')).toBe(
+      'reasoning used the whole token budget',
+    );
+    expect(readableWhy('GatewayError 429')).toBe('rate limited');
+    expect(readableWhy('ModelOutputError refusal')).toBe('the model refused');
+    expect(readableWhy('GatewayError 504')).toBe('timed out');
+    expect(readableWhy('TimeoutError')).toBe('timed out');
+    expect(readableWhy('StructuredOutputError')).toBe('answer did not parse');
+  });
+
+  it('passes an unknown class through, bounded, and joins parts with a semicolon', () => {
+    expect(readableWhy('GatewayError 500')).toBe('GatewayError 500');
+    expect(readableWhy('GatewayError 429; StructuredOutputError')).toBe(
+      'rate limited; answer did not parse',
+    );
+    expect(readableWhy('x'.repeat(300))).toHaveLength(120);
+  });
+
+  it('uses it for a fallback and an unavailable outcome', () => {
+    expect(
+      modelLine({
+        role: 'language-reviewer',
+        status: 'fallback',
+        model: 'claudeHaiku',
+        failed: 'gptLuna',
+        why: 'GatewayError 429',
+      }),
+    ).toContain('(unavailable: rate limited)');
+    expect(
+      modelLine({
+        role: 'security-reviewer',
+        status: 'unavailable',
+        tried: ['claudeOpus', 'gptSol'],
+        why: 'ModelOutputError max_tokens; GatewayError 500',
+      }),
+    ).toBe(
+      'security: unavailable (claudeOpus, gptSol: reasoning used the whole token budget; GatewayError 500)',
+    );
+  });
+});
+
+describe('types.normaliseDecision', () => {
+  const m = (severity: Item['severity'], text: string) => item({ severity, text });
+
+  it('moves MINOR to the front of should-fix and NIT to the front of nits, keeping BLOCKER and MAJOR', () => {
+    const d = normaliseDecision(
+      decision({
+        mustFix: [m('BLOCKER', 'b'), m('MINOR', 'mi'), m('NIT', 'n'), m('MAJOR', 'ma')],
+        shouldFix: [m('MAJOR', 'old-should')],
+        nits: [m('NIT', 'old-nit')],
+      }),
+    );
+    expect(d.mustFix.map((i) => i.text)).toEqual(['b', 'ma']);
+    expect(d.shouldFix.map((i) => i.text)).toEqual(['mi', 'old-should']);
+    expect(d.nits.map((i) => i.text)).toEqual(['n', 'old-nit']);
+    expect(d.verdict).toBe('REQUEST_CHANGES');
+  });
+
+  it('turns REQUEST_CHANGES into MERGE when no must-fix is left', () => {
+    expect(normaliseDecision(decision({ mustFix: [m('MINOR', 'x')] })).verdict).toBe('MERGE');
+    expect(normaliseDecision(decision({ mustFix: [] })).verdict).toBe('MERGE');
+  });
+
+  it('keeps REQUEST_CHANGES when lowQuality, and never touches CLOSE or MERGE', () => {
+    const lq = normaliseDecision(decision({ lowQuality: true, mustFix: [m('MINOR', 'x')] }));
+    expect(lq.verdict).toBe('REQUEST_CHANGES');
+    const close = normaliseDecision(decision({ verdict: 'CLOSE', mustFix: [m('MINOR', 'x')] }));
+    expect(close.verdict).toBe('CLOSE');
+    expect(normaliseDecision(decision({ verdict: 'MERGE' })).verdict).toBe('MERGE');
+  });
+
+  it('drops nothing, even past the caps', () => {
+    const many = Array.from({ length: 8 }, (_, i) => m('MINOR', `mi${i}`));
+    const nits = Array.from({ length: 5 }, (_, i) => m('NIT', `n${i}`));
+    const d = normaliseDecision(
+      decision({
+        mustFix: [...many, ...nits],
+        shouldFix: [m('MAJOR', 's1'), m('MAJOR', 's2')],
+        nits: [m('NIT', 'old')],
+      }),
+    );
+    expect(d.shouldFix).toHaveLength(10);
+    expect(d.nits).toHaveLength(6);
+  });
+});
+
+describe('input.processFacts', () => {
+  const file = (additions: number, deletions = 0) => scoped(undefined, { additions, deletions });
+  const snap = (over: Partial<Snapshot> = {}): Snapshot => ({
+    repo: 'a/b',
+    pull: 1,
+    headSha: 'a'.repeat(40),
+    author: 'someone',
+    title: 't',
+    body: 'b',
+    files: [file(1)],
+    contents: new Map(),
+    disclosure: 'ok',
+    issues: [],
+    sheetNames: [],
+    related: new Map(),
+    unreviewedFiles: 0,
+    ...over,
+  });
+  const issueFact = { number: 4, state: 'open', labels: [], assignees: [], authorAssigned: false };
+
+  it('calls the upstream limits a process note, never a finding', () => {
+    const facts = processFacts(snap());
+    expect(facts).toContain('Upstream limits (process note for the maintainer, never a finding');
+    expect(facts).not.toContain('Scope note');
+  });
+
+  it('adds a scope note for more than 3 files without a linked issue', () => {
+    const facts = processFacts(snap({ files: [file(1), file(1), file(1), file(1)] }));
+    expect(facts).toContain('- Scope note: 4 files, no linked issue found.');
+    expect(processFacts(snap({ files: [file(1), file(1), file(1)] }))).not.toContain('Scope note');
+  });
+
+  it('counts files the broker did not return', () => {
+    expect(processFacts(snap({ unreviewedFiles: 5 }))).toContain('6 files, no linked issue');
+  });
+
+  it('adds a scope note for more than 1500 net added lines, and names both when both exceed', () => {
+    expect(processFacts(snap({ files: [file(1501)] }))).toContain(
+      '- Scope note: 1501 net added lines, no linked issue found.',
+    );
+    expect(processFacts(snap({ files: [file(1500)] }))).not.toContain('Scope note');
+    expect(processFacts(snap({ files: [file(1000), file(600, 10), file(1), file(1)] }))).toContain(
+      '- Scope note: 4 files and 1592 net added lines, no linked issue found.',
+    );
+  });
+
+  it('adds no scope note when an issue is linked', () => {
+    const facts = processFacts(
+      snap({ files: [file(2000), file(1), file(1), file(1)], issues: [issueFact] }),
+    );
+    expect(facts).not.toContain('Scope note');
+  });
+});
+
+describe('refs.reviewIssueRefs', () => {
+  const refs = (body: string | null | undefined) => reviewIssueRefs(body, 'OWASP/CheatSheetSeries');
+
+  it('reads #N, same-repo issue URLs and the word issue with or without #', () => {
+    expect(refs('Fixes #12')).toEqual([12]);
+    expect(refs('See https://github.com/OWASP/CheatSheetSeries/issues/77')).toEqual([77]);
+    expect(refs('This PR fixes issue 2815')).toEqual([2815]);
+    expect(refs('closes Issue #2815')).toEqual([2815]);
+    expect(refs('related to issues 12')).toEqual([12]);
+  });
+
+  it('never takes a bare number or another repository issue URL', () => {
+    expect(refs('Version 2815 of the 100 things; PR 44')).toEqual([]);
+    expect(refs('https://github.com/other/repo/issues/9')).toEqual([]);
+    expect(refs(null)).toEqual([]);
+    expect(refs(undefined)).toEqual([]);
+  });
+
+  it('ignores code spans and fenced blocks', () => {
+    expect(refs('Use `issue 5` in code')).toEqual([]);
+    expect(refs('```\nfixes issue 6\n```\ntext')).toEqual([]);
+    expect(refs('```\nissue 7 never closed')).toEqual([]);
+    expect(refs('```\nissue 8\n```\nissue 9')).toEqual([9]);
+  });
+
+  it('dedupes and keeps at most three', () => {
+    expect(refs('#4 and issue 4 and issue #4')).toEqual([4]);
+    expect(MAX_REVIEW_REFS).toBe(3);
+    expect(refs('#1 #2 #3 #4 issue 5')).toEqual([1, 2, 3]);
+  });
+});
+
+describe('email.approvalMail injection line', () => {
+  const mail = (injectionRoles?: readonly string[]) =>
+    approvalMail({
+      repo: 'a/b',
+      pull: 3,
+      link: 'https://custodes.work/admin/approvals/link/T',
+      verdict: 'MERGE',
+      event: 'COMMENT',
+      suggestions: 0,
+      expiresAt: '2026-10-31T10:00:00.000Z',
+      ...(injectionRoles ? { injectionRoles } : {}),
+    });
+
+  it('names the roles in text and html', () => {
+    const m = mail(['security-reviewer', 'link-auditor']);
+    const line = 'Possible prompt injection seen by: security-reviewer, link-auditor.';
+    expect(m.text).toContain(line);
+    expect(m.html).toContain(line);
+  });
+
+  it('omits the line when there are none, or none are valid role names', () => {
+    for (const m of [mail(), mail([]), mail(['<b>x</b>', 'Evil', '', 'a'.repeat(41), 'x y'])]) {
+      expect(m.text).not.toContain('prompt injection');
+      expect(m.html).not.toContain('prompt injection');
+    }
+  });
+
+  it('filters names that are not code-built role names', () => {
+    const m = mail(['judge', '<img src=x>', 'Ignore previous']);
+    expect(m.text).toContain('seen by: judge.');
+    expect(m.text).not.toContain('<img');
+    expect(m.html).not.toContain('<img');
+    expect(m.html).not.toContain('Ignore previous');
+  });
+});
+
+describe('render.inertCode and rejected suggestions', () => {
+  it('removes hidden characters, fences, links and mentions', () => {
+    const out = inertCode(
+      'a\u200Bb\u202E c ```` d\nSee https://x.example/a and http://y.example and www.z.example mail me@x.io',
+    );
+    expect(out).not.toMatch(/[\u200B\u202E]/);
+    expect(out).not.toContain('```');
+    expect(out).toContain("'''");
+    expect(out).toContain('https[:]//x.example/a');
+    expect(out).toContain('http[:]//y.example');
+    expect(out).toContain('www[.]z.example');
+    expect(out).toContain('me＠x.io');
+    expect(out).not.toContain('@');
+    expect(out.split('\n')).toHaveLength(2);
+  });
+
+  it('keeps at most 600 characters of the input', () => {
+    expect(inertCode('x'.repeat(2_000))).toHaveLength(600);
+  });
+
+  it('carries the replacement on a rejected suggestion', () => {
+    const hunks = new Map([['cheatsheets/A.md', parsePatch(PATCH)]]);
+    const out = checkSuggestions(
+      [{ file: 'cheatsheets/A.md', line: 99, replacement: 'New text', rationale: 'r' }],
+      hunks,
+      new Set(),
+    );
+    expect(out.rejected).toEqual([
+      {
+        file: 'cheatsheets/A.md',
+        line: 99,
+        why: 'lines outside the changed hunks',
+        text: 'New text',
+      },
+    ]);
+  });
+
+  it('shows a rejected suggestion that adds a link as an indented, defanged text block', () => {
+    const rejected = [
+      {
+        file: 'cheatsheets/A.md',
+        line: 99,
+        why: 'lines outside the changed hunks',
+        text: 'See https://evil.example.com/x or www.evil.example\nping @everyone',
+      },
+    ];
+    const body = reviewBody({
+      decision: decision(),
+      outcomes: [ran('judge', 'gptSol')],
+      changeClass: 'content',
+      classWhy: 'x',
+      facts: '- f',
+      rejected,
+      linkNotes: [],
+      allowed: new Set<string>(),
+    });
+    expect(body).toContain(
+      '  ```text\n  See https[:]//evil.example.com/x or www[.]evil.example\n  ping ＠everyone\n  ```',
+    );
+    expect(body).not.toContain('https://evil.example.com');
+    expect(body).not.toMatch(/(^|[^＠])@everyone/);
+  });
+
+  it('shows no code block for an empty replacement', () => {
+    const body = reviewBody({
+      decision: decision(),
+      outcomes: [ran('judge', 'gptSol')],
+      changeClass: 'content',
+      classWhy: 'x',
+      facts: '- f',
+      rejected: [{ file: 'a.md', line: 1, why: 'w', text: '  ' }],
+      linkNotes: [],
+      allowed: new Set<string>(),
+    });
+    expect(body).toContain('Suggestions not placed inline');
+    expect(body).not.toContain('```text');
   });
 });
