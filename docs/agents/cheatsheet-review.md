@@ -73,10 +73,13 @@ the latter a Links BLOCKER); the sentence around it is not judged. A finding out
 sources" and "Security" on such a line is about wording the PR did not change: code moves it to "Noticed in
 existing text (not caused by this PR)", which never counts toward the verdict, and drops a
 suggestion there unless it only changes link targets. Every review with external links ends with a
-"Links checked" table (URL as code, new or moved, status). A target counts as moved only on the same site (same registrable domain, same
-GitHub owner, or a GitHub organisation and its own domain, e.g. `github.com/OWASP` and `owasp.org`);
-another host or a fork is audited as a new link. The table shows the previous URL. A
-protocol-relative `//host` target is a MAJOR "verify by hand" finding and makes the change content.
+"Links checked" table (URL as code, new or moved, status). A target counts as moved only on the same site: the exact
+host (without www.), the same owner on GitHub hosts (github.com, gist, raw.githubusercontent.com,
+*.github.io), or the listed pair `github.com/OWASP` and `owasp.org`. Anything else, including
+other tenants of a shared host and lookalike domains, is audited as a new link. The table shows the
+previous URL. Link targets must have a known form (http(s), a sibling .md with an optional anchor,
+an anchor, an image under assets); anything else is a MAJOR "verify by hand" finding and makes the
+change content.
 
 **Multi-model invariant** (`invariantBreach`): when both security voices are asked for, both
 answer and come from different vendors, and the judge is a different model from both. Every review

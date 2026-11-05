@@ -57,27 +57,45 @@ export function maskedLine(text: string): string {
 }
 
 /**
- * The same site, so a changed target can be a "move" (Claude review on #92): the same registrable
- * domain (last two labels), the same GitHub owner, or a GitHub organisation and its own domain
- * (github.com/OWASP and owasp.org, as in #2880). A lookalike domain or a fork is a new source and
- * is audited as new.
+ * Link targets a cheat sheet may use, as an allow-list: an http(s) URL, a sibling cheat sheet with
+ * an optional anchor, an anchor, or an image under assets. Anything else (//host, entity-encoded
+ * slashes, backslashes, other schemes) is "verify by hand" and the change gets the full review.
+ */
+export function knownTargetForm(target: string): boolean {
+  return (
+    /^https?:\/\/[^\s]+$/i.test(target) ||
+    /^(\.\/)?[A-Za-z0-9_.-]+\.md(#[A-Za-z0-9_-]*)?$/.test(target) ||
+    /^#[A-Za-z0-9_-]+$/.test(target) ||
+    /^(\.\.\/)*(\.\/)?assets\/[A-Za-z0-9_./-]+\.(png|jpe?g|gif|svg|webp)$/i.test(target)
+  );
+}
+
+/** A GitHub organisation and the one domain it owns, for moves between the two (#2880). */
+const ORG_DOMAINS: Readonly<Record<string, string>> = { owasp: 'owasp.org' };
+const GITHUB_HOSTS = new Set(['github.com', 'gist.github.com', 'raw.githubusercontent.com']);
+
+/** "github:<owner>" for GitHub-hosted URLs, otherwise the exact host without a leading www. */
+function siteOf(u: URL): string {
+  const host = u.hostname.toLowerCase().replace(/^www\./, '');
+  if (GITHUB_HOSTS.has(host)) return `github:${(u.pathname.split('/')[1] ?? '').toLowerCase()}`;
+  const pages = /^([a-z0-9-]+)\.github\.io$/.exec(host);
+  if (pages) return `github:${pages[1] ?? ''}`;
+  return host;
+}
+
+/**
+ * The same site, so a changed target can be a "move" (Claude review and round 13 on #92): the exact
+ * same host, the same owner on GitHub hosts, or a listed GitHub organisation and its own domain
+ * (github.com/OWASP and owasp.org). Anything else, including other tenants of a shared host and
+ * lookalike domains, is a new source and is audited as new.
  */
 export function sameSite(a: string, b: string): boolean {
   try {
-    const x = new URL(a);
-    const y = new URL(b);
-    const site = (u: URL): string => {
-      const host = u.hostname.toLowerCase();
-      if (host === 'github.com') return `github:${(u.pathname.split('/')[1] ?? '').toLowerCase()}`;
-      return host.split('.').slice(-2).join('.');
-    };
-    const sx = site(x);
-    const sy = site(y);
-    if (sx === sy) return true;
-    // A GitHub organisation and its own domain: github:owasp <-> owasp.org.
-    const org = (s: string) => (s.startsWith('github:') ? s.slice(7) : (s.split('.')[0] ?? ''));
-    const gh = sx.startsWith('github:') !== sy.startsWith('github:');
-    return gh && org(sx) !== '' && org(sx) === org(sy);
+    const x = siteOf(new URL(a));
+    const y = siteOf(new URL(b));
+    if (x === y) return x !== 'github:';
+    const pair = (g: string, h: string) => g.startsWith('github:') && ORG_DOMAINS[g.slice(7)] === h;
+    return pair(x, y) || pair(y, x);
   } catch {
     return false;
   }

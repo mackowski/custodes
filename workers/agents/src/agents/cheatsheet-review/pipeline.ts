@@ -14,6 +14,7 @@ import {
   anchors,
   checkInternal,
   isExternal,
+  knownTargetForm,
   maskedLine,
   scanLinks,
   type AddedLink,
@@ -90,13 +91,14 @@ async function linkStage(snap: Snapshot, deps: PipelineDeps): Promise<LinkStage>
         continue;
       }
       // javascript:, data:, mailto: and other schemes are never fetched; a person has to look.
-      // A protocol-relative //host (or \\host) renders as https://host: verify by hand (Claude review on #92).
-      if (/^[\\/]{2}/.test(link.url)) {
+      // Not a known target form (//host, &#47;&#47;host, a backslash path, a stray scheme): renderers
+      // may resolve it to another host, and nothing here can fetch it. Verify by hand.
+      if (!knownTargetForm(link.url) && !/^[a-z][a-z0-9+.-]*:/i.test(link.url)) {
         findings.push({
           severity: 'MAJOR',
           file: link.file,
           line: link.line,
-          problem: `Protocol-relative link (${link.url.slice(0, 40)}…): verify by hand; cheat sheets cite full https URLs.`,
+          problem: `Link target in an unusual form (${link.url.slice(0, 40)}…): verify by hand; cheat sheets cite full https URLs or sibling .md files.`,
         });
         continue;
       }

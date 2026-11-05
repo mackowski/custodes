@@ -6,7 +6,7 @@
 import { CheatSheetPath } from '@custodes/schema';
 import type { PullFile } from '../triage/github.js';
 import { addedLines, removedLines, type Hunk } from './diff.js';
-import { citationTargets, maskedLine } from './links.js';
+import { citationTargets, knownTargetForm, maskedLine } from './links.js';
 
 /**
  * A cheat sheet or draft under the broker's strict name rule (no newlines, one level). File names
@@ -85,9 +85,9 @@ function securityRelevantChange(
     )
   )
     return 'an http:// URL was added';
-  // A protocol-relative //host target is a new external host the extractor does not fetch.
-  if (added.some((t) => citationTargets(t).some((u) => /^[\\/]{2}/.test(u))))
-    return 'a protocol-relative link target';
+  // Only known link-target forms may be links-only: //host, encoded slashes and the like are not.
+  if (added.some((t) => citationTargets(t).some((u) => !knownTargetForm(u))))
+    return 'an unrecognised link target';
   if (codeSpans(added).join('\uE000') !== codeSpans(removed).join('\uE000'))
     return 'inline code changed';
   // The code-span placeholder character typed into the text could spoof a span: full review.
