@@ -52,6 +52,7 @@ import {
 import {
   classify,
   fencedLines,
+  flipsGuidance,
   REVIEWERS_FOR,
   type ScopedFile,
 } from '../src/agents/cheatsheet-review/scope.js';
@@ -2009,5 +2010,44 @@ describe('render #89 sections', () => {
     const row = body.split('\n').find((l) => l.includes('b.example.com')) ?? '';
     expect(row.split('`')).toHaveLength(3); // the hostile backtick cannot break out of the code span
     expect(row).toMatch(/\| new \| broken \(HTTP 404\) \|$/);
+  });
+});
+
+describe('#93: small edits that flip guidance, indented code', () => {
+  it('sends a one-word flip of guidance to the classifier instead of minor-prose', () => {
+    const p = patchOf(
+      ['Always set the HttpOnly attribute on session cookies.'],
+      ['Never set the HttpOnly attribute on session cookies.'],
+    );
+    expect(classify([scoped(p)])).toEqual({ kind: 'ambiguous' });
+  });
+
+  it('keeps a typo fix minor-prose', () => {
+    const p = patchOf(
+      ['Always validate the inptu on the server side.'],
+      ['Always validate the input on the server side.'],
+    );
+    expect(classify([scoped(p)])).toMatchObject({ class: 'minor-prose' });
+  });
+
+  it('flipsGuidance looks only at the words that differ', () => {
+    expect(flipsGuidance('You should use TLS.', 'You should not use TLS.')).toBe(true);
+    expect(flipsGuidance('Use TLS 1.2 or later.', 'Use TLS 1.3 or later.')).toBe(false);
+    expect(flipsGuidance('Never log tokens.', 'Never log access tokens.')).toBe(false);
+  });
+
+  it('counts indented code blocks as code, but not indented list continuations', () => {
+    const md = [
+      'Text.',
+      '',
+      '    curl -k https://x',
+      '    echo done',
+      '',
+      '- item',
+      '',
+      '    more of the item',
+      'End.',
+    ].join('\n');
+    expect([...fencedLines(md)]).toEqual([3, 4]);
   });
 });

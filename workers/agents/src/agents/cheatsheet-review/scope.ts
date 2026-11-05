@@ -83,7 +83,21 @@ function securityRelevantChange(
 export function fencedLines(markdown: string): Set<number> {
   const out = new Set<number>();
   let fence: string | null = null;
-  markdown.split('\n').forEach((line, i) => {
+  const lines = markdown.split('\n');
+  // #93: indented code blocks (4 spaces or a tab after a blank line, not inside a list) count too.
+  let indented = false;
+  let inList = false;
+  lines.forEach((line, i) => {
+    if (/^\s{0,3}([-*+]|\d+[.)])\s/.test(line)) inList = true;
+    else if (line.trim() !== '' && !/^\s/.test(line)) inList = false;
+    const isIndented = /^( {4}|\t)/.test(line) && line.trim() !== '';
+    const blankBefore = i === 0 || (lines[i - 1] ?? '').trim() === '';
+    if (isIndented && !inList && (indented || blankBefore)) {
+      indented = true;
+      out.add(i + 1);
+    } else if (line.trim() !== '') indented = false;
+  });
+  lines.forEach((line, i) => {
     const m = /^\s{0,3}(`{3,}|~{3,})/.exec(line);
     if (fence === null && m?.[1]) {
       fence = m[1];
@@ -94,6 +108,58 @@ export function fencedLines(markdown: string): Set<number> {
     }
   });
   return out;
+}
+
+/** Words whose addition or removal can turn advice into its opposite (#93). */
+const GUIDANCE_WORDS = new Set([
+  'always',
+  'never',
+  'not',
+  'no',
+  "don't",
+  'do',
+  'must',
+  'should',
+  'may',
+  'can',
+  'cannot',
+  'avoid',
+  'prefer',
+  'disable',
+  'enable',
+  'disabled',
+  'enabled',
+  'allow',
+  'deny',
+  'allowed',
+  'denied',
+  'only',
+  'unless',
+  'required',
+  'optional',
+  'safe',
+  'unsafe',
+  'secure',
+  'insecure',
+  'recommended',
+  'discouraged',
+  'deprecated',
+  'sufficient',
+  'insufficient',
+  'strong',
+  'weak',
+]);
+
+/** True when the words that differ between two lines include a guidance word. */
+export function flipsGuidance(before: string, after: string): boolean {
+  const words = (t: string) => t.toLowerCase().match(/[a-z']+/g) ?? [];
+  const count = (ws: string[]) =>
+    ws.reduce((m, w) => m.set(w, (m.get(w) ?? 0) + 1), new Map<string, number>());
+  const b = count(words(before));
+  const a = count(words(after));
+  for (const w of new Set([...b.keys(), ...a.keys()]))
+    if ((b.get(w) ?? 0) !== (a.get(w) ?? 0) && GUIDANCE_WORDS.has(w)) return true;
+  return false;
 }
 
 /** Edit similarity of two lines in [0, 1] (Levenshtein, bounded to short lines). */
@@ -150,8 +216,11 @@ export function classify(files: readonly ScopedFile[]): Scope {
   if (
     a.length === r.length &&
     a.every((t, i) => similarity(withoutUrls(t), withoutUrls(r[i] ?? '')) >= 0.85)
-  )
+  ) {
+    // #93: a small edit can flip guidance ("Always" to "Never"); let the classifier decide.
+    if (a.some((t, i) => flipsGuidance(r[i] ?? '', t))) return { kind: 'ambiguous' };
     return { kind: 'decided', class: 'minor-prose', why: 'small edits to existing lines' };
+  }
   return { kind: 'ambiguous' };
 }
 
