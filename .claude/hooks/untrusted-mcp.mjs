@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// PostToolUse(mcp__plugin_cloudflare_cloudflare__.*): results read through the Cloudflare MCP server
+// PostToolUse(mcp__plugin_cloudflare_.*): results read through the Cloudflare MCP server
 // (Workers Observability traces, AI Gateway logs, docs) carry issue, PR and web text written by third
 // parties. Mark them as untrusted data, never instructions (CLAUDE.md invariant 2, ADR 0016, #71).
 //

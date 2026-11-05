@@ -460,7 +460,8 @@ export async function reviewProposal(
     assignees,
     linkedPrs,
     thread: threadState(issue, comments, coversEnd),
-    referenced: referenced.map((r) => r.number),
+    // A decision needs maintainer words behind it: issues shown without any do not count.
+    referenced: referenced.filter((r) => r.comments.length > 0).map((r) => r.number),
     referencedVia: new Map(referenced.map((r) => [r.number, r.via])),
   });
   return { ...result, injectionDetected: result.injectionDetected || selection.injectionDetected };

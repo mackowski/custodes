@@ -392,6 +392,7 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
     const allImplementation = await this.collect('implementation', ImplementationCheck, errors);
     const allProposals = await this.collect('proposal', ProposalReview, errors);
     // The issues as they are now, so the digest never repeats advice a maintainer already acted on.
+    const state = { complete: true };
     const current = await currentSince(
       new BrokerGitHubReader(this.env.BROKER, this.manifest.id, crypto.randomUUID()),
       this.repo,
@@ -403,6 +404,7 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
         ...allProposals.map((p) => p.checkedAt),
       ],
       errors,
+      state,
     );
     const closed = closedIn(current);
     // Closed issues leave the digest, but an injection attempt is still worth knowing about.
@@ -419,7 +421,8 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
     const implementationOpen = withoutClosed(allImplementation, closed);
     const proposalsOpen = withoutClosed(allProposals, closed);
     const omittedClosed = openItems.dropped + implementationOpen.dropped + proposalsOpen.dropped;
-    const implementation = markChangedChecks(implementationOpen.kept, current);
+    // Without a complete issue-state read nothing collapses: the stored threads may be stale.
+    const implementation = markChangedChecks(implementationOpen.kept, current, state.complete);
     // Accepted after triage saw them: the maintainers' backlog now, unless flagged.
     const stillOpen = openItems.kept.filter((i) => {
       const now = current.get(i.issue);
@@ -432,7 +435,9 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
     });
     items.splice(0, items.length, ...stillOpen);
     const reconciled = reconcileProposals(proposalsOpen.kept, current);
-    const proposals = reconciled.kept;
+    const proposals = state.complete
+      ? reconciled.kept
+      : reconciled.kept.map((p) => ({ ...p, result: { ...p.result, changedSinceReview: true } }));
     omittedAck += reconciled.accepted;
     if (
       items.length === 0 &&

@@ -154,3 +154,6 @@ implementation-check never saw comments, assignees or open pull requests.
   the model may follow as `priorDecision`. The effect stays in the private digest, which names the
   issue and who referenced it, with a link; an eval covers an off-topic member comment carrying an
   instruction. Owner: the maintainer.
+- When the digest's issue-state read fails or is cut off at 300, every stored check and review counts
+  as changed for that digest, so nothing collapses on stale thread state. A `priorDecision` needs an
+  issue that had maintainer comments to show.

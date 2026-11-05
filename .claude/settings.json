@@ -103,7 +103,7 @@
         ]
       },
       {
-        "matcher": "mcp__plugin_cloudflare_cloudflare__.*",
+        "matcher": "mcp__plugin_cloudflare_.*",
         "hooks": [
           {
             "type": "command",

@@ -869,6 +869,43 @@ describe('closed issues are left out of the digest', () => {
     expect(errors).toEqual(['issue-state check: GitHubReadError 403']);
   });
 
+  it('reports an incomplete read, and then every stored check counts as changed', async () => {
+    const failed = { complete: true };
+    await currentSince(
+      { listIssuesUpdatedSince: () => Promise.reject(new Error('down')) },
+      repo,
+      ['2026-10-04T20:00:00Z'],
+      [],
+      failed,
+    );
+    expect(failed.complete).toBe(false);
+    const cut = { complete: true };
+    await currentSince(
+      { listIssuesUpdatedSince: () => Promise.resolve({ issues: [], truncated: true }) },
+      repo,
+      ['2026-10-04T20:00:00Z'],
+      [],
+      cut,
+    );
+    expect(cut.complete).toBe(false);
+    const ok = { complete: true };
+    await currentSince(
+      { listIssuesUpdatedSince: () => Promise.resolve({ issues: [], truncated: false }) },
+      repo,
+      ['2026-10-04T20:00:00Z'],
+      [],
+      ok,
+    );
+    expect(ok.complete).toBe(true);
+    const item = {
+      issue: 9,
+      issueUpdatedAt: '2026-10-20T00:00:00Z',
+      result: { changedSinceCheck: undefined as boolean | undefined },
+    };
+    expect(markChangedChecks([item], new Map(), false)[0]?.result.changedSinceCheck).toBe(true);
+    expect(markChangedChecks([item], new Map())[0]?.result.changedSinceCheck).toBeUndefined();
+  });
+
   it('reports a truncated closed-issue list and starts before the earliest time seen open', async () => {
     const errors: string[] = [];
     const seen: string[] = [];
@@ -2044,6 +2081,26 @@ describe('proposal review follows maintainer decisions in referenced issues', ()
         lastCommentBy: 'gqlwriter',
         lastByMaintainer: false,
       });
+    });
+
+    it('drops a decision on a referenced issue that has no maintainer comments', async () => {
+      const deps = fakeDeps(
+        {
+          getIssue: (_r, n) =>
+            Promise.resolve(
+              n === 1710
+                ? issue(n, { comments: 0, user: { login: 'gqlwriter' }, body: 'See #1500' })
+                : issue(n, { comments: 1 }),
+            ),
+          listComments: () =>
+            Promise.resolve([cmt('someone', '2026-09-02T00:00:00Z', 'NONE', 'I think so too')]),
+        },
+        JSON.stringify(rawProposal({ priorDecision: { issue: 1500, summary: 'Agreed already' } })),
+      );
+      const r = await reviewProposal(repo, 1710, deps);
+      expect(deps.assess.mock.calls[0]?.[1]).toContain('(no maintainer comments)');
+      expect(r?.priorDecision).toBeNull();
+      expect(r?.dropped).toContain('decision in #1500');
     });
 
     it('drops a decision the model attributes to an issue it was not shown', async () => {
