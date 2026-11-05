@@ -177,6 +177,9 @@ function implementationCard(
       `Confidence ${pct(r.confidence)}`,
       'gray',
     )}${r.ackAt ? badge(`Accepted ${r.ackAt.slice(0, 10)}`, 'blue') : ''}</div>` +
+      (r.changedSinceCheck
+        ? `<div style="margin-top:8px;">${badge('Changed after this check', 'amber')}</div>`
+        : '') +
       label('Suggested action') +
       para(actionLine(r, now)) +
       evidence(r.evidence, r.mergedPrs, repo) +

@@ -1474,6 +1474,21 @@ describe('digest sections from the thread', () => {
     expect(d.subject).toContain('1 recommendation(s)');
   });
 
+  it('marks a check of an issue that changed after it, in text and HTML', () => {
+    const changed = {
+      ...waiting,
+      changedSinceCheck: true,
+      implemented: 'partially' as const,
+      recommendation: 'review' as const,
+    };
+    const d = renderDigest(input([{ issue: 5, result: changed }]));
+    expect(d.text).not.toContain('Accepted issues in progress');
+    expect(d.text).toContain('note: the issue changed after this check');
+    expect(renderDigestHtml(input([{ issue: 5, result: changed }]))).toContain(
+      'Changed after this check',
+    );
+  });
+
   it('renders an injection-flagged item in full despite a fresh maintainer comment', () => {
     const flagged = {
       ...waiting,
