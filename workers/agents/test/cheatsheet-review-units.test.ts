@@ -302,6 +302,14 @@ describe('scope.classify', () => {
       });
   });
 
+  it('never calls a link the extractor cannot read a link change (#92 round 11)', () => {
+    const p = patchOf(
+      ['See [CWE](https://cwe.mitre.org/79).'],
+      ['See [CWE](https://attacker.example/>x).'],
+    );
+    expect(classify([scoped(p)])).not.toMatchObject({ class: 'links-only' });
+  });
+
   it('reviews a PR with unread files as content', () => {
     const p = patchOf(
       ['See [docs](https://old.example.com/a).'],
@@ -1895,6 +1903,17 @@ describe('links.scanLinks', () => {
     expect(r.links.map((l) => l.url)).toEqual(['https://new.example/a']);
     expect(r.links[0]).not.toHaveProperty('previous');
     expect([...r.targetOnlyLines]).toEqual([]);
+  });
+
+  it('audits URLs in parentheses and in href or src values', () => {
+    const r = scan(
+      '-Old.',
+      '+Use bcrypt (https://new.example/a) or <a href="https://new.example/b">this</a>.',
+    );
+    expect(r.links.map((l) => l.url).sort()).toEqual([
+      'https://new.example/a',
+      'https://new.example/b',
+    ]);
   });
 
   it('audits new autolinks', () => {

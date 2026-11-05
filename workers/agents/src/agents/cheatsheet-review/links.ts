@@ -28,7 +28,9 @@ const MAX_REDIRECTS = 5;
 export const EXCERPT_CHARS = 8_000;
 
 const MD_LINK = /\]\(\s*<?([^)\s>]+)>?(?:\s+"[^"]*")?\s*\)/g;
-const BARE = /(?<![("])\bhttps?:\/\/[^\s)<>\]"]+/g;
+// Every bare URL except a Markdown link target (MD_LINK reads those): prose in parentheses,
+// autolinks, href and src values are all audited.
+const BARE = /(?<!\]\(\s*<?)\bhttps?:\/\/[^\s)<>\]"]+/g;
 
 /** Link targets in a line, in order (Markdown links first, then bare URLs, as extractLinks). */
 function targets(text: string): string[] {
@@ -39,7 +41,7 @@ function targets(text: string): string[] {
 }
 
 /** Markdown link targets only: a bare URL (code samples, CORS or CSP values) is content, not a citation. */
-function citationTargets(text: string): string[] {
+export function citationTargets(text: string): string[] {
   return [...text.matchAll(MD_LINK)].map((m) => (m[1] ?? '').replace(/[.,;:]+$/, ''));
 }
 
