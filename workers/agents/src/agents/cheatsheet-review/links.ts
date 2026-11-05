@@ -4,7 +4,7 @@
  * `untrusted()`. Like upstream's link check, 401/403/429/5xx and timeouts mean "verify manually",
  * never "broken".
  */
-import type { DiffLine } from './diff.js';
+import type { DiffLine, Hunk } from './diff.js';
 
 export interface AddedLink {
   url: string;
@@ -12,6 +12,8 @@ export interface AddedLink {
   line: number;
   /** The added line the link sits in: the claim it is cited for (author text, untrusted). */
   context: string;
+  /** The target this link replaced, when its line changed nothing but link targets (#89). */
+  previous?: string;
 }
 
 export type FetchedLink =
@@ -27,6 +29,72 @@ export const EXCERPT_CHARS = 8_000;
 
 const MD_LINK = /\]\(\s*<?([^)\s>]+)>?(?:\s+"[^"]*")?\s*\)/g;
 const BARE = /(?<![(<"])\bhttps?:\/\/[^\s)<>\]"]+/g;
+
+/** Link targets in a line, in order (Markdown links first, then bare URLs, as extractLinks). */
+function targets(text: string): string[] {
+  return [
+    ...[...text.matchAll(MD_LINK)].map((m) => m[1] ?? ''),
+    ...[...text.matchAll(BARE)].map((m) => m[0]),
+  ].map((u) => u.replace(/[.,;:]+$/, ''));
+}
+
+/** The line with every link target replaced, so two lines that differ only in targets compare equal. */
+export function maskedLine(text: string): string {
+  return text.replace(MD_LINK, '](<target>)').replace(BARE, '<target>');
+}
+
+export interface LinkScan {
+  /** New links (audited as today) and moved links (`previous` set; audited against the old URL). */
+  links: AddedLink[];
+  /** New-side lines whose only change is a link target: their wording is not part of the PR. */
+  targetOnlyLines: Set<number>;
+}
+
+/**
+ * Links a file's diff adds, with moved links told apart (#89). Within a hunk, an added line that
+ * equals a removed line once link targets are masked is a target-only change: an unchanged target
+ * there is not audited at all, a changed one is "moved" and keeps its previous URL. Any other added
+ * line is new text and its links are audited as before. Pure.
+ */
+export function scanLinks(file: string, hunks: readonly Hunk[]): LinkScan {
+  const links: AddedLink[] = [];
+  const targetOnlyLines = new Set<number>();
+  const seen = new Set<string>();
+  const push = (link: AddedLink) => {
+    if (!link.url || seen.has(link.url)) return;
+    seen.add(link.url);
+    links.push(link);
+  };
+  for (const h of hunks) {
+    const removed = h.lines.filter((l) => l.kind === '-');
+    // A target the hunk already had (only the anchor text or the sentence changed) is not new.
+    const before = new Set(removed.flatMap((r) => targets(r.text)));
+    const used = new Set<number>();
+    for (const l of h.lines) {
+      if (l.kind !== '+' || l.newLine === undefined) continue;
+      const now = targets(l.text);
+      const key = maskedLine(l.text);
+      const i = removed.findIndex(
+        (r, idx) =>
+          !used.has(idx) && maskedLine(r.text) === key && targets(r.text).length === now.length,
+      );
+      if (i >= 0 && now.length > 0) {
+        used.add(i);
+        const prior = targets(removed[i]?.text ?? '');
+        targetOnlyLines.add(l.newLine);
+        now.forEach((url, k) => {
+          const previous = prior[k];
+          if (previous !== undefined && previous !== url)
+            push({ url, file, line: l.newLine ?? 0, context: l.text.slice(0, 600), previous });
+        });
+        continue;
+      }
+      for (const url of now)
+        if (!before.has(url)) push({ url, file, line: l.newLine, context: l.text.slice(0, 600) });
+    }
+  }
+  return { links, targetOnlyLines };
+}
 
 /** Links in added lines, in order, each once. */
 export function extractLinks(file: string, added: readonly DiffLine[]): AddedLink[] {

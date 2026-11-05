@@ -244,6 +244,8 @@ export interface ReviewBodyInput {
   facts: string;
   rejected: CheckedSuggestions['rejected'];
   linkNotes: readonly string[];
+  /** #89: every external link that was checked (code statuses or the auditor's enum). */
+  linkChecks?: readonly { url: string; moved: boolean; status: string }[];
   allowed: ReadonlySet<string>;
 }
 
@@ -314,6 +316,29 @@ export function reviewBody(r: ReviewBodyInput): string {
   if (d.verdict !== 'CLOSE') {
     lines.push(...items('Should-fix', d.shouldFix, a), ...items('Nits', d.nits, a));
   }
+  if (d.outOfScope.length > 0)
+    lines.push(
+      '### Noticed in existing text (not caused by this PR)',
+      '',
+      ...d.outOfScope.map(
+        (i) =>
+          `- \`${inertText(i.file, 200).replace(/`/g, '')}${i.line ? `:${i.line}` : ''}\`: ${inertMarkdown(i.text, a)}`,
+      ),
+      '',
+    );
+  const checks = r.linkChecks ?? [];
+  if (checks.length > 0)
+    lines.push(
+      '### Links checked',
+      '',
+      '| Link | Change | Status |',
+      '| --- | --- | --- |',
+      ...checks.map(
+        (c) =>
+          `| \`${tableCell(inertText(c.url, 300).replace(/`/g, ''))}\` | ${c.moved ? 'moved' : 'new'} | ${tableCell(inertText(c.status, 40))} |`,
+      ),
+      '',
+    );
   if (r.linkNotes.length > 0)
     lines.push(
       '### Links to verify manually',

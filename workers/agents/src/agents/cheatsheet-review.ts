@@ -317,6 +317,7 @@ export class CheatsheetReviewAgent extends CustodesAgent<AgentsEnv, CheatsheetRe
       facts: processFacts(snap).split('\n').slice(1).join('\n'),
       rejected: checked.rejected,
       linkNotes: result.linkNotes,
+      linkChecks: result.linkChecks,
       allowed: result.allowed,
     });
     const trig = { kind: 'webhook' as const, ref: `label:${labelEvent}` };

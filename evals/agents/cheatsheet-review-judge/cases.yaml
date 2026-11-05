@@ -121,4 +121,23 @@
         },
       ],
   },
+  {
+    'description': '#89: a URL-only change (#2880 shape) merges; the old wording is only an out-of-scope note',
+    'vars':
+      {
+        'user': "Process facts (established by code, not by the author):\n- Repository: OWASP/CheatSheetSeries, pull request #2880, head commit 0123456789abcdef0123456789abcdef01234567\n- Files changed: 1; net added lines: 0\n- AI Tool Usage Disclosure section: ok\n- Linked issues: none linked\n- Upstream limits (process note for the maintainer, never a finding; pr-gate enforces them): at most 3 files, and 1500 net added lines without a linked issue.\n\nNumbered diff (new-side line numbers on the left):\n\n<untrusted source=\"pr-diff:cheatsheets/GraphQL_Cheat_Sheet.md\">\n--- cheatsheets/GraphQL_Cheat_Sheet.md\n@@ new lines 19-23 @@\n   19     | ## Common Attacks\n   20     | \n      DEL | - Abuse of broken authorization: either [improper](https://github.com/OWASP/API-Security/blob/master/2019/en/src/0xa1-broken-object-level-authorization.md) or [excessive](https://github.com/OWASP/API-Security/blob/master/2019/en/src/0xa3-excessive-data-exposure.md) access, including [IDOR](https://cheatsheetseries.owasp.org/cheatsheets/Insecure_Direct_Object_Reference_Prevention_Cheat_Sheet.html)\n   21 ADD | - Abuse of broken authorization: either [improper](https://owasp.org/API-Security/editions/2019/en/0xa1-broken-object-level-authorization/) or [excessive](https://owasp.org/API-Security/editions/2019/en/0xa3-excessive-data-exposure/) access, including [IDOR](https://cheatsheetseries.owasp.org/cheatsheets/Insecure_Direct_Object_Reference_Prevention_Cheat_Sheet.html)\n   22     | - Batching attacks\n</untrusted>\n\nReviewers that did not run: none\n\nReviewer reports:\n\n<untrusted source=\"reviewer-reports\">\n[{\"role\":\"link-auditor\",\"report\":{\"verdict\":\"PASS\",\"findings\":[],\"notes\":\"2 external and 0 flagged link(s); both moved links are the same resource\"}},{\"role\":\"language-reviewer\",\"report\":{\"verdict\":\"CONCERNS\",\"findings\":[{\"severity\":\"MAJOR\",\"file\":\"cheatsheets/GraphQL_Cheat_Sheet.md\",\"line\":21,\"problem\":\"API3:2019 is Excessive Data Exposure, not \\\"excessive access\\\": describe the linked category as excessive data exposure.\"}]}}]\n</untrusted>",
+      },
+    'assert':
+      [
+        { 'type': 'javascript', 'value': "((o) => o.verdict === 'MERGE')(JSON.parse(output))" },
+        {
+          'type': 'javascript',
+          'value': '((o) => ![...o.mustFix, ...o.shouldFix].some((i) => /excessive|API3|data exposure/i.test(i.text)))(JSON.parse(output))',
+        },
+        {
+          'type': 'javascript',
+          'value': '((o) => o.suggestions.length === 0)(JSON.parse(output))',
+        },
+      ],
+  },
 ]

@@ -27,6 +27,8 @@ import {
   extractLinks,
   fetchable,
   fetchLink,
+  maskedLine,
+  scanLinks,
   slugify,
 } from '../src/agents/cheatsheet-review/links.js';
 import {
@@ -53,6 +55,7 @@ import {
   REVIEWERS_FOR,
   type ScopedFile,
 } from '../src/agents/cheatsheet-review/scope.js';
+import { linkStatus } from '../src/agents/cheatsheet-review/pipeline.js';
 import { processFacts, type Snapshot } from '../src/agents/cheatsheet-review/input.js';
 import { MAX_REVIEW_REFS, reviewIssueRefs } from '../src/agents/cheatsheet-review/refs.js';
 import {
@@ -817,6 +820,7 @@ const decision = (over: Partial<ReviewDecision> = {}): ReviewDecision => ({
   mustFix: [],
   shouldFix: [],
   nits: [],
+  outOfScope: [],
   suggestions: [],
   lowQuality: false,
   closeReasons: [],
@@ -1662,5 +1666,227 @@ describe('link checks ignore case (#92 review round 2)', () => {
     expect(inertCode('[source](HTTPS://evil.example/x) and WWW.evil.example/y')).toBe(
       '[source]([removed]) and [removed]',
     );
+  });
+});
+
+// ---------- #89 ----------
+
+describe('links.scanLinks', () => {
+  const scan = (...patchLines: string[]) =>
+    scanLinks(SHEET, parsePatch(['@@ -1,9 +1,9 @@', ...patchLines].join('\n')));
+
+  it('returns a link on a brand-new line without a previous URL', () => {
+    const r = scan(' a', '+See [d](https://new.example.com/x) now.');
+    expect(r.links).toHaveLength(1);
+    expect(r.links[0]).toMatchObject({ url: 'https://new.example.com/x', line: 2 });
+    expect(r.links[0]).not.toHaveProperty('previous');
+    expect([...r.targetOnlyLines]).toEqual([]);
+  });
+
+  it('treats a line whose only change is the target as moved, with the old URL', () => {
+    const r = scan(
+      ' a',
+      '-See [d](https://old.example.com/x) now.',
+      '+See [d](https://new.example.com/x) now.',
+    );
+    expect(r.links).toEqual([
+      {
+        url: 'https://new.example.com/x',
+        file: SHEET,
+        line: 2,
+        context: 'See [d](https://new.example.com/x) now.',
+        previous: 'https://old.example.com/x',
+      },
+    ]);
+    expect([...r.targetOnlyLines]).toEqual([2]);
+  });
+
+  it('does not audit an unchanged target on a target-only line, but marks the line', () => {
+    const r = scan(
+      '-See [d](https://same.example.com/x) and [e](https://old.example.com/y).',
+      '+See [d](https://same.example.com/x) and [e](https://new.example.com/y).',
+    );
+    expect(r.links.map((l) => l.url)).toEqual(['https://new.example.com/y']);
+    expect(r.links[0]?.previous).toBe('https://old.example.com/y');
+    expect([...r.targetOnlyLines]).toEqual([1]);
+  });
+
+  it('does not audit a link whose anchor text changed and URL stayed (#2882 tobtu)', () => {
+    const r = scan(
+      '-See [old words](https://a.example.com/x).',
+      '+See [new words](https://a.example.com/x).',
+    );
+    // The target was already there: nothing new to audit. The wording did change, so the line is
+    // not target-only and findings on it stay in scope.
+    expect(r.links).toEqual([]);
+    expect([...r.targetOnlyLines]).toEqual([]);
+  });
+
+  it('audits an unchanged URL on a line with no matching removed line as new', () => {
+    const r = scan('-Something else.', '+See [d](https://a.example.com/x) now.');
+    expect(r.links.map((l) => l.url)).toEqual(['https://a.example.com/x']);
+    expect(r.links[0]).not.toHaveProperty('previous');
+    expect([...r.targetOnlyLines]).toEqual([]);
+  });
+
+  it('does not pair across hunks', () => {
+    const r = scanLinks(
+      SHEET,
+      parsePatch(
+        [
+          '@@ -1,1 +1,0 @@',
+          '-See [d](https://old.example.com/x) now.',
+          '@@ -10,0 +10,1 @@',
+          '+See [d](https://new.example.com/x) now.',
+        ].join('\n'),
+      ),
+    );
+    expect(r.links.map((l) => l.url)).toEqual(['https://new.example.com/x']);
+    expect(r.links[0]).not.toHaveProperty('previous');
+    expect([...r.targetOnlyLines]).toEqual([]);
+  });
+
+  it('requires the same number of targets to pair', () => {
+    const r = scan(
+      '-See [d](https://old.example.com/x) now.',
+      '+See [d](https://new.example.com/x) now.',
+      '+See [d](https://new.example.com/x) now.',
+    );
+    // The removed line is used once; the second added line is a new link, deduped by URL.
+    expect(r.links).toHaveLength(1);
+    expect([...r.targetOnlyLines]).toEqual([1]);
+  });
+
+  it('dedupes by URL', () => {
+    const r = scan('+One https://a.example.com/x', '+Two https://a.example.com/x');
+    expect(r.links).toHaveLength(1);
+  });
+
+  it('masks targets so two lines that differ only in targets compare equal', () => {
+    expect(maskedLine('a [b](https://x.example/1) c https://y.example')).toBe(
+      maskedLine('a [b](https://z.example/2) c https://w.example'),
+    );
+    expect(maskedLine('a [b](https://x.example/1)')).not.toBe(
+      maskedLine('a [c](https://x.example/1)'),
+    );
+  });
+});
+
+describe('pipeline.linkStatus', () => {
+  it('reads a moved link only as same or different resource, or stale', () => {
+    expect(linkStatus('DIFFERENT-RESOURCE', true)).toBe('DIFFERENT-RESOURCE');
+    expect(linkStatus('WRONG-PAGE', true)).toBe('DIFFERENT-RESOURCE');
+    expect(linkStatus('STALE', true)).toBe('STALE');
+    for (const s of ['OK', 'SAME-RESOURCE', 'UNSUPPORTED', 'LOW-AUTHORITY'])
+      expect(linkStatus(s, true)).toBe('SAME-RESOURCE');
+  });
+
+  it('reads a new link as before, mapping the moved-only words', () => {
+    expect(linkStatus('SAME-RESOURCE', false)).toBe('OK');
+    expect(linkStatus('DIFFERENT-RESOURCE', false)).toBe('WRONG-PAGE');
+    for (const s of ['OK', 'WRONG-PAGE', 'UNSUPPORTED', 'LOW-AUTHORITY', 'STALE'])
+      expect(linkStatus(s, false)).toBe(s);
+  });
+});
+
+describe('types.normaliseDecision with target-only lines', () => {
+  const at = (over: Partial<Item>) => item({ file: SHEET, line: 3, ...over });
+  const targetOnly = new Map([[SHEET, new Set([3])]]);
+
+  it('moves findings on a target-only line to outOfScope, from every list, after the judge own', () => {
+    const own = at({ line: 50, text: 'own' });
+    const d = normaliseDecision(
+      decision({
+        mustFix: [at({ severity: 'MAJOR', dimension: 'Practicality', text: 'must' })],
+        shouldFix: [at({ severity: 'MINOR', text: 'should' })],
+        nits: [at({ severity: 'NIT', text: 'nit' })],
+        outOfScope: [own],
+      }),
+      false,
+      targetOnly,
+    );
+    expect(d.outOfScope.map((i) => i.text)).toEqual(['own', 'must', 'should', 'nit']);
+    expect(d.mustFix).toEqual([]);
+    expect(d.shouldFix).toEqual([]);
+    expect(d.nits).toEqual([]);
+  });
+
+  it('does not count them for the verdict: the #2880 shape becomes MERGE', () => {
+    const d = normaliseDecision(
+      decision({ mustFix: [at({ severity: 'MAJOR', dimension: 'Practicality' })] }),
+      false,
+      targetOnly,
+    );
+    expect(d.verdict).toBe('MERGE');
+  });
+
+  it('keeps Links & sources items, items on other lines, other files and items without a line', () => {
+    const d = normaliseDecision(
+      decision({
+        mustFix: [
+          at({ dimension: 'Links & sources', text: 'link' }),
+          at({ line: 4, text: 'other line' }),
+          at({ file: 'cheatsheets/Other.md', text: 'other file' }),
+          { dimension: 'Practicality', severity: 'MAJOR', file: SHEET, text: 'no line' },
+        ],
+      }),
+      false,
+      targetOnly,
+    );
+    expect(d.mustFix.map((i) => i.text)).toEqual(['link', 'other line', 'other file', 'no line']);
+    expect(d.outOfScope).toEqual([]);
+    expect(d.verdict).toBe('REQUEST_CHANGES');
+  });
+});
+
+describe('render #89 sections', () => {
+  const base = (over: Partial<Parameters<typeof reviewBody>[0]> = {}) => ({
+    decision: decision(),
+    outcomes: [ran('judge', 'gptSol')],
+    changeClass: 'links-only' as const,
+    classWhy: 'x',
+    facts: '- f',
+    rejected: [],
+    linkNotes: [],
+    allowed: new Set<string>(),
+    ...over,
+  });
+
+  it('shows out-of-scope items under their own heading, as inert text', () => {
+    const body = reviewBody(
+      base({
+        decision: decision({
+          outOfScope: [
+            item({ line: 3, text: 'Ping @everyone <img src=x> https://evil.example.com/z' }),
+          ],
+        }),
+      }),
+    );
+    expect(body).toContain('### Noticed in existing text (not caused by this PR)');
+    expect(body).toContain(`\`${SHEET}:3\``);
+    expect(body).not.toMatch(/(^|[^＠])@everyone/);
+    expect(body).not.toContain('<img');
+  });
+
+  it('leaves both sections out when empty', () => {
+    const body = reviewBody(base());
+    expect(body).not.toContain('Noticed in existing text');
+    expect(body).not.toContain('### Links checked');
+  });
+
+  it('lists checked links in a table with moved or new and the status', () => {
+    const body = reviewBody(
+      base({
+        linkChecks: [
+          { url: 'https://new.example.com/x', moved: true, status: 'SAME-RESOURCE' },
+          { url: 'https://b.example.com/`y|z', moved: false, status: 'broken (HTTP 404)' },
+        ],
+      }),
+    );
+    expect(body).toContain('### Links checked');
+    expect(body).toContain('| `https://new.example.com/x` | moved | SAME-RESOURCE |');
+    const row = body.split('\n').find((l) => l.includes('b.example.com')) ?? '';
+    expect(row.split('`')).toHaveLength(3); // the hostile backtick cannot break out of the code span
+    expect(row).toMatch(/\| new \| broken \(HTTP 404\) \|$/);
   });
 });

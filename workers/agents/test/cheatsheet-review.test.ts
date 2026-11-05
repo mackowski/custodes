@@ -969,6 +969,101 @@ describe('cheatsheet-review: round 1 behaviour (#79)', () => {
   });
 });
 
+describe('cheatsheet-review: moved links (#89)', () => {
+  const OLD = 'https://old.example.com/guide';
+  const NEW = 'https://new.example.com/guide';
+  const LINE3 = (u: string) => `See [the guide](${u}) for details.`;
+  const moved = (): Scenario =>
+    scenario({
+      files: [
+        {
+          filename: SHEET,
+          status: 'modified',
+          additions: 1,
+          deletions: 1,
+          patch: `@@ -1,4 +1,4 @@\n # Foo\n \n-${LINE3(OLD)}\n+${LINE3(NEW)}\n Intro text.`,
+        },
+      ],
+      headText: `# Foo\n\n${LINE3(NEW)}\nIntro text.\n`,
+    });
+  const html = () =>
+    Promise.resolve(
+      new Response('<title>Guide</title>', { headers: { 'content-type': 'text/html' } }),
+    );
+  const quiet = (judge: string, audit: string) => {
+    const base = defaultScript(judge);
+    return (role: string, req: ChatRequest) =>
+      role.startsWith('security') ? REPORT : role === 'link-auditor' ? audit : base(role, req);
+  };
+  const audit = (status: string) =>
+    JSON.stringify({ links: [{ url: NEW, status, reason: 'checked' }] });
+
+  it('keeps wording remarks on a URL-only line out of the verdict and drops the wording suggestion (#2880 shape)', async () => {
+    const judge = decisionJson({
+      mustFix: [
+        {
+          dimension: 'Practicality',
+          severity: 'MAJOR',
+          file: SHEET,
+          line: 3,
+          text: 'Reword the sentence.',
+        },
+      ],
+      suggestions: [
+        { file: SHEET, line: 3, replacement: 'Completely new wording.', rationale: 'r' },
+      ],
+    });
+    const r = await drive({
+      scenario: moved(),
+      fetchImpl: html,
+      script: quiet(judge, audit('SAME-RESOURCE')),
+    });
+    expect(r.out).toMatchObject({ ok: true, status: 'posted' });
+    expect(r.rows[0]).toMatchObject({ verdict: 'MERGE', event: 'COMMENT' });
+    const review = reviewActs(r)[0];
+    expect(review?.comments).toEqual([]);
+    const body = review?.body ?? '';
+    expect(body).toMatch(/Noticed in existing text[\s\S]*Reword the sentence\./);
+    expect(body).not.toMatch(/Must-fix[\s\S]*Reword the sentence\./);
+    expect(body).toContain('### Links checked');
+    expect(body).toContain(`| \`${NEW}\` | moved | SAME-RESOURCE |`);
+    const sent = r.models.calls.find((c) => c.role === 'link-auditor')?.req.user ?? '';
+    expect(sent).toContain('moved: only its target changed');
+    expect(sent).toContain(`Previous URL: ${OLD}`);
+  });
+
+  it('keeps a suggestion that only changes the link target (shown by hand: it adds a link)', async () => {
+    const judge = decisionJson({
+      mustFix: [],
+      suggestions: [
+        { file: SHEET, line: 3, replacement: LINE3('https://other.example.com/g'), rationale: 'r' },
+      ],
+    });
+    const r = await drive({
+      scenario: moved(),
+      fetchImpl: html,
+      script: quiet(judge, audit('SAME-RESOURCE')),
+    });
+    expect(reviewActs(r)[0]?.comments).toEqual([]);
+    expect(reviewActs(r)[0]?.body).toContain('Suggestions not placed inline');
+  });
+
+  it('blocks on Links when the auditor says a moved link is a different resource', async () => {
+    const r = await drive({
+      scenario: moved(),
+      fetchImpl: html,
+      script: quiet(decisionJson({ mustFix: [], suggestions: [] }), audit('DIFFERENT-RESOURCE')),
+    });
+    expect(r.out).toMatchObject({ ok: true, status: 'posted' });
+    const body = reviewActs(r)[0]?.body ?? '';
+    expect(body).toContain(`| \`${NEW}\` | moved | DIFFERENT-RESOURCE |`);
+    const judged = r.models.calls.find((c) => c.role === 'judge')?.req.user ?? '';
+    expect(judged).toContain(`DIFFERENT-RESOURCE: \`${NEW}\` (moved from \`${OLD}\`)`);
+    expect(judged).toContain('"verdict":"BLOCK"');
+    expect(r.rows[0]?.verdict).toBe('REQUEST_CHANGES');
+  });
+});
+
 const outside = (s: string) => s.replace(/<untrusted source="[^"]*">[\s\S]*?<\/untrusted>/g, '');
 
 describe('cheatsheet-review: tracing', () => {

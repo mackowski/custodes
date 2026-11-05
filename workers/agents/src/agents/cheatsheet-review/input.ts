@@ -137,16 +137,18 @@ export interface LinkInput {
   context: string;
   title: string;
   excerpt: string;
+  /** The URL this link replaced, for a moved link (#89). */
+  previous?: string;
 }
 
 export function linkMessage(links: readonly LinkInput[]): string {
   return links
     .map((l, i) =>
       [
-        `Link ${i + 1}:`,
+        `Link ${i + 1}${l.previous !== undefined ? ' (moved: only its target changed)' : ' (new)'}:`,
         untrusted(
           'pr-claim',
-          `URL: ${l.url}\nCited in: ${l.file} line ${l.line}\nSentence: ${l.context}`,
+          `URL: ${l.url}${l.previous !== undefined ? `\nPrevious URL: ${l.previous}` : ''}\nCited in: ${l.file} line ${l.line}\nSentence: ${l.context}`,
         ),
         untrusted(`page:${new URL(l.url).hostname}`, `Title: ${l.title}\n${l.excerpt}`),
       ].join('\n'),

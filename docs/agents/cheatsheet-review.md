@@ -64,6 +64,16 @@ over the upstream file or line limits without a linked issue is a code-written "
 suggestion that cannot be placed inline is listed with its replacement text in a code block, links
 defanged and mentions neutralised, so it can be applied by hand.
 
+**Moved links** (#89): in each hunk, code pairs an added line with a removed line that is equal
+once link targets are masked. On such a line only the targets changed: an unchanged target is
+neither audited nor listed, and a changed one is audited as "moved". The auditor then answers only
+whether the new URL is the same resource as the previous one (SAME-RESOURCE or DIFFERENT-RESOURCE,
+the latter a Links BLOCKER); the sentence around it is not judged. A finding outside "Links &
+sources" on such a line is about wording the PR did not change: code moves it to "Noticed in
+existing text (not caused by this PR)", which never counts toward the verdict, and drops a
+suggestion there unless it only changes link targets. Every review with external links ends with a
+"Links checked" table (URL as code, new or moved, status).
+
 **Multi-model invariant** (`invariantBreach`): when both security voices are asked for, both
 answer and come from different vendors, and the judge is a different model from both. Every review
 has at least two different models. If that fails, or the judge does not answer, nothing is

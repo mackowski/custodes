@@ -43,7 +43,16 @@ export const ScopeAnswer = z.object({
   why: z.string().max(300),
 });
 
-export const LinkVerdict = z.enum(['OK', 'WRONG-PAGE', 'UNSUPPORTED', 'LOW-AUTHORITY', 'STALE']);
+export const LinkVerdict = z.enum([
+  'OK',
+  'WRONG-PAGE',
+  'UNSUPPORTED',
+  'LOW-AUTHORITY',
+  'STALE',
+  // Moved links only (#89): is the new URL the same resource as the old one?
+  'SAME-RESOURCE',
+  'DIFFERENT-RESOURCE',
+]);
 export const LinkAudit = z.object({
   links: z
     .array(
@@ -90,6 +99,8 @@ export const ReviewDecision = z.object({
   mustFix: z.array(Item).max(15),
   shouldFix: z.array(Item).max(5),
   nits: z.array(Item).max(3),
+  /** #89: noticed in text the pull request did not change. Never a finding, a suggestion or a reason. */
+  outOfScope: z.array(Item).max(3).default([]),
   suggestions: z.array(Suggestion.extend({ rationale: z.string().max(400) })).max(20),
   /** The contribution is not worth the author's or the maintainers' time in its current form. */
   lowQuality: z.boolean(),
@@ -108,10 +119,23 @@ export function normaliseDecision(
   d: ReviewDecision,
   /** A Security or Links reviewer returned BLOCK: code never turns that review into MERGE. */
   reviewerBlocked = false,
+  /**
+   * #89: per file, new-side lines whose only change is a link target. A finding outside "Links &
+   * sources" on such a line is about wording the pull request did not change: it moves to
+   * outOfScope.
+   */
+  targetOnly: ReadonlyMap<string, ReadonlySet<number>> = new Map(),
 ): ReviewDecision {
-  const minor = d.mustFix.filter((i) => i.severity === 'MINOR');
-  const nit = d.mustFix.filter((i) => i.severity === 'NIT');
-  const mustFix = d.mustFix.filter((i) => i.severity === 'BLOCKER' || i.severity === 'MAJOR');
+  const outside = (i: Item) =>
+    i.dimension !== 'Links & sources' &&
+    i.line !== undefined &&
+    targetOnly.get(i.file)?.has(i.line) === true;
+  const moved = [...d.mustFix, ...d.shouldFix, ...d.nits].filter(outside);
+  const inScope = (list: readonly Item[]) => list.filter((i) => !outside(i));
+  const all = inScope(d.mustFix);
+  const minor = all.filter((i) => i.severity === 'MINOR');
+  const nit = all.filter((i) => i.severity === 'NIT');
+  const mustFix = all.filter((i) => i.severity === 'BLOCKER' || i.severity === 'MAJOR');
   const verdict =
     d.verdict === 'REQUEST_CHANGES' && mustFix.length === 0 && !d.lowQuality && !reviewerBlocked
       ? 'MERGE'
@@ -120,7 +144,8 @@ export function normaliseDecision(
     ...d,
     verdict,
     mustFix,
-    shouldFix: [...minor, ...d.shouldFix],
-    nits: [...nit, ...d.nits],
+    shouldFix: [...minor, ...inScope(d.shouldFix)],
+    nits: [...nit, ...inScope(d.nits)],
+    outOfScope: [...d.outOfScope, ...moved],
   };
 }
