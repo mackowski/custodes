@@ -28,15 +28,17 @@ const MAX_REDIRECTS = 5;
 export const EXCERPT_CHARS = 8_000;
 
 const MD_LINK = /\]\(\s*<?([^)\s>]+)>?(?:\s+"[^"]*")?\s*\)/g;
-// Every bare URL except a Markdown link target (MD_LINK reads those): prose in parentheses,
-// autolinks, href and src values are all audited.
-const BARE = /(?<!\]\(\s*<?)\bhttps?:\/\/[^\s)<>\]"]+/g;
+// Bare URLs (prose in parentheses, autolinks, href and src values). Run on text with the Markdown
+// links MD_LINK read already removed (withoutMdLinks), so only those are skipped: a link MD_LINK
+// cannot parse is still audited.
+const BARE = /\bhttps?:\/\/[^\s)<>\]"']+/g;
+const withoutMdLinks = (t: string) => t.replace(MD_LINK, ' ');
 
 /** Link targets in a line, in order (Markdown links first, then bare URLs, as extractLinks). */
 function targets(text: string): string[] {
   return [
     ...[...text.matchAll(MD_LINK)].map((m) => m[1] ?? ''),
-    ...[...text.matchAll(BARE)].map((m) => m[0]),
+    ...[...withoutMdLinks(text).matchAll(BARE)].map((m) => m[0]),
   ].map((u) => u.replace(/[.,;:]+$/, ''));
 }
 
@@ -50,7 +52,8 @@ export function citationTargets(text: string): string[] {
  * targets compare equal. Bare URLs stay: changing one is a content change.
  */
 export function maskedLine(text: string): string {
-  return text.replace(MD_LINK, '](<target>)');
+  // Only the target: a changed link title is a text change, never a link change (#92 round 12).
+  return text.replace(MD_LINK, (m, u: string) => m.replace(u, '<target>'));
 }
 
 /** https to http is a downgrade, never a "move": such a line is new text (#92 review). */
@@ -151,7 +154,7 @@ export function extractLinks(file: string, added: readonly DiffLine[]): AddedLin
     if (l.newLine === undefined) continue;
     const found = [
       ...[...l.text.matchAll(MD_LINK)].map((m) => m[1] ?? ''),
-      ...[...l.text.matchAll(BARE)].map((m) => m[0]),
+      ...[...withoutMdLinks(l.text).matchAll(BARE)].map((m) => m[0]),
     ];
     for (const raw of found) {
       const url = raw.replace(/[.,;:]+$/, '');

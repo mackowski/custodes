@@ -87,6 +87,9 @@ function securityRelevantChange(
     return 'an http:// URL was added';
   if (codeSpans(added).join('\uE000') !== codeSpans(removed).join('\uE000'))
     return 'inline code changed';
+  // The code-span placeholder character typed into the text could spoof a span: full review.
+  if ([...added, ...removed].some((t) => t.includes('\uE000')))
+    return 'a private-use placeholder character in the text';
   // A backtick or <code> the span pattern could not pair: the renderer may see code there.
   const stray = (t: string) => /`|<\/?code\b/i.test(t.replace(CODE_SPAN, ''));
   if ([...added, ...removed].some(stray)) return 'inline code the classifier cannot pair';
