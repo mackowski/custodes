@@ -126,8 +126,10 @@ export function normaliseDecision(
    */
   targetOnly: ReadonlyMap<string, ReadonlySet<number>> = new Map(),
 ): ReviewDecision {
+  // Security is never moved: in a security cheat sheet a URL can be the content (#92 review).
   const outside = (i: Item) =>
     i.dimension !== 'Links & sources' &&
+    i.dimension !== 'Security' &&
     i.line !== undefined &&
     targetOnly.get(i.file)?.has(i.line) === true;
   const moved = [...d.mustFix, ...d.shouldFix, ...d.nits].filter(outside);

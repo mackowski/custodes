@@ -193,16 +193,18 @@ async function linkStage(snap: Snapshot, deps: PipelineDeps): Promise<LinkStage>
 }
 
 /**
- * The auditor's status, read in the link's mode (#89). A moved link is judged only on whether it
- * is the same resource: its sentence did not change, so UNSUPPORTED or LOW-AUTHORITY about it is
- * dropped (OK); WRONG-PAGE counts as DIFFERENT-RESOURCE; STALE stays. A new link never gets the
- * moved-only statuses: SAME-RESOURCE reads as OK, DIFFERENT-RESOURCE as WRONG-PAGE.
+ * The auditor's status, read in the link's mode (#89). A moved link is the same resource only when
+ * the model says so (SAME-RESOURCE or OK); WRONG-PAGE counts as DIFFERENT-RESOURCE; STALE stays;
+ * UNSUPPORTED or LOW-AUTHORITY means the model doubts the new target and becomes a MINOR. A new link
+ * never gets the moved-only statuses: SAME-RESOURCE reads as OK, DIFFERENT-RESOURCE as WRONG-PAGE.
  */
 export function linkStatus(status: string, moved: boolean): string {
   if (moved) {
+    if (status === 'SAME-RESOURCE' || status === 'OK') return 'SAME-RESOURCE';
     if (status === 'DIFFERENT-RESOURCE' || status === 'WRONG-PAGE') return 'DIFFERENT-RESOURCE';
     if (status === 'STALE') return 'STALE';
-    return 'SAME-RESOURCE';
+    // UNSUPPORTED or LOW-AUTHORITY: the model doubts the new target; a MINOR, never "same".
+    return 'LOW-AUTHORITY';
   }
   if (status === 'SAME-RESOURCE') return 'OK';
   if (status === 'DIFFERENT-RESOURCE') return 'WRONG-PAGE';

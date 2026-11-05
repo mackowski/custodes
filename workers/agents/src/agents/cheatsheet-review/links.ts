@@ -38,9 +38,22 @@ function targets(text: string): string[] {
   ].map((u) => u.replace(/[.,;:]+$/, ''));
 }
 
-/** The line with every link target replaced, so two lines that differ only in targets compare equal. */
+/** Markdown link targets only: a bare URL (code samples, CORS or CSP values) is content, not a citation. */
+function citationTargets(text: string): string[] {
+  return [...text.matchAll(MD_LINK)].map((m) => (m[1] ?? '').replace(/[.,;:]+$/, ''));
+}
+
+/**
+ * The line with every Markdown link target replaced, so two lines that differ only in cited
+ * targets compare equal. Bare URLs stay: changing one is a content change.
+ */
 export function maskedLine(text: string): string {
-  return text.replace(MD_LINK, '](<target>)').replace(BARE, '<target>');
+  return text.replace(MD_LINK, '](<target>)');
+}
+
+/** https to http is a downgrade, never a "move": such a line is new text (#92 review). */
+function downgrades(before: readonly string[], after: readonly string[]): boolean {
+  return after.some((u, k) => /^http:/i.test(u) && /^https:/i.test(before[k] ?? ''));
 }
 
 export interface LinkScan {
@@ -61,7 +74,17 @@ export function scanLinks(file: string, hunks: readonly Hunk[]): LinkScan {
   const targetOnlyLines = new Set<number>();
   const seen = new Set<string>();
   const push = (link: AddedLink) => {
-    if (!link.url || seen.has(link.url)) return;
+    if (!link.url) return;
+    if (seen.has(link.url)) {
+      // Cited again for new text: judge it as new (support for the sentence), not only as a move.
+      const prior = links.find((x) => x.url === link.url);
+      if (prior && link.previous === undefined && prior.previous !== undefined) {
+        delete prior.previous;
+        prior.line = link.line;
+        prior.context = link.context;
+      }
+      return;
+    }
     seen.add(link.url);
     links.push(link);
   };
@@ -73,16 +96,20 @@ export function scanLinks(file: string, hunks: readonly Hunk[]): LinkScan {
     for (const l of h.lines) {
       if (l.kind !== '+' || l.newLine === undefined) continue;
       const now = targets(l.text);
+      const cited = citationTargets(l.text);
       const key = maskedLine(l.text);
       const i = removed.findIndex(
         (r, idx) =>
-          !used.has(idx) && maskedLine(r.text) === key && targets(r.text).length === now.length,
+          !used.has(idx) &&
+          maskedLine(r.text) === key &&
+          citationTargets(r.text).length === cited.length &&
+          !downgrades(citationTargets(r.text), cited),
       );
-      if (i >= 0 && now.length > 0) {
+      if (i >= 0 && cited.length > 0) {
         used.add(i);
-        const prior = targets(removed[i]?.text ?? '');
+        const prior = citationTargets(removed[i]?.text ?? '');
         targetOnlyLines.add(l.newLine);
-        now.forEach((url, k) => {
+        cited.forEach((url, k) => {
           const previous = prior[k];
           if (previous !== undefined && previous !== url)
             push({ url, file, line: l.newLine ?? 0, context: l.text.slice(0, 600), previous });

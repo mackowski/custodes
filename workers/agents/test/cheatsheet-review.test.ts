@@ -1048,6 +1048,35 @@ describe('cheatsheet-review: moved links (#89)', () => {
     expect(reviewActs(r)[0]?.body).toContain('Suggestions not placed inline');
   });
 
+  it('never files a Security BLOCKER on a moved-link line as out of scope: it stays a must-fix', async () => {
+    const judge = decisionJson({
+      mustFix: [
+        {
+          dimension: 'Security',
+          severity: 'BLOCKER',
+          file: SHEET,
+          line: 3,
+          text: 'Unsafe target.',
+        },
+      ],
+      suggestions: [],
+    });
+    const base = defaultScript(judge);
+    const r = await drive({
+      scenario: moved(),
+      fetchImpl: html,
+      // the auditor says the link is fine
+      script: (role, req) => (role === 'link-auditor' ? audit('SAME-RESOURCE') : base(role, req)),
+    });
+    expect(r.out).toMatchObject({ ok: true, status: 'posted' });
+    // A links-only review runs no security reviewer, so the event stays COMMENT (reviewEvent rule);
+    // the verdict is what proves the item was not filed as out of scope.
+    expect(r.rows[0]).toMatchObject({ verdict: 'REQUEST_CHANGES', event: 'COMMENT' });
+    const body = reviewActs(r)[0]?.body ?? '';
+    expect(body).toMatch(/Must-fix[\s\S]*Unsafe target\./);
+    expect(body).not.toContain('Noticed in existing text');
+  });
+
   it('blocks on Links when the auditor says a moved link is a different resource', async () => {
     const r = await drive({
       scenario: moved(),

@@ -32,7 +32,29 @@ export const AMBIGUOUS_MAX_LINES = 30;
 const URL_IN_TEXT = /\]\([^)\s]*\)|<https?:\/\/[^>\s]*>|https?:\/\/[^\s)>\]]+/g;
 
 function withoutUrls(s: string): string {
-  return s.replace(URL_IN_TEXT, ']()').trim();
+  // A URL inside inline code (a CORS origin, a CSP source, a config value) is content: keep it.
+  return s
+    .split(/(`[^`\n]*`)/)
+    .map((part) => (part.startsWith('`') ? part : part.replace(URL_IN_TEXT, ']()')))
+    .join('')
+    .trim();
+}
+
+/**
+ * A changed line that turns an https URL into http (same rest): a security change, never a link
+ * move, whatever the rest of the line does (#92 review).
+ */
+function downgradesToHttp(added: readonly string[], removed: readonly string[]): boolean {
+  const secure = new Set(
+    removed.flatMap((t) =>
+      [...t.matchAll(/https:\/\/([^\s)<>"'`\]]+)/gi)].map((m) => (m[1] ?? '').toLowerCase()),
+    ),
+  );
+  return added.some((t) =>
+    [...t.matchAll(/http:\/\/([^\s)<>"'`\]]+)/gi)].some((m) =>
+      secure.has((m[1] ?? '').toLowerCase()),
+    ),
+  );
 }
 
 /** Line numbers inside ``` or ~~~ fences (fence lines included) of a Markdown file. */
@@ -89,6 +111,8 @@ export function classify(files: readonly ScopedFile[]): Scope {
 
   const a = added.map(({ l }) => l.text);
   const r = removed.map((l) => l.text);
+  if (downgradesToHttp(a, r))
+    return { kind: 'decided', class: 'content', why: 'an https URL changed to http' };
   if (
     a.length > 0 &&
     a.length === r.length &&

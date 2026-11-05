@@ -164,6 +164,22 @@ describe('scope.classify', () => {
     expect(classify([scoped(p)])).toMatchObject({ kind: 'decided', class: 'links-only' });
   });
 
+  it('treats an https to http change as content, so the security reviewers run (#92 review)', () => {
+    const p = patchOf(
+      ['See [docs](https://api.example.com/a) for more.'],
+      ['See [docs](http://api.example.com/a) for more.'],
+    );
+    expect(classify([scoped(p)])).toMatchObject({ kind: 'decided', class: 'content' });
+  });
+
+  it('does not treat a URL change inside inline code as a link change', () => {
+    const p = patchOf(
+      ['Set `Access-Control-Allow-Origin: https://app.example.com` on the API.'],
+      ['Set `Access-Control-Allow-Origin: https://evil.example.net` on the API.'],
+    );
+    expect(classify([scoped(p)])).not.toMatchObject({ class: 'links-only' });
+  });
+
   it('treats a one-letter typo fix as minor prose', () => {
     const p = patchOf(
       ['Always validate the inptu on the server side.'],
@@ -1762,10 +1778,52 @@ describe('links.scanLinks', () => {
     expect(r.links).toHaveLength(1);
   });
 
-  it('masks targets so two lines that differ only in targets compare equal', () => {
-    expect(maskedLine('a [b](https://x.example/1) c https://y.example')).toBe(
-      maskedLine('a [b](https://z.example/2) c https://w.example'),
+  it('does not pair a code line whose bare URL goes https to http: not target-only, not moved', () => {
+    const r = scan(
+      "-fetch('https://api.example.com/token')",
+      "+fetch('http://api.example.com/token')",
     );
+    expect([...r.targetOnlyLines]).toEqual([]);
+    expect(r.links.every((l) => l.previous === undefined)).toBe(true);
+  });
+
+  it('does not pair a Markdown link that goes https to http: audited as new', () => {
+    const r = scan(
+      '-See [d](https://a.example.com/x) now.',
+      '+See [d](http://a.example.com/x) now.',
+    );
+    expect([...r.targetOnlyLines]).toEqual([]);
+    expect(r.links.map((l) => l.url)).toEqual(['http://a.example.com/x']);
+    expect(r.links[0]).not.toHaveProperty('previous');
+  });
+
+  it('still pairs http to https and treats a changed bare URL as content', () => {
+    const up = scan('-See [d](http://a.example.com/x).', '+See [d](https://a.example.com/x).');
+    expect([...up.targetOnlyLines]).toEqual([1]);
+    expect(up.links[0]?.previous).toBe('http://a.example.com/x');
+    const bare = scan('-Use https://a.example.com/x here', '+Use https://b.example.com/x here');
+    expect([...bare.targetOnlyLines]).toEqual([]);
+  });
+
+  it('audits a moved URL cited again on a new line as new, at the new line', () => {
+    const r = scan(
+      '-See [d](https://old.example.com/x) now.',
+      '+See [d](https://new.example.com/x) now.',
+      '+A new claim backed by https://new.example.com/x too.',
+    );
+    expect(r.links).toHaveLength(1);
+    expect(r.links[0]).not.toHaveProperty('previous');
+    expect(r.links[0]).toMatchObject({ url: 'https://new.example.com/x', line: 2 });
+    expect(r.links[0]?.context).toContain('A new claim');
+    expect([...r.targetOnlyLines]).toEqual([1]);
+  });
+
+  it('masks targets so two lines that differ only in targets compare equal', () => {
+    expect(maskedLine('a [b](https://x.example/1) c')).toBe(
+      maskedLine('a [b](https://z.example/2) c'),
+    );
+    // A bare URL is content (code sample, CORS or CSP value): it is not masked.
+    expect(maskedLine('a https://y.example')).not.toBe(maskedLine('a https://w.example'));
     expect(maskedLine('a [b](https://x.example/1)')).not.toBe(
       maskedLine('a [c](https://x.example/1)'),
     );
@@ -1777,8 +1835,9 @@ describe('pipeline.linkStatus', () => {
     expect(linkStatus('DIFFERENT-RESOURCE', true)).toBe('DIFFERENT-RESOURCE');
     expect(linkStatus('WRONG-PAGE', true)).toBe('DIFFERENT-RESOURCE');
     expect(linkStatus('STALE', true)).toBe('STALE');
-    for (const s of ['OK', 'SAME-RESOURCE', 'UNSUPPORTED', 'LOW-AUTHORITY'])
-      expect(linkStatus(s, true)).toBe('SAME-RESOURCE');
+    for (const s of ['OK', 'SAME-RESOURCE']) expect(linkStatus(s, true)).toBe('SAME-RESOURCE');
+    for (const s of ['UNSUPPORTED', 'LOW-AUTHORITY'])
+      expect(linkStatus(s, true)).toBe('LOW-AUTHORITY');
   });
 
   it('reads a new link as before, mapping the moved-only words', () => {
@@ -1798,8 +1857,8 @@ describe('types.normaliseDecision with target-only lines', () => {
     const d = normaliseDecision(
       decision({
         mustFix: [at({ severity: 'MAJOR', dimension: 'Practicality', text: 'must' })],
-        shouldFix: [at({ severity: 'MINOR', text: 'should' })],
-        nits: [at({ severity: 'NIT', text: 'nit' })],
+        shouldFix: [at({ severity: 'MINOR', dimension: 'Practicality', text: 'should' })],
+        nits: [at({ severity: 'NIT', dimension: 'Language', text: 'nit' })],
         outOfScope: [own],
       }),
       false,
@@ -1809,6 +1868,24 @@ describe('types.normaliseDecision with target-only lines', () => {
     expect(d.mustFix).toEqual([]);
     expect(d.shouldFix).toEqual([]);
     expect(d.nits).toEqual([]);
+  });
+
+  it('never moves a Security finding: a BLOCKER on a target-only line stays and keeps REQUEST_CHANGES', () => {
+    const d = normaliseDecision(
+      decision({ mustFix: [at({ severity: 'BLOCKER', dimension: 'Security', text: 'sec' })] }),
+      true,
+      targetOnly,
+    );
+    expect(d.mustFix.map((i) => i.text)).toEqual(['sec']);
+    expect(d.outOfScope).toEqual([]);
+    expect(d.verdict).toBe('REQUEST_CHANGES');
+    const minor = normaliseDecision(
+      decision({ mustFix: [at({ severity: 'MINOR', dimension: 'Security', text: 'sec2' })] }),
+      false,
+      targetOnly,
+    );
+    expect(minor.shouldFix.map((i) => i.text)).toEqual(['sec2']);
+    expect(minor.outOfScope).toEqual([]);
   });
 
   it('does not count them for the verdict: the #2880 shape becomes MERGE', () => {
