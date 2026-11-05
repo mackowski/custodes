@@ -123,8 +123,9 @@ export function followUp(r: ImplementationCheck, now: Date): FollowUp {
   if (r.injectionDetected || r.recommendation === 'close') return r.recommendation;
   const t = r.thread;
   if (t?.lastByMaintainer && recent(t.lastCommentAt, now)) return 'wait';
-  if (r.openPrs.some((p) => recent(p.updatedAt, now))) return 'wait';
+  // A question from a contributor outranks an open PR: anyone can open one that mentions the issue.
   if (t && !t.lastByMaintainer) return 'reply';
+  if (r.openPrs.some((p) => recent(p.updatedAt, now))) return 'wait';
   return r.recommendation;
 }
 

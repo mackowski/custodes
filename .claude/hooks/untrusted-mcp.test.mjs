@@ -60,6 +60,13 @@ void test('handles strings, { content } objects and leaves non-text blocks alone
   });
 });
 
+void test('wraps the text of embedded resource blocks', () => {
+  const res = { type: 'resource', resource: { uri: 'x://y', mimeType: 'text/plain', text: 'z' } };
+  assert.deepEqual(wrapOutput([res]), [
+    { ...res, resource: { ...res.resource, text: envelope('z') } },
+  ]);
+});
+
 void test('unknown shapes keep the original output', () => {
   for (const v of [undefined, null, 42, {}, [], [{ text: 'no type' }], { content: 'str' }])
     assert.equal('updatedToolOutput' in respond({ tool_response: v }).hookSpecificOutput, false);

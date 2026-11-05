@@ -44,9 +44,10 @@ function wrapBlocks(blocks) {
   const out = [];
   for (const b of blocks) {
     if (!isObject(b) || typeof b.type !== 'string') return undefined;
-    out.push(
-      b.type === 'text' && typeof b.text === 'string' ? { ...b, text: envelope(b.text) } : b,
-    );
+    if (b.type === 'text' && typeof b.text === 'string') out.push({ ...b, text: envelope(b.text) });
+    else if (b.type === 'resource' && isObject(b.resource) && typeof b.resource.text === 'string')
+      out.push({ ...b, resource: { ...b.resource, text: envelope(b.resource.text) } });
+    else out.push(b);
   }
   return out;
 }

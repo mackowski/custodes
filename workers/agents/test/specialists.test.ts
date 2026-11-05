@@ -1158,6 +1158,17 @@ describe('follow-up decided from the thread', () => {
     expect(followUp(result({ thread: thread(false, ago(90 * day)) }, keepRaw), now)).toBe('reply');
   });
 
+  it('a fresh open PR does not hide a contributor question', () => {
+    const r = result(
+      {
+        thread: thread(false, ago(day)),
+        openPrs: [{ number: 5, author: 'anyone', updatedAt: ago(day) }],
+      },
+      keepRaw,
+    );
+    expect(followUp(r, now)).toBe('reply');
+  });
+
   it('uses the model recommendation without a thread or PRs', () => {
     const r = result({ thread: null, openPrs: [] }, keepRaw);
     expect(followUp(r, now)).toBe(r.recommendation);
