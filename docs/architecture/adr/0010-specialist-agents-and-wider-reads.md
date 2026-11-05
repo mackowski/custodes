@@ -122,8 +122,8 @@ implementation-check never saw comments, assignees or open pull requests.
 - **Policy widening:** `reads.implementation-check.resources` gains `comments` and `pull`. These are
   the same public, GET-only data `proposal-review`, `pr-gate` and `cheatsheet-review` already read,
   through `PAT_READONLY`, on the same two repositories.
-- Code, not the model, adjusts the digest's suggestion from GitHub-set data only
-  (`author_association`, dates, PR state): a maintainer (`OWNER`, `MEMBER`, `COLLABORATOR`)
+- Code, not the model, adjusts the digest's suggestion from GitHub data, never from
+  comment text (`author_association`, dates, PR state): a maintainer (`OWNER`, `MEMBER`, `COLLABORATOR`)
   commented last within 14 days, or an open linked PR was updated within 14 days, means "waiting on
   the contributor": one line in a collapsed section, no suggested comment. A non-maintainer
   commented last means "answer the latest comment". "Looks implemented" always wins, and a result
@@ -136,3 +136,8 @@ implementation-check never saw comments, assignees or open pull requests.
   Series maintainers. The worst case is an issue shown as "waiting" for up to 14 days, in the
   private digest, with no GitHub side effect. Comment text cannot change the association. Owner:
   the maintainer.
+- **Accepted risk:** anyone can open a PR from a fork that mentions an issue, and its author
+  controls its `updated_at`. Pushing to it every 13 days keeps an issue in "waiting" indefinitely.
+  The effect is limited to the private digest: the line names the PR, "looks implemented" still
+  wins, and nothing happens on GitHub. Restricting it to PRs by assignees was considered and left
+  out. Owner: the maintainer.

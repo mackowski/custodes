@@ -1254,6 +1254,21 @@ describe('checkImplementation reads the thread', () => {
       { number: 14, author: 'dev', updatedAt: '2026-10-20T00:00:00Z' },
     ]);
   });
+
+  it('skips a linked PR that cannot be read instead of failing the check', async () => {
+    const getPull = vi.fn((_r: string, n: number) =>
+      n === 10
+        ? Promise.reject(new GitHubReadError(404, 'pull', false, 'github_error'))
+        : Promise.resolve(pull(n, 'open')),
+    );
+    const deps = fakeDeps({
+      getPull,
+      listTimeline: () => Promise.resolve([pullEvent(10, 'open'), pullEvent(14, 'open')]),
+    });
+    const r = await checkImplementation(repo, 1, deps);
+    expect(r?.recommendation).toBe('close');
+    expect(r?.openPrs.map((p) => p.number)).toEqual([14]);
+  });
 });
 
 describe('digest sections from the thread', () => {
