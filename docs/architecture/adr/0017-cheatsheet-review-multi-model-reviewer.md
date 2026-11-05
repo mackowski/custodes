@@ -223,8 +223,10 @@ conversation. Nothing told them the sheet had grown from 1,334 to 2,132 words ei
   Both are GET-only, through `PAT_READONLY`, on the same two repositories. `pull_reviews` is added
   to `ReadResource` and the broker's path builder; no other agent is granted it.
 - Code keeps only comments and review summaries by OWNER, MEMBER or COLLABORATOR (the
-  `author_association` filter of ADR 0013), drops bots, empty bodies, pending reviews and this
-  agent's own posted reviews (their notice marker), and keeps the newest 10. The judge gets them
+  `author_association` filter of ADR 0013), drops bots, empty bodies, pending reviews, the PR author's own
+  comments, and anything an agent posted (the broker's `Custodes-Agent:` trailer or this agent's
+  notice), keeps only each maintainer's own words (quoted lines removed), and keeps the newest 10.
+  When the thread has more than 100 comments or reviews, the judge is told the newest were not read. The judge gets them
   in `untrusted('github:pr#N:maintainer-requests')` with code-built headers and every body line
   quoted, 1,500 characters each and 8,000 in all. Reviewers do not get them.
 - The judge returns `earlierRequests` (at most 5: who, the request, addressed/open/unclear) and

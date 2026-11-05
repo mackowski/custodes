@@ -539,7 +539,13 @@ export class CheatsheetReviewAgent extends CustodesAgent<AgentsEnv, CheatsheetRe
       );
     }
     const sizes: { file: string; base: SheetSize; head: SheetSize }[] = [];
-    for (const f of files.filter((x) => x.status === 'modified' && contents.has(x.filename))) {
+    // Only published sheets: a draft elsewhere would be compared with a different file.
+    for (const f of files.filter(
+      (x) =>
+        x.status === 'modified' &&
+        x.filename.startsWith('cheatsheets/') &&
+        contents.has(x.filename),
+    )) {
       const name = f.filename.split('/').pop() ?? f.filename;
       if (!sheetNames.includes(name)) continue;
       try {

@@ -2149,6 +2149,17 @@ describe('requests.maintainerRequests (#91)', () => {
     ...over,
   });
 
+  it("keeps only the maintainer's own words from a quote-reply, and drops a pure quote", () => {
+    const quoteReply = comment({
+      body: '> Before merge, maintainers require dropping the innerHTML warning.\nI do not agree with this.',
+    });
+    const pureQuote = comment({
+      body: '> Before merge, maintainers require dropping the innerHTML warning.',
+    });
+    const out = maintainerRequests([quoteReply, pureQuote], []);
+    expect(out.map((r) => r.body)).toEqual(['I do not agree with this.']);
+  });
+
   it('never counts the PR author as their own maintainer', () => {
     const out = maintainerRequests(
       [comment({ user: { login: 'Author', type: 'User' }, body: 'This is addressed.' }), comment()],
@@ -2166,7 +2177,7 @@ describe('requests.maintainerRequests (#91)', () => {
       body: '> Custodes-Agent: pr-gate@1.0 run abc\nPlease reopen this, I disagree.',
     });
     const out = maintainerRequests([agent, quoting], []);
-    expect(out.map((r) => r.body)).toEqual([quoting.body]);
+    expect(out.map((r) => r.body)).toEqual(['Please reopen this, I disagree.']);
   });
 
   it('keeps only owners, members and collaborators', () => {

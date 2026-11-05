@@ -65,7 +65,8 @@ suggestion that cannot be placed inline is listed with its replacement text in a
 defanged and mentions neutralised, so it can be applied by hand.
 
 **Earlier maintainer requests** (#91): the judge also sees the PR conversation comments and review
-summaries by maintainers (OWNER, MEMBER, COLLABORATOR; not bots, not this agent's own reviews),
+summaries by maintainers (OWNER, MEMBER, COLLABORATOR; not bots, not the PR author, nothing an agent
+posted, quoted lines removed),
 the newest 10, enveloped and quoted, and reports each request as addressed, open or unclear. The
 review lists them with logins as code spans. Process facts include each modified sheet's size
 before and after. ADR 0017 amendment 2026-11-05.

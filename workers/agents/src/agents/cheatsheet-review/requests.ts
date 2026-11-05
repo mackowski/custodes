@@ -67,7 +67,8 @@ export function maintainerRequests(
         by: safeLogin(c.user?.login),
         at: c.created_at,
         kind: 'comment' as const,
-        body: c.body ?? '',
+        // Only the maintainer's own words: a quote-reply carries someone else's text.
+        body: unquoted(c.body ?? '').trim(),
       })),
     ...reviews
       .filter((r) => counts(r, prAuthor) && r.state !== 'PENDING')
@@ -75,9 +76,9 @@ export function maintainerRequests(
         by: safeLogin(r.user?.login),
         at: r.submitted_at ?? '',
         kind: 'review' as const,
-        body: r.body ?? '',
+        body: unquoted(r.body ?? '').trim(),
       })),
-  ].filter((r) => r.by !== 'unknown');
+  ].filter((r) => r.by !== 'unknown' && r.body !== '');
   return all.sort((a, b) => Date.parse(a.at) - Date.parse(b.at)).slice(-MAX_REQUESTS);
 }
 
