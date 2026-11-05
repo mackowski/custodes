@@ -122,9 +122,15 @@ function isBot(c: IssueComment): boolean {
 const MAX_COMMENTS = 30;
 const MAX_THREAD_CHARS = 12_000;
 
-/** A comment body cannot start a line with the comment header and pose as another comment. */
-export function unheader(body: string): string {
-  return body.replace(/^(\s*)-{3}/gm, '$1- --');
+/**
+ * Every body line is quoted, so no line of a comment, whatever characters it starts with (zero-width,
+ * Unicode dashes), can pose as a code-built "--- comment by" header.
+ */
+export function quoteBody(body: string): string {
+  return body
+    .split(/\r\n|[\n\r\u2028\u2029]/)
+    .map((l) => `> ${l}`)
+    .join('\n');
 }
 
 /**
@@ -234,7 +240,7 @@ export function buildImplementationMessage(
     .slice(-MAX_COMMENTS)
     .map(
       (c) =>
-        `--- comment by @${safeLogin(c.user?.login)} on ${c.created_at.slice(0, 10)}\n${unheader(clip(c.body ?? '', 1500))}`,
+        `--- comment by @${safeLogin(c.user?.login)} on ${c.created_at.slice(0, 10)}\n${quoteBody(clip(c.body ?? '', 1500))}`,
     );
   // Over budget, the oldest comments go first: the newest say where the work stands.
   while (entries.length > 1 && entries.join('\n').length > MAX_THREAD_CHARS) entries.shift();
