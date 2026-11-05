@@ -39,6 +39,12 @@ import { checkSuggestions, reviewBody, reviewEvent } from './cheatsheet-review/r
 import { fencedLines, isSheet, type ScopedFile } from './cheatsheet-review/scope.js';
 import { disclosure } from './pr-gate/rules.js';
 import { reviewIssueRefs } from './cheatsheet-review/refs.js';
+import {
+  maintainerRequests,
+  sheetSize,
+  type MaintainerRequest,
+  type SheetSize,
+} from './cheatsheet-review/requests.js';
 import { describeError } from './triage/errors.js';
 import { BrokerGitHubReader, issueLabels, type PublicPull } from './triage/github.js';
 
@@ -511,7 +517,40 @@ export class CheatsheetReviewAgent extends CustodesAgent<AgentsEnv, CheatsheetRe
         );
       }
     }
+    // #91: earlier maintainer requests (conversation comments and review summaries) and the size
+    // of each changed sheet before and after. A failed read leaves them out, never the review.
+    let requests: MaintainerRequest[] = [];
+    try {
+      const [comments, reviews] = await Promise.all([
+        reader.listComments(repo, pr.number),
+        reader.listPullReviews(repo, pr.number),
+      ]);
+      requests = maintainerRequests(comments, reviews);
+    } catch (err) {
+      console.warn(
+        JSON.stringify({ event: 'cheatsheet-review.requests_read_failed', error: errorType(err) }),
+      );
+    }
+    const sizes: { file: string; base: SheetSize; head: SheetSize }[] = [];
+    for (const f of files.filter((x) => x.status === 'modified' && contents.has(x.filename))) {
+      const name = f.filename.split('/').pop() ?? f.filename;
+      if (!sheetNames.includes(name)) continue;
+      try {
+        const base = await reader.getCheatSheet(repo, name);
+        sizes.push({
+          file: f.filename,
+          base: sheetSize(base),
+          head: sheetSize(contents.get(f.filename) ?? ''),
+        });
+      } catch (err) {
+        console.warn(
+          JSON.stringify({ event: 'cheatsheet-review.size_read_failed', error: errorType(err) }),
+        );
+      }
+    }
     return {
+      requests,
+      sizes,
       repo,
       pull: pr.number,
       headSha,

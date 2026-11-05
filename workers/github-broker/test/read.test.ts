@@ -123,6 +123,40 @@ describe('broker read()', () => {
   });
 });
 
+describe('broker read() for cheatsheet-review comments and reviews (#91)', () => {
+  it('may read comments and pull reviews, and still not issues', async () => {
+    const fetchImpl = vi.fn((_u: RequestInfo | URL, _i?: RequestInit) =>
+      Promise.resolve(Response.json([])),
+    );
+    const cr = (over: Partial<BrokerReadRequest>) => req({ agentId: 'cheatsheet-review', ...over });
+    expect((await read(testEnv, cr({ resource: 'comments', number: 3 }), fetchImpl)).ok).toBe(true);
+    expect((await read(testEnv, cr({ resource: 'pull_reviews', number: 3 }), fetchImpl)).ok).toBe(
+      true,
+    );
+    expect(fetchImpl.mock.calls[1]?.[0]).toBe(
+      'https://api.github.com/repos/OWASP/CheatSheetSeries/pulls/3/reviews?per_page=100&page=1',
+    );
+    const denied = vi.fn();
+    expect(await read(testEnv, cr({ resource: 'issues' }), denied)).toMatchObject({
+      ok: false,
+      code: 'policy_denied',
+    });
+    expect(denied).not.toHaveBeenCalled();
+  });
+
+  it('keeps pull reviews away from agents that were not granted them', async () => {
+    const fetchImpl = vi.fn();
+    expect(
+      await read(
+        testEnv,
+        req({ agentId: 'triage', resource: 'pull_reviews', number: 3 }),
+        fetchImpl,
+      ),
+    ).toMatchObject({ ok: false, code: 'policy_denied' });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+});
+
 describe('broker read() for pr-gate', () => {
   it('may read pulls, pull files, single issues and comments with the read-only token', async () => {
     const fetchImpl = vi.fn((_u: RequestInfo | URL, _i?: RequestInit) =>
@@ -203,7 +237,7 @@ describe('broker read() for cheatsheet-review', () => {
     const fetchImpl = vi.fn();
     for (const r of [
       rev({ repo: 'OWASP/wstg', resource: 'pull', number: 4 }),
-      rev({ resource: 'comments', number: 4 }),
+      rev({ resource: 'issues' }),
       rev({ resource: 'pulls' }),
     ]) {
       expect(await read(testEnv, r, fetchImpl)).toMatchObject({

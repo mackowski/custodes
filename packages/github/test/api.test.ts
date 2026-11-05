@@ -206,6 +206,10 @@ describe('buildReadPath', () => {
     expect(buildReadPath({ repo: 'o/r', resource: 'pull_files', query: {}, number: 9 })).toBe(
       '/repos/o/r/pulls/9/files?per_page=100&page=1',
     );
+    expect(buildReadPath({ repo: 'o/r', resource: 'pull_reviews', query: {}, number: 9 })).toBe(
+      '/repos/o/r/pulls/9/reviews?per_page=100&page=1',
+    );
+    expect(() => buildReadPath({ repo: 'o/r', resource: 'pull_reviews', query: {} })).toThrow();
     expect(
       buildReadPath({ repo: 'o/r', resource: 'cheatsheet', query: {}, file: 'A_Cheat_Sheet.md' }),
     ).toBe('/repos/o/r/contents/cheatsheets/A_Cheat_Sheet.md');

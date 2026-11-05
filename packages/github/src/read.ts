@@ -20,6 +20,7 @@ export function buildReadPath(
     case 'timeline':
     case 'comments':
     case 'pull_files':
+    case 'pull_reviews':
       return `${numberedBase(req.resource, req.repo, required(req.number))}?${paging(req.query)}`;
     case 'cheatsheet':
       return `/repos/${req.repo}/contents/cheatsheets/${encodeURIComponent(required(req.file))}`;
@@ -34,8 +35,13 @@ export function buildReadPath(
   }
 }
 
-function numberedBase(resource: 'timeline' | 'comments' | 'pull_files', repo: string, n: number) {
+function numberedBase(
+  resource: 'timeline' | 'comments' | 'pull_files' | 'pull_reviews',
+  repo: string,
+  n: number,
+) {
   if (resource === 'pull_files') return `/repos/${repo}/pulls/${n}/files`;
+  if (resource === 'pull_reviews') return `/repos/${repo}/pulls/${n}/reviews`;
   return `/repos/${repo}/issues/${n}/${resource}`;
 }
 

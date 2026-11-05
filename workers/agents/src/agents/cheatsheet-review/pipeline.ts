@@ -306,6 +306,11 @@ export async function reviewPipeline(snap: Snapshot, deps: PipelineDeps): Promis
   );
   const scoped = (d: ReviewDecision): ReviewDecision => {
     const n = normaliseDecision(d, reviewerBlocked, targetOnly);
+    // #91: an entry must name a maintainer whose request was shown; anything else is dropped.
+    const shown = new Set((snap.requests ?? []).map((r) => r.by.toLowerCase()));
+    n.earlierRequests = n.earlierRequests
+      .map((e) => ({ ...e, by: e.by.replace(/^@/, '') }))
+      .filter((e) => shown.has(e.by.toLowerCase()));
     return {
       ...n,
       suggestions: n.suggestions.filter((x) => suggestionInScope(x, snap, targetOnly)),

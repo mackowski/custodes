@@ -316,6 +316,17 @@ export function reviewBody(r: ReviewBodyInput): string {
   if (d.verdict !== 'CLOSE') {
     lines.push(...items('Should-fix', d.shouldFix, a), ...items('Nits', d.nits, a));
   }
+  if (d.earlierRequests.length > 0)
+    lines.push(
+      '### Earlier maintainer requests',
+      '',
+      ...d.earlierRequests.map(
+        (e) =>
+          // The login is a code span: a review must not notify maintainers by mention.
+          `- \`${inertText(e.by, 40).replace(/`/g, '')}\`: ${inertMarkdown(e.request, a, 300)} (**${e.status}**)`,
+      ),
+      '',
+    );
   if (d.outOfScope.length > 0)
     lines.push(
       '### Noticed in existing text (not caused by this PR)',
