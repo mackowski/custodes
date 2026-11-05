@@ -224,7 +224,9 @@ function proposalCard(
         : '') +
       (r.priorDecision
         ? label('Follows a maintainer decision') +
-          para(`#${r.priorDecision.issue}: ${r.priorDecision.summary}`) +
+          para(
+            `#${r.priorDecision.issue}, referenced by ${r.priorDecision.via ?? 'unknown'}: ${r.priorDecision.summary}`,
+          ) +
           `<div>${link(issueUrl(repo, r.priorDecision.issue), `Open #${r.priorDecision.issue}`)}</div>`
         : '') +
       (r.linkedPrs.length

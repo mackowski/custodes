@@ -146,3 +146,11 @@ implementation-check never saw comments, assignees or open pull requests.
   line, "waiting on the author" in the digest) and reads up to three referenced issues, keeping only
   maintainer comments, so it follows decisions maintainers already took elsewhere (#85). No policy
   change: `reads.proposal-review` already allows `issue` and `comments`.
+- References are collected from maintainers' comments first (newest first, quoted lines ignored),
+  then from the issue body, so the author cannot crowd out a maintainer's pointer. The digest says
+  who pointed at the issue a decision came from ("the issue body" or "maintainer @login").
+- **Accepted risk:** the author can still point the review at an issue of their choice through the
+  body, and any `MEMBER` (OWASP organisation member) comment there counts as a maintainer comment
+  the model may follow as `priorDecision`. The effect stays in the private digest, which names the
+  issue and who referenced it, with a link; an eval covers an off-topic member comment carrying an
+  instruction. Owner: the maintainer.

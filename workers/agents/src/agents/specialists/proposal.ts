@@ -148,7 +148,16 @@ export const ProposalReview = z.object({
     .default([]),
   /** A maintainer decision in a referenced issue the review followed (issue checked by code). */
   priorDecision: z
-    .object({ issue: z.number().int().positive(), summary: z.string() })
+    .object({
+      issue: z.number().int().positive(),
+      summary: z.string(),
+      /** Who pointed at the issue, built by code: the issue body or a maintainer's comment. */
+      via: z
+        .string()
+        .regex(/^(?:the issue body|maintainer @[A-Za-z0-9-]{1,39})$/)
+        .nullable()
+        .default(null),
+    })
     .nullable()
     .default(null),
   /** Who spoke last, from GitHub-set fields (defaults keep older stored results readable). */
@@ -174,6 +183,8 @@ const REFERENCED_CHARS = 2000;
 export interface ReferencedIssue {
   number: number;
   comments: IssueComment[];
+  /** Who pointed at it: "the issue body" or "maintainer @login". */
+  via: string;
 }
 
 /** Distinct, valid logins of the author and commenters, author first. */
@@ -260,6 +271,8 @@ export function validateProposalReview(
     thread?: ThreadState | null;
     /** Issues whose maintainer comments were shown; priorDecision must name one of them. */
     referenced?: number[];
+    /** Who pointed at each referenced issue (code-built), for the digest. */
+    referencedVia?: ReadonlyMap<number, string>;
   },
 ): ProposalReview {
   const assignees = ctx.assignees ?? [];
@@ -316,6 +329,7 @@ export function validateProposalReview(
       priorDecision = {
         issue: raw.priorDecision.issue,
         summary: inertNoLinksWords(raw.priorDecision.summary, 300),
+        via: ctx.referencedVia?.get(raw.priorDecision.issue) ?? null,
       };
     else dropped.push(`decision in #${raw.priorDecision.issue}`);
   }
@@ -357,22 +371,33 @@ export async function readReferencedIssues(
   comments: IssueComment[],
   deps: Pick<SpecialistDeps, 'reader'>,
 ): Promise<ReferencedIssue[]> {
+  // Maintainers' pointers first (newest first), then the author's body: the author cannot crowd
+  // out a maintainer's reference. Quoted lines in a maintainer comment are someone else's words.
   const sources = [
-    issue.body ?? '',
-    ...comments.filter((c) => isMaintainer(c) && !isBot(c)).map((c) => c.body ?? ''),
+    ...comments
+      .filter((c) => isMaintainer(c) && !isBot(c))
+      .reverse()
+      .map((c) => ({
+        text: (c.body ?? '')
+          .split(/\r?\n/)
+          .filter((l) => !/^\s*>/.test(l))
+          .join('\n'),
+        via: `maintainer @${safeLogin(c.user?.login)}`,
+      })),
+    { text: issue.body ?? '', via: 'the issue body' },
   ];
-  const numbers: number[] = [];
-  for (const text of sources)
+  const refs: { n: number; via: string }[] = [];
+  for (const { text, via } of sources)
     for (const n of linkedIssueNumbers(text, repo))
-      if (n !== issue.number && !numbers.includes(n)) numbers.push(n);
+      if (n !== issue.number && !refs.some((r) => r.n === n)) refs.push({ n, via });
   const out: ReferencedIssue[] = [];
-  for (const n of numbers) {
+  for (const { n, via } of refs) {
     if (out.length >= MAX_REFERENCED) break;
     try {
       const ref = await deps.reader.getIssue(repo, n);
       if (ref.pull_request !== undefined) continue;
       const { comments: all } = await readNewestComments(deps.reader, repo, ref);
-      out.push({ number: n, comments: all.filter((c) => isMaintainer(c) && !isBot(c)) });
+      out.push({ number: n, comments: all.filter((c) => isMaintainer(c) && !isBot(c)), via });
     } catch {
       continue;
     }
@@ -434,6 +459,7 @@ export async function reviewProposal(
     linkedPrs,
     thread: threadState(issue, comments, coversEnd),
     referenced: referenced.map((r) => r.number),
+    referencedVia: new Map(referenced.map((r) => [r.number, r.via])),
   });
   return { ...result, injectionDetected: result.injectionDetected || selection.injectionDetected };
 }

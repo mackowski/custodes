@@ -185,6 +185,8 @@ export const VERDICT: Record<ProposalReview['verdict'], string> = {
  * has the next step. Decided by code from GitHub-set data; a flagged review is never collapsed.
  */
 export function proposalWaiting(r: ProposalReview, now: Date): boolean {
+  // The stored thread is stale once the issue changed after the review (a reply may be waiting).
+  if (r.changedSinceReview) return false;
   const t = r.thread;
   if (r.injectionDetected || !t?.lastByMaintainer || !recent(t.lastCommentAt, now)) return false;
   const closing = r.verdict === 'already_covered' || r.verdict === 'not_applicable';
@@ -234,7 +236,7 @@ function proposalItem(
     `  recommended: ${r.injectionDetected ? INJECTED : actions.join('; ') || '(no change)'}`,
     ...(r.priorDecision
       ? [
-          `  follows a maintainer decision in #${r.priorDecision.issue} (${issueUrl(repo, r.priorDecision.issue)}): ${r.priorDecision.summary}`,
+          `  follows a maintainer decision in #${r.priorDecision.issue} (${issueUrl(repo, r.priorDecision.issue)}), referenced by ${r.priorDecision.via ?? 'unknown'}: ${r.priorDecision.summary}`,
         ]
       : []),
     ...(r.linkedPrs.length

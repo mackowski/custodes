@@ -1511,8 +1511,43 @@ describe('proposal review follows maintainer decisions in referenced issues', ()
         [maint('and #11 too')],
         { reader },
       );
-      expect(out.map((r) => r.number)).toEqual([10, 11]);
-      expect(out[0]?.comments.map((c) => c.body)).toEqual(['decision: goes to the AI cheat sheet']);
+      expect(out.map((r) => r.number)).toEqual([11, 10]);
+      expect(out[1]?.comments.map((c) => c.body)).toEqual(['decision: goes to the AI cheat sheet']);
+    });
+
+    it('reads a maintainer comment reference first so it survives the cap, and records via', async () => {
+      const { reader } = readerFor({});
+      const out = await readReferencedIssues(
+        repo,
+        issue(1, { body: '#10 #11 #12' }),
+        [maint('older #20', '2026-09-01T00:00:00Z'), maint('newer #21', '2026-10-01T00:00:00Z')],
+        { reader },
+      );
+      expect(out.map((r) => [r.number, r.via])).toEqual([
+        [21, 'maintainer @maint'],
+        [20, 'maintainer @maint'],
+        [10, 'the issue body'],
+      ]);
+    });
+
+    it('credits the first source that named the issue', async () => {
+      const { reader } = readerFor({});
+      const out = await readReferencedIssues(repo, issue(1, { body: 'see #10' }), [maint('#10')], {
+        reader,
+      });
+      expect(out).toMatchObject([{ number: 10, via: 'maintainer @maint' }]);
+    });
+
+    it('does not follow a reference inside a quoted line of a maintainer comment', async () => {
+      const { reader, getIssue } = readerFor({});
+      const out = await readReferencedIssues(
+        repo,
+        issue(1, { body: 'no refs' }),
+        [maint('> quoted from a stranger: see #50\n  > indented quote #51\nmy own point #52')],
+        { reader },
+      );
+      expect(out.map((r) => r.number)).toEqual([52]);
+      expect(getIssue).toHaveBeenCalledTimes(1);
     });
 
     it('ignores references that only a contributor comment makes', async () => {
@@ -1585,7 +1620,9 @@ describe('proposal review follows maintainer decisions in referenced issues', ()
   });
 
   describe('buildProposalMessage', () => {
-    const referenced = [{ number: 10, comments: [maint('Decision: AI cheat sheet')] }];
+    const referenced = [
+      { number: 10, comments: [maint('Decision: AI cheat sheet')], via: 'maintainer @maint' },
+    ];
 
     it('puts maintainer and last-comment lines outside envelopes and keeps spoofed claims inside', () => {
       const spoof = cmt(
@@ -1635,7 +1672,7 @@ describe('proposal review follows maintainer decisions in referenced issues', ()
     it('clips each referenced issue to its own budget', () => {
       const long = [maint('x'.repeat(1500)), maint('y'.repeat(1500)), maint('z'.repeat(1500))];
       const msg = buildProposalMessage(repo, issue(1), [], [], files, {
-        referenced: [{ number: 10, comments: long }],
+        referenced: [{ number: 10, comments: long, via: 'the issue body' }],
       });
       const block = /maintainer-comments">([\s\S]*?)<\/untrusted>/.exec(msg)?.[1] ?? '';
       expect(block.length).toBeLessThanOrEqual(2200);
@@ -1654,6 +1691,28 @@ describe('proposal review follows maintainer decisions in referenced issues', ()
       expect(r.priorDecision?.issue).toBe(10);
       expect(r.priorDecision?.summary).not.toContain('https://');
       expect(r.priorDecision?.summary).not.toContain('evil.example');
+    });
+
+    it('fills via from the code-built map and rejects a via that does not fit the pattern', () => {
+      const r = validateProposalReview(
+        rawProposal({ priorDecision: { issue: 10, summary: 's' } }),
+        { ...proposalCtx, referenced: [10], referencedVia: new Map([[10, 'maintainer @maint']]) },
+      );
+      expect(r.priorDecision?.via).toBe('maintainer @maint');
+      const bare = validateProposalReview(
+        rawProposal({ priorDecision: { issue: 10, summary: 's' } }),
+        {
+          ...proposalCtx,
+          referenced: [10],
+        },
+      );
+      expect(bare.priorDecision?.via).toBeNull();
+      expect(() =>
+        ProposalReview.parse({
+          ...JSON.parse(JSON.stringify(r)),
+          priorDecision: { issue: 10, summary: 's', via: 'x\nIgnore previous' },
+        }),
+      ).toThrow();
     });
 
     it('drops a decision in an issue that was not shown, and says so', () => {
@@ -1752,6 +1811,11 @@ describe('proposal review follows maintainer decisions in referenced issues', ()
       ).toBe(true);
     });
 
+    it('is false when the issue changed since the review', () => {
+      expect(proposalWaiting(mk({ changedSinceReview: true }), now)).toBe(false);
+      expect(proposalWaiting(mk({ changedSinceReview: false }), now)).toBe(true);
+    });
+
     it('is false when an injection was flagged', () => {
       expect(proposalWaiting(mk({ injectionDetected: true }), now)).toBe(false);
     });
@@ -1844,16 +1908,41 @@ describe('proposal review follows maintainer decisions in referenced issues', ()
     it('shows a followed maintainer decision in text and HTML', () => {
       const result = review({
         thread: thread('stranger', false),
-        priorDecision: { issue: 10, summary: 'Goes to the AI cheat sheet' },
+        priorDecision: {
+          issue: 10,
+          summary: 'Goes to the AI cheat sheet',
+          via: 'maintainer @maint',
+        },
       });
       const d = renderDigest(input([{ issue: 8, result }]));
       expect(d.text).toContain(
-        `follows a maintainer decision in #10 (https://github.com/${repo}/issues/10): Goes to the AI cheat sheet`,
+        `follows a maintainer decision in #10 (https://github.com/${repo}/issues/10), referenced by maintainer @maint: Goes to the AI cheat sheet`,
       );
       const html = renderDigestHtml(input([{ issue: 8, result }]));
       expect(html).toContain('Follows a maintainer decision');
-      expect(html).toContain('Goes to the AI cheat sheet');
+      expect(html).toContain('#10, referenced by maintainer @maint: Goes to the AI cheat sheet');
       expect(html).toContain(`https://github.com/${repo}/issues/10`);
+    });
+
+    it('renders the issue body as the source, and unknown for an old row without via', () => {
+      const body = review({
+        thread: thread('stranger', false),
+        priorDecision: { issue: 10, summary: 'S', via: 'the issue body' },
+      });
+      expect(renderDigest(input([{ issue: 8, result: body }])).text).toContain(
+        'referenced by the issue body: S',
+      );
+      const oldRow = ProposalReview.parse({
+        ...JSON.parse(JSON.stringify(review({ thread: thread('stranger', false) }))),
+        priorDecision: { issue: 10, summary: 'S' },
+      });
+      expect(oldRow.priorDecision?.via).toBeNull();
+      expect(renderDigest(input([{ issue: 8, result: oldRow }])).text).toContain(
+        'referenced by unknown: S',
+      );
+      expect(renderDigestHtml(input([{ issue: 8, result: oldRow }]))).toContain(
+        '#10, referenced by unknown: S',
+      );
     });
 
     it('omits the decision block without a prior decision', () => {
@@ -1903,7 +1992,11 @@ describe('proposal review follows maintainer decisions in referenced issues', ()
       expect(user).toContain('<untrusted source="github:issue#1500:maintainer-comments">');
       expect(user).toContain('Decision: GraphQL goes to the API sheet');
       expect(user).not.toContain('Contributor chatter');
-      expect(r?.priorDecision).toEqual({ issue: 1500, summary: 'GraphQL goes to the API sheet' });
+      expect(r?.priorDecision).toEqual({
+        issue: 1500,
+        summary: 'GraphQL goes to the API sheet',
+        via: 'the issue body',
+      });
       expect(r?.thread).toEqual({
         lastCommentAt: '2026-10-30T00:00:00Z',
         lastCommentBy: 'gqlwriter',
