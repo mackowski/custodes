@@ -86,14 +86,10 @@ async function linkStage(snap: Snapshot, deps: PipelineDeps): Promise<LinkStage>
     const self = f.file.filename.split('/').pop() ?? f.file.filename;
     const own = snap.contents.get(f.file.filename);
     for (const link of scanLinks(f.file.filename, f.hunks).links) {
-      if (isExternal(link.url)) {
-        external.push({ link });
-        continue;
-      }
-      // javascript:, data:, mailto: and other schemes are never fetched; a person has to look.
-      // Not a known target form (//host, &#47;&#47;host, a backslash path, a stray scheme): renderers
-      // may resolve it to another host, and nothing here can fetch it. Verify by hand.
-      if (!knownTargetForm(link.url) && !/^[a-z][a-z0-9+.-]*:/i.test(link.url)) {
+      // Not a known target form (//host, &#47;&#47;host, a backslash or entity in an https host, a
+      // stray scheme is handled below): what renders may differ from what we would fetch. Verify by
+      // hand, before anything is fetched.
+      if (!knownTargetForm(link.url) && !/^[a-z][a-z0-9+.-]*:(?!\/\/)/i.test(link.url)) {
         findings.push({
           severity: 'MAJOR',
           file: link.file,
@@ -102,6 +98,11 @@ async function linkStage(snap: Snapshot, deps: PipelineDeps): Promise<LinkStage>
         });
         continue;
       }
+      if (isExternal(link.url)) {
+        external.push({ link });
+        continue;
+      }
+      // javascript:, data:, mailto: and other schemes are never fetched; a person has to look.
       if (/^[a-z][a-z0-9+.-]*:/i.test(link.url)) {
         findings.push({
           severity: 'MAJOR',

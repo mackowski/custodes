@@ -2000,6 +2000,33 @@ describe('links.scanLinks', () => {
       expect(knownTargetForm(bad)).toBe(false);
   });
 
+  it('rejects https targets whose host part a renderer reads differently (#92 round 14)', () => {
+    for (const bad of [
+      'https://owasp.org\\.evil.example/x',
+      'https://owasp.org&#64;evil.example/',
+      'https://owasp.org\\@evil.example/',
+      'https://user@evil.example/',
+    ])
+      expect(knownTargetForm(bad)).toBe(false);
+    expect(knownTargetForm('https://owasp.org:443/www-project/?a=1#x')).toBe(true);
+    const p = patchOf(
+      ['See [CWE](https://cwe.mitre.org/data/x).'],
+      ['See [CWE](https://cwe.mitre.org\\.evil.example/data/x).'],
+    );
+    expect(classify([scoped(p)])).toMatchObject({ kind: 'decided', class: 'content' });
+  });
+
+  it('treats archive hosts as never the same site, and owners on GitLab and Bitbucket', () => {
+    expect(
+      sameSite(
+        'https://web.archive.org/web/1/https://a.example/x',
+        'https://web.archive.org/web/2/https://evil.example/x',
+      ),
+    ).toBe(false);
+    expect(sameSite('https://gitlab.com/good/lib', 'https://gitlab.com/evil/lib')).toBe(false);
+    expect(sameSite('https://gitlab.com/good/lib', 'https://gitlab.com/good/lib2')).toBe(true);
+  });
+
   it('sends an entity-encoded protocol-relative target to the full review', () => {
     const p = patchOf(
       ['See [NIST](https://nist.gov/x).'],
