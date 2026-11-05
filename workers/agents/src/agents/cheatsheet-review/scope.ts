@@ -32,7 +32,13 @@ export interface ScopedFile {
 /** Up to this many changed lines, a prose edit may be minor; above it, it is content. */
 export const AMBIGUOUS_MAX_LINES = 30;
 
-const URL_IN_TEXT = /\]\([^)\s]*\)|<https?:\/\/[^>\s]*>|https?:\/\/[^\s)>\]]+/g;
+/**
+ * Only Markdown link targets count as "a link": autolinks, bare URLs and href/src values are text,
+ * so changing one is not links-only (the link extractor would not audit it either; #92 round 10).
+ */
+const URL_IN_TEXT = /\]\([^)\s]*\)/g;
+const MD_TARGETS = /\]\(\s*<?([^)\s>]+)/g;
+const mdTargets = (t: string) => [...t.matchAll(MD_TARGETS)].map((m) => m[1] ?? '').join('\n');
 
 /** Inline code: n-backtick spans (CommonMark) and <code> elements. */
 const CODE_SPAN = /(?<!`)(`+)(?:[^`]|[^`][\s\S]*?[^`])\1(?!`)|<code>[\s\S]*?<\/code>/gi;
@@ -151,7 +157,8 @@ function onlyLinkTargets(hunks: readonly Hunk[]): boolean {
         dels.length === adds.length &&
         dels.every((r, i) => {
           const t = adds[i] ?? '';
-          return t !== r && withoutUrls(t) === withoutUrls(r);
+          // Equal once Markdown targets are masked, and a target really changed.
+          return withoutUrls(t) === withoutUrls(r) && mdTargets(t) !== mdTargets(r);
         });
       dels = [];
       adds = [];
