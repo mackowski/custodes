@@ -22,8 +22,11 @@ export type Scope = { kind: 'decided'; class: ChangeClass; why: string } | { kin
 export interface ScopedFile {
   file: PullFile;
   hunks: Hunk[];
-  /** New-side line numbers inside fenced code blocks of the file at the head commit. */
-  codeLines: ReadonlySet<number>;
+  /**
+   * New-side line numbers inside code blocks of the file at the head commit; null when the file
+   * was not read (then the change is reviewed as content).
+   */
+  codeLines: ReadonlySet<number> | null;
 }
 
 /** Up to this many changed lines, a prose edit may be minor; above it, it is content. */
@@ -32,7 +35,9 @@ export const AMBIGUOUS_MAX_LINES = 30;
 const URL_IN_TEXT = /\]\([^)\s]*\)|<https?:\/\/[^>\s]*>|https?:\/\/[^\s)>\]]+/g;
 
 /** Inline code: n-backtick spans (CommonMark) and <code> elements. */
-const CODE_SPAN = /(`+)(?:[^`]|[^`][\s\S]*?[^`])\1(?!`)|<code>[\s\S]*?<\/code>/gi;
+const CODE_SPAN = /(?<!`)(`+)(?:[^`]|[^`][\s\S]*?[^`])\1(?!`)|<code>[\s\S]*?<\/code>/gi;
+/** Longer changed lines skip the regexes and go to the full review. */
+const MAX_SCANNED_LINE = 4_000;
 
 function withoutUrls(s: string): string {
   // A URL inside inline code (a CORS origin, a CSP source, a config value) is content: keep it.
@@ -49,9 +54,7 @@ const URL_ANY = /https?:\/\/[^\s)<>"'`\]]+/gi;
 /** The inline code spans of some lines, normalised, as a multiset key list. */
 function codeSpans(lines: readonly string[]): string[] {
   return lines
-    .flatMap((t) =>
-      [...t.matchAll(CODE_SPAN)].map((m) => m[0].toLowerCase().replace(/\s+/g, ' ').trim()),
-    )
+    .flatMap((t) => [...t.matchAll(CODE_SPAN)].map((m) => m[0].replace(/\s+/g, ' ').trim()))
     .sort();
 }
 
@@ -76,6 +79,9 @@ function securityRelevantChange(
     return 'an http:// URL was added';
   if (codeSpans(added).join('\uE000') !== codeSpans(removed).join('\uE000'))
     return 'inline code changed';
+  // A backtick or <code> the span pattern could not pair: the renderer may see code there.
+  const stray = (t: string) => /`|<\/?code\b/i.test(t.replace(CODE_SPAN, ''));
+  if ([...added, ...removed].some(stray)) return 'inline code the classifier cannot pair';
   return null;
 }
 
@@ -98,7 +104,7 @@ export function fencedLines(markdown: string): Set<number> {
     } else if (line.trim() !== '') indented = false;
   });
   lines.forEach((line, i) => {
-    const m = /^\s{0,3}(`{3,}|~{3,})/.exec(line);
+    const m = /^\s*(`{3,}|~{3,})/.exec(line);
     if (fence === null && m?.[1]) {
       fence = m[1];
       out.add(i + 1);
@@ -110,56 +116,10 @@ export function fencedLines(markdown: string): Set<number> {
   return out;
 }
 
-/** Words whose addition or removal can turn advice into its opposite (#93). */
-const GUIDANCE_WORDS = new Set([
-  'always',
-  'never',
-  'not',
-  'no',
-  "don't",
-  'do',
-  'must',
-  'should',
-  'may',
-  'can',
-  'cannot',
-  'avoid',
-  'prefer',
-  'disable',
-  'enable',
-  'disabled',
-  'enabled',
-  'allow',
-  'deny',
-  'allowed',
-  'denied',
-  'only',
-  'unless',
-  'required',
-  'optional',
-  'safe',
-  'unsafe',
-  'secure',
-  'insecure',
-  'recommended',
-  'discouraged',
-  'deprecated',
-  'sufficient',
-  'insufficient',
-  'strong',
-  'weak',
-]);
-
-/** True when the words that differ between two lines include a guidance word. */
-export function flipsGuidance(before: string, after: string): boolean {
-  const words = (t: string) => t.toLowerCase().match(/[a-z']+/g) ?? [];
-  const count = (ws: string[]) =>
-    ws.reduce((m, w) => m.set(w, (m.get(w) ?? 0) + 1), new Map<string, number>());
-  const b = count(words(before));
-  const a = count(words(after));
-  for (const w of new Set([...b.keys(), ...a.keys()]))
-    if ((b.get(w) ?? 0) !== (a.get(w) ?? 0) && GUIDANCE_WORDS.has(w)) return true;
-  return false;
+/** True when two lines have the same words (letters and digits, case-sensitive, in order). */
+export function sameWords(before: string, after: string): boolean {
+  const words = (t: string) => (t.match(/[\p{L}\p{N}]+/gu) ?? []).join(' ');
+  return words(before) === words(after);
 }
 
 /** Edit similarity of two lines in [0, 1] (Levenshtein, bounded to short lines). */
@@ -186,15 +146,20 @@ export function classify(files: readonly ScopedFile[]): Scope {
   if (sheets.some((f) => f.file.status === 'added'))
     return {
       kind: 'decided',
-      class: sheets.some((f) => f.codeLines.size > 0) ? 'code' : 'content',
+      class: sheets.some((f) => (f.codeLines?.size ?? 0) > 0) ? 'code' : 'content',
       why: 'new cheat sheet',
     };
   if (sheets.some((f) => f.file.patch === undefined))
     return { kind: 'decided', class: 'content', why: 'diff too large to show' };
 
+  // A sheet whose text was not fetched has no code-line map: never assume it has no code.
+  if (sheets.some((f) => f.codeLines === null))
+    return { kind: 'decided', class: 'content', why: 'a changed sheet was not read in full' };
   const added = sheets.flatMap((f) => addedLines(f.hunks).map((l) => ({ l, f })));
   const removed = sheets.flatMap((f) => removedLines(f.hunks));
-  if (added.some(({ l, f }) => l.newLine !== undefined && f.codeLines.has(l.newLine)))
+  if ([...added.map(({ l }) => l), ...removed].some((l) => l.text.length > MAX_SCANNED_LINE))
+    return { kind: 'decided', class: 'content', why: 'a very long line changed' };
+  if (added.some(({ l, f }) => l.newLine !== undefined && f.codeLines?.has(l.newLine) === true))
     return { kind: 'decided', class: 'code', why: 'code block changed' };
 
   const a = added.map(({ l }) => l.text);
@@ -213,14 +178,14 @@ export function classify(files: readonly ScopedFile[]): Scope {
   const changed = a.length + r.length;
   if (changed > AMBIGUOUS_MAX_LINES)
     return { kind: 'decided', class: 'content', why: `${changed} lines changed` };
+  // #93: code decides minor-prose only when every changed line keeps the same words (letters and
+  // digits, case-sensitive): punctuation or spacing. Any word change, however small ("12" for
+  // "128", "SHA-1" for "SHA-256", "Never" for "Always"), goes to the scope classifier.
   if (
     a.length === r.length &&
-    a.every((t, i) => similarity(withoutUrls(t), withoutUrls(r[i] ?? '')) >= 0.85)
-  ) {
-    // #93: a small edit can flip guidance ("Always" to "Never"); let the classifier decide.
-    if (a.some((t, i) => flipsGuidance(r[i] ?? '', t))) return { kind: 'ambiguous' };
-    return { kind: 'decided', class: 'minor-prose', why: 'small edits to existing lines' };
-  }
+    a.every((t, i) => sameWords(withoutUrls(t), withoutUrls(r[i] ?? '')))
+  )
+    return { kind: 'decided', class: 'minor-prose', why: 'only punctuation or spacing changed' };
   return { kind: 'ambiguous' };
 }
 
