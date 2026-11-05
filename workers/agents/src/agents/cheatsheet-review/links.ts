@@ -93,13 +93,31 @@ export function scanLinks(file: string, hunks: readonly Hunk[]): LinkScan {
     // A target the hunk already had (only the anchor text or the sentence changed) is not new.
     const before = new Set(removed.flatMap((r) => targets(r.text)));
     const used = new Set<number>();
+    // Pairs only inside one contiguous block (removed run, then added run), as scope.ts does.
+    let block = new Set<number>();
+    let afterAdd = false;
     for (const l of h.lines) {
-      if (l.kind !== '+' || l.newLine === undefined) continue;
+      if (l.kind === ' ') {
+        block = new Set();
+        afterAdd = false;
+        continue;
+      }
+      if (l.kind === '-') {
+        if (afterAdd) {
+          block = new Set();
+          afterAdd = false;
+        }
+        block.add(removed.indexOf(l));
+        continue;
+      }
+      afterAdd = true;
+      if (l.newLine === undefined) continue;
       const now = targets(l.text);
       const cited = citationTargets(l.text);
       const key = maskedLine(l.text);
       const i = removed.findIndex(
         (r, idx) =>
+          block.has(idx) &&
           !used.has(idx) &&
           maskedLine(r.text) === key &&
           citationTargets(r.text).length === cited.length &&
