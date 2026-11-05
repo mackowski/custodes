@@ -1026,7 +1026,7 @@ describe('cheatsheet-review: moved links (#89)', () => {
     expect(body).toMatch(/Noticed in existing text[\s\S]*Reword the sentence\./);
     expect(body).not.toMatch(/Must-fix[\s\S]*Reword the sentence\./);
     expect(body).toContain('### Links checked');
-    expect(body).toContain(`| \`${NEW}\` | moved | SAME-RESOURCE |`);
+    expect(body).toContain(`| \`${NEW}\` | moved from \`${OLD}\` | SAME-RESOURCE |`);
     const sent = r.models.calls.find((c) => c.role === 'link-auditor')?.req.user ?? '';
     expect(sent).toContain('moved: only its target changed');
     expect(sent).toContain(`Previous URL: ${OLD}`);
@@ -1085,7 +1085,7 @@ describe('cheatsheet-review: moved links (#89)', () => {
     });
     expect(r.out).toMatchObject({ ok: true, status: 'posted' });
     const body = reviewActs(r)[0]?.body ?? '';
-    expect(body).toContain(`| \`${NEW}\` | moved | DIFFERENT-RESOURCE |`);
+    expect(body).toContain(`| \`${NEW}\` | moved from \`${OLD}\` | DIFFERENT-RESOURCE |`);
     const judged = r.models.calls.find((c) => c.role === 'judge')?.req.user ?? '';
     expect(judged).toContain(`DIFFERENT-RESOURCE: \`${NEW}\` (moved from \`${OLD}\`)`);
     expect(judged).toContain('"verdict":"BLOCK"');

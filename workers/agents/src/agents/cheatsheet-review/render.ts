@@ -245,7 +245,7 @@ export interface ReviewBodyInput {
   rejected: CheckedSuggestions['rejected'];
   linkNotes: readonly string[];
   /** #89: every external link that was checked (code statuses or the auditor's enum). */
-  linkChecks?: readonly { url: string; moved: boolean; status: string }[];
+  linkChecks?: readonly { url: string; moved: boolean; status: string; previous?: string }[];
   allowed: ReadonlySet<string>;
 }
 
@@ -335,7 +335,7 @@ export function reviewBody(r: ReviewBodyInput): string {
       '| --- | --- | --- |',
       ...checks.map(
         (c) =>
-          `| \`${tableCell(inertText(c.url, 300).replace(/`/g, ''))}\` | ${c.moved ? 'moved' : 'new'} | ${tableCell(inertText(c.status, 40))} |`,
+          `| \`${tableCell(inertText(c.url, 300).replace(/`/g, ''))}\` | ${c.moved && c.previous ? `moved from \`${tableCell(inertText(c.previous, 300).replace(/`/g, ''))}\`` : c.moved ? 'moved' : 'new'} | ${tableCell(inertText(c.status, 40))} |`,
       ),
       '',
     );
