@@ -104,6 +104,8 @@ export const ImplementationCheck = z.object({
   /** Defaults keep results stored before these fields existed readable. */
   thread: ThreadState.nullable().default(null),
   openPrs: z.array(OpenLinkedPull).default([]),
+  /** Set by the digest when the issue changed after the check (the stored thread may be stale). */
+  changedSinceCheck: z.boolean().optional(),
 });
 export type ImplementationCheck = z.infer<typeof ImplementationCheck>;
 

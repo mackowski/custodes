@@ -24,6 +24,7 @@ import {
   pendingProposalJobs,
   reconcileProposals,
   sweepAcks,
+  markChangedChecks,
   withoutClosed,
 } from './triage/route.js';
 import { triageRequest } from './triage/model.js';
@@ -418,7 +419,7 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
     const implementationOpen = withoutClosed(allImplementation, closed);
     const proposalsOpen = withoutClosed(allProposals, closed);
     const omittedClosed = openItems.dropped + implementationOpen.dropped + proposalsOpen.dropped;
-    const implementation = implementationOpen.kept;
+    const implementation = markChangedChecks(implementationOpen.kept, current);
     // Accepted after triage saw them: the maintainers' backlog now, unless flagged.
     const stillOpen = openItems.kept.filter((i) => {
       const now = current.get(i.issue);

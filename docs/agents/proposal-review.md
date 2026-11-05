@@ -25,8 +25,9 @@ issue at most once a day.
    its timeline (pull requests that reference it, and their state), the labels and the cheat sheet
    list. The prompt gets the last 30 human comments, quoted line by line, and code-built "Last
    comment" and "Maintainers in this thread" lines (`author_association`) outside the envelope.
-2. Referenced issues (#85): same-repository issues named in the issue body or in maintainers'
-   comments (never a contributor's comment), up to three, pull requests skipped. Only their
+2. Referenced issues (#85): same-repository issues named in maintainers' comments (newest first,
+   quoted lines skipped), then in the issue body (never in a contributor's comment), up to three,
+   pull requests skipped. The prompt and the digest say who referenced each one. Only their
    maintainers' comments are read, enveloped as `github:issue#N:maintainer-comments` (2,000
    characters each). An unreadable reference is skipped.
 3. Fast model picks up to three related cheat sheets; they are loaded and enveloped as untrusted.
@@ -40,7 +41,7 @@ issue at most once a day.
 
 The digest (code, from GitHub-set data, at send time): a proposal whose last comment is a
 maintainer's from the last 14 days and that has nothing left to do (no labels, assignee, PR to
-review or closing verdict) is one line under "waiting on the author". A non-maintainer comment last
+review or closing verdict), and that did not change after the review, is one line under "waiting on the author". A non-maintainer comment last
 adds "answer the latest comment". A review flagged for possible injection is always shown in full.
 
 ## Outputs, limits, failure modes, halting

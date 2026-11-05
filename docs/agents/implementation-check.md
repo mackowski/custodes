@@ -38,7 +38,8 @@ Results wait in SQLite until triage's 07:00 UTC digest collects them. The digest
 suggestion from the stored thread state, measured when it is sent (`followUp`): "looks
 implemented" stays first; a maintainer comment or an open linked PR by an assignee updated within 14 days moves
 the issue to a collapsed "in progress, nothing to do" line; a non-maintainer comment last asks the
-maintainer to answer it. A result flagged for possible injection is always shown in full. Status at
+maintainer to answer it. Nothing collapses when the issue changed after the check (the stored thread may
+be stale). A result flagged for possible injection is always shown in full. Status at
 `/agents/implementation-check-agent/owasp-cheatsheetseries` through the Access-protected gateway.
 Nothing on GitHub.
 

@@ -126,10 +126,12 @@ export function followUp(r: ImplementationCheck, now: Date): FollowUp {
   // Flagged results always get a full card (never a one-line "wait" or "keep" entry).
   if (r.injectionDetected) return 'review';
   const t = r.thread;
-  if (t?.lastByMaintainer && recent(t.lastCommentAt, now)) return 'wait';
+  // The stored thread is stale once the issue changed after the check: never collapse then.
+  const fresh = r.changedSinceCheck !== true;
+  if (fresh && t?.lastByMaintainer && recent(t.lastCommentAt, now)) return 'wait';
   // A question from a contributor outranks an open PR: anyone can open one that mentions the issue.
   if (t && !t.lastByMaintainer) return 'reply';
-  if (r.openPrs.some((p) => recent(p.updatedAt, now))) return 'wait';
+  if (fresh && r.openPrs.some((p) => recent(p.updatedAt, now))) return 'wait';
   return r.recommendation;
 }
 
@@ -164,6 +166,9 @@ function implementationItem(
     `  implementation check: implemented=${r.implemented}   confidence: ${pct(r.confidence)}` +
       (r.ackAt ? `   accepted ${r.ackAt.slice(0, 10)}` : ''),
     `  suggested action: ${actionLine(r, now)}`,
+    ...(r.changedSinceCheck
+      ? ['  note: the issue changed after this check (comments, labels or assignees)']
+      : []),
     ...evidenceLines(r.evidence, r.mergedPrs, repo),
     `  explanation (model-generated): ${r.explanation}`,
     ...(r.injectionDetected ? [] : commentBlock(r.suggestedComment, r.evidence, r.mergedPrs, repo)),

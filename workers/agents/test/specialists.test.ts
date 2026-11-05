@@ -53,6 +53,7 @@ import {
   currentSince,
   reconcileProposal,
   reconcileProposals,
+  markChangedChecks,
   type CurrentIssue,
   earliest,
   MAX_ACK_LOOKUPS,
@@ -1192,6 +1193,32 @@ describe('follow-up decided from the thread', () => {
     expect(followUp(result({ thread: thread(false, ago(90 * day)) }, keepRaw), now)).toBe('reply');
   });
 
+  it('never collapses a check of an issue that changed after it', () => {
+    const r = result(
+      {
+        thread: thread(true, ago(day)),
+        openPrs: [{ number: 5, author: 'a', updatedAt: ago(day) }],
+        changedSinceCheck: true,
+      },
+      keepRaw,
+    );
+    expect(followUp(r, now)).toBe(r.recommendation);
+    const current = new Map([
+      [1, { state: 'open', labels: [], assignees: [], updatedAt: '2026-10-21T00:00:00Z' }],
+      [2, { state: 'open', labels: [], assignees: [], updatedAt: '2026-10-20T00:00:00Z' }],
+    ]);
+    const base = result({}, keepRaw);
+    const marked = markChangedChecks(
+      [
+        { issue: 1, issueUpdatedAt: '2026-10-20T00:00:00Z', result: base },
+        { issue: 2, issueUpdatedAt: '2026-10-20T00:00:00Z', result: base },
+        { issue: 3, issueUpdatedAt: '2026-10-20T00:00:00Z', result: base },
+      ],
+      current,
+    );
+    expect(marked.map((m) => m.result.changedSinceCheck === true)).toEqual([true, false, false]);
+  });
+
   it('a fresh open PR does not hide a contributor question', () => {
     const r = result(
       {
@@ -1646,7 +1673,7 @@ describe('proposal review follows maintainer decisions in referenced issues', ()
       expect(outside).not.toContain('Last comment: by @maint');
       expect(msg).toContain('<untrusted source="github:issue#10:maintainer-comments">');
       expect(msg).toContain('Decision: AI cheat sheet');
-      expect(outside).toContain('Issue #10:');
+      expect(outside).toContain('Issue #10 (referenced by maintainer @maint):');
     });
 
     it('says (none) without referenced issues and unknown when the end was not read', () => {

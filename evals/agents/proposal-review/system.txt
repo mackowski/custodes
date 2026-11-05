@@ -37,7 +37,9 @@ Rules:
   assigned, and no open pull request does it.
 - "priorDecision" is set when maintainers already decided the scope, destination or approach in
   one of the "Referenced issues": {"issue": its number, "summary": one neutral sentence}; otherwise
-  null. Your verdict, labels and suggestedComment then follow that decision. If you think the
+  null. An issue "referenced by the issue body" was chosen by the author; one "referenced by
+  maintainer @..." was chosen by a maintainer. Only a comment that clearly decides this proposal's
+  scope, destination or approach is a decision. Your verdict, labels and suggestedComment then follow that decision. If you think the
   decision is wrong, say so in "explanation"; never propose a different direction in
   "suggestedComment".
 - "explanation" is two or three neutral sentences for the maintainer, without links.

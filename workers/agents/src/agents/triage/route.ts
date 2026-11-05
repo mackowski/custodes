@@ -139,6 +139,21 @@ export async function currentSince(
   return out;
 }
 
+/** Marks implementation checks of issues that changed after the check ran. */
+export function markChangedChecks<
+  T extends {
+    issue: number;
+    issueUpdatedAt: string;
+    result: { changedSinceCheck?: boolean | undefined };
+  },
+>(list: T[], current: ReadonlyMap<number, CurrentIssue>): T[] {
+  return list.map((x) => {
+    const now = current.get(x.issue);
+    const changed = now !== undefined && Date.parse(now.updatedAt) > Date.parse(x.issueUpdatedAt);
+    return changed ? { ...x, result: { ...x.result, changedSinceCheck: true } } : x;
+  });
+}
+
 export function closedIn(current: ReadonlyMap<number, CurrentIssue>): Set<number> {
   return new Set([...current].filter(([, c]) => c.state === 'closed').map(([n]) => n));
 }
