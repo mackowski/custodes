@@ -235,7 +235,7 @@ function suggestionInScope(
 
 export async function reviewPipeline(snap: Snapshot, deps: PipelineDeps): Promise<PipelineResult> {
   const outcomes: RoleOutcome[] = [];
-  let scope = classify(snap.files);
+  let scope = classify(snap.files, snap.unreviewedFiles);
   if (scope.kind === 'ambiguous') {
     const r = await runRole(
       deps,
