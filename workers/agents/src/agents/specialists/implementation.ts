@@ -68,9 +68,12 @@ export type RawImplementationCheck = z.infer<typeof RawImplementationCheck>;
  * Who spoke last on the issue, from GitHub-set fields only (login, `author_association`, date);
  * never from comment text. Null when there are no human comments or not all were read.
  */
+/** A login as safeLogin leaves it; re-checked when triage reads stored results back. */
+const Login = z.string().regex(/^(?:[A-Za-z0-9-]{1,39}|unknown)$/);
+
 export const ThreadState = z.object({
   lastCommentAt: z.string(),
-  lastCommentBy: z.string(),
+  lastCommentBy: Login,
   lastByMaintainer: z.boolean(),
 });
 export type ThreadState = z.infer<typeof ThreadState>;
@@ -78,7 +81,7 @@ export type ThreadState = z.infer<typeof ThreadState>;
 /** An open pull request that references the issue, as GitHub reports it now. */
 export const OpenLinkedPull = z.object({
   number: z.number().int().positive(),
-  author: z.string(),
+  author: Login,
   updatedAt: z.string(),
 });
 export type OpenLinkedPull = z.infer<typeof OpenLinkedPull>;

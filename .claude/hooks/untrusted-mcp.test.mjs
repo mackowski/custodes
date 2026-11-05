@@ -67,6 +67,13 @@ void test('wraps the text of embedded resource blocks', () => {
   ]);
 });
 
+void test('drops structuredContent, whose text copy is wrapped in content', () => {
+  assert.deepEqual(
+    wrapOutput({ content: [{ type: 'text', text: '{"a":1}' }], structuredContent: { a: 1 } }),
+    { content: [{ type: 'text', text: envelope('{"a":1}') }] },
+  );
+});
+
 void test('unknown shapes keep the original output', () => {
   for (const v of [undefined, null, 42, {}, [], [{ text: 'no type' }], { content: 'str' }])
     assert.equal('updatedToolOutput' in respond({ tool_response: v }).hookSpecificOutput, false);

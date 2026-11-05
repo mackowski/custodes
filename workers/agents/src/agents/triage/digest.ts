@@ -120,7 +120,9 @@ const recent = (at: string, now: Date) => now.getTime() - Date.parse(at) < WAIT_
  * the model. "Looks implemented" always wins; a possible injection keeps the item in full view.
  */
 export function followUp(r: ImplementationCheck, now: Date): FollowUp {
-  if (r.injectionDetected || r.recommendation === 'close') return r.recommendation;
+  if (r.recommendation === 'close') return 'close';
+  // Flagged results always get a full card (never a one-line "wait" or "keep" entry).
+  if (r.injectionDetected) return 'review';
   const t = r.thread;
   if (t?.lastByMaintainer && recent(t.lastCommentAt, now)) return 'wait';
   // A question from a contributor outranks an open PR: anyone can open one that mentions the issue.

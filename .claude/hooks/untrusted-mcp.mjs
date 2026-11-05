@@ -64,7 +64,10 @@ export function wrapOutput(out) {
   if (Array.isArray(out)) return wrapBlocks(out);
   if (isObject(out) && Array.isArray(out.content)) {
     const content = wrapBlocks(out.content);
-    return content && { ...out, content };
+    if (!content) return undefined;
+    // structuredContent has a text copy in content (MCP spec); drop it so nothing unwrapped remains.
+    const { structuredContent: _, ...rest } = out;
+    return { ...rest, content };
   }
   return undefined;
 }

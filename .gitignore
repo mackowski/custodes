@@ -43,3 +43,6 @@ e2e/sandbox/.last-run.json
 
 # one-off benchmark data (third-party PR text and raw model answers)
 .bench/
+
+# Session state written when a session starts inside a Worker; the real one is .claude/ at the root.
+workers/*/.claude/

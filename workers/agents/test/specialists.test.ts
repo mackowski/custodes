@@ -1118,12 +1118,12 @@ describe('follow-up decided from the thread', () => {
     expect(followUp(r, now)).toBe('close');
   });
 
-  it('keeps the model recommendation when injection is detected', () => {
+  it('always gives an injection-flagged result a full review card', () => {
     const r = result({ thread: thread(true, ago(day)), injectionDetected: true }, keepRaw);
-    expect(r.recommendation).not.toBe('close');
-    expect(followUp(r, now)).toBe(r.recommendation);
+    expect(r.recommendation).toBe('keep');
+    expect(followUp(r, now)).toBe('review');
     const nonMaint = result({ thread: thread(false, ago(day)), injectionDetected: true }, keepRaw);
-    expect(followUp(nonMaint, now)).toBe(nonMaint.recommendation);
+    expect(followUp(nonMaint, now)).toBe('review');
   });
 
   it('waits after a maintainer comment under 14 days old', () => {
@@ -1375,5 +1375,17 @@ describe('digest sections from the thread', () => {
     const html = renderDigestHtml(input([{ issue: 5, result: flagged }]));
     expect(html).not.toContain('<details');
     expect(html).toContain('possible prompt injection');
+  });
+
+  it('never reduces a flagged "not implemented" result to a one-line entry', () => {
+    const flagged = {
+      ...waiting,
+      injectionDetected: true,
+      implemented: 'no' as const,
+      recommendation: 'keep' as const,
+    };
+    const d = renderDigest(input([{ issue: 5, result: flagged }]));
+    expect(d.text).not.toContain('Accepted issues still open work');
+    expect(d.text).toContain('review by hand (possible prompt injection; no comment suggested)');
   });
 });
