@@ -122,6 +122,11 @@ function isBot(c: IssueComment): boolean {
 const MAX_COMMENTS = 30;
 const MAX_THREAD_CHARS = 12_000;
 
+/** A comment body cannot start a line with the comment header and pose as another comment. */
+export function unheader(body: string): string {
+  return body.replace(/^(\s*)-{3}/gm, '$1- --');
+}
+
 /**
  * The last human comment. Null when there is none, or when the issue has more comments than were
  * read (the reader returns the first 100), since the real last comment is then unknown.
@@ -229,7 +234,7 @@ export function buildImplementationMessage(
     .slice(-MAX_COMMENTS)
     .map(
       (c) =>
-        `--- comment by @${safeLogin(c.user?.login)} on ${c.created_at.slice(0, 10)}\n${clip(c.body ?? '', 1500)}`,
+        `--- comment by @${safeLogin(c.user?.login)} on ${c.created_at.slice(0, 10)}\n${unheader(clip(c.body ?? '', 1500))}`,
     );
   // Over budget, the oldest comments go first: the newest say where the work stands.
   while (entries.length > 1 && entries.join('\n').length > MAX_THREAD_CHARS) entries.shift();
