@@ -74,10 +74,11 @@ sources" and "Security" on such a line is about wording the PR did not change: c
 existing text (not caused by this PR)", which never counts toward the verdict, and drops a
 suggestion there unless it only changes link targets. Every review with external links ends with a
 "Links checked" table (URL as code, new or moved, status). A target counts as moved only on the same site: the exact
-host (without www.), the same owner on GitHub hosts (github.com, gist, raw.githubusercontent.com,
-*.github.io), or the listed pair `github.com/OWASP` and `owasp.org`. Anything else, including
-other tenants of a shared host and lookalike domains, is audited as a new link. The table shows the
-previous URL. Link targets must have a known form (http(s), a sibling .md with an optional anchor,
+host (without www.), the same owner on owner-path hosts (github.com, gist, raw.githubusercontent.com,
+*.github.io, gitlab.com, bitbucket.org), or the listed pair `github.com/OWASP` and `owasp.org`. Anything else, including
+subdomain tenants of a shared host, archive copies (web.archive.org) and lookalike domains, is audited
+as a new link. The table shows the
+previous URL. Link targets must have a known form (http(s) with a plain host and no HTML entities, a sibling .md with an optional anchor,
 an anchor, an image under assets); anything else is a MAJOR "verify by hand" finding and makes the
 change content.
 

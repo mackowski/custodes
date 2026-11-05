@@ -63,7 +63,9 @@ export function maskedLine(text: string): string {
  */
 export function knownTargetForm(target: string): boolean {
   return (
-    /^https?:\/\/[^\s]+$/i.test(target) ||
+    // The host part is plain (no backslash, entity, @ or userinfo): what we fetch is what renders.
+    (/^https?:\/\/[A-Za-z0-9.-]+(?::\d{1,5})?(?:[/?#][^\s\\]*)?$/i.test(target) &&
+      !/&(#\d+|#x[0-9a-f]+|[a-z][a-z0-9]*);/i.test(target)) ||
     /^(\.\/)?[A-Za-z0-9_.-]+\.md(#[A-Za-z0-9_-]*)?$/.test(target) ||
     /^#[A-Za-z0-9_-]+$/.test(target) ||
     /^(\.\.\/)*(\.\/)?assets\/[A-Za-z0-9_./-]+\.(png|jpe?g|gif|svg|webp)$/i.test(target)
@@ -72,12 +74,27 @@ export function knownTargetForm(target: string): boolean {
 
 /** A GitHub organisation and the one domain it owns, for moves between the two (#2880). */
 const ORG_DOMAINS: Readonly<Record<string, string>> = { owasp: 'owasp.org' };
-const GITHUB_HOSTS = new Set(['github.com', 'gist.github.com', 'raw.githubusercontent.com']);
+/** Hosts where the first path segment is the owner: a different owner is a different site. */
+const OWNER_HOSTS = new Set([
+  'github.com',
+  'gist.github.com',
+  'raw.githubusercontent.com',
+  'gitlab.com',
+  'bitbucket.org',
+]);
+/** Hosts that serve anyone's copy of anything: never "the same site" as anything. */
+const NEVER_SAME = new Set(['web.archive.org', 'archive.org', 'archive.ph', 'archive.today']);
 
 /** "github:<owner>" for GitHub-hosted URLs, otherwise the exact host without a leading www. */
 function siteOf(u: URL): string {
   const host = u.hostname.toLowerCase().replace(/^www\./, '');
-  if (GITHUB_HOSTS.has(host)) return `github:${(u.pathname.split('/')[1] ?? '').toLowerCase()}`;
+  if (NEVER_SAME.has(host)) return '';
+  if (OWNER_HOSTS.has(host)) {
+    const owner = (u.pathname.split('/')[1] ?? '').toLowerCase();
+    // GitHub hosts share one owner namespace; GitLab and Bitbucket each have their own.
+    const ns = host === 'gitlab.com' || host === 'bitbucket.org' ? host : 'github';
+    return owner ? `${ns}:${owner}` : '';
+  }
   const pages = /^([a-z0-9-]+)\.github\.io$/.exec(host);
   if (pages) return `github:${pages[1] ?? ''}`;
   return host;
@@ -93,7 +110,7 @@ export function sameSite(a: string, b: string): boolean {
   try {
     const x = siteOf(new URL(a));
     const y = siteOf(new URL(b));
-    if (x === y) return x !== 'github:';
+    if (x === y) return x !== '';
     const pair = (g: string, h: string) => g.startsWith('github:') && ORG_DOMAINS[g.slice(7)] === h;
     return pair(x, y) || pair(y, x);
   } catch {
