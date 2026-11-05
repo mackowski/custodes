@@ -177,7 +177,23 @@ describe('scope.classify', () => {
       ['Set `Access-Control-Allow-Origin: https://app.example.com` on the API.'],
       ['Set `Access-Control-Allow-Origin: https://evil.example.net` on the API.'],
     );
-    expect(classify([scoped(p)])).not.toMatchObject({ class: 'links-only' });
+    expect(classify([scoped(p)])).toMatchObject({ kind: 'decided', class: 'content' });
+  });
+
+  it('treats an https to http change with a trailing slash as content', () => {
+    const p = patchOf(
+      ['Call the token endpoint at https://app.example.com over TLS.'],
+      ['Call the token endpoint at http://app.example.com/ over TLS.'],
+    );
+    expect(classify([scoped(p)])).toMatchObject({ kind: 'decided', class: 'content' });
+  });
+
+  it('keeps an https link move links-only when inline-code URLs are unchanged', () => {
+    const p = patchOf(
+      ['See [docs](https://old.example.com/a) and `https://api.example.com` for the API.'],
+      ['See [docs](https://new.example.com/b) and `https://api.example.com` for the API.'],
+    );
+    expect(classify([scoped(p)])).toMatchObject({ kind: 'decided', class: 'links-only' });
   });
 
   it('treats a one-letter typo fix as minor prose', () => {

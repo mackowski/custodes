@@ -40,21 +40,35 @@ function withoutUrls(s: string): string {
     .trim();
 }
 
+const URL_ANY = /https?:\/\/[^\s)<>"'`\]]+/gi;
+
+/** URLs inside inline code spans of a line (CORS origins, CSP sources, config values). */
+function codeUrls(t: string): string[] {
+  return [...t.matchAll(/`[^`\n]*`/g)].flatMap((m) => [...m[0].matchAll(URL_ANY)].map((u) => u[0]));
+}
+
 /**
- * A changed line that turns an https URL into http (same rest): a security change, never a link
- * move, whatever the rest of the line does (#92 review).
+ * A URL change that is a security change, never a link move or a minor edit (#92 review): an
+ * added http:// URL that was not there before, or a new URL inside inline code. Either sends the
+ * change to the full content review, so the security reviewers run.
  */
-function downgradesToHttp(added: readonly string[], removed: readonly string[]): boolean {
-  const secure = new Set(
-    removed.flatMap((t) =>
-      [...t.matchAll(/https:\/\/([^\s)<>"'`\]]+)/gi)].map((m) => (m[1] ?? '').toLowerCase()),
-    ),
+function securityRelevantUrlChange(
+  added: readonly string[],
+  removed: readonly string[],
+): string | null {
+  const before = new Set(
+    removed.flatMap((t) => [...t.matchAll(URL_ANY)].map((m) => m[0].toLowerCase())),
   );
-  return added.some((t) =>
-    [...t.matchAll(/http:\/\/([^\s)<>"'`\]]+)/gi)].some((m) =>
-      secure.has((m[1] ?? '').toLowerCase()),
-    ),
-  );
+  const beforeCode = new Set(removed.flatMap(codeUrls).map((u) => u.toLowerCase()));
+  if (
+    added.some((t) =>
+      [...t.matchAll(URL_ANY)].some((m) => /^http:/i.test(m[0]) && !before.has(m[0].toLowerCase())),
+    )
+  )
+    return 'an http:// URL was added';
+  if (added.some((t) => codeUrls(t).some((u) => !beforeCode.has(u.toLowerCase()))))
+    return 'a URL inside inline code changed';
+  return null;
 }
 
 /** Line numbers inside ``` or ~~~ fences (fence lines included) of a Markdown file. */
@@ -111,8 +125,8 @@ export function classify(files: readonly ScopedFile[]): Scope {
 
   const a = added.map(({ l }) => l.text);
   const r = removed.map((l) => l.text);
-  if (downgradesToHttp(a, r))
-    return { kind: 'decided', class: 'content', why: 'an https URL changed to http' };
+  const securityUrl = securityRelevantUrlChange(a, r);
+  if (securityUrl) return { kind: 'decided', class: 'content', why: securityUrl };
   if (
     a.length > 0 &&
     a.length === r.length &&
