@@ -211,3 +211,32 @@ the sandbox posts directly for quick end-to-end runs. Preconditions met: all eva
 sandbox end-to-end runs, and the approval link run on sandbox#64. Operator steps before merging:
 `PAT_CHEATSHEET_REVIEW` becomes a classic `public_repo` PAT, the label exists on OWASP, and the
 OWASP maintainers are told.
+
+## Amendment (2026-11-05): earlier maintainer requests and size facts (#91)
+
+On OWASP/CheatSheetSeries#2860 an earlier maintainer review asked for five changes; two were still
+open on the reviewed commit and the agent missed both, because the reviewers never saw the PR
+conversation. Nothing told them the sheet had grown from 1,334 to 2,132 words either.
+
+- **Policy widening:** `reads.cheatsheet-review.resources` gains `comments` (the PR conversation)
+  and a new read resource `pull_reviews` (`GET /repos/{r}/pulls/{n}/reviews`, review summaries).
+  Both are GET-only, through `PAT_READONLY`, on the same two repositories. `pull_reviews` is added
+  to `ReadResource` and the broker's path builder; no other agent is granted it.
+- Code keeps only comments and review summaries by OWNER, MEMBER or COLLABORATOR (the
+  `author_association` filter of ADR 0013), drops bots, empty bodies, pending reviews, the PR author's own
+  comments, and anything an agent posted (the broker's `Custodes-Agent:` trailer or this agent's
+  notice), keeps only each maintainer's own words (quoted lines removed), and keeps the newest 10.
+  When the thread has more than 100 comments or reviews, the judge is told the newest were not read. The judge gets them
+  in `untrusted('github:pr#N:maintainer-requests')` with code-built headers and every body line
+  quoted, 1,500 characters each and 8,000 in all. Reviewers do not get them.
+- The judge returns `earlierRequests` (at most 5: who, the request, addressed/open/unclear) and
+  treats an open request as a finding. Code drops any entry whose author is not one of the shown
+  maintainers. The review lists them under "Earlier maintainer requests" with the login as a code
+  span, so nobody is notified by mention.
+- Process facts gain a size line per modified sheet (words, lines, code blocks on the default
+  branch and at the head), read with the existing `cheatsheet` resource.
+- A failed read of comments or reviews leaves the requests out; the review still runs.
+- **Accepted risk:** `MEMBER` covers every OWASP organisation member, as in ADR 0010; a member's
+  comment can shape the judge's list. The list is advisory, the review is approved by the operator
+  before it is posted on OWASP, and the comment text is data inside an envelope. Owner: the
+  maintainer.

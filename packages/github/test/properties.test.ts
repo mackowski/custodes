@@ -45,6 +45,7 @@ const request = fc.record({
     'timeline',
     'comments',
     'pull_files',
+    'pull_reviews',
     'cheatsheet',
     'pulls',
     'pull',

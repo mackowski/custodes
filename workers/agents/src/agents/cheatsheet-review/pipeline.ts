@@ -321,7 +321,14 @@ export async function reviewPipeline(snap: Snapshot, deps: PipelineDeps): Promis
         x.role === 'link-auditor'),
   );
   const scoped = (d: ReviewDecision): ReviewDecision => {
-    const n = normaliseDecision(d, reviewerBlocked, targetOnly);
+    // #91: an entry must name a maintainer whose request was shown; anything else is dropped.
+    const shown = new Set((snap.requests ?? []).map((r) => r.by.toLowerCase()));
+    const earlierRequests = d.earlierRequests
+      .map((e) => ({ ...e, by: e.by.replace(/^@/, '') }))
+      .filter((e) => shown.has(e.by.toLowerCase()));
+    // An open maintainer request blocks the promotion of REQUEST_CHANGES to MERGE.
+    const open = earlierRequests.some((e) => e.status === 'open');
+    const n = normaliseDecision({ ...d, earlierRequests }, reviewerBlocked || open, targetOnly);
     return {
       ...n,
       suggestions: n.suggestions.filter((x) => suggestionInScope(x, snap, targetOnly)),

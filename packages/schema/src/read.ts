@@ -18,6 +18,8 @@ export const ReadResource = z.enum([
   'comments',
   /** Files changed by a pull request (needs `number`). */
   'pull_files',
+  /** A pull request's reviews: author, association, state and summary body (needs `number`). */
+  'pull_reviews',
   /** One cheat sheet's content (needs `file`). */
   'cheatsheet',
   /** Pull requests (state, sort, direction and paging honoured). */
@@ -38,6 +40,7 @@ export const NUMBERED_RESOURCES: readonly ReadResource[] = [
   'timeline',
   'comments',
   'pull_files',
+  'pull_reviews',
   'pull',
 ];
 

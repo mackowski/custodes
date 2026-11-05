@@ -101,6 +101,17 @@ export const ReviewDecision = z.object({
   nits: z.array(Item).max(3),
   /** #89: noticed in text the pull request did not change. Never a finding, a suggestion or a reason. */
   outOfScope: z.array(Item).max(3).default([]),
+  /** #91: each earlier maintainer request and whether the current diff addresses it. */
+  earlierRequests: z
+    .array(
+      z.object({
+        by: z.string().max(60),
+        request: z.string().min(1).max(300),
+        status: z.enum(['addressed', 'open', 'unclear']),
+      }),
+    )
+    .max(5)
+    .default([]),
   suggestions: z.array(Suggestion.extend({ rationale: z.string().max(400) })).max(20),
   /** The contribution is not worth the author's or the maintainers' time in its current form. */
   lowQuality: z.boolean(),

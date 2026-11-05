@@ -6,7 +6,7 @@
 - Class: `workers/agents/src/agents/cheatsheet-review.ts` · Logic: `workers/agents/src/agents/cheatsheet-review/`
 - Policy: `agents.cheatsheet-review` (`pr.review.inline`, `issue.label.remove` limited to the trigger
   label, 20/h; `pr.review.inline` needs the operator's approval on OWASP, `requiresApprovalOn`) and `reads.cheatsheet-review` (`pull`, `pull_files`, `pull_file_at_ref`, `timeline`,
-  `issue`, `cheatsheets`, `cheatsheet`). ADR 0017.
+  `issue`, `cheatsheets`, `cheatsheet`, `comments`, `pull_reviews`). ADR 0017 and its 2026-11-05 amendment.
 
 ## Purpose
 
@@ -63,6 +63,13 @@ over the upstream file or line limits without a linked issue is a code-written "
 `#N`, issue URLs and "issue N" in the body (`refs.ts`; pr-gate's parser is unchanged). A
 suggestion that cannot be placed inline is listed with its replacement text in a code block, links
 defanged and mentions neutralised, so it can be applied by hand.
+
+**Earlier maintainer requests** (#91): the judge also sees the PR conversation comments and review
+summaries by maintainers (OWNER, MEMBER, COLLABORATOR; not bots, not the PR author, nothing an agent
+posted, quoted lines removed),
+the newest 10, enveloped and quoted, and reports each request as addressed, open or unclear. The
+review lists them with logins as code spans. Process facts include each modified sheet's size
+before and after. ADR 0017 amendment 2026-11-05.
 
 **Moved links** (#89): in each hunk, code pairs an added line with a removed line that is equal
 once Markdown link targets are masked (a bare URL, as in code samples or CORS and CSP values, is

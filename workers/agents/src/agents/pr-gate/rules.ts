@@ -125,7 +125,8 @@ export interface MaintainerComment {
 export const COMMENTS_PAGE = 100;
 
 /** The agents' own trailer block (an HTML comment, one field per line); quotes cannot fake it. */
-const AGENT_TRAILER = /^Custodes-Agent: [a-z0-9-]+@/m;
+/** The broker appends this to every comment and review it posts; an agent cannot leave it out. */
+export const AGENT_TRAILER = /^Custodes-Agent: [a-z0-9-]+@/m;
 
 /**
  * Comments by OWNER, MEMBER or COLLABORATOR in the given threads, oldest first per thread, those

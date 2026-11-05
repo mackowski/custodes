@@ -37,6 +37,16 @@ export const IssueComment = z.looseObject({
 });
 export type IssueComment = z.infer<typeof IssueComment>;
 
+/** A pull request review (#91). The body is untrusted; author_association is set by GitHub. */
+export const PullReview = z.looseObject({
+  user: z.looseObject({ login: z.string(), type: z.string().optional() }).nullable(),
+  body: z.string().nullable().optional(),
+  state: z.string(),
+  submitted_at: z.string().nullable().optional(),
+  author_association: z.string().optional(),
+});
+export type PullReview = z.infer<typeof PullReview>;
+
 const ContentFile = z.looseObject({
   type: z.literal('file'),
   encoding: z.literal('base64'),
@@ -280,6 +290,11 @@ export class BrokerGitHubReader {
       if (batch.length < 100) break;
     }
     return out;
+  }
+
+  /** A pull request's reviews, oldest first (the first 100). */
+  async listPullReviews(repo: string, number: number): Promise<PullReview[]> {
+    return this.read(repo, 'pull_reviews', { per_page: 100 }, z.array(PullReview), { number });
   }
 
   /** 100 comments, oldest first: the first page, or `page` (1-10). */
