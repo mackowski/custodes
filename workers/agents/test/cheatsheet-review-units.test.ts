@@ -299,6 +299,14 @@ describe('scope.classify', () => {
     expect(classify([scoped(p)])).not.toMatchObject({ class: 'links-only' });
   });
 
+  it('treats a changed link title as text, not a link change (#92 round 12)', () => {
+    const p = patchOf(
+      ['See [x](https://a.example "Never store passwords in plain text").'],
+      ['See [x](https://b.example "Storing passwords in plain text is fine").'],
+    );
+    expect(classify([scoped(p)])).toEqual({ kind: 'ambiguous' });
+  });
+
   it('reviews a PR with unread files as content', () => {
     const p = patchOf(
       ['See [docs](https://old.example.com/a).'],
@@ -1901,6 +1909,17 @@ describe('links.scanLinks', () => {
     expect(r.links.map((l) => l.url).sort()).toEqual([
       'https://new.example/a',
       'https://new.example/b',
+    ]);
+  });
+
+  it('audits Markdown links MD_LINK cannot parse (single-quoted or parenthesised title)', () => {
+    const r = scan(
+      '-Old.',
+      "+See [x](https://evil.example/a 'T') and [y](https://evil.example/b (T)).",
+    );
+    expect(r.links.map((l) => l.url).sort()).toEqual([
+      'https://evil.example/a',
+      'https://evil.example/b',
     ]);
   });
 
