@@ -52,7 +52,6 @@ import {
 import {
   classify,
   fencedLines,
-  sameWords,
   REVIEWERS_FOR,
   type ScopedFile,
 } from '../src/agents/cheatsheet-review/scope.js';
@@ -225,12 +224,38 @@ describe('scope.classify', () => {
     expect(classify([scoped(p)])).toMatchObject({ kind: 'decided', class: 'links-only' });
   });
 
-  it('decides minor prose only when the words stay the same (punctuation or spacing)', () => {
+  it('never decides minor prose in code: small edits go to the classifier (#92 round 7)', () => {
+    const pairs: [string, string][] = [
+      [
+        'Always validate the input on the server side',
+        'Always validate the input, on the server side.',
+      ],
+      ['Expire idle sessions after <= 15 minutes.', 'Expire idle sessions after >= 15 minutes.'],
+      [
+        'Do not store session tokens in localStorage.',
+        'Do <!-- not --> store session tokens in localStorage.',
+      ],
+      [
+        'Set Access-Control-Allow-Origin to https://app.example.com only.',
+        'Set Access-Control-Allow-Origin to * only.',
+      ],
+    ];
+    for (const [before, after] of pairs)
+      expect(classify([scoped(patchOf([before], [after]))])).not.toMatchObject({
+        class: 'minor-prose',
+      });
+  });
+
+  it('reviews a PR with unread files as content', () => {
     const p = patchOf(
-      ['Always validate the input on the server side'],
-      ['Always validate the input, on the server side.'],
+      ['See [docs](https://old.example.com/a).'],
+      ['See [docs](https://new.example.com/b).'],
     );
-    expect(classify([scoped(p)])).toMatchObject({ kind: 'decided', class: 'minor-prose' });
+    expect(classify([scoped(p)], 1)).toMatchObject({
+      kind: 'decided',
+      class: 'content',
+      why: '1 changed file(s) were not read',
+    });
   });
 
   it("sends a one-letter typo fix to the classifier (any word change is the model's call)", () => {
@@ -2043,12 +2068,6 @@ describe('#93: small edits that flip guidance, indented code', () => {
       expect(classify([scoped(patchOf([before], [after]))])).not.toMatchObject({
         class: 'minor-prose',
       });
-  });
-
-  it('sameWords compares letters and digits, case-sensitively', () => {
-    expect(sameWords('Use TLS, always.', 'Use TLS always')).toBe(true);
-    expect(sameWords('Use TLS 1.2 or later.', 'Use TLS 1.3 or later.')).toBe(false);
-    expect(sameWords('Match \\w only.', 'Match \\W only.')).toBe(false);
   });
 
   it('sees a case change inside inline code', () => {

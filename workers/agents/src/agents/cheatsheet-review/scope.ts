@@ -116,12 +116,6 @@ export function fencedLines(markdown: string): Set<number> {
   return out;
 }
 
-/** True when two lines have the same words (letters and digits, case-sensitive, in order). */
-export function sameWords(before: string, after: string): boolean {
-  const words = (t: string) => (t.match(/[\p{L}\p{N}]+/gu) ?? []).join(' ');
-  return words(before) === words(after);
-}
-
 /** Edit similarity of two lines in [0, 1] (Levenshtein, bounded to short lines). */
 export function similarity(a: string, b: string): number {
   if (a === b) return 1;
@@ -139,7 +133,14 @@ export function similarity(a: string, b: string): number {
   return 1 - (prev[b.length] ?? 0) / Math.max(a.length, b.length);
 }
 
-export function classify(files: readonly ScopedFile[]): Scope {
+export function classify(files: readonly ScopedFile[], unreviewedFiles = 0): Scope {
+  // Files GitHub did not return (beyond the first 100) were never looked at: full review.
+  if (unreviewedFiles > 0)
+    return {
+      kind: 'decided',
+      class: 'content',
+      why: `${unreviewedFiles} changed file(s) were not read`,
+    };
   const sheets = files.filter((f) => isSheet(f.file.filename));
   if (sheets.length === 0)
     return { kind: 'decided', class: 'out-of-scope', why: 'no cheat sheet changed' };
@@ -178,14 +179,10 @@ export function classify(files: readonly ScopedFile[]): Scope {
   const changed = a.length + r.length;
   if (changed > AMBIGUOUS_MAX_LINES)
     return { kind: 'decided', class: 'content', why: `${changed} lines changed` };
-  // #93: code decides minor-prose only when every changed line keeps the same words (letters and
-  // digits, case-sensitive): punctuation or spacing. Any word change, however small ("12" for
-  // "128", "SHA-1" for "SHA-256", "Never" for "Always"), goes to the scope classifier.
-  if (
-    a.length === r.length &&
-    a.every((t, i) => sameWords(withoutUrls(t), withoutUrls(r[i] ?? '')))
-  )
-    return { kind: 'decided', class: 'minor-prose', why: 'only punctuation or spacing changed' };
+  // #93, #92 review rounds 6-7: code never decides minor-prose. Every textual rule tried here had a
+  // way around it ("<=" to ">=", a hidden "<!-- not -->", an origin to "*", a line moved between
+  // lists), and each skipped both security voices. Any small prose edit goes to the scope
+  // classifier, which falls back to content when it is unavailable.
   return { kind: 'ambiguous' };
 }
 
