@@ -1,2 +1,0 @@
-- [ADR 0016 trace payloads](project_adr0016_trace_payloads.md) — payload recording is an accepted decision; review only its boundaries; open items from 2026-10-29
-- [Review patterns](feedback_review_patterns.md) — no-op wrapper args still evaluate, error-id sanitizer fields, break/continue moved into callbacks
