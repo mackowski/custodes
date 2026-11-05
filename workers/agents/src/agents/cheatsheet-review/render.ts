@@ -52,7 +52,7 @@ const NONE: ReadonlySet<string> = new Set();
 
 /** Link-like or mention-like tokens a suggestion must not add to the cheat sheet. */
 const RISKY =
-  /https?:\/\/[^\s)<>"'\]]+|\bwww\.[^\s)<>"'\]]+|(?:^|[\s(])\/\/[^\s)<>"'\]]+|@[A-Za-z0-9][A-Za-z0-9-]*|<\/?[A-Za-z][^>]*>/g;
+  /https?:\/\/[^\s)<>"'\]]+|\bwww\.[^\s)<>"'\]]+|(?:^|[\s(])\/\/[^\s)<>"'\]]+|@[A-Za-z0-9][A-Za-z0-9-]*|<\/?[A-Za-z][^>]*>/gi;
 
 /** Risky tokens in `replacement` that the replaced text does not already contain. */
 export function addedRisk(replacement: string, current: string): string[] {
@@ -76,7 +76,8 @@ export interface InlineComment {
 export interface CheckedSuggestions {
   comments: InlineComment[];
   /** Suggestions that could not be placed on the diff, rendered in the body instead. */
-  rejected: { file: string; line: number; why: string }[];
+  /** `text`: the proposed replacement, shown inert so a maintainer can apply it by hand (#79.5). */
+  rejected: { file: string; line: number; why: string; text: string }[];
 }
 
 /** The current text of new-side lines `start..end`, when the hunks show all of them. */
@@ -97,7 +98,8 @@ export function checkSuggestions(
   for (const s of suggestions) {
     const hunks = hunksByFile.get(s.file);
     const start = s.startLine ?? s.line;
-    const reject = (why: string) => out.rejected.push({ file: s.file, line: s.line, why });
+    const reject = (why: string) =>
+      out.rejected.push({ file: s.file, line: s.line, why, text: s.replacement });
     if (!hunks) {
       reject('file not in this pull request');
       continue;
@@ -173,16 +175,49 @@ export function dimensionsNotRun(outcomes: readonly RoleOutcome[]): Set<Dimensio
   return out;
 }
 
+/** Error classes (never error text) in words an operator reads at a glance. */
+export function readableWhy(why: string): string {
+  const parts = why.split('; ').map((p) => {
+    if (p.includes('max_tokens')) return 'reasoning used the whole token budget';
+    if (p.includes('refusal')) return 'the model refused';
+    if (/\b429\b/.test(p)) return 'rate limited';
+    if (/\b(408|504)\b|timeout/i.test(p)) return 'timed out';
+    if (p.includes('StructuredOutputError')) return 'answer did not parse';
+    return p;
+  });
+  return parts.join('; ').slice(0, 120);
+}
+
 export function modelLine(o: RoleOutcome): string {
   const label = ROLE_LABEL[o.role];
   switch (o.status) {
     case 'ran':
       return `${label}: ${model(o.model).id}`;
     case 'fallback':
-      return `${label}: ~~${model(o.failed).id}~~ (unavailable: ${o.why.slice(0, 60)}) → ${model(o.model).id}`;
+      return `${label}: ~~${model(o.failed).id}~~ (unavailable: ${readableWhy(o.why)}) → ${model(o.model).id}`;
     case 'unavailable':
-      return `${label}: unavailable (${LINEUP[o.role].primary}, ${LINEUP[o.role].fallback})`;
+      return `${label}: unavailable (${LINEUP[o.role].primary}, ${LINEUP[o.role].fallback}: ${readableWhy(o.why)})`;
   }
+}
+
+const INVISIBLE_CHARS = /[\p{Cc}\p{Cf}]/gu;
+
+/**
+ * Model text shown in a code block for a human to copy: no hidden characters, every link, `//host`,
+ * mention and HTML tag the suggestion checks reject replaced by "[removed]" (the text is meant to be
+ * pasted, so a defanged link would still carry the attacker's target), no run of four backticks
+ * that could close the block, at most 600 characters with a visible marker when clipped.
+ */
+export function inertCode(s: string): string {
+  const clipped = s.length > 600;
+  const text = s
+    .slice(0, 600)
+    .split(/\r\n|[\n\r\u2028\u2029]/)
+    .map((l) => l.replace(INVISIBLE_CHARS, ' ').trimEnd())
+    .join('\n')
+    .replace(RISKY, (m) => (/^[\s(]/.test(m) ? `${m[0]}[removed]` : '[removed]'))
+    .replace(/`{4,}/g, '```');
+  return clipped ? `${text}\n…(clipped)` : text;
 }
 
 /** Whether to ask for changes: only for a security or links BLOCKER, never on one's own PR. */
@@ -209,6 +244,8 @@ export interface ReviewBodyInput {
   facts: string;
   rejected: CheckedSuggestions['rejected'];
   linkNotes: readonly string[];
+  /** #89: every external link that was checked (code statuses or the auditor's enum). */
+  linkChecks?: readonly { url: string; moved: boolean; status: string; previous?: string }[];
   allowed: ReadonlySet<string>;
 }
 
@@ -279,6 +316,29 @@ export function reviewBody(r: ReviewBodyInput): string {
   if (d.verdict !== 'CLOSE') {
     lines.push(...items('Should-fix', d.shouldFix, a), ...items('Nits', d.nits, a));
   }
+  if (d.outOfScope.length > 0)
+    lines.push(
+      '### Noticed in existing text (not caused by this PR)',
+      '',
+      ...d.outOfScope.map(
+        (i) =>
+          `- \`${inertText(i.file, 200).replace(/`/g, '')}${i.line ? `:${i.line}` : ''}\`: ${inertMarkdown(i.text, a)}`,
+      ),
+      '',
+    );
+  const checks = r.linkChecks ?? [];
+  if (checks.length > 0)
+    lines.push(
+      '### Links checked',
+      '',
+      '| Link | Change | Status |',
+      '| --- | --- | --- |',
+      ...checks.map(
+        (c) =>
+          `| \`${tableCell(inertText(c.url, 300).replace(/`/g, ''))}\` | ${c.moved && c.previous ? `moved from \`${tableCell(inertText(c.previous, 300).replace(/`/g, ''))}\`` : c.moved ? 'moved' : 'new'} | ${tableCell(inertText(c.status, 40))} |`,
+      ),
+      '',
+    );
   if (r.linkNotes.length > 0)
     lines.push(
       '### Links to verify manually',
@@ -290,9 +350,20 @@ export function reviewBody(r: ReviewBodyInput): string {
     lines.push(
       '### Suggestions not placed inline',
       '',
-      ...r.rejected.map(
-        (x) => `- \`${inertText(x.file, 200).replace(/`/g, '')}:${x.line}\`: ${x.why}`,
-      ),
+      ...r.rejected.flatMap((x) => [
+        `- \`${inertText(x.file, 200).replace(/`/g, '')}:${x.line}\`: ${x.why}`,
+        ...(x.text.trim()
+          ? [
+              '',
+              '  ````text',
+              ...inertCode(x.text)
+                .split('\n')
+                .map((l) => `  ${l}`),
+              '  ````',
+              '',
+            ]
+          : []),
+      ]),
       '',
     );
   }

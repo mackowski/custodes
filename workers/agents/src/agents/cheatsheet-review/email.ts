@@ -166,15 +166,24 @@ export function approvalMail(input: {
   event: 'COMMENT' | 'REQUEST_CHANGES';
   suggestions: number;
   expiresAt: string;
+  /** Reviewer roles that saw instruction-like text in the pull request (code-built names). */
+  injectionRoles?: readonly string[];
 }): Mail {
   const { repo, pull } = input;
   const facts = `Verdict ${input.verdict}, posted as ${input.event}, ${input.suggestions} inline suggestion(s).`;
+  const roles = (input.injectionRoles ?? []).filter((r) => /^[a-z-]{1,40}$/.test(r));
+  const injection = roles.length
+    ? [
+        `Possible prompt injection seen by: ${roles.join(', ')}. Read the pull request with that in mind.`,
+      ]
+    : [];
   const subject = `[custodes] cheatsheet-review: approve the review of ${repo}#${pull}`;
   return {
     subject,
     text: [
       `The review of ${repo}#${pull} is ready and is not posted yet.`,
       facts,
+      ...injection,
       '',
       `Open it, read it, and approve or reject: ${input.link}`,
       `Pull request: ${pullUrl(repo, pull)}`,
@@ -188,6 +197,7 @@ export function approvalMail(input: {
         ` is ready and is not posted yet.`,
       ],
       [facts],
+      ...injection.map((l) => [l]),
       [{ href: input.link, label: 'Open the review to approve or reject it' }],
       [
         `The link works once, only for you (Cloudflare Access), until ${input.expiresAt}. Opening it posts nothing; only the Approve button does.`,

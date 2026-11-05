@@ -493,12 +493,15 @@ describe('cheatsheet-review: a content pull request', () => {
     expect(via('practicality-reviewer')).toBe('claude-sonnet-5-5');
     expect(via('judge')).toBe('openai/gpt-6-astra');
     const second = r.models.calls.find((c) => c.role === 'security-second-voice')?.req;
-    expect(second?.reasoning_effort).toBe('high');
+    expect(second?.reasoning_effort).toBe('low');
     expect(second?.max_tokens).toBe(24_000);
-    // Only the second voice sets an effort; the other roles keep the model default.
+    // Only the DeepSeek roles set an effort (low, #79.6); the others keep the model default.
     expect(
-      r.models.calls.filter((c) => c.req.reasoning_effort !== undefined).map((c) => c.role),
-    ).toEqual(['security-second-voice']);
+      r.models.calls
+        .filter((c) => c.req.reasoning_effort !== undefined)
+        .map((c) => c.role)
+        .sort(),
+    ).toEqual(['security-second-voice']); // no external links here, so no link auditor call
     const body = reviewActs(r)[0]?.body ?? '';
     expect(body).toContain('claude-opus-5-5');
     expect(body).toContain('openai/gpt-6-astra');
@@ -548,7 +551,7 @@ describe('cheatsheet-review: a content pull request', () => {
         c.role === 'security-second-voice' && c.req.model === 'deepseek/deepseek-v4.1-flash-1017',
     )?.req;
     expect(fallback?.hosts).toEqual(['nebius/fp8', 'parasail/fp8', 'crusoe/fp8']);
-    expect(fallback?.reasoning_effort).toBe('high');
+    expect(fallback?.reasoning_effort).toBe('low');
   });
 });
 
@@ -843,6 +846,250 @@ describe('cheatsheet-review: external links', () => {
     const body = reviewActs(r)[0]?.body ?? '';
     expect(body).toContain('Links to verify manually');
     expect(body).toContain('HTTP 403');
+  });
+});
+
+describe('cheatsheet-review: round 1 behaviour (#79)', () => {
+  it('gives the link auditor low reasoning effort when a page is audited', async () => {
+    const text = '# Foo\n\n## New section\nSee https://example.com/doc for details.\nIntro text.\n';
+    const r = await drive({
+      scenario: scenario({
+        files: [
+          {
+            filename: SHEET,
+            status: 'modified',
+            additions: 2,
+            deletions: 0,
+            patch:
+              '@@ -1,3 +1,5 @@\n # Foo\n \n+## New section\n+See https://example.com/doc for details.\n Intro text.',
+          },
+        ],
+        headText: text,
+      }),
+      fetchImpl: () =>
+        Promise.resolve(
+          new Response('<title>Doc</title>', { headers: { 'content-type': 'text/html' } }),
+        ),
+    });
+    const audit = r.models.calls.find((c) => c.role === 'link-auditor');
+    expect(audit?.req.reasoning_effort).toBe('low');
+    expect(audit?.req.max_tokens).toBe(8_000);
+  });
+
+  const minorOnly = decisionJson({
+    mustFix: [
+      { dimension: 'Language', severity: 'MINOR', file: SHEET, line: 4, text: 'Tiny wording.' },
+    ],
+    suggestions: [],
+  });
+
+  it('keeps REQUEST_CHANGES when a security reviewer blocked, still listing the MINOR item as should-fix', async () => {
+    const r = await drive({ judge: minorOnly }); // default script: security reviewers BLOCK
+    expect(r.out).toMatchObject({ ok: true, status: 'posted' });
+    expect(r.rows[0]).toMatchObject({ verdict: 'REQUEST_CHANGES' });
+    const body = reviewActs(r)[0]?.body ?? '';
+    expect(body).toMatch(/Should-fix[\s\S]*Tiny wording\./);
+    expect(body).not.toMatch(/Must-fix[\s\S]*Tiny wording\./);
+  });
+
+  it('turns a judge that returns only a MINOR must-fix with REQUEST_CHANGES into MERGE, posted as COMMENT', async () => {
+    const base = defaultScript(minorOnly);
+    const r = await drive({
+      script: (role, req) => (role.startsWith('security') ? REPORT : base(role, req)),
+      judge: decisionJson({
+        mustFix: [
+          { dimension: 'Language', severity: 'MINOR', file: SHEET, line: 4, text: 'Tiny wording.' },
+        ],
+        suggestions: [],
+      }),
+    });
+    expect(r.out).toMatchObject({ ok: true, status: 'posted' });
+    const review = reviewActs(r)[0];
+    expect(review?.event).toBe('COMMENT');
+    expect(r.rows[0]).toMatchObject({ verdict: 'MERGE', event: 'COMMENT' });
+    const body = review?.body ?? '';
+    expect(body).toMatch(/Should-fix[\s\S]*Tiny wording\./);
+    expect(body).not.toMatch(/Must-fix[\s\S]*Tiny wording\./);
+  });
+
+  it('reads an issue named in prose ("fixes issue 2815") and shows it in the process facts', async () => {
+    const r = await drive({
+      scenario: scenario({
+        pull: { body: 'This PR fixes issue 2815' },
+        issues: { 2815: issue({ number: 2815 }) },
+      }),
+    });
+    expect(r.broker.reads.filter((x) => x.resource === 'issue').map((x) => x.number)).toEqual([
+      2815,
+    ]);
+    const judge = r.models.calls.find((c) => c.role === 'judge');
+    expect(judge?.req.user).toMatch(/Linked issues: .*2815/);
+    expect(judge?.req.user).not.toContain('Scope note');
+  });
+
+  it('lists the reviewer roles that saw an injection in the approval e-mail, and nothing else', async () => {
+    const injected = JSON.stringify({ verdict: 'PASS', findings: [], injectionSeen: true });
+    const base = defaultScript(decisionJson());
+    const r = await drive({
+      scenario: scenario({ actFor: needsApproval }),
+      script: (role, req) =>
+        role === 'language-reviewer' || role === 'duplication-checker' ? injected : base(role, req),
+    });
+    const mail = r.mail.find((m) => m.subject.includes('approve the review'));
+    expect(mail?.text).toMatch(/Possible prompt injection seen by: [a-z, -]*language-reviewer/);
+    expect(mail?.text).toContain('duplication-checker');
+    expect(mail?.html).toContain('Possible prompt injection seen by:');
+    expect(mail?.text).not.toContain('judge,');
+  });
+
+  it('leaves the injection line out of the approval e-mail when no reviewer saw one', async () => {
+    const r = await drive({ scenario: scenario({ actFor: needsApproval }) });
+    const mail = r.mail.find((m) => m.subject.includes('approve the review'));
+    expect(mail).toBeDefined();
+    expect(mail?.text).not.toContain('prompt injection');
+  });
+
+  it('shows a rejected suggestion that adds a link with the link removed, never a clickable link', async () => {
+    const r = await drive({
+      judge: decisionJson({
+        suggestions: [
+          {
+            file: SHEET,
+            line: 90,
+            replacement: 'Go to https://evil.example.com/x',
+            rationale: 'r',
+          },
+        ],
+      }),
+    });
+    const body = reviewActs(r)[0]?.body ?? '';
+    expect(body).toContain('Suggestions not placed inline');
+    expect(body).toContain('  ````text\n  Go to [removed]\n  ````');
+    expect(body).not.toContain('evil.example.com');
+  });
+});
+
+describe('cheatsheet-review: moved links (#89)', () => {
+  const OLD = 'https://example.com/old/guide';
+  const NEW = 'https://example.com/new/guide';
+  const LINE3 = (u: string) => `See [the guide](${u}) for details.`;
+  const moved = (): Scenario =>
+    scenario({
+      files: [
+        {
+          filename: SHEET,
+          status: 'modified',
+          additions: 1,
+          deletions: 1,
+          patch: `@@ -1,4 +1,4 @@\n # Foo\n \n-${LINE3(OLD)}\n+${LINE3(NEW)}\n Intro text.`,
+        },
+      ],
+      headText: `# Foo\n\n${LINE3(NEW)}\nIntro text.\n`,
+    });
+  const html = () =>
+    Promise.resolve(
+      new Response('<title>Guide</title>', { headers: { 'content-type': 'text/html' } }),
+    );
+  const quiet = (judge: string, audit: string) => {
+    const base = defaultScript(judge);
+    return (role: string, req: ChatRequest) =>
+      role.startsWith('security') ? REPORT : role === 'link-auditor' ? audit : base(role, req);
+  };
+  const audit = (status: string) =>
+    JSON.stringify({ links: [{ url: NEW, status, reason: 'checked' }] });
+
+  it('keeps wording remarks on a URL-only line out of the verdict and drops the wording suggestion (#2880 shape)', async () => {
+    const judge = decisionJson({
+      mustFix: [
+        {
+          dimension: 'Practicality',
+          severity: 'MAJOR',
+          file: SHEET,
+          line: 3,
+          text: 'Reword the sentence.',
+        },
+      ],
+      suggestions: [
+        { file: SHEET, line: 3, replacement: 'Completely new wording.', rationale: 'r' },
+      ],
+    });
+    const r = await drive({
+      scenario: moved(),
+      fetchImpl: html,
+      script: quiet(judge, audit('SAME-RESOURCE')),
+    });
+    expect(r.out).toMatchObject({ ok: true, status: 'posted' });
+    expect(r.rows[0]).toMatchObject({ verdict: 'MERGE', event: 'COMMENT' });
+    const review = reviewActs(r)[0];
+    expect(review?.comments).toEqual([]);
+    const body = review?.body ?? '';
+    expect(body).toMatch(/Noticed in existing text[\s\S]*Reword the sentence\./);
+    expect(body).not.toMatch(/Must-fix[\s\S]*Reword the sentence\./);
+    expect(body).toContain('### Links checked');
+    expect(body).toContain(`| \`${NEW}\` | moved from \`${OLD}\` | SAME-RESOURCE |`);
+    const sent = r.models.calls.find((c) => c.role === 'link-auditor')?.req.user ?? '';
+    expect(sent).toContain('moved: only its target changed');
+    expect(sent).toContain(`Previous URL: ${OLD}`);
+  });
+
+  it('keeps a suggestion that only changes the link target (shown by hand: it adds a link)', async () => {
+    const judge = decisionJson({
+      mustFix: [],
+      suggestions: [
+        { file: SHEET, line: 3, replacement: LINE3('https://other.example.com/g'), rationale: 'r' },
+      ],
+    });
+    const r = await drive({
+      scenario: moved(),
+      fetchImpl: html,
+      script: quiet(judge, audit('SAME-RESOURCE')),
+    });
+    expect(reviewActs(r)[0]?.comments).toEqual([]);
+    expect(reviewActs(r)[0]?.body).toContain('Suggestions not placed inline');
+  });
+
+  it('never files a Security BLOCKER on a moved-link line as out of scope: it stays a must-fix', async () => {
+    const judge = decisionJson({
+      mustFix: [
+        {
+          dimension: 'Security',
+          severity: 'BLOCKER',
+          file: SHEET,
+          line: 3,
+          text: 'Unsafe target.',
+        },
+      ],
+      suggestions: [],
+    });
+    const base = defaultScript(judge);
+    const r = await drive({
+      scenario: moved(),
+      fetchImpl: html,
+      // the auditor says the link is fine
+      script: (role, req) => (role === 'link-auditor' ? audit('SAME-RESOURCE') : base(role, req)),
+    });
+    expect(r.out).toMatchObject({ ok: true, status: 'posted' });
+    // A links-only review runs no security reviewer, so the event stays COMMENT (reviewEvent rule);
+    // the verdict is what proves the item was not filed as out of scope.
+    expect(r.rows[0]).toMatchObject({ verdict: 'REQUEST_CHANGES', event: 'COMMENT' });
+    const body = reviewActs(r)[0]?.body ?? '';
+    expect(body).toMatch(/Must-fix[\s\S]*Unsafe target\./);
+    expect(body).not.toContain('Noticed in existing text');
+  });
+
+  it('blocks on Links when the auditor says a moved link is a different resource', async () => {
+    const r = await drive({
+      scenario: moved(),
+      fetchImpl: html,
+      script: quiet(decisionJson({ mustFix: [], suggestions: [] }), audit('DIFFERENT-RESOURCE')),
+    });
+    expect(r.out).toMatchObject({ ok: true, status: 'posted' });
+    const body = reviewActs(r)[0]?.body ?? '';
+    expect(body).toContain(`| \`${NEW}\` | moved from \`${OLD}\` | DIFFERENT-RESOURCE |`);
+    const judged = r.models.calls.find((c) => c.role === 'judge')?.req.user ?? '';
+    expect(judged).toContain(`DIFFERENT-RESOURCE: \`${NEW}\` (moved from \`${OLD}\`)`);
+    expect(judged).toContain('"verdict":"BLOCK"');
+    expect(r.rows[0]?.verdict).toBe('REQUEST_CHANGES');
   });
 });
 

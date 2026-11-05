@@ -4,7 +4,7 @@
  * `untrusted()`. Like upstream's link check, 401/403/429/5xx and timeouts mean "verify manually",
  * never "broken".
  */
-import type { DiffLine } from './diff.js';
+import type { DiffLine, Hunk } from './diff.js';
 
 export interface AddedLink {
   url: string;
@@ -12,6 +12,8 @@ export interface AddedLink {
   line: number;
   /** The added line the link sits in: the claim it is cited for (author text, untrusted). */
   context: string;
+  /** The target this link replaced, when its line changed nothing but link targets (#89). */
+  previous?: string;
 }
 
 export type FetchedLink =
@@ -26,7 +28,187 @@ const MAX_REDIRECTS = 5;
 export const EXCERPT_CHARS = 8_000;
 
 const MD_LINK = /\]\(\s*<?([^)\s>]+)>?(?:\s+"[^"]*")?\s*\)/g;
-const BARE = /(?<![(<"])\bhttps?:\/\/[^\s)<>\]"]+/g;
+// Bare URLs (prose in parentheses, autolinks, href and src values). Run on text with the Markdown
+// links MD_LINK read already removed (withoutMdLinks), so only those are skipped: a link MD_LINK
+// cannot parse is still audited.
+const BARE = /\bhttps?:\/\/[^\s)<>\]"']+/g;
+const withoutMdLinks = (t: string) => t.replace(MD_LINK, ' ');
+
+/** Link targets in a line, in order (Markdown links first, then bare URLs, as extractLinks). */
+function targets(text: string): string[] {
+  return [
+    ...[...text.matchAll(MD_LINK)].map((m) => m[1] ?? ''),
+    ...[...withoutMdLinks(text).matchAll(BARE)].map((m) => m[0]),
+  ].map((u) => u.replace(/[.,;:]+$/, ''));
+}
+
+/** Markdown link targets only: a bare URL (code samples, CORS or CSP values) is content, not a citation. */
+export function citationTargets(text: string): string[] {
+  return [...text.matchAll(MD_LINK)].map((m) => (m[1] ?? '').replace(/[.,;:]+$/, ''));
+}
+
+/**
+ * The line with every Markdown link target replaced, so two lines that differ only in cited
+ * targets compare equal. Bare URLs stay: changing one is a content change.
+ */
+export function maskedLine(text: string): string {
+  // Only the target: a changed link title is a text change, never a link change (#92 round 12).
+  return text.replace(MD_LINK, (m, u: string) => m.replace(u, '<target>'));
+}
+
+/**
+ * Link targets a cheat sheet may use, as an allow-list: an http(s) URL, a sibling cheat sheet with
+ * an optional anchor, an anchor, or an image under assets. Anything else (//host, entity-encoded
+ * slashes, backslashes, other schemes) is "verify by hand" and the change gets the full review.
+ */
+export function knownTargetForm(target: string): boolean {
+  return (
+    // The host part is plain (no backslash, entity, @ or userinfo): what we fetch is what renders.
+    (/^https?:\/\/[A-Za-z0-9.-]+(?::\d{1,5})?(?:[/?#][^\s\\]*)?$/i.test(target) &&
+      !/&(#\d+|#x[0-9a-f]+|[a-z][a-z0-9]*);/i.test(target)) ||
+    /^(\.\/)?[A-Za-z0-9_.-]+\.md(#[A-Za-z0-9_-]*)?$/.test(target) ||
+    /^#[A-Za-z0-9_-]+$/.test(target) ||
+    /^(\.\.\/)*(\.\/)?assets\/[A-Za-z0-9_./-]+\.(png|jpe?g|gif|svg|webp)$/i.test(target)
+  );
+}
+
+/** A GitHub organisation and the one domain it owns, for moves between the two (#2880). */
+const ORG_DOMAINS: Readonly<Record<string, string>> = { owasp: 'owasp.org' };
+/** Hosts where the first path segment is the owner: a different owner is a different site. */
+const OWNER_HOSTS = new Set([
+  'github.com',
+  'gist.github.com',
+  'raw.githubusercontent.com',
+  'gitlab.com',
+  'bitbucket.org',
+]);
+/** Hosts that serve anyone's copy of anything: never "the same site" as anything. */
+const NEVER_SAME = new Set(['web.archive.org', 'archive.org', 'archive.ph', 'archive.today']);
+
+/** "github:<owner>" for GitHub-hosted URLs, otherwise the exact host without a leading www. */
+function siteOf(u: URL): string {
+  const host = u.hostname.toLowerCase().replace(/^www\./, '');
+  if (NEVER_SAME.has(host)) return '';
+  if (OWNER_HOSTS.has(host)) {
+    const owner = (u.pathname.split('/')[1] ?? '').toLowerCase();
+    // GitHub hosts share one owner namespace; GitLab and Bitbucket each have their own.
+    const ns = host === 'gitlab.com' || host === 'bitbucket.org' ? host : 'github';
+    return owner ? `${ns}:${owner}` : '';
+  }
+  const pages = /^([a-z0-9-]+)\.github\.io$/.exec(host);
+  if (pages) return `github:${pages[1] ?? ''}`;
+  return host;
+}
+
+/**
+ * The same site, so a changed target can be a "move" (Claude review and round 13 on #92): the exact
+ * same host, the same owner on GitHub hosts, or a listed GitHub organisation and its own domain
+ * (github.com/OWASP and owasp.org). Anything else, including other tenants of a shared host and
+ * lookalike domains, is a new source and is audited as new.
+ */
+export function sameSite(a: string, b: string): boolean {
+  try {
+    const x = siteOf(new URL(a));
+    const y = siteOf(new URL(b));
+    if (x === y) return x !== '';
+    const pair = (g: string, h: string) => g.startsWith('github:') && ORG_DOMAINS[g.slice(7)] === h;
+    return pair(x, y) || pair(y, x);
+  } catch {
+    return false;
+  }
+}
+
+/** https to http is a downgrade, never a "move": such a line is new text (#92 review). */
+function downgrades(before: readonly string[], after: readonly string[]): boolean {
+  return after.some((u, k) => /^http:/i.test(u) && /^https:/i.test(before[k] ?? ''));
+}
+
+export interface LinkScan {
+  /** New links (audited as today) and moved links (`previous` set; audited against the old URL). */
+  links: AddedLink[];
+  /** New-side lines whose only change is a link target: their wording is not part of the PR. */
+  targetOnlyLines: Set<number>;
+}
+
+/**
+ * Links a file's diff adds, with moved links told apart (#89). Within a hunk, an added line that
+ * equals a removed line once link targets are masked is a target-only change: an unchanged target
+ * there is not audited at all, a changed one is "moved" and keeps its previous URL. Any other added
+ * line is new text and its links are audited as before. Pure.
+ */
+export function scanLinks(file: string, hunks: readonly Hunk[]): LinkScan {
+  const links: AddedLink[] = [];
+  const targetOnlyLines = new Set<number>();
+  const seen = new Set<string>();
+  const push = (link: AddedLink) => {
+    if (!link.url) return;
+    if (seen.has(link.url)) {
+      // Cited again for new text: judge it as new (support for the sentence), not only as a move.
+      const prior = links.find((x) => x.url === link.url);
+      if (prior && link.previous === undefined && prior.previous !== undefined) {
+        delete prior.previous;
+        prior.line = link.line;
+        prior.context = link.context;
+      }
+      return;
+    }
+    seen.add(link.url);
+    links.push(link);
+  };
+  for (const h of hunks) {
+    const removed = h.lines.filter((l) => l.kind === '-');
+    const used = new Set<number>();
+    // Pairs only inside one contiguous block (removed run, then added run), as scope.ts does.
+    let block = new Set<number>();
+    let afterAdd = false;
+    for (const l of h.lines) {
+      if (l.kind === ' ') {
+        block = new Set();
+        afterAdd = false;
+        continue;
+      }
+      if (l.kind === '-') {
+        if (afterAdd) {
+          block = new Set();
+          afterAdd = false;
+        }
+        block.add(removed.indexOf(l));
+        continue;
+      }
+      afterAdd = true;
+      if (l.newLine === undefined) continue;
+      const now = targets(l.text);
+      const cited = citationTargets(l.text);
+      const key = maskedLine(l.text);
+      const i = removed.findIndex(
+        (r, idx) =>
+          block.has(idx) &&
+          !used.has(idx) &&
+          maskedLine(r.text) === key &&
+          citationTargets(r.text).length === cited.length &&
+          !downgrades(citationTargets(r.text), cited),
+      );
+      if (i >= 0 && cited.length > 0) {
+        used.add(i);
+        const prior = citationTargets(removed[i]?.text ?? '');
+        targetOnlyLines.add(l.newLine);
+        cited.forEach((url, k) => {
+          const previous = prior[k];
+          if (previous === undefined || previous === url) return;
+          const base = { url, file, line: l.newLine ?? 0, context: l.text.slice(0, 600) };
+          push(sameSite(previous, url) ? { ...base, previous } : base);
+        });
+        continue;
+      }
+      // A target the same block already had (only the anchor text changed) is not new.
+      const blockTargets = new Set([...block].flatMap((idx) => targets(removed[idx]?.text ?? '')));
+      for (const url of now)
+        if (!blockTargets.has(url))
+          push({ url, file, line: l.newLine, context: l.text.slice(0, 600) });
+    }
+  }
+  return { links, targetOnlyLines };
+}
 
 /** Links in added lines, in order, each once. */
 export function extractLinks(file: string, added: readonly DiffLine[]): AddedLink[] {
@@ -36,7 +218,7 @@ export function extractLinks(file: string, added: readonly DiffLine[]): AddedLin
     if (l.newLine === undefined) continue;
     const found = [
       ...[...l.text.matchAll(MD_LINK)].map((m) => m[1] ?? ''),
-      ...[...l.text.matchAll(BARE)].map((m) => m[0]),
+      ...[...withoutMdLinks(l.text).matchAll(BARE)].map((m) => m[0]),
     ];
     for (const raw of found) {
       const url = raw.replace(/[.,;:]+$/, '');

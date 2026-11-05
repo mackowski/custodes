@@ -41,6 +41,17 @@ const BODY_CHARS = 8_000;
 const FILE_CHARS = 60_000;
 const RELATED_CHARS = 20_000;
 
+/** #79.7: going over the upstream limits is a note for the maintainer, written by code. */
+function scopeNote(s: Snapshot, net: number): string[] {
+  if (s.issues.length > 0) return [];
+  const files = s.files.length + s.unreviewedFiles;
+  const over = [
+    files > 3 ? `${files} files` : null,
+    net > 1500 ? `${net} net added lines` : null,
+  ].filter(Boolean);
+  return over.length ? [`- Scope note: ${over.join(' and ')}, no linked issue found.`] : [];
+}
+
 export function processFacts(s: Snapshot): string {
   const net = s.files.reduce((n, f) => n + f.file.additions - f.file.deletions, 0);
   const issues = s.issues.length
@@ -62,7 +73,8 @@ export function processFacts(s: Snapshot): string {
       : []),
     `- AI Tool Usage Disclosure section: ${s.disclosure}`,
     `- Linked issues: ${issues}`,
-    `- Upstream limits: at most 3 files, and 1500 net added lines without a linked issue.`,
+    `- Upstream limits (process note for the maintainer, never a finding; pr-gate enforces them): at most 3 files, and 1500 net added lines without a linked issue.`,
+    ...scopeNote(s, net),
   ].join('\n');
 }
 
@@ -125,16 +137,18 @@ export interface LinkInput {
   context: string;
   title: string;
   excerpt: string;
+  /** The URL this link replaced, for a moved link (#89). */
+  previous?: string;
 }
 
 export function linkMessage(links: readonly LinkInput[]): string {
   return links
     .map((l, i) =>
       [
-        `Link ${i + 1}:`,
+        `Link ${i + 1}${l.previous !== undefined ? ' (moved: only its target changed)' : ' (new)'}:`,
         untrusted(
           'pr-claim',
-          `URL: ${l.url}\nCited in: ${l.file} line ${l.line}\nSentence: ${l.context}`,
+          `URL: ${l.url}${l.previous !== undefined ? `\nPrevious URL: ${l.previous}` : ''}\nCited in: ${l.file} line ${l.line}\nSentence: ${l.context}`,
         ),
         untrusted(`page:${new URL(l.url).hostname}`, `Title: ${l.title}\n${l.excerpt}`),
       ].join('\n'),

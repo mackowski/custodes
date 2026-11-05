@@ -21,28 +21,28 @@ to unassign the author from the issue. It never closes anything or changes an as
 
 ### Depth
 
-| Change (decided by `scope.ts`)                                   | Reviewers                                               |
-| ---------------------------------------------------------------- | ------------------------------------------------------- |
-| Only link targets changed                                        | links, language                                         |
-| Small edits to existing lines (Haiku decides when it is unclear) | language, links                                         |
-| Content (new guidance, headings, >30 lines, new sheet)           | security ×2, practicality, links, duplication, language |
-| Code (any added line inside a fenced code block)                 | security ×2, practicality, links, duplication, language |
-| No cheat sheet changed                                           | language                                                |
+| Change (decided by `scope.ts`)                                                                                                                          | Reviewers                                               |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| Only Markdown link targets changed (https kept, inline code unchanged)                                                                                  | links, language                                         |
+| Small edits to existing lines: always decided by Haiku (falls back to content)                                                                          | language, links                                         |
+| Content (new guidance, headings, >30 lines, new sheet, any inline-code change, a new http:// URL, a sheet not read in full, files beyond the first 100) | security ×2, practicality, links, duplication, language |
+| Code (any added line inside a fenced or indented code block)                                                                                            | security ×2, practicality, links, duplication, language |
+| No cheat sheet changed                                                                                                                                  | language                                                |
 
 Security is never dropped for a change to guidance, whatever its size (`MODELS.md`).
 
 ### Models (`cheatsheet-review/lineup.ts`)
 
-| Role                  | Model                                         | Fallback                                         |
-| --------------------- | --------------------------------------------- | ------------------------------------------------ |
-| scope-classifier      | Claude Haiku 5.5                              | gpt-oss-20b (Workers AI)                         |
-| security-reviewer     | Claude Opus 5.5                               | GPT-6.1 Sol                                      |
-| security-second-voice | DeepSeek V4.1 Flash (Workers AI, high effort) | DeepSeek V4.1 Flash (OpenRouter, fp8 hosts only) |
-| practicality-reviewer | Claude Sonnet 5.5                             | Muse Spark 1.3                                   |
-| duplication-checker   | Muse Spark 1.3                                | GPT-6.1 Sol                                      |
-| link-auditor          | DeepSeek V4.1 Flash (Workers AI)              | GPT-6 Luna                                       |
-| language-reviewer     | GPT-6 Luna                                    | Claude Haiku 5.5                                 |
-| judge                 | GPT-6 Astra                                   | Claude Sonnet 5.5                                |
+| Role                  | Model                                        | Fallback                                         |
+| --------------------- | -------------------------------------------- | ------------------------------------------------ |
+| scope-classifier      | Claude Haiku 5.5                             | gpt-oss-20b (Workers AI)                         |
+| security-reviewer     | Claude Opus 5.5                              | GPT-6.1 Sol                                      |
+| security-second-voice | DeepSeek V4.1 Flash (Workers AI, low effort) | DeepSeek V4.1 Flash (OpenRouter, fp8 hosts only) |
+| practicality-reviewer | Claude Sonnet 5.5                            | Muse Spark 1.3                                   |
+| duplication-checker   | Muse Spark 1.3                               | GPT-6.1 Sol                                      |
+| link-auditor          | DeepSeek V4.1 Flash (Workers AI, low effort) | GPT-6 Luna                                       |
+| language-reviewer     | GPT-6 Luna                                   | Claude Haiku 5.5                                 |
+| judge                 | GPT-6 Astra                                  | Claude Sonnet 5.5                                |
 
 Chosen from a one-off benchmark on 30 OWASP pull requests reviewed by maintainers
 (`workers/agents/scripts/benchmark/REPORT.md`, not run in CI). Known limits: Astra judges by the
@@ -51,7 +51,36 @@ auditor were not measured, and the sample is small.
 
 Every call goes through the one AI Gateway (ADR 0015). Anthropic and OpenRouter use the keys stored
 in the gateway; OpenRouter is asked for hosts that keep no prompts. A fallback is never silent: the
-review header strikes through the model that failed and names the one used instead.
+review header strikes through the model that failed and names the one used instead, with the
+reason in words ("reasoning used the whole token budget", "rate limited"). When the primary ran out
+of tokens, the fallback runs with low effort and half again the budget: retrying the setting that
+failed would fail the same way (#79, OWASP/CheatSheetSeries#2884).
+
+**After the judge, code enforces** (#79): "Must-fix" holds only BLOCKER and MAJOR (MINOR moves to
+should-fix, NIT to nits), and a REQUEST_CHANGES with nothing left to must-fix becomes MERGE. Going
+over the upstream file or line limits without a linked issue is a code-written "Scope note" under
+"Scope & process", never a finding; pr-gate enforces the process. Linked issues are read from
+`#N`, issue URLs and "issue N" in the body (`refs.ts`; pr-gate's parser is unchanged). A
+suggestion that cannot be placed inline is listed with its replacement text in a code block, links
+defanged and mentions neutralised, so it can be applied by hand.
+
+**Moved links** (#89): in each hunk, code pairs an added line with a removed line that is equal
+once Markdown link targets are masked (a bare URL, as in code samples or CORS and CSP values, is
+content, and https to http is never a move). On such a line only the targets changed: an unchanged target is
+neither audited nor listed, and a changed one is audited as "moved". The auditor then answers only
+whether the new URL is the same resource as the previous one (SAME-RESOURCE or DIFFERENT-RESOURCE,
+the latter a Links BLOCKER); the sentence around it is not judged. A finding outside "Links &
+sources" and "Security" on such a line is about wording the PR did not change: code moves it to "Noticed in
+existing text (not caused by this PR)", which never counts toward the verdict, and drops a
+suggestion there unless it only changes link targets. Every review with external links ends with a
+"Links checked" table (URL as code, new or moved, status). A target counts as moved only on the same site: the exact
+host (without www.), the same owner on owner-path hosts (github.com, gist, raw.githubusercontent.com,
+*.github.io, gitlab.com, bitbucket.org), or the listed pair `github.com/OWASP` and `owasp.org`. Anything else, including
+subdomain tenants of a shared host, archive copies (web.archive.org) and lookalike domains, is audited
+as a new link. The table shows the
+previous URL. Link targets must have a known form (http(s) with a plain host and no HTML entities, a sibling .md with an optional anchor,
+an anchor, an image under assets); anything else is a MAJOR "verify by hand" finding and makes the
+change content.
 
 **Multi-model invariant** (`invariantBreach`): when both security voices are asked for, both
 answer and come from different vendors, and the judge is a different model from both. Every review
@@ -76,7 +105,10 @@ published: the operator gets the partial review by e-mail and the label stays on
   The link opens the exact review behind Access; the Approve button makes the broker post it once.
   Opening the link decides nothing. ADR 0017 amendment 2026-10-30.
 - `issue.label.remove` of `custodes_cheatsheet_review` after posting or after asking for the
-  approval, so adding it again asks for a new review.
+  approval, so adding it again asks for a new review. On OWASP the label therefore disappears about
+  a minute after the operator adds it, before anything is posted: **the removal means the review is
+  ready and the approval e-mail was sent.** Moving the removal to the broker after the decision was
+  considered and left out (#80); it would need a follow-up action on approval tokens and an ADR.
 - E-mail to `OPERATOR_EMAIL` only (`send_email.allowed_destination_addresses`).
 
 ## PAT scopes
@@ -117,6 +149,7 @@ repository is a fuse against a bug.
 | The approval link is not used within 24 h        | The approval expires; nothing is posted. Label the pull request again for a new review.            |
 | The author pushes before the operator approves   | The review is posted on the commit it was written for; GitHub marks its comments outdated.         |
 | The review posts but the label removal fails     | Logged; the label event is already recorded, so it is not reviewed twice.                          |
+| A reviewer sees instruction-like text            | Its own span carries `custodes.review.injection_seen`; the approval e-mail names the role.         |
 
 Runs are listed (ids, class, verdict, event, models, review URL; no content) at the agent's status
 endpoint through the gateway. Traces show one `invoke_agent cheatsheet-review` per run with an

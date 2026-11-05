@@ -3,13 +3,18 @@ import { z } from 'zod';
 import { AgentHaltedError } from '@custodes/core/agent';
 import {
   GatewayError,
+  ModelOutputError,
   type ChatModel,
   type ChatRequest,
   type ReviewModel,
   type ReviewModelName,
 } from '@custodes/llm';
 import { inOneHunk, numberedDiff, parsePatch } from '../src/agents/cheatsheet-review/diff.js';
-import { lowQualityMail, partialReviewMail } from '../src/agents/cheatsheet-review/email.js';
+import {
+  approvalMail,
+  lowQualityMail,
+  partialReviewMail,
+} from '../src/agents/cheatsheet-review/email.js';
 import {
   invariantBreach,
   LINEUP,
@@ -22,26 +27,45 @@ import {
   extractLinks,
   fetchable,
   fetchLink,
+  maskedLine,
+  scanLinks,
+  knownTargetForm,
+  sameSite,
   slugify,
 } from '../src/agents/cheatsheet-review/links.js';
 import {
   checkSuggestions,
   addedRisk,
   dimensionsNotRun,
+  inertCode,
   inertMarkdown,
   modelLine,
+  readableWhy,
   reviewBody,
   reviewEvent,
   tableCell,
 } from '../src/agents/cheatsheet-review/render.js';
-import { limiter, runRole, type RunnerDeps } from '../src/agents/cheatsheet-review/runner.js';
+import {
+  fallbackAfterMaxTokens,
+  limiter,
+  runRole,
+  type RunnerDeps,
+} from '../src/agents/cheatsheet-review/runner.js';
 import {
   classify,
   fencedLines,
   REVIEWERS_FOR,
   type ScopedFile,
 } from '../src/agents/cheatsheet-review/scope.js';
-import type { Item, ReviewDecision } from '../src/agents/cheatsheet-review/types.js';
+import { linkStatus } from '../src/agents/cheatsheet-review/pipeline.js';
+import { processFacts, type Snapshot } from '../src/agents/cheatsheet-review/input.js';
+import { MAX_REVIEW_REFS, reviewIssueRefs } from '../src/agents/cheatsheet-review/refs.js';
+import {
+  normaliseDecision,
+  type Item,
+  type ReviewDecision,
+} from '../src/agents/cheatsheet-review/types.js';
+import { RecordingTracer, turnOf } from './helpers/recording-tracer.js';
 import type { PullFile } from '../src/agents/triage/github.js';
 
 // ---------- diff ----------
@@ -136,18 +160,195 @@ const patchOf = (removed: string[], added: string[], start = 1): string =>
 describe('scope.classify', () => {
   it('treats a URL swap on the same line as links-only', () => {
     const p = patchOf(
-      ['See [docs](https://old.example.com/a) for more.'],
-      ['See [docs](https://new.example.com/b) for more.'],
+      ['See [docs](https://example.com/old/a) for more.'],
+      ['See [docs](https://example.com/new/b) for more.'],
     );
     expect(classify([scoped(p)])).toMatchObject({ kind: 'decided', class: 'links-only' });
   });
 
-  it('treats a one-letter typo fix as minor prose', () => {
+  it('treats an https to http change as content, so the security reviewers run (#92 review)', () => {
+    const p = patchOf(
+      ['See [docs](https://api.example.com/a) for more.'],
+      ['See [docs](http://api.example.com/a) for more.'],
+    );
+    expect(classify([scoped(p)])).toMatchObject({ kind: 'decided', class: 'content' });
+  });
+
+  it('does not treat a URL change inside inline code as a link change', () => {
+    const p = patchOf(
+      ['Set `Access-Control-Allow-Origin: https://app.example.com` on the API.'],
+      ['Set `Access-Control-Allow-Origin: https://evil.example.net` on the API.'],
+    );
+    expect(classify([scoped(p)])).toMatchObject({ kind: 'decided', class: 'content' });
+  });
+
+  it('treats any inline-code change as content, in any code form (#92 review round 5)', () => {
+    const long =
+      'Configure the API gateway carefully, and review the value below in every environment before release, because it decides which browser origins may read responses: ';
+    const cases: [string, string][] = [
+      [
+        'Set ``Access-Control-Allow-Origin: https://app.example.com`` on the API.',
+        'Set ``Access-Control-Allow-Origin: https://evil.example.net`` on the API.',
+      ],
+      [
+        'Use <code>https://app.example.com</code> as the origin.',
+        'Use <code>https://evil.example.net</code> as the origin.',
+      ],
+      [
+        `${long}\`Access-Control-Allow-Origin: https://app.example.com\`.`,
+        `${long}\`Access-Control-Allow-Origin: *\`.`,
+      ],
+      [
+        'Set the cookie with `SameSite=Strict` and `Secure` so that it is not sent cross-site.',
+        'Set the cookie with `SameSite=None` and `Secure` so that it is not sent cross-site.',
+      ],
+    ];
+    for (const [before, after] of cases)
+      expect(classify([scoped(patchOf([before], [after]))])).toMatchObject({
+        kind: 'decided',
+        class: 'content',
+      });
+  });
+
+  it('treats an https to http change with a trailing slash as content', () => {
+    const p = patchOf(
+      ['Call the token endpoint at https://app.example.com over TLS.'],
+      ['Call the token endpoint at http://app.example.com/ over TLS.'],
+    );
+    expect(classify([scoped(p)])).toMatchObject({ kind: 'decided', class: 'content' });
+  });
+
+  it('keeps an https link move links-only when inline-code URLs are unchanged', () => {
+    const p = patchOf(
+      ['See [docs](https://example.com/old/a) and `https://api.example.com` for the API.'],
+      ['See [docs](https://example.com/new/b) and `https://api.example.com` for the API.'],
+    );
+    expect(classify([scoped(p)])).toMatchObject({ kind: 'decided', class: 'links-only' });
+  });
+
+  it('never decides minor prose in code: small edits go to the classifier (#92 round 7)', () => {
+    const pairs: [string, string][] = [
+      [
+        'Always validate the input on the server side',
+        'Always validate the input, on the server side.',
+      ],
+      ['Expire idle sessions after <= 15 minutes.', 'Expire idle sessions after >= 15 minutes.'],
+      [
+        'Do not store session tokens in localStorage.',
+        'Do <!-- not --> store session tokens in localStorage.',
+      ],
+      [
+        'Set Access-Control-Allow-Origin to https://app.example.com only.',
+        'Set Access-Control-Allow-Origin to * only.',
+      ],
+    ];
+    for (const [before, after] of pairs)
+      expect(classify([scoped(patchOf([before], [after]))])).toEqual({ kind: 'ambiguous' });
+  });
+
+  it('never calls a guidance line moved across hunks or sheets with a link tweak links-only (#92 round 8)', () => {
+    const across = [
+      '@@ -3,1 +3,0 @@',
+      '-- Hash passwords with [MD5](https://en.wikipedia.org/wiki/MD5).',
+      '@@ -20,0 +19,1 @@',
+      '+- Hash passwords with [MD5](https://en.wikipedia.org/wiki/MD5#Algorithm).',
+    ].join('\n');
+    expect(classify([scoped(across)])).toEqual({ kind: 'ambiguous' });
+    const del = '@@ -3,1 +3,0 @@\n-- Hash passwords with [MD5](https://en.wikipedia.org/wiki/MD5).';
+    const add =
+      '@@ -3,0 +3,1 @@\n+- Hash passwords with [MD5](https://en.wikipedia.org/wiki/MD5#Algorithm).';
+    expect(classify([scoped(del), scoped(add)])).toEqual({ kind: 'ambiguous' });
+    // A real in-place link swap stays links-only.
+    expect(
+      classify([
+        scoped(patchOf(['See [a](https://x.example/1).'], ['See [a](https://x.example/2).'])),
+      ]),
+    ).toMatchObject({ class: 'links-only' });
+  });
+
+  it('never treats an indentation-only change as a link change (#92 round 9)', () => {
+    const p = patchOf(
+      ['  - store JWTs in [localStorage](https://x.example/a)'],
+      ['- store JWTs in [localStorage](https://x.example/a)'],
+    );
+    expect(classify([scoped(p)])).toEqual({ kind: 'ambiguous' });
+  });
+
+  it('never treats an autolink, bare or href URL swap, or trailing spaces, as links-only (#92 round 10)', () => {
+    const pairs: [string, string][] = [
+      [
+        'See <https://cwe.mitre.org/data/definitions/79.html>.',
+        'See <https://attacker.example/79.html>.',
+      ],
+      [
+        'See https://cwe.mitre.org/data/definitions/79.html for details.',
+        'See https://attacker.example/79.html for details.',
+      ],
+      ['<a href="https://cwe.mitre.org/">CWE</a>', '<a href="https://attacker.example/">CWE</a>'],
+      ['See [docs](https://x.example/a).', 'See [docs](https://x.example/a).  '],
+    ];
+    for (const [before, after] of pairs)
+      expect(classify([scoped(patchOf([before], [after]))])).not.toMatchObject({
+        class: 'links-only',
+      });
+  });
+
+  it('never calls a link the extractor cannot read a link change (#92 round 11)', () => {
+    const p = patchOf(
+      ['See [CWE](https://cwe.mitre.org/79).'],
+      ['See [CWE](https://attacker.example/>x).'],
+    );
+    expect(classify([scoped(p)])).not.toMatchObject({ class: 'links-only' });
+  });
+
+  it('treats a changed link title as text, not a link change (#92 round 12)', () => {
+    const p = patchOf(
+      ['See [x](https://a.example "Never store passwords in plain text").'],
+      ['See [x](https://b.example "Storing passwords in plain text is fine").'],
+    );
+    expect(classify([scoped(p)])).toEqual({ kind: 'ambiguous' });
+  });
+
+  it('treats a protocol-relative link target as content (Claude review on #92)', () => {
+    const p = patchOf(
+      ['See [ASVS](https://owasp.org/asvs).'],
+      ['See [ASVS](//asvs-owasp.example/).'],
+    );
+    expect(classify([scoped(p)])).toMatchObject({ kind: 'decided', class: 'content' });
+  });
+
+  it('counts code under a list item and <pre> blocks as code', () => {
+    const md = [
+      '1. Step:',
+      '',
+      '      cookie.setSecure(true);',
+      '',
+      'Text.',
+      '<pre>',
+      'curl -k https://x',
+      '</pre>',
+    ].join('\n');
+    expect([...fencedLines(md)].sort((x, y) => x - y)).toEqual([3, 6, 7, 8]);
+  });
+
+  it('reviews a PR with unread files as content', () => {
+    const p = patchOf(
+      ['See [docs](https://example.com/old/a).'],
+      ['See [docs](https://example.com/new/b).'],
+    );
+    expect(classify([scoped(p)], 1)).toMatchObject({
+      kind: 'decided',
+      class: 'content',
+      why: '1 changed file(s) were not read',
+    });
+  });
+
+  it("sends a one-letter typo fix to the classifier (any word change is the model's call)", () => {
     const p = patchOf(
       ['Always validate the inptu on the server side.'],
       ['Always validate the input on the server side.'],
     );
-    expect(classify([scoped(p)])).toMatchObject({ kind: 'decided', class: 'minor-prose' });
+    expect(classify([scoped(p)])).toEqual({ kind: 'ambiguous' });
   });
 
   it('treats an added heading as content', () => {
@@ -798,6 +999,7 @@ const decision = (over: Partial<ReviewDecision> = {}): ReviewDecision => ({
   mustFix: [],
   shouldFix: [],
   nits: [],
+  outOfScope: [],
   suggestions: [],
   lowQuality: false,
   closeReasons: [],
@@ -1187,5 +1389,956 @@ describe('render.tableCell', () => {
     expect(tableCell('a|b')).toBe('a\\|b');
     expect(tableCell('a\\|b')).toBe('a\\\\\\|b');
     expect(tableCell('end\\')).toBe('end\\\\');
+  });
+});
+
+// ---------- #79 round 1 ----------
+
+describe('lineup effort', () => {
+  it('runs both DeepSeek roles at low effort and leaves the others at the model default', () => {
+    expect(LINEUP['security-second-voice'].effort).toBe('low');
+    expect(LINEUP['link-auditor'].effort).toBe('low');
+    const others = Object.entries(LINEUP).filter(
+      ([r]) => r !== 'security-second-voice' && r !== 'link-auditor',
+    );
+    expect(others.map(([, c]) => c.effort)).toEqual(others.map(() => undefined));
+  });
+});
+
+describe('runner after max_tokens', () => {
+  // security-second-voice: primary deepseekFlash (workers-ai), fallback deepseekFlashOpenRouter (openrouter).
+  const second = (f: Fake) => runRole(f.deps, 'security-second-voice', Answer, 'sys', 'user');
+
+  it('computes low effort and a budget half again as large, rounded up', () => {
+    expect(fallbackAfterMaxTokens({ ...LINEUP['security-second-voice'] })).toEqual({
+      effort: 'low',
+      max_tokens: 36_000,
+    });
+    // A role without an effort stays on the model default: only the budget grows.
+    expect(fallbackAfterMaxTokens({ ...LINEUP.judge, max_tokens: 3_333 })).toEqual({
+      max_tokens: 5_000,
+    });
+    expect(fallbackAfterMaxTokens(LINEUP['security-reviewer'])).toEqual({ max_tokens: 24_000 });
+  });
+
+  it('retries the fallback with low effort and 1.5x tokens when the primary ran out of tokens', async () => {
+    const f = fake({
+      'workers-ai': () => new ModelOutputError('max_tokens'),
+      openrouter: () => GOOD,
+    });
+    const r = await second(f);
+    expect(r.outcome).toMatchObject({ status: 'fallback', failed: 'deepseekFlash' });
+    expect(f.calls[0]?.req).toMatchObject({ max_tokens: 24_000, reasoning_effort: 'low' });
+    const fb = f.calls.find((c) => c.transport === 'openrouter')?.req;
+    expect(fb).toMatchObject({ max_tokens: 36_000, reasoning_effort: 'low' });
+  });
+
+  it('sets no effort on the fallback of a role without one, only a larger budget', async () => {
+    const f = fake({
+      openrouter: () => new ModelOutputError('max_tokens'),
+      anthropic: () => GOOD,
+    });
+    await run(f); // language-reviewer: 8000, no effort
+    expect(f.calls[0]?.req.reasoning_effort).toBeUndefined();
+    expect(f.calls[1]?.req.max_tokens).toBe(12_000);
+    expect(f.calls[1]?.req.reasoning_effort).toBeUndefined();
+  });
+
+  it('records only a larger budget on the span for a role without an effort', async () => {
+    const t = new RecordingTracer();
+    const f = fake(
+      { openrouter: () => new ModelOutputError('max_tokens'), anthropic: () => GOOD },
+      { turn: turnOf(t, false) },
+    );
+    await run(f);
+    expect(
+      t.named('invoke_agent language-reviewer')[0]?.attributes['custodes.review.fallback_settings'],
+    ).toBe('larger budget');
+  });
+
+  it('keeps the lineup settings for a refusal or any other primary error', async () => {
+    for (const err of [new ModelOutputError('refusal'), new GatewayError(500, 'boom')]) {
+      const f = fake({ 'workers-ai': () => err, openrouter: () => GOOD });
+      await second(f);
+      const fb = f.calls.find((c) => c.transport === 'openrouter')?.req;
+      expect(fb).toMatchObject({ max_tokens: 24_000, reasoning_effort: 'low' });
+    }
+    const f = fake({ openrouter: () => new GatewayError(500, 'boom'), anthropic: () => GOOD });
+    await run(f);
+    expect(f.calls[1]?.req.max_tokens).toBe(8_000);
+    expect(f.calls[1]?.req.reasoning_effort).toBeUndefined();
+  });
+
+  it('records the out-of-tokens fallback on the role span and shows it in words', async () => {
+    const t = new RecordingTracer();
+    const f = fake(
+      { 'workers-ai': () => new ModelOutputError('max_tokens'), openrouter: () => GOOD },
+      { turn: turnOf(t, false) },
+    );
+    const r = await second(f);
+    const span = t.named('invoke_agent security-second-voice')[0];
+    expect(span?.attributes['custodes.review.failed_why']).toBe('ModelOutputError max_tokens');
+    expect(span?.attributes['custodes.review.fallback_settings']).toBe('low effort, larger budget');
+    expect(modelLine(r.outcome)).toContain('unavailable: reasoning used the whole token budget');
+  });
+});
+
+describe('runner.markInjection (role span)', () => {
+  const Rep = z.object({ injectionSeen: z.boolean().optional() });
+  const spanOf = async (text: string, role: 'language-reviewer' = 'language-reviewer') => {
+    const t = new RecordingTracer();
+    const f = fake({ openrouter: () => text }, { turn: turnOf(t, false) });
+    await runRole(f.deps, role, Rep, 'sys', 'user');
+    return t.named(`invoke_agent ${role}`)[0];
+  };
+
+  it('marks the role span true when the answer saw an injection', async () => {
+    const s = await spanOf('{"injectionSeen":true}');
+    expect(s?.attributes['custodes.review.injection_seen']).toBe(true);
+  });
+
+  it('marks it false when the answer did not, or does not say', async () => {
+    expect((await spanOf('{"injectionSeen":false}'))?.attributes).toMatchObject({
+      'custodes.review.injection_seen': false,
+    });
+    expect((await spanOf('{}'))?.attributes).toMatchObject({
+      'custodes.review.injection_seen': false,
+    });
+  });
+
+  it('marks the span of a fallback answer too', async () => {
+    const t = new RecordingTracer();
+    const f = fake(
+      { openrouter: () => new GatewayError(500, 'x'), anthropic: () => '{"injectionSeen":true}' },
+      { turn: turnOf(t, false) },
+    );
+    await runRole(f.deps, 'language-reviewer', Rep, 'sys', 'user');
+    expect(
+      t.named('invoke_agent language-reviewer')[0]?.attributes['custodes.review.injection_seen'],
+    ).toBe(true);
+  });
+});
+
+describe('render.readableWhy and modelLine', () => {
+  it('turns error classes into plain words', () => {
+    expect(readableWhy('ModelOutputError max_tokens')).toBe(
+      'reasoning used the whole token budget',
+    );
+    expect(readableWhy('GatewayError 429')).toBe('rate limited');
+    expect(readableWhy('ModelOutputError refusal')).toBe('the model refused');
+    expect(readableWhy('GatewayError 504')).toBe('timed out');
+    expect(readableWhy('TimeoutError')).toBe('timed out');
+    expect(readableWhy('StructuredOutputError')).toBe('answer did not parse');
+  });
+
+  it('passes an unknown class through, bounded, and joins parts with a semicolon', () => {
+    expect(readableWhy('GatewayError 500')).toBe('GatewayError 500');
+    expect(readableWhy('GatewayError 429; StructuredOutputError')).toBe(
+      'rate limited; answer did not parse',
+    );
+    expect(readableWhy('x'.repeat(300))).toHaveLength(120);
+  });
+
+  it('uses it for a fallback and an unavailable outcome', () => {
+    expect(
+      modelLine({
+        role: 'language-reviewer',
+        status: 'fallback',
+        model: 'claudeHaiku',
+        failed: 'gptLuna',
+        why: 'GatewayError 429',
+      }),
+    ).toContain('(unavailable: rate limited)');
+    expect(
+      modelLine({
+        role: 'security-reviewer',
+        status: 'unavailable',
+        tried: ['claudeOpus', 'gptSol'],
+        why: 'ModelOutputError max_tokens; GatewayError 500',
+      }),
+    ).toBe(
+      'security: unavailable (claudeOpus, gptSol: reasoning used the whole token budget; GatewayError 500)',
+    );
+  });
+});
+
+describe('types.normaliseDecision', () => {
+  const m = (severity: Item['severity'], text: string) => item({ severity, text });
+
+  it('moves MINOR to the front of should-fix and NIT to the front of nits, keeping BLOCKER and MAJOR', () => {
+    const d = normaliseDecision(
+      decision({
+        mustFix: [m('BLOCKER', 'b'), m('MINOR', 'mi'), m('NIT', 'n'), m('MAJOR', 'ma')],
+        shouldFix: [m('MAJOR', 'old-should')],
+        nits: [m('NIT', 'old-nit')],
+      }),
+    );
+    expect(d.mustFix.map((i) => i.text)).toEqual(['b', 'ma']);
+    expect(d.shouldFix.map((i) => i.text)).toEqual(['mi', 'old-should']);
+    expect(d.nits.map((i) => i.text)).toEqual(['n', 'old-nit']);
+    expect(d.verdict).toBe('REQUEST_CHANGES');
+  });
+
+  it('turns REQUEST_CHANGES into MERGE when no must-fix is left', () => {
+    expect(normaliseDecision(decision({ mustFix: [m('MINOR', 'x')] })).verdict).toBe('MERGE');
+    expect(normaliseDecision(decision({ mustFix: [] })).verdict).toBe('MERGE');
+  });
+
+  it('keeps REQUEST_CHANGES when lowQuality, and never touches CLOSE or MERGE', () => {
+    const lq = normaliseDecision(decision({ lowQuality: true, mustFix: [m('MINOR', 'x')] }));
+    expect(lq.verdict).toBe('REQUEST_CHANGES');
+    const close = normaliseDecision(decision({ verdict: 'CLOSE', mustFix: [m('MINOR', 'x')] }));
+    expect(close.verdict).toBe('CLOSE');
+    expect(normaliseDecision(decision({ verdict: 'MERGE' })).verdict).toBe('MERGE');
+  });
+
+  it('keeps REQUEST_CHANGES when a security or links reviewer blocked, still moving the item', () => {
+    const d = normaliseDecision(decision({ mustFix: [m('MINOR', 'x')] }), true);
+    expect(d.verdict).toBe('REQUEST_CHANGES');
+    expect(d.mustFix).toEqual([]);
+    expect(d.shouldFix.map((i) => i.text)).toEqual(['x']);
+    expect(normaliseDecision(decision({ mustFix: [m('MINOR', 'x')] }), false).verdict).toBe(
+      'MERGE',
+    );
+  });
+
+  it('drops nothing, even past the caps', () => {
+    const many = Array.from({ length: 8 }, (_, i) => m('MINOR', `mi${i}`));
+    const nits = Array.from({ length: 5 }, (_, i) => m('NIT', `n${i}`));
+    const d = normaliseDecision(
+      decision({
+        mustFix: [...many, ...nits],
+        shouldFix: [m('MAJOR', 's1'), m('MAJOR', 's2')],
+        nits: [m('NIT', 'old')],
+      }),
+    );
+    expect(d.shouldFix).toHaveLength(10);
+    expect(d.nits).toHaveLength(6);
+  });
+});
+
+describe('input.processFacts', () => {
+  const file = (additions: number, deletions = 0) => scoped(undefined, { additions, deletions });
+  const snap = (over: Partial<Snapshot> = {}): Snapshot => ({
+    repo: 'a/b',
+    pull: 1,
+    headSha: 'a'.repeat(40),
+    author: 'someone',
+    title: 't',
+    body: 'b',
+    files: [file(1)],
+    contents: new Map(),
+    disclosure: 'ok',
+    issues: [],
+    sheetNames: [],
+    related: new Map(),
+    unreviewedFiles: 0,
+    ...over,
+  });
+  const issueFact = { number: 4, state: 'open', labels: [], assignees: [], authorAssigned: false };
+
+  it('calls the upstream limits a process note, never a finding', () => {
+    const facts = processFacts(snap());
+    expect(facts).toContain('Upstream limits (process note for the maintainer, never a finding');
+    expect(facts).not.toContain('Scope note');
+  });
+
+  it('adds a scope note for more than 3 files without a linked issue', () => {
+    const facts = processFacts(snap({ files: [file(1), file(1), file(1), file(1)] }));
+    expect(facts).toContain('- Scope note: 4 files, no linked issue found.');
+    expect(processFacts(snap({ files: [file(1), file(1), file(1)] }))).not.toContain('Scope note');
+  });
+
+  it('counts files the broker did not return', () => {
+    expect(processFacts(snap({ unreviewedFiles: 5 }))).toContain('6 files, no linked issue');
+  });
+
+  it('adds a scope note for more than 1500 net added lines, and names both when both exceed', () => {
+    expect(processFacts(snap({ files: [file(1501)] }))).toContain(
+      '- Scope note: 1501 net added lines, no linked issue found.',
+    );
+    expect(processFacts(snap({ files: [file(1500)] }))).not.toContain('Scope note');
+    expect(processFacts(snap({ files: [file(1000), file(600, 10), file(1), file(1)] }))).toContain(
+      '- Scope note: 4 files and 1592 net added lines, no linked issue found.',
+    );
+  });
+
+  it('adds no scope note when an issue is linked', () => {
+    const facts = processFacts(
+      snap({ files: [file(2000), file(1), file(1), file(1)], issues: [issueFact] }),
+    );
+    expect(facts).not.toContain('Scope note');
+  });
+});
+
+describe('refs.reviewIssueRefs', () => {
+  const refs = (body: string | null | undefined) => reviewIssueRefs(body, 'OWASP/CheatSheetSeries');
+
+  it('reads #N, same-repo issue URLs and the word issue with or without #', () => {
+    expect(refs('Fixes #12')).toEqual([12]);
+    expect(refs('See https://github.com/OWASP/CheatSheetSeries/issues/77')).toEqual([77]);
+    expect(refs('This PR fixes issue 2815')).toEqual([2815]);
+    expect(refs('closes Issue #2815')).toEqual([2815]);
+    expect(refs('related to issues 12')).toEqual([12]);
+  });
+
+  it('never takes a bare number or another repository issue URL', () => {
+    expect(refs('Version 2815 of the 100 things; PR 44')).toEqual([]);
+    expect(refs('https://github.com/other/repo/issues/9')).toEqual([]);
+    expect(refs(null)).toEqual([]);
+    expect(refs(undefined)).toEqual([]);
+  });
+
+  it('ignores code spans and fenced blocks', () => {
+    expect(refs('Use `issue 5` in code')).toEqual([]);
+    expect(refs('```\nfixes issue 6\n```\ntext')).toEqual([]);
+    expect(refs('```\nissue 7 never closed')).toEqual([]);
+    expect(refs('```\nissue 8\n```\nissue 9')).toEqual([9]);
+  });
+
+  it('needs the word issue and the number on the same line', () => {
+    expect(refs('Related issues\n1. foo')).toEqual([]);
+    expect(refs('see issue\n2815')).toEqual([]);
+    expect(refs('see issue\t2815')).toEqual([2815]);
+  });
+
+  it('dedupes and keeps at most three', () => {
+    expect(refs('#4 and issue 4 and issue #4')).toEqual([4]);
+    expect(MAX_REVIEW_REFS).toBe(3);
+    expect(refs('#1 #2 #3 #4 issue 5')).toEqual([1, 2, 3]);
+  });
+});
+
+describe('email.approvalMail injection line', () => {
+  const mail = (injectionRoles?: readonly string[]) =>
+    approvalMail({
+      repo: 'a/b',
+      pull: 3,
+      link: 'https://custodes.work/admin/approvals/link/T',
+      verdict: 'MERGE',
+      event: 'COMMENT',
+      suggestions: 0,
+      expiresAt: '2026-10-31T10:00:00.000Z',
+      ...(injectionRoles ? { injectionRoles } : {}),
+    });
+
+  it('names the roles in text and html', () => {
+    const m = mail(['security-reviewer', 'link-auditor']);
+    const line = 'Possible prompt injection seen by: security-reviewer, link-auditor.';
+    expect(m.text).toContain(line);
+    expect(m.html).toContain(line);
+  });
+
+  it('omits the line when there are none, or none are valid role names', () => {
+    for (const m of [mail(), mail([]), mail(['<b>x</b>', 'Evil', '', 'a'.repeat(41), 'x y'])]) {
+      expect(m.text).not.toContain('prompt injection');
+      expect(m.html).not.toContain('prompt injection');
+    }
+  });
+
+  it('filters names that are not code-built role names', () => {
+    const m = mail(['judge', '<img src=x>', 'Ignore previous']);
+    expect(m.text).toContain('seen by: judge.');
+    expect(m.text).not.toContain('<img');
+    expect(m.html).not.toContain('<img');
+    expect(m.html).not.toContain('Ignore previous');
+  });
+});
+
+describe('render.inertCode and rejected suggestions', () => {
+  it('removes hidden characters and replaces every risky token with [removed]', () => {
+    const out = inertCode(
+      'a\u200Bb\u202E c\nSee https://x.example/a and http://y.example and www.z.example (//evil.example/x) ping @everyone <img src=x onerror=y>',
+    );
+    expect(out).not.toMatch(/[\u200B\u202E]/);
+    expect(out).toContain('a b  c'); // hidden characters become spaces
+    expect(out).toBe(
+      'a b  c\nSee [removed] and [removed] and [removed] ([removed]) ping [removed] [removed]',
+    );
+    expect(out).not.toMatch(/evil|https?:|www\.|<img/);
+  });
+
+  it('keeps a leading space before a removed protocol-relative link', () => {
+    expect(inertCode('go //evil.example/x now')).toBe('go [removed] now');
+  });
+
+  it('keeps ordinary fences and an @ that is not a mention, and shortens runs of 4+ backticks', () => {
+    expect(inertCode('```js\nx\n```')).toBe('```js\nx\n```');
+    expect(inertCode('a @ b and c@ and 5 @-1')).toBe('a @ b and c@ and 5 @-1');
+    expect(inertCode('a ````` b')).toBe('a ``` b');
+    // Anything that reads as a mention (including a Java annotation) is removed, not kept.
+    expect(inertCode('@Override public void f()')).toBe('[removed] public void f()');
+  });
+
+  it('keeps the first 600 characters and marks the clip', () => {
+    const out = inertCode('x'.repeat(2_000));
+    expect(out).toBe(`${'x'.repeat(600)}\n…(clipped)`);
+    expect(inertCode('x'.repeat(600))).toBe('x'.repeat(600));
+  });
+
+  it('carries the replacement on a rejected suggestion', () => {
+    const hunks = new Map([['cheatsheets/A.md', parsePatch(PATCH)]]);
+    const out = checkSuggestions(
+      [{ file: 'cheatsheets/A.md', line: 99, replacement: 'New text', rationale: 'r' }],
+      hunks,
+      new Set(),
+    );
+    expect(out.rejected).toEqual([
+      {
+        file: 'cheatsheets/A.md',
+        line: 99,
+        why: 'lines outside the changed hunks',
+        text: 'New text',
+      },
+    ]);
+  });
+
+  it('shows a rejected suggestion in an indented four-backtick text block with risky tokens removed', () => {
+    const rejected = [
+      {
+        file: 'cheatsheets/A.md',
+        line: 99,
+        why: 'lines outside the changed hunks',
+        text: 'See https://evil.example.com/x or //evil.example/x\n<img src=x> @everyone',
+      },
+    ];
+    const body = reviewBody({
+      decision: decision(),
+      outcomes: [ran('judge', 'gptSol')],
+      changeClass: 'content',
+      classWhy: 'x',
+      facts: '- f',
+      rejected,
+      linkNotes: [],
+      allowed: new Set<string>(),
+    });
+    expect(body).toContain(
+      '  ````text\n  See [removed] or [removed]\n  [removed] [removed]\n  ````',
+    );
+    expect(body).not.toMatch(/evil\.example|<img|@everyone/);
+  });
+
+  it('shows no code block for an empty replacement', () => {
+    const body = reviewBody({
+      decision: decision(),
+      outcomes: [ran('judge', 'gptSol')],
+      changeClass: 'content',
+      classWhy: 'x',
+      facts: '- f',
+      rejected: [{ file: 'a.md', line: 1, why: 'w', text: '  ' }],
+      linkNotes: [],
+      allowed: new Set<string>(),
+    });
+    expect(body).toContain('Suggestions not placed inline');
+    expect(body).not.toContain('````text');
+  });
+});
+
+describe('link checks ignore case (#92 review round 2)', () => {
+  it('addedRisk catches upper-case schemes and www', () => {
+    expect(addedRisk('[source](HTTPS://evil.example/x)', '')).toEqual(['HTTPS://evil.example/x']);
+    expect(addedRisk('see WWW.evil.example/x', '')).toEqual(['WWW.evil.example/x']);
+    expect(addedRisk('Http://evil.example', '')).toHaveLength(1);
+  });
+
+  it('inertCode removes upper-case links too', () => {
+    expect(inertCode('[source](HTTPS://evil.example/x) and WWW.evil.example/y')).toBe(
+      '[source]([removed]) and [removed]',
+    );
+  });
+});
+
+// ---------- #89 ----------
+
+describe('links.scanLinks', () => {
+  const scan = (...patchLines: string[]) =>
+    scanLinks(SHEET, parsePatch(['@@ -1,9 +1,9 @@', ...patchLines].join('\n')));
+
+  it('returns a link on a brand-new line without a previous URL', () => {
+    const r = scan(' a', '+See [d](https://example.com/new/x) now.');
+    expect(r.links).toHaveLength(1);
+    expect(r.links[0]).toMatchObject({ url: 'https://example.com/new/x', line: 2 });
+    expect(r.links[0]).not.toHaveProperty('previous');
+    expect([...r.targetOnlyLines]).toEqual([]);
+  });
+
+  it('treats a line whose only change is the target as moved, with the old URL', () => {
+    const r = scan(
+      ' a',
+      '-See [d](https://example.com/old/x) now.',
+      '+See [d](https://example.com/new/x) now.',
+    );
+    expect(r.links).toEqual([
+      {
+        url: 'https://example.com/new/x',
+        file: SHEET,
+        line: 2,
+        context: 'See [d](https://example.com/new/x) now.',
+        previous: 'https://example.com/old/x',
+      },
+    ]);
+    expect([...r.targetOnlyLines]).toEqual([2]);
+  });
+
+  it('does not audit an unchanged target on a target-only line, but marks the line', () => {
+    const r = scan(
+      '-See [d](https://same.example.com/x) and [e](https://example.com/old/y).',
+      '+See [d](https://same.example.com/x) and [e](https://example.com/new/y).',
+    );
+    expect(r.links.map((l) => l.url)).toEqual(['https://example.com/new/y']);
+    expect(r.links[0]?.previous).toBe('https://example.com/old/y');
+    expect([...r.targetOnlyLines]).toEqual([1]);
+  });
+
+  it('does not audit a link whose anchor text changed and URL stayed (#2882 tobtu)', () => {
+    const r = scan(
+      '-See [old words](https://a.example.com/x).',
+      '+See [new words](https://a.example.com/x).',
+    );
+    // The target was already there: nothing new to audit. The wording did change, so the line is
+    // not target-only and findings on it stay in scope.
+    expect(r.links).toEqual([]);
+    expect([...r.targetOnlyLines]).toEqual([]);
+  });
+
+  it('audits an unchanged URL on a line with no matching removed line as new', () => {
+    const r = scan('-Something else.', '+See [d](https://a.example.com/x) now.');
+    expect(r.links.map((l) => l.url)).toEqual(['https://a.example.com/x']);
+    expect(r.links[0]).not.toHaveProperty('previous');
+    expect([...r.targetOnlyLines]).toEqual([]);
+  });
+
+  it('does not pair across a context line inside one hunk', () => {
+    const r = scanLinks(
+      SHEET,
+      parsePatch(
+        [
+          '@@ -1,3 +1,3 @@',
+          '-See [d](https://old.example/a).',
+          ' context',
+          '+See [d](https://new.example/a).',
+        ].join('\n'),
+      ),
+    );
+    expect(r.links.map((l) => l.url)).toEqual(['https://new.example/a']);
+    expect(r.links[0]).not.toHaveProperty('previous');
+    expect([...r.targetOnlyLines]).toEqual([]);
+  });
+
+  it('audits URLs in parentheses and in href or src values', () => {
+    const r = scan(
+      '-Old.',
+      '+Use bcrypt (https://new.example/a) or <a href="https://new.example/b">this</a>.',
+    );
+    expect(r.links.map((l) => l.url).sort()).toEqual([
+      'https://new.example/a',
+      'https://new.example/b',
+    ]);
+  });
+
+  it('audits Markdown links MD_LINK cannot parse (single-quoted or parenthesised title)', () => {
+    const r = scan(
+      '-Old.',
+      "+See [x](https://evil.example/a 'T') and [y](https://evil.example/b (T)).",
+    );
+    expect(r.links.map((l) => l.url).sort()).toEqual([
+      'https://evil.example/a',
+      'https://evil.example/b',
+    ]);
+  });
+
+  it('sameSite: exact host, same GitHub owner, or the listed org and its domain (#92 round 13)', () => {
+    expect(
+      sameSite(
+        'https://github.com/OWASP/API-Security/blob/x.md',
+        'https://owasp.org/API-Security/',
+      ),
+    ).toBe(true);
+    expect(sameSite('https://www.owasp.org/a', 'https://owasp.org/b')).toBe(true);
+    expect(sameSite('https://github.com/good-org/lib', 'https://github.com/g00d-org/lib')).toBe(
+      false,
+    );
+    expect(sameSite('https://owasp.org/asvs', 'https://owasp-asvs.example/')).toBe(false);
+    expect(sameSite('https://proj.github.io/guide', 'https://attacker.github.io/guide')).toBe(
+      false,
+    );
+    expect(
+      sameSite(
+        'https://raw.githubusercontent.com/OWASP/x/a',
+        'https://raw.githubusercontent.com/attacker/x/a',
+      ),
+    ).toBe(false);
+    expect(sameSite('https://github.com/OWASP/x', 'https://owasp.xyz/x')).toBe(false);
+    expect(sameSite('https://a.netlify.app/x', 'https://b.netlify.app/x')).toBe(false);
+    expect(sameSite('https://cheatsheetseries.owasp.org/a', 'https://owasp.org/b')).toBe(false);
+  });
+
+  it('allows only known link-target forms', () => {
+    expect(knownTargetForm('https://owasp.org/x')).toBe(true);
+    expect(knownTargetForm('Password_Storage_Cheat_Sheet.md#argon2id')).toBe(true);
+    expect(knownTargetForm('#section')).toBe(true);
+    expect(knownTargetForm('../assets/Diagram.png')).toBe(true);
+    for (const bad of [
+      '//evil.example/x',
+      '&#47;&#47;evil.example/x',
+      '/&#x2f;evil.example',
+      '\\\\evil\\x',
+      'mailto:a@b.c',
+    ])
+      expect(knownTargetForm(bad)).toBe(false);
+  });
+
+  it('rejects https targets whose host part a renderer reads differently (#92 round 14)', () => {
+    for (const bad of [
+      'https://owasp.org\\.evil.example/x',
+      'https://owasp.org&#64;evil.example/',
+      'https://owasp.org\\@evil.example/',
+      'https://user@evil.example/',
+    ])
+      expect(knownTargetForm(bad)).toBe(false);
+    expect(knownTargetForm('https://owasp.org:443/www-project/?a=1#x')).toBe(true);
+    const p = patchOf(
+      ['See [CWE](https://cwe.mitre.org/data/x).'],
+      ['See [CWE](https://cwe.mitre.org\\.evil.example/data/x).'],
+    );
+    expect(classify([scoped(p)])).toMatchObject({ kind: 'decided', class: 'content' });
+  });
+
+  it('treats archive hosts as never the same site, and owners on GitLab and Bitbucket', () => {
+    expect(
+      sameSite(
+        'https://web.archive.org/web/1/https://a.example/x',
+        'https://web.archive.org/web/2/https://evil.example/x',
+      ),
+    ).toBe(false);
+    expect(sameSite('https://gitlab.com/good/lib', 'https://gitlab.com/evil/lib')).toBe(false);
+    expect(sameSite('https://gitlab.com/good/lib', 'https://gitlab.com/good/lib2')).toBe(true);
+  });
+
+  it('sends an entity-encoded protocol-relative target to the full review', () => {
+    const p = patchOf(
+      ['See [NIST](https://nist.gov/x).'],
+      ['See [NIST](&#47;&#47;evil.example/x).'],
+    );
+    expect(classify([scoped(p)])).toMatchObject({ kind: 'decided', class: 'content' });
+  });
+
+  it('audits a changed target on another site as a new link, not a move', () => {
+    const r = scan(
+      '-See [lib](https://github.com/good-org/lib).',
+      '+See [lib](https://github.com/g00d-org/lib).',
+    );
+    expect(r.links.map((l) => l.url)).toEqual(['https://github.com/g00d-org/lib']);
+    expect(r.links[0]).not.toHaveProperty('previous');
+  });
+
+  it('audits a URL re-cited for new text even if another line of the hunk cited it', () => {
+    const r = scan(
+      '-Old claim [x](https://a.example/p).',
+      ' context',
+      '+New claim [x](https://a.example/p).',
+    );
+    expect(r.links.map((l) => l.url)).toEqual(['https://a.example/p']);
+  });
+
+  it('audits new autolinks', () => {
+    const r = scan('-Old.', '+See <https://new.example/a> for more.');
+    expect(r.links.map((l) => l.url)).toEqual(['https://new.example/a']);
+  });
+
+  it('does not pair across hunks', () => {
+    const r = scanLinks(
+      SHEET,
+      parsePatch(
+        [
+          '@@ -1,1 +1,0 @@',
+          '-See [d](https://example.com/old/x) now.',
+          '@@ -10,0 +10,1 @@',
+          '+See [d](https://example.com/new/x) now.',
+        ].join('\n'),
+      ),
+    );
+    expect(r.links.map((l) => l.url)).toEqual(['https://example.com/new/x']);
+    expect(r.links[0]).not.toHaveProperty('previous');
+    expect([...r.targetOnlyLines]).toEqual([]);
+  });
+
+  it('requires the same number of targets to pair', () => {
+    const r = scan(
+      '-See [d](https://example.com/old/x) now.',
+      '+See [d](https://example.com/new/x) now.',
+      '+See [d](https://example.com/new/x) now.',
+    );
+    // The removed line is used once; the second added line is a new link, deduped by URL.
+    expect(r.links).toHaveLength(1);
+    expect([...r.targetOnlyLines]).toEqual([1]);
+  });
+
+  it('dedupes by URL', () => {
+    const r = scan('+One https://a.example.com/x', '+Two https://a.example.com/x');
+    expect(r.links).toHaveLength(1);
+  });
+
+  it('does not pair a code line whose bare URL goes https to http: not target-only, not moved', () => {
+    const r = scan(
+      "-fetch('https://api.example.com/token')",
+      "+fetch('http://api.example.com/token')",
+    );
+    expect([...r.targetOnlyLines]).toEqual([]);
+    expect(r.links.every((l) => l.previous === undefined)).toBe(true);
+  });
+
+  it('does not pair a Markdown link that goes https to http: audited as new', () => {
+    const r = scan(
+      '-See [d](https://a.example.com/x) now.',
+      '+See [d](http://a.example.com/x) now.',
+    );
+    expect([...r.targetOnlyLines]).toEqual([]);
+    expect(r.links.map((l) => l.url)).toEqual(['http://a.example.com/x']);
+    expect(r.links[0]).not.toHaveProperty('previous');
+  });
+
+  it('still pairs http to https and treats a changed bare URL as content', () => {
+    const up = scan('-See [d](http://a.example.com/x).', '+See [d](https://a.example.com/x).');
+    expect([...up.targetOnlyLines]).toEqual([1]);
+    expect(up.links[0]?.previous).toBe('http://a.example.com/x');
+    const bare = scan('-Use https://a.example.com/x here', '+Use https://b.example.com/x here');
+    expect([...bare.targetOnlyLines]).toEqual([]);
+  });
+
+  it('audits a moved URL cited again on a new line as new, at the new line', () => {
+    const r = scan(
+      '-See [d](https://example.com/old/x) now.',
+      '+See [d](https://example.com/new/x) now.',
+      '+A new claim backed by https://example.com/new/x too.',
+    );
+    expect(r.links).toHaveLength(1);
+    expect(r.links[0]).not.toHaveProperty('previous');
+    expect(r.links[0]).toMatchObject({ url: 'https://example.com/new/x', line: 2 });
+    expect(r.links[0]?.context).toContain('A new claim');
+    expect([...r.targetOnlyLines]).toEqual([1]);
+  });
+
+  it('masks targets so two lines that differ only in targets compare equal', () => {
+    expect(maskedLine('a [b](https://x.example/1) c')).toBe(
+      maskedLine('a [b](https://z.example/2) c'),
+    );
+    // A bare URL is content (code sample, CORS or CSP value): it is not masked.
+    expect(maskedLine('a https://y.example')).not.toBe(maskedLine('a https://w.example'));
+    expect(maskedLine('a [b](https://x.example/1)')).not.toBe(
+      maskedLine('a [c](https://x.example/1)'),
+    );
+  });
+});
+
+describe('pipeline.linkStatus', () => {
+  it('reads a moved link only as same or different resource, or stale', () => {
+    expect(linkStatus('DIFFERENT-RESOURCE', true)).toBe('DIFFERENT-RESOURCE');
+    expect(linkStatus('WRONG-PAGE', true)).toBe('DIFFERENT-RESOURCE');
+    expect(linkStatus('STALE', true)).toBe('STALE');
+    for (const s of ['OK', 'SAME-RESOURCE']) expect(linkStatus(s, true)).toBe('SAME-RESOURCE');
+    for (const s of ['UNSUPPORTED', 'LOW-AUTHORITY'])
+      expect(linkStatus(s, true)).toBe('LOW-AUTHORITY');
+  });
+
+  it('reads a new link as before, mapping the moved-only words', () => {
+    expect(linkStatus('SAME-RESOURCE', false)).toBe('OK');
+    expect(linkStatus('DIFFERENT-RESOURCE', false)).toBe('WRONG-PAGE');
+    for (const s of ['OK', 'WRONG-PAGE', 'UNSUPPORTED', 'LOW-AUTHORITY', 'STALE'])
+      expect(linkStatus(s, false)).toBe(s);
+  });
+});
+
+describe('types.normaliseDecision with target-only lines', () => {
+  const at = (over: Partial<Item>) => item({ file: SHEET, line: 3, ...over });
+  const targetOnly = new Map([[SHEET, new Set([3])]]);
+
+  it('moves findings on a target-only line to outOfScope, from every list, after the judge own', () => {
+    const own = at({ line: 50, text: 'own' });
+    const d = normaliseDecision(
+      decision({
+        mustFix: [at({ severity: 'MAJOR', dimension: 'Practicality', text: 'must' })],
+        shouldFix: [at({ severity: 'MINOR', dimension: 'Practicality', text: 'should' })],
+        nits: [at({ severity: 'NIT', dimension: 'Language', text: 'nit' })],
+        outOfScope: [own],
+      }),
+      false,
+      targetOnly,
+    );
+    expect(d.outOfScope.map((i) => i.text)).toEqual(['own', 'must', 'should', 'nit']);
+    expect(d.mustFix).toEqual([]);
+    expect(d.shouldFix).toEqual([]);
+    expect(d.nits).toEqual([]);
+  });
+
+  it('never moves a Security finding: a BLOCKER on a target-only line stays and keeps REQUEST_CHANGES', () => {
+    const d = normaliseDecision(
+      decision({ mustFix: [at({ severity: 'BLOCKER', dimension: 'Security', text: 'sec' })] }),
+      true,
+      targetOnly,
+    );
+    expect(d.mustFix.map((i) => i.text)).toEqual(['sec']);
+    expect(d.outOfScope).toEqual([]);
+    expect(d.verdict).toBe('REQUEST_CHANGES');
+    const minor = normaliseDecision(
+      decision({ mustFix: [at({ severity: 'MINOR', dimension: 'Security', text: 'sec2' })] }),
+      false,
+      targetOnly,
+    );
+    expect(minor.shouldFix.map((i) => i.text)).toEqual(['sec2']);
+    expect(minor.outOfScope).toEqual([]);
+  });
+
+  it('does not count them for the verdict: the #2880 shape becomes MERGE', () => {
+    const d = normaliseDecision(
+      decision({ mustFix: [at({ severity: 'MAJOR', dimension: 'Practicality' })] }),
+      false,
+      targetOnly,
+    );
+    expect(d.verdict).toBe('MERGE');
+  });
+
+  it('keeps Links & sources items, items on other lines, other files and items without a line', () => {
+    const d = normaliseDecision(
+      decision({
+        mustFix: [
+          at({ dimension: 'Links & sources', text: 'link' }),
+          at({ line: 4, text: 'other line' }),
+          at({ file: 'cheatsheets/Other.md', text: 'other file' }),
+          { dimension: 'Practicality', severity: 'MAJOR', file: SHEET, text: 'no line' },
+        ],
+      }),
+      false,
+      targetOnly,
+    );
+    expect(d.mustFix.map((i) => i.text)).toEqual(['link', 'other line', 'other file', 'no line']);
+    expect(d.outOfScope).toEqual([]);
+    expect(d.verdict).toBe('REQUEST_CHANGES');
+  });
+});
+
+describe('render #89 sections', () => {
+  const base = (over: Partial<Parameters<typeof reviewBody>[0]> = {}) => ({
+    decision: decision(),
+    outcomes: [ran('judge', 'gptSol')],
+    changeClass: 'links-only' as const,
+    classWhy: 'x',
+    facts: '- f',
+    rejected: [],
+    linkNotes: [],
+    allowed: new Set<string>(),
+    ...over,
+  });
+
+  it('shows out-of-scope items under their own heading, as inert text', () => {
+    const body = reviewBody(
+      base({
+        decision: decision({
+          outOfScope: [
+            item({ line: 3, text: 'Ping @everyone <img src=x> https://evil.example.com/z' }),
+          ],
+        }),
+      }),
+    );
+    expect(body).toContain('### Noticed in existing text (not caused by this PR)');
+    expect(body).toContain(`\`${SHEET}:3\``);
+    expect(body).not.toMatch(/(^|[^＠])@everyone/);
+    expect(body).not.toContain('<img');
+  });
+
+  it('leaves both sections out when empty', () => {
+    const body = reviewBody(base());
+    expect(body).not.toContain('Noticed in existing text');
+    expect(body).not.toContain('### Links checked');
+  });
+
+  it('lists checked links in a table with moved or new and the status', () => {
+    const body = reviewBody(
+      base({
+        linkChecks: [
+          { url: 'https://example.com/new/x', moved: true, status: 'SAME-RESOURCE' },
+          { url: 'https://b.example.com/`y|z', moved: false, status: 'broken (HTTP 404)' },
+        ],
+      }),
+    );
+    expect(body).toContain('### Links checked');
+    expect(body).toContain('| `https://example.com/new/x` | moved | SAME-RESOURCE |');
+    const row = body.split('\n').find((l) => l.endsWith('| new | broken (HTTP 404) |')) ?? '';
+    expect(row.split('`')).toHaveLength(3); // the hostile backtick cannot break out of the code span
+    expect(row).toMatch(/\| new \| broken \(HTTP 404\) \|$/);
+  });
+});
+
+describe('#93: small edits that flip guidance, indented code', () => {
+  it('sends a one-word flip of guidance to the classifier instead of minor-prose', () => {
+    const p = patchOf(
+      ['Always set the HttpOnly attribute on session cookies.'],
+      ['Never set the HttpOnly attribute on session cookies.'],
+    );
+    expect(classify([scoped(p)])).toEqual({ kind: 'ambiguous' });
+  });
+
+  it('never decides minor prose for numbers, algorithms, settings or contractions (#92 round 6)', () => {
+    const pairs: [string, string][] = [
+      ['Use keys of at least 128 bits.', 'Use keys of at least 12 bits.'],
+      ['Use PBKDF2 with 600,000 iterations.', 'Use PBKDF2 with 1,000 iterations.'],
+      ['Require TLS 1.3 for all traffic.', 'Require TLS 1.0 for all traffic.'],
+      ['Hash with SHA-256 before signing.', 'Hash with SHA-1 before signing.'],
+      ['Set SameSite=Strict on the session cookie.', 'Set SameSite=None on the session cookie.'],
+      ['The token is valid for one request.', 'The token isn’t valid for one request.'],
+    ];
+    for (const [before, after] of pairs)
+      expect(classify([scoped(patchOf([before], [after]))])).not.toMatchObject({
+        class: 'minor-prose',
+      });
+  });
+
+  it('sees a case change inside inline code', () => {
+    const p = patchOf(['Validate with `^[\\w.-]+$` first.'], ['Validate with `^[\\W.-]+$` first.']);
+    expect(classify([scoped(p)])).toMatchObject({ kind: 'decided', class: 'content' });
+  });
+
+  it('treats a stray backtick or <code> as content, and a very long changed line too', () => {
+    expect(classify([scoped(patchOf(['Use ```x for it.'], ['Use ```y for it.']))])).toMatchObject({
+      class: 'content',
+    });
+    expect(
+      classify([
+        scoped(patchOf(['Use <code class="x">a</code>.'], ['Use <code class="x">b</code>.'])),
+      ]),
+    ).toMatchObject({ class: 'content' });
+    const long = 'a'.repeat(4_100);
+    expect(classify([scoped(patchOf([long], [`${long}b`]))])).toMatchObject({
+      class: 'content',
+      why: 'a very long line changed',
+    });
+  });
+
+  it('counts a fence indented under a list item as code', () => {
+    const md = ['1. Step:', '', '    ```java', '    cookie.setSecure(true);', '    ```'].join('\n');
+    expect([...fencedLines(md)].sort((x, y) => x - y)).toEqual([3, 4, 5]);
+  });
+
+  it('reviews a sheet that was not read as content', () => {
+    const p = patchOf(['old'], ['new']);
+    expect(classify([{ ...scoped(p), codeLines: null }])).toMatchObject({
+      kind: 'decided',
+      class: 'content',
+    });
+  });
+
+  it('counts indented code blocks as code, but not indented list continuations', () => {
+    const md = [
+      'Text.',
+      '',
+      '    curl -k https://x',
+      '    echo done',
+      '',
+      '- item',
+      '',
+      '    more of the item',
+      'End.',
+    ].join('\n');
+    expect([...fencedLines(md)]).toEqual([3, 4]);
   });
 });
