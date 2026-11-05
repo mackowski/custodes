@@ -43,10 +43,13 @@ function withoutUrls(s: string): string {
   // A URL inside inline code (a CORS origin, a CSP source, a config value) is content: keep it.
   const spans: string[] = [];
   const hidden = s.replace(CODE_SPAN, (m) => `\uE000${spans.push(m) - 1}\uE000`);
-  return hidden
-    .replace(URL_IN_TEXT, ']()')
-    .replace(/\uE000(\d+)\uE000/g, (_, i: string) => spans[Number(i)] ?? '')
-    .trim();
+  return (
+    hidden
+      .replace(URL_IN_TEXT, ']()')
+      .replace(/\uE000(\d+)\uE000/g, (_, i: string) => spans[Number(i)] ?? '')
+      // Leading whitespace is structure (list nesting, indented code): only trailing space is noise.
+      .trimEnd()
+  );
 }
 
 const URL_ANY = /https?:\/\/[^\s)<>"'`\]]+/gi;

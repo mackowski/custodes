@@ -251,17 +251,25 @@ describe('scope.classify', () => {
       '@@ -20,0 +19,1 @@',
       '+- Hash passwords with [MD5](https://en.wikipedia.org/wiki/MD5#Algorithm).',
     ].join('\n');
-    expect(classify([scoped(across)])).not.toMatchObject({ class: 'links-only' });
+    expect(classify([scoped(across)])).toEqual({ kind: 'ambiguous' });
     const del = '@@ -3,1 +3,0 @@\n-- Hash passwords with [MD5](https://en.wikipedia.org/wiki/MD5).';
     const add =
       '@@ -3,0 +3,1 @@\n+- Hash passwords with [MD5](https://en.wikipedia.org/wiki/MD5#Algorithm).';
-    expect(classify([scoped(del), scoped(add)])).not.toMatchObject({ class: 'links-only' });
+    expect(classify([scoped(del), scoped(add)])).toEqual({ kind: 'ambiguous' });
     // A real in-place link swap stays links-only.
     expect(
       classify([
         scoped(patchOf(['See [a](https://x.example/1).'], ['See [a](https://x.example/2).'])),
       ]),
     ).toMatchObject({ class: 'links-only' });
+  });
+
+  it('never treats an indentation-only change as a link change (#92 round 9)', () => {
+    const p = patchOf(
+      ['  - store JWTs in [localStorage](https://x.example/a)'],
+      ['- store JWTs in [localStorage](https://x.example/a)'],
+    );
+    expect(classify([scoped(p)])).toEqual({ kind: 'ambiguous' });
   });
 
   it('reviews a PR with unread files as content', () => {
