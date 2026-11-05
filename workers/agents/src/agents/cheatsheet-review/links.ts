@@ -28,7 +28,7 @@ const MAX_REDIRECTS = 5;
 export const EXCERPT_CHARS = 8_000;
 
 const MD_LINK = /\]\(\s*<?([^)\s>]+)>?(?:\s+"[^"]*")?\s*\)/g;
-const BARE = /(?<![(<"])\bhttps?:\/\/[^\s)<>\]"]+/g;
+const BARE = /(?<![("])\bhttps?:\/\/[^\s)<>\]"]+/g;
 
 /** Link targets in a line, in order (Markdown links first, then bare URLs, as extractLinks). */
 function targets(text: string): string[] {

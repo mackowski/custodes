@@ -283,6 +283,25 @@ describe('scope.classify', () => {
     expect(classify([scoped(p)])).toEqual({ kind: 'ambiguous' });
   });
 
+  it('never treats an autolink, bare or href URL swap, or trailing spaces, as links-only (#92 round 10)', () => {
+    const pairs: [string, string][] = [
+      [
+        'See <https://cwe.mitre.org/data/definitions/79.html>.',
+        'See <https://attacker.example/79.html>.',
+      ],
+      [
+        'See https://cwe.mitre.org/data/definitions/79.html for details.',
+        'See https://attacker.example/79.html for details.',
+      ],
+      ['<a href="https://cwe.mitre.org/">CWE</a>', '<a href="https://attacker.example/">CWE</a>'],
+      ['See [docs](https://x.example/a).', 'See [docs](https://x.example/a).  '],
+    ];
+    for (const [before, after] of pairs)
+      expect(classify([scoped(patchOf([before], [after]))])).not.toMatchObject({
+        class: 'links-only',
+      });
+  });
+
   it('reviews a PR with unread files as content', () => {
     const p = patchOf(
       ['See [docs](https://old.example.com/a).'],
@@ -1859,6 +1878,28 @@ describe('links.scanLinks', () => {
     expect(r.links.map((l) => l.url)).toEqual(['https://a.example.com/x']);
     expect(r.links[0]).not.toHaveProperty('previous');
     expect([...r.targetOnlyLines]).toEqual([]);
+  });
+
+  it('does not pair across a context line inside one hunk', () => {
+    const r = scanLinks(
+      SHEET,
+      parsePatch(
+        [
+          '@@ -1,3 +1,3 @@',
+          '-See [d](https://old.example/a).',
+          ' context',
+          '+See [d](https://new.example/a).',
+        ].join('\n'),
+      ),
+    );
+    expect(r.links.map((l) => l.url)).toEqual(['https://new.example/a']);
+    expect(r.links[0]).not.toHaveProperty('previous');
+    expect([...r.targetOnlyLines]).toEqual([]);
+  });
+
+  it('audits new autolinks', () => {
+    const r = scan('-Old.', '+See <https://new.example/a> for more.');
+    expect(r.links.map((l) => l.url)).toEqual(['https://new.example/a']);
   });
 
   it('does not pair across hunks', () => {
