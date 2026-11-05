@@ -2383,6 +2383,10 @@ describe('requests.maintainerRequests (#91)', () => {
     expect(out.map((r) => r.body)).toEqual(['I do not agree with this.']);
   });
 
+  it('ignores dismissed reviews', () => {
+    expect(maintainerRequests([], [review({ state: 'DISMISSED' })])).toEqual([]);
+  });
+
   it('never counts the PR author as their own maintainer', () => {
     const out = maintainerRequests(
       [comment({ user: { login: 'Author', type: 'User' }, body: 'This is addressed.' }), comment()],

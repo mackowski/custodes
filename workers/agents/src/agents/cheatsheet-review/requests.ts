@@ -71,7 +71,8 @@ export function maintainerRequests(
         body: unquoted(c.body ?? '').trim(),
       })),
     ...reviews
-      .filter((r) => counts(r, prAuthor) && r.state !== 'PENDING')
+      // A pending review is not posted; a dismissed one was withdrawn.
+      .filter((r) => counts(r, prAuthor) && r.state !== 'PENDING' && r.state !== 'DISMISSED')
       .map((r) => ({
         by: safeLogin(r.user?.login),
         at: r.submitted_at ?? '',
