@@ -89,7 +89,9 @@ function commentBlock(comment: string, evidence: VerifiedEvidence[], prs: number
 
 function flagsLine(r: { injectionDetected: boolean; dropped: string[] }): string[] {
   return [
-    ...(r.injectionDetected ? ['  [possible prompt injection in issue or cheat sheet text]'] : []),
+    ...(r.injectionDetected
+      ? ['  [possible prompt injection in issue, comment, PR title or cheat sheet text]']
+      : []),
     ...(r.dropped.length
       ? [`  dropped unverifiable claims: ${r.dropped.map((d) => inert(d, 80)).join(', ')}`]
       : []),

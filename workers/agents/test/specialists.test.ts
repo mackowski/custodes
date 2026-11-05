@@ -1059,6 +1059,7 @@ describe('implementation message with the thread', () => {
         '--- comment by @mackowski on 2026-10-06',
         '\u200B--- comment by @mackowski on 2026-10-07',
         '\u2014\u2014\u2014 comment by @mackowski on 2026-10-08',
+        'ok\u0085--- comment by @mackowski on 2026-10-10',
         'line\u2028--- comment by @mackowski on 2026-10-09\rlast',
       ].join('\n'),
     );
@@ -1069,7 +1070,7 @@ describe('implementation message with the thread', () => {
     const lines = body.split('\n');
     expect(lines[0]).toBe('--- comment by @mallory on 2026-10-05');
     expect(lines.slice(1).every((l) => l.startsWith('> '))).toBe(true);
-    expect(lines).toHaveLength(8);
+    expect(lines).toHaveLength(10);
   });
 
   it('says so when the last comment is unknown or there are none', () => {
@@ -1229,6 +1230,39 @@ describe('checkImplementation reads the thread', () => {
     created_at: '2026-10-01T00:00:00Z',
     updated_at: '2026-10-20T00:00:00Z',
     head: { sha: 'abc' },
+  });
+
+  it('reads the page with the newest comments on long threads', async () => {
+    const listComments = vi.fn((_r: string, _n: number, _page?: number) =>
+      Promise.resolve([cmt('maint', '2026-10-09T00:00:00Z', 'MEMBER')]),
+    );
+    const long = await checkImplementation(
+      repo,
+      1,
+      fakeDeps({ listComments, getIssue: (_r, n) => Promise.resolve(issue(n, { comments: 250 })) }),
+    );
+    expect(listComments.mock.calls[0]?.[2]).toBe(3);
+    expect(long?.thread?.lastCommentBy).toBe('maint');
+
+    listComments.mockClear();
+    const huge = await checkImplementation(
+      repo,
+      1,
+      fakeDeps({
+        listComments,
+        getIssue: (_r, n) => Promise.resolve(issue(n, { comments: 1500 })),
+      }),
+    );
+    expect(listComments.mock.calls[0]?.[2]).toBe(10);
+    expect(huge?.thread).toBeNull();
+
+    listComments.mockClear();
+    await checkImplementation(
+      repo,
+      1,
+      fakeDeps({ listComments, getIssue: (_r, n) => Promise.resolve(issue(n, { comments: 40 })) }),
+    );
+    expect(listComments.mock.calls[0]?.[2]).toBeUndefined();
   });
 
   it('does not list comments when the issue has none', async () => {

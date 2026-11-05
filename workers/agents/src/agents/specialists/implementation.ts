@@ -72,7 +72,7 @@ export type RawImplementationCheck = z.infer<typeof RawImplementationCheck>;
 const Login = z.string().regex(/^(?:[A-Za-z0-9-]{1,39}|unknown)$/);
 
 export const ThreadState = z.object({
-  lastCommentAt: z.string(),
+  lastCommentAt: z.iso.datetime(),
   lastCommentBy: Login,
   lastByMaintainer: z.boolean(),
 });
@@ -82,7 +82,7 @@ export type ThreadState = z.infer<typeof ThreadState>;
 export const OpenLinkedPull = z.object({
   number: z.number().int().positive(),
   author: Login,
-  updatedAt: z.string(),
+  updatedAt: z.iso.datetime(),
 });
 export type OpenLinkedPull = z.infer<typeof OpenLinkedPull>;
 
@@ -128,17 +128,21 @@ const MAX_THREAD_CHARS = 12_000;
  */
 export function quoteBody(body: string): string {
   return body
-    .split(/\r\n|[\n\r\u2028\u2029]/)
+    .split(/\r\n|[\n\r\v\f\u0085\u2028\u2029]/)
     .map((l) => `> ${l}`)
     .join('\n');
 }
 
 /**
- * The last human comment. Null when there is none, or when the issue has more comments than were
- * read (the reader returns the first 100), since the real last comment is then unknown.
+ * The last human comment. Null when there is none, or when the comments read do not reach the end
+ * of the thread (then the real last comment is unknown).
  */
-export function threadState(issue: PublicIssue, comments: IssueComment[]): ThreadState | null {
-  if (issue.comments > comments.length) return null;
+export function threadState(
+  issue: PublicIssue,
+  comments: IssueComment[],
+  coversEnd = issue.comments <= comments.length,
+): ThreadState | null {
+  if (!coversEnd) return null;
   const last = comments.filter((c) => !isBot(c)).at(-1);
   if (!last) return null;
   return {
@@ -228,13 +232,20 @@ export function buildImplementationMessage(
   ackAt: string | null,
   pulls: PullRef[],
   files: ReadonlyMap<string, string>,
-  discussion: { comments?: IssueComment[]; assignees?: string[]; linkedPrs?: LinkedPull[] } = {},
+  discussion: {
+    comments?: IssueComment[];
+    /** False when the comments read do not reach the newest one. */
+    coversEnd?: boolean;
+    assignees?: string[];
+    linkedPrs?: LinkedPull[];
+  } = {},
 ): string {
   const comments = discussion.comments ?? [];
-  const state = threadState(issue, comments);
+  const coversEnd = discussion.coversEnd ?? issue.comments <= comments.length;
+  const state = threadState(issue, comments, coversEnd);
   const lastLine = state
     ? `Last comment: by @${state.lastCommentBy} (${state.lastByMaintainer ? 'maintainer' : 'not a maintainer'}) on ${state.lastCommentAt.slice(0, 10)}`
-    : `Last comment: ${issue.comments > comments.length ? 'unknown (not all comments were read)' : '(none)'}`;
+    : `Last comment: ${coversEnd ? '(none)' : 'unknown (not all comments were read)'}`;
   const entries = comments
     .filter((c) => !isBot(c))
     .slice(-MAX_COMMENTS)
@@ -337,6 +348,8 @@ export function validateImplementationCheck(
 
 /** Up to this many merged PRs have their changed files read. */
 const MAX_PRS_WITH_FILES = 3;
+/** The broker's highest comments page (ReadQuery.page). */
+const MAX_COMMENT_PAGES = 10;
 /** Open linked PRs read for their activity date. */
 const MAX_OPEN_PR_READS = 3;
 /** Cheat sheets loaded into one assessment. */
@@ -378,7 +391,13 @@ export async function checkImplementation(
   const picked = validateSelection(selection, cheatSheets);
   const names = [...new Set([...pulls.flatMap((p) => p.files), ...picked])].slice(0, MAX_FILES);
   const files = await loadCheatSheets(repo, names, deps);
-  const comments = issue.comments > 0 ? await deps.reader.listComments(repo, issueNumber) : [];
+  // Comments come oldest first, 100 a page: read the page with the newest (the broker allows 10).
+  const commentPage = Math.min(MAX_COMMENT_PAGES, Math.ceil(issue.comments / 100));
+  const comments =
+    issue.comments > 0
+      ? await deps.reader.listComments(repo, issueNumber, commentPage > 1 ? commentPage : undefined)
+      : [];
+  const coversEnd = issue.comments <= commentPage * 100;
   const assignees = (issue.assignees ?? [])
     .map((a) => safeLogin(a.login))
     .filter((l) => l !== 'unknown');
@@ -395,6 +414,7 @@ export async function checkImplementation(
     IMPLEMENTATION_PROMPT,
     buildImplementationMessage(repo, issue, ackAt, pulls, files, {
       comments,
+      coversEnd,
       assignees,
       linkedPrs,
     }),
@@ -406,7 +426,7 @@ export async function checkImplementation(
     ackAt,
     pulls,
     files,
-    thread: threadState(issue, comments),
+    thread: threadState(issue, comments, coversEnd),
     openPrs,
   });
   return { ...result, injectionDetected: result.injectionDetected || selection.injectionDetected };
