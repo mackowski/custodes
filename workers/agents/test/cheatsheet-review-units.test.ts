@@ -1231,10 +1231,11 @@ describe('runner after max_tokens', () => {
       effort: 'low',
       max_tokens: 36_000,
     });
+    // A role without an effort stays on the model default: only the budget grows.
     expect(fallbackAfterMaxTokens({ ...LINEUP.judge, max_tokens: 3_333 })).toEqual({
-      effort: 'low',
       max_tokens: 5_000,
     });
+    expect(fallbackAfterMaxTokens(LINEUP['security-reviewer'])).toEqual({ max_tokens: 24_000 });
   });
 
   it('retries the fallback with low effort and 1.5x tokens when the primary ran out of tokens', async () => {
@@ -1249,14 +1250,27 @@ describe('runner after max_tokens', () => {
     expect(fb).toMatchObject({ max_tokens: 36_000, reasoning_effort: 'low' });
   });
 
-  it('gives a role without a set effort low effort on the fallback after max_tokens', async () => {
+  it('sets no effort on the fallback of a role without one, only a larger budget', async () => {
     const f = fake({
       openrouter: () => new ModelOutputError('max_tokens'),
       anthropic: () => GOOD,
     });
     await run(f); // language-reviewer: 8000, no effort
     expect(f.calls[0]?.req.reasoning_effort).toBeUndefined();
-    expect(f.calls[1]?.req).toMatchObject({ max_tokens: 12_000, reasoning_effort: 'low' });
+    expect(f.calls[1]?.req.max_tokens).toBe(12_000);
+    expect(f.calls[1]?.req.reasoning_effort).toBeUndefined();
+  });
+
+  it('records only a larger budget on the span for a role without an effort', async () => {
+    const t = new RecordingTracer();
+    const f = fake(
+      { openrouter: () => new ModelOutputError('max_tokens'), anthropic: () => GOOD },
+      { turn: turnOf(t, false) },
+    );
+    await run(f);
+    expect(
+      t.named('invoke_agent language-reviewer')[0]?.attributes['custodes.review.fallback_settings'],
+    ).toBe('larger budget');
   });
 
   it('keeps the lineup settings for a refusal or any other primary error', async () => {
@@ -1395,6 +1409,16 @@ describe('types.normaliseDecision', () => {
     expect(normaliseDecision(decision({ verdict: 'MERGE' })).verdict).toBe('MERGE');
   });
 
+  it('keeps REQUEST_CHANGES when a security or links reviewer blocked, still moving the item', () => {
+    const d = normaliseDecision(decision({ mustFix: [m('MINOR', 'x')] }), true);
+    expect(d.verdict).toBe('REQUEST_CHANGES');
+    expect(d.mustFix).toEqual([]);
+    expect(d.shouldFix.map((i) => i.text)).toEqual(['x']);
+    expect(normaliseDecision(decision({ mustFix: [m('MINOR', 'x')] }), false).verdict).toBe(
+      'MERGE',
+    );
+  });
+
   it('drops nothing, even past the caps', () => {
     const many = Array.from({ length: 8 }, (_, i) => m('MINOR', `mi${i}`));
     const nits = Array.from({ length: 5 }, (_, i) => m('NIT', `n${i}`));
@@ -1489,6 +1513,12 @@ describe('refs.reviewIssueRefs', () => {
     expect(refs('```\nissue 8\n```\nissue 9')).toEqual([9]);
   });
 
+  it('needs the word issue and the number on the same line', () => {
+    expect(refs('Related issues\n1. foo')).toEqual([]);
+    expect(refs('see issue\n2815')).toEqual([]);
+    expect(refs('see issue\t2815')).toEqual([2815]);
+  });
+
   it('dedupes and keeps at most three', () => {
     expect(refs('#4 and issue 4 and issue #4')).toEqual([4]);
     expect(MAX_REVIEW_REFS).toBe(3);
@@ -1533,23 +1563,34 @@ describe('email.approvalMail injection line', () => {
 });
 
 describe('render.inertCode and rejected suggestions', () => {
-  it('removes hidden characters, fences, links and mentions', () => {
+  it('removes hidden characters and replaces every risky token with [removed]', () => {
     const out = inertCode(
-      'a\u200Bb\u202E c ```` d\nSee https://x.example/a and http://y.example and www.z.example mail me@x.io',
+      'a\u200Bb\u202E c\nSee https://x.example/a and http://y.example and www.z.example (//evil.example/x) ping @everyone <img src=x onerror=y>',
     );
     expect(out).not.toMatch(/[\u200B\u202E]/);
-    expect(out).not.toContain('```');
-    expect(out).toContain("'''");
-    expect(out).toContain('https[:]//x.example/a');
-    expect(out).toContain('http[:]//y.example');
-    expect(out).toContain('www[.]z.example');
-    expect(out).toContain('me＠x.io');
-    expect(out).not.toContain('@');
-    expect(out.split('\n')).toHaveLength(2);
+    expect(out).toContain('a b  c'); // hidden characters become spaces
+    expect(out).toBe(
+      'a b  c\nSee [removed] and [removed] and [removed] ([removed]) ping [removed] [removed]',
+    );
+    expect(out).not.toMatch(/evil|https?:|www\.|<img/);
   });
 
-  it('keeps at most 600 characters of the input', () => {
-    expect(inertCode('x'.repeat(2_000))).toHaveLength(600);
+  it('keeps a leading space before a removed protocol-relative link', () => {
+    expect(inertCode('go //evil.example/x now')).toBe('go [removed] now');
+  });
+
+  it('keeps ordinary fences and an @ that is not a mention, and shortens runs of 4+ backticks', () => {
+    expect(inertCode('```js\nx\n```')).toBe('```js\nx\n```');
+    expect(inertCode('a @ b and c@ and 5 @-1')).toBe('a @ b and c@ and 5 @-1');
+    expect(inertCode('a ````` b')).toBe('a ``` b');
+    // Anything that reads as a mention (including a Java annotation) is removed, not kept.
+    expect(inertCode('@Override public void f()')).toBe('[removed] public void f()');
+  });
+
+  it('keeps the first 600 characters and marks the clip', () => {
+    const out = inertCode('x'.repeat(2_000));
+    expect(out).toBe(`${'x'.repeat(600)}\n…(clipped)`);
+    expect(inertCode('x'.repeat(600))).toBe('x'.repeat(600));
   });
 
   it('carries the replacement on a rejected suggestion', () => {
@@ -1569,13 +1610,13 @@ describe('render.inertCode and rejected suggestions', () => {
     ]);
   });
 
-  it('shows a rejected suggestion that adds a link as an indented, defanged text block', () => {
+  it('shows a rejected suggestion in an indented four-backtick text block with risky tokens removed', () => {
     const rejected = [
       {
         file: 'cheatsheets/A.md',
         line: 99,
         why: 'lines outside the changed hunks',
-        text: 'See https://evil.example.com/x or www.evil.example\nping @everyone',
+        text: 'See https://evil.example.com/x or //evil.example/x\n<img src=x> @everyone',
       },
     ];
     const body = reviewBody({
@@ -1589,10 +1630,9 @@ describe('render.inertCode and rejected suggestions', () => {
       allowed: new Set<string>(),
     });
     expect(body).toContain(
-      '  ```text\n  See https[:]//evil.example.com/x or www[.]evil.example\n  ping ＠everyone\n  ```',
+      '  ````text\n  See [removed] or [removed]\n  [removed] [removed]\n  ````',
     );
-    expect(body).not.toContain('https://evil.example.com');
-    expect(body).not.toMatch(/(^|[^＠])@everyone/);
+    expect(body).not.toMatch(/evil\.example|<img|@everyone/);
   });
 
   it('shows no code block for an empty replacement', () => {
@@ -1607,6 +1647,6 @@ describe('render.inertCode and rejected suggestions', () => {
       allowed: new Set<string>(),
     });
     expect(body).toContain('Suggestions not placed inline');
-    expect(body).not.toContain('```text');
+    expect(body).not.toContain('````text');
   });
 });

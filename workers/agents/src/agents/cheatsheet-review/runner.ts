@@ -29,9 +29,16 @@ function markInjection(span: { set(key: string, value: boolean): void }, answer:
   span.set('custodes.review.injection_seen', seen);
 }
 
-/** Fallback settings after the primary ran out of tokens: low effort and half again the budget. */
+/**
+ * Fallback settings after the primary ran out of tokens: half again the budget, and low effort only
+ * for roles that set an effort at all (a role on the model default, such as the primary security
+ * reviewer, is never pushed to low by a long input).
+ */
 export function fallbackAfterMaxTokens(c: Casting): Pick<Casting, 'max_tokens' | 'effort'> {
-  return { effort: 'low', max_tokens: Math.ceil(c.max_tokens * 1.5) };
+  return {
+    ...(c.effort !== undefined ? { effort: 'low' as const } : {}),
+    max_tokens: Math.ceil(c.max_tokens * 1.5),
+  };
 }
 
 export interface RunnerDeps {
@@ -137,7 +144,11 @@ export async function runRole<S extends z.ZodType>(
       span.set('custodes.review.failed_why', why);
       const outOfTokens = first instanceof ModelOutputError && first.reason === 'max_tokens';
       const override = outOfTokens ? fallbackAfterMaxTokens(LINEUP[role]) : undefined;
-      if (override) span.set('custodes.review.fallback_settings', 'low effort, larger budget');
+      if (override)
+        span.set(
+          'custodes.review.fallback_settings',
+          override.effort ? 'low effort, larger budget' : 'larger budget',
+        );
       try {
         const answer = await ask(deps, role, fallback, schema, system, user, sub, override);
         span.set('custodes.review.model', fallback);

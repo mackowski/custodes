@@ -104,12 +104,18 @@ export type ReviewDecision = z.infer<typeof ReviewDecision>;
  * is never dropped). A REQUEST_CHANGES with nothing left to must-fix becomes MERGE; CLOSE and
  * low-quality decisions are left alone.
  */
-export function normaliseDecision(d: ReviewDecision): ReviewDecision {
+export function normaliseDecision(
+  d: ReviewDecision,
+  /** A Security or Links reviewer returned BLOCK: code never turns that review into MERGE. */
+  reviewerBlocked = false,
+): ReviewDecision {
   const minor = d.mustFix.filter((i) => i.severity === 'MINOR');
   const nit = d.mustFix.filter((i) => i.severity === 'NIT');
   const mustFix = d.mustFix.filter((i) => i.severity === 'BLOCKER' || i.severity === 'MAJOR');
   const verdict =
-    d.verdict === 'REQUEST_CHANGES' && mustFix.length === 0 && !d.lowQuality ? 'MERGE' : d.verdict;
+    d.verdict === 'REQUEST_CHANGES' && mustFix.length === 0 && !d.lowQuality && !reviewerBlocked
+      ? 'MERGE'
+      : d.verdict;
   return {
     ...d,
     verdict,

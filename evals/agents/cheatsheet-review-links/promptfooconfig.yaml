@@ -1,5 +1,5 @@
 # yaml-language-server: $schema=https://promptfoo.dev/config-schema.json
-description: cheatsheet-review link auditor (DeepSeek V4.1 Flash on Workers AI)
+description: cheatsheet-review link auditor (DeepSeek V4.1 Flash on Workers AI, low effort as shipped)
 
 # cheatsheet-review (ADR 0017). system.txt is the prompt the agent ships (a unit test enforces it;
 # regenerate with workers/agents/scripts/print-review-prompts.ts).
@@ -10,6 +10,7 @@ providers:
       transport: workers-ai
       model: '@cf/deepseek-ai/deepseek-v4.1-flash-1017'
       max_tokens: 8000
+      reasoning_effort: low
       runId: promptfoo-cheatsheet-review-links
 
 prompts:

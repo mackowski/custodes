@@ -224,7 +224,18 @@ export async function reviewPipeline(snap: Snapshot, deps: PipelineDeps): Promis
     classWhy: scope.why,
     outcomes,
     reports,
-    decision: judged.answer && normaliseDecision(judged.answer),
+    decision:
+      judged.answer &&
+      normaliseDecision(
+        judged.answer,
+        reports.some(
+          (x) =>
+            x.report.verdict === 'BLOCK' &&
+            (x.role === 'security-reviewer' ||
+              x.role === 'security-second-voice' ||
+              x.role === 'link-auditor'),
+        ),
+      ),
     breach: invariantBreach(outcomes),
     allowed: links?.allowed ?? new Set(),
     linkNotes: links?.notes ?? [],

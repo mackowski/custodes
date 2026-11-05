@@ -876,8 +876,26 @@ describe('cheatsheet-review: round 1 behaviour (#79)', () => {
     expect(audit?.req.max_tokens).toBe(8_000);
   });
 
+  const minorOnly = decisionJson({
+    mustFix: [
+      { dimension: 'Language', severity: 'MINOR', file: SHEET, line: 4, text: 'Tiny wording.' },
+    ],
+    suggestions: [],
+  });
+
+  it('keeps REQUEST_CHANGES when a security reviewer blocked, still listing the MINOR item as should-fix', async () => {
+    const r = await drive({ judge: minorOnly }); // default script: security reviewers BLOCK
+    expect(r.out).toMatchObject({ ok: true, status: 'posted' });
+    expect(r.rows[0]).toMatchObject({ verdict: 'REQUEST_CHANGES' });
+    const body = reviewActs(r)[0]?.body ?? '';
+    expect(body).toMatch(/Should-fix[\s\S]*Tiny wording\./);
+    expect(body).not.toMatch(/Must-fix[\s\S]*Tiny wording\./);
+  });
+
   it('turns a judge that returns only a MINOR must-fix with REQUEST_CHANGES into MERGE, posted as COMMENT', async () => {
+    const base = defaultScript(minorOnly);
     const r = await drive({
+      script: (role, req) => (role.startsWith('security') ? REPORT : base(role, req)),
       judge: decisionJson({
         mustFix: [
           { dimension: 'Language', severity: 'MINOR', file: SHEET, line: 4, text: 'Tiny wording.' },
@@ -931,7 +949,7 @@ describe('cheatsheet-review: round 1 behaviour (#79)', () => {
     expect(mail?.text).not.toContain('prompt injection');
   });
 
-  it('shows a rejected suggestion that adds a link as defanged text, never a clickable link', async () => {
+  it('shows a rejected suggestion that adds a link with the link removed, never a clickable link', async () => {
     const r = await drive({
       judge: decisionJson({
         suggestions: [
@@ -946,8 +964,8 @@ describe('cheatsheet-review: round 1 behaviour (#79)', () => {
     });
     const body = reviewActs(r)[0]?.body ?? '';
     expect(body).toContain('Suggestions not placed inline');
-    expect(body).toContain('  ```text\n  Go to https[:]//evil.example.com/x\n  ```');
-    expect(body).not.toContain('https://evil.example.com');
+    expect(body).toContain('  ````text\n  Go to [removed]\n  ````');
+    expect(body).not.toContain('evil.example.com');
   });
 });
 

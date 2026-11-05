@@ -16,7 +16,7 @@ export function reviewIssueRefs(body: string | null | undefined, repo: string): 
     .slice(0, 20_000)
     .replace(/```[\s\S]*?(```|$)/g, ' ')
     .replace(/`[^`\n]*`/g, ' ');
-  for (const m of text.matchAll(/\bissues?\s+#?(\d{1,7})\b/gi)) {
+  for (const m of text.matchAll(/\bissues?[ \t]+#?(\d{1,7})\b/gi)) {
     const n = Number(m[1]);
     if (n > 0 && !out.includes(n)) out.push(n);
   }

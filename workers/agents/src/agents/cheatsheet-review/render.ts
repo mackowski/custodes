@@ -203,20 +203,21 @@ export function modelLine(o: RoleOutcome): string {
 const INVISIBLE_CHARS = /[\p{Cc}\p{Cf}]/gu;
 
 /**
- * Model text shown in a code block for a human to copy: no hidden characters, no fence that could
- * close the block, links defanged and mentions neutralised (a code block renders neither, but the
- * text is meant to be pasted elsewhere), at most 600 characters.
+ * Model text shown in a code block for a human to copy: no hidden characters, every link, `//host`,
+ * mention and HTML tag the suggestion checks reject replaced by "[removed]" (the text is meant to be
+ * pasted, so a defanged link would still carry the attacker's target), no run of four backticks
+ * that could close the block, at most 600 characters with a visible marker when clipped.
  */
 export function inertCode(s: string): string {
-  return s
+  const clipped = s.length > 600;
+  const text = s
     .slice(0, 600)
     .split(/\r\n|[\n\r\u2028\u2029]/)
     .map((l) => l.replace(INVISIBLE_CHARS, ' ').trimEnd())
     .join('\n')
-    .replace(/`{3,}/g, "'''")
-    .replace(/\b(https?):\/\//gi, '$1[:]//')
-    .replace(/\bwww\./gi, 'www[.]')
-    .replace(/@/g, '＠');
+    .replace(RISKY, (m) => (/^[\s(]/.test(m) ? `${m[0]}[removed]` : '[removed]'))
+    .replace(/`{4,}/g, '```');
+  return clipped ? `${text}\n…(clipped)` : text;
 }
 
 /** Whether to ask for changes: only for a security or links BLOCKER, never on one's own PR. */
@@ -329,11 +330,11 @@ export function reviewBody(r: ReviewBodyInput): string {
         ...(x.text.trim()
           ? [
               '',
-              '  ```text',
+              '  ````text',
               ...inertCode(x.text)
                 .split('\n')
                 .map((l) => `  ${l}`),
-              '  ```',
+              '  ````',
               '',
             ]
           : []),
