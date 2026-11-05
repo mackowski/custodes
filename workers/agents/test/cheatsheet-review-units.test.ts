@@ -180,6 +180,34 @@ describe('scope.classify', () => {
     expect(classify([scoped(p)])).toMatchObject({ kind: 'decided', class: 'content' });
   });
 
+  it('treats any inline-code change as content, in any code form (#92 review round 5)', () => {
+    const long =
+      'Configure the API gateway carefully, and review the value below in every environment before release, because it decides which browser origins may read responses: ';
+    const cases: [string, string][] = [
+      [
+        'Set ``Access-Control-Allow-Origin: https://app.example.com`` on the API.',
+        'Set ``Access-Control-Allow-Origin: https://evil.example.net`` on the API.',
+      ],
+      [
+        'Use <code>https://app.example.com</code> as the origin.',
+        'Use <code>https://evil.example.net</code> as the origin.',
+      ],
+      [
+        `${long}\`Access-Control-Allow-Origin: https://app.example.com\`.`,
+        `${long}\`Access-Control-Allow-Origin: *\`.`,
+      ],
+      [
+        'Set the cookie with `SameSite=Strict` and `Secure` so that it is not sent cross-site.',
+        'Set the cookie with `SameSite=None` and `Secure` so that it is not sent cross-site.',
+      ],
+    ];
+    for (const [before, after] of cases)
+      expect(classify([scoped(patchOf([before], [after]))])).toMatchObject({
+        kind: 'decided',
+        class: 'content',
+      });
+  });
+
   it('treats an https to http change with a trailing slash as content', () => {
     const p = patchOf(
       ['Call the token endpoint at https://app.example.com over TLS.'],

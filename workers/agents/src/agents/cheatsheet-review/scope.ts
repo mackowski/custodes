@@ -31,43 +31,51 @@ export const AMBIGUOUS_MAX_LINES = 30;
 
 const URL_IN_TEXT = /\]\([^)\s]*\)|<https?:\/\/[^>\s]*>|https?:\/\/[^\s)>\]]+/g;
 
+/** Inline code: n-backtick spans (CommonMark) and <code> elements. */
+const CODE_SPAN = /(`+)(?:[^`]|[^`][\s\S]*?[^`])\1(?!`)|<code>[\s\S]*?<\/code>/gi;
+
 function withoutUrls(s: string): string {
   // A URL inside inline code (a CORS origin, a CSP source, a config value) is content: keep it.
-  return s
-    .split(/(`[^`\n]*`)/)
-    .map((part) => (part.startsWith('`') ? part : part.replace(URL_IN_TEXT, ']()')))
-    .join('')
+  const spans: string[] = [];
+  const hidden = s.replace(CODE_SPAN, (m) => `\uE000${spans.push(m) - 1}\uE000`);
+  return hidden
+    .replace(URL_IN_TEXT, ']()')
+    .replace(/\uE000(\d+)\uE000/g, (_, i: string) => spans[Number(i)] ?? '')
     .trim();
 }
 
 const URL_ANY = /https?:\/\/[^\s)<>"'`\]]+/gi;
 
-/** URLs inside inline code spans of a line (CORS origins, CSP sources, config values). */
-function codeUrls(t: string): string[] {
-  return [...t.matchAll(/`[^`\n]*`/g)].flatMap((m) => [...m[0].matchAll(URL_ANY)].map((u) => u[0]));
+/** The inline code spans of some lines, normalised, as a multiset key list. */
+function codeSpans(lines: readonly string[]): string[] {
+  return lines
+    .flatMap((t) =>
+      [...t.matchAll(CODE_SPAN)].map((m) => m[0].toLowerCase().replace(/\s+/g, ' ').trim()),
+    )
+    .sort();
 }
 
 /**
- * A URL change that is a security change, never a link move or a minor edit (#92 review): an
- * added http:// URL that was not there before, or a new URL inside inline code. Either sends the
- * change to the full content review, so the security reviewers run.
+ * A change that is a security change, never a link move or a minor edit (#92 review): any change to
+ * inline code (a CORS origin, a CSP source, a cookie attribute, a config value: added, removed or
+ * edited, in any backtick or <code> form), or an added http:// URL that was not there before.
+ * Either sends the change to the full content review, so the security reviewers run.
  */
-function securityRelevantUrlChange(
+function securityRelevantChange(
   added: readonly string[],
   removed: readonly string[],
 ): string | null {
   const before = new Set(
     removed.flatMap((t) => [...t.matchAll(URL_ANY)].map((m) => m[0].toLowerCase())),
   );
-  const beforeCode = new Set(removed.flatMap(codeUrls).map((u) => u.toLowerCase()));
   if (
     added.some((t) =>
       [...t.matchAll(URL_ANY)].some((m) => /^http:/i.test(m[0]) && !before.has(m[0].toLowerCase())),
     )
   )
     return 'an http:// URL was added';
-  if (added.some((t) => codeUrls(t).some((u) => !beforeCode.has(u.toLowerCase()))))
-    return 'a URL inside inline code changed';
+  if (codeSpans(added).join('\uE000') !== codeSpans(removed).join('\uE000'))
+    return 'inline code changed';
   return null;
 }
 
@@ -125,7 +133,7 @@ export function classify(files: readonly ScopedFile[]): Scope {
 
   const a = added.map(({ l }) => l.text);
   const r = removed.map((l) => l.text);
-  const securityUrl = securityRelevantUrlChange(a, r);
+  const securityUrl = securityRelevantChange(a, r);
   if (securityUrl) return { kind: 'decided', class: 'content', why: securityUrl };
   if (
     a.length > 0 &&
