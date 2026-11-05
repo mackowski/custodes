@@ -981,8 +981,8 @@ describe('cheatsheet-review: round 1 behaviour (#79)', () => {
 });
 
 describe('cheatsheet-review: moved links (#89)', () => {
-  const OLD = 'https://old.example.com/guide';
-  const NEW = 'https://new.example.com/guide';
+  const OLD = 'https://example.com/old/guide';
+  const NEW = 'https://example.com/new/guide';
   const LINE3 = (u: string) => `See [the guide](${u}) for details.`;
   const moved = (): Scenario =>
     scenario({

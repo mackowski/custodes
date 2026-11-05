@@ -29,6 +29,7 @@ import {
   fetchLink,
   maskedLine,
   scanLinks,
+  knownTargetForm,
   sameSite,
   slugify,
 } from '../src/agents/cheatsheet-review/links.js';
@@ -170,8 +171,8 @@ const patchOf = (removed: string[], added: string[], start = 1): string =>
 describe('scope.classify', () => {
   it('treats a URL swap on the same line as links-only', () => {
     const p = patchOf(
-      ['See [docs](https://old.example.com/a) for more.'],
-      ['See [docs](https://new.example.com/b) for more.'],
+      ['See [docs](https://example.com/old/a) for more.'],
+      ['See [docs](https://example.com/new/b) for more.'],
     );
     expect(classify([scoped(p)])).toMatchObject({ kind: 'decided', class: 'links-only' });
   });
@@ -230,8 +231,8 @@ describe('scope.classify', () => {
 
   it('keeps an https link move links-only when inline-code URLs are unchanged', () => {
     const p = patchOf(
-      ['See [docs](https://old.example.com/a) and `https://api.example.com` for the API.'],
-      ['See [docs](https://new.example.com/b) and `https://api.example.com` for the API.'],
+      ['See [docs](https://example.com/old/a) and `https://api.example.com` for the API.'],
+      ['See [docs](https://example.com/new/b) and `https://api.example.com` for the API.'],
     );
     expect(classify([scoped(p)])).toMatchObject({ kind: 'decided', class: 'links-only' });
   });
@@ -343,8 +344,8 @@ describe('scope.classify', () => {
 
   it('reviews a PR with unread files as content', () => {
     const p = patchOf(
-      ['See [docs](https://old.example.com/a).'],
-      ['See [docs](https://new.example.com/b).'],
+      ['See [docs](https://example.com/old/a).'],
+      ['See [docs](https://example.com/new/b).'],
     );
     expect(classify([scoped(p)], 1)).toMatchObject({
       kind: 'decided',
@@ -1866,9 +1867,9 @@ describe('links.scanLinks', () => {
     scanLinks(SHEET, parsePatch(['@@ -1,9 +1,9 @@', ...patchLines].join('\n')));
 
   it('returns a link on a brand-new line without a previous URL', () => {
-    const r = scan(' a', '+See [d](https://new.example.com/x) now.');
+    const r = scan(' a', '+See [d](https://example.com/new/x) now.');
     expect(r.links).toHaveLength(1);
-    expect(r.links[0]).toMatchObject({ url: 'https://new.example.com/x', line: 2 });
+    expect(r.links[0]).toMatchObject({ url: 'https://example.com/new/x', line: 2 });
     expect(r.links[0]).not.toHaveProperty('previous');
     expect([...r.targetOnlyLines]).toEqual([]);
   });
@@ -1876,16 +1877,16 @@ describe('links.scanLinks', () => {
   it('treats a line whose only change is the target as moved, with the old URL', () => {
     const r = scan(
       ' a',
-      '-See [d](https://old.example.com/x) now.',
-      '+See [d](https://new.example.com/x) now.',
+      '-See [d](https://example.com/old/x) now.',
+      '+See [d](https://example.com/new/x) now.',
     );
     expect(r.links).toEqual([
       {
-        url: 'https://new.example.com/x',
+        url: 'https://example.com/new/x',
         file: SHEET,
         line: 2,
-        context: 'See [d](https://new.example.com/x) now.',
-        previous: 'https://old.example.com/x',
+        context: 'See [d](https://example.com/new/x) now.',
+        previous: 'https://example.com/old/x',
       },
     ]);
     expect([...r.targetOnlyLines]).toEqual([2]);
@@ -1893,11 +1894,11 @@ describe('links.scanLinks', () => {
 
   it('does not audit an unchanged target on a target-only line, but marks the line', () => {
     const r = scan(
-      '-See [d](https://same.example.com/x) and [e](https://old.example.com/y).',
-      '+See [d](https://same.example.com/x) and [e](https://new.example.com/y).',
+      '-See [d](https://same.example.com/x) and [e](https://example.com/old/y).',
+      '+See [d](https://same.example.com/x) and [e](https://example.com/new/y).',
     );
-    expect(r.links.map((l) => l.url)).toEqual(['https://new.example.com/y']);
-    expect(r.links[0]?.previous).toBe('https://old.example.com/y');
+    expect(r.links.map((l) => l.url)).toEqual(['https://example.com/new/y']);
+    expect(r.links[0]?.previous).toBe('https://example.com/old/y');
     expect([...r.targetOnlyLines]).toEqual([1]);
   });
 
@@ -1958,18 +1959,53 @@ describe('links.scanLinks', () => {
     ]);
   });
 
-  it('sameSite: same domain, same GitHub owner, or a GitHub org and its domain', () => {
+  it('sameSite: exact host, same GitHub owner, or the listed org and its domain (#92 round 13)', () => {
     expect(
       sameSite(
         'https://github.com/OWASP/API-Security/blob/x.md',
         'https://owasp.org/API-Security/',
       ),
     ).toBe(true);
-    expect(sameSite('https://cheatsheetseries.owasp.org/a', 'https://owasp.org/b')).toBe(true);
+    expect(sameSite('https://www.owasp.org/a', 'https://owasp.org/b')).toBe(true);
     expect(sameSite('https://github.com/good-org/lib', 'https://github.com/g00d-org/lib')).toBe(
       false,
     );
     expect(sameSite('https://owasp.org/asvs', 'https://owasp-asvs.example/')).toBe(false);
+    expect(sameSite('https://proj.github.io/guide', 'https://attacker.github.io/guide')).toBe(
+      false,
+    );
+    expect(
+      sameSite(
+        'https://raw.githubusercontent.com/OWASP/x/a',
+        'https://raw.githubusercontent.com/attacker/x/a',
+      ),
+    ).toBe(false);
+    expect(sameSite('https://github.com/OWASP/x', 'https://owasp.xyz/x')).toBe(false);
+    expect(sameSite('https://a.netlify.app/x', 'https://b.netlify.app/x')).toBe(false);
+    expect(sameSite('https://cheatsheetseries.owasp.org/a', 'https://owasp.org/b')).toBe(false);
+  });
+
+  it('allows only known link-target forms', () => {
+    expect(knownTargetForm('https://owasp.org/x')).toBe(true);
+    expect(knownTargetForm('Password_Storage_Cheat_Sheet.md#argon2id')).toBe(true);
+    expect(knownTargetForm('#section')).toBe(true);
+    expect(knownTargetForm('../assets/Diagram.png')).toBe(true);
+    for (const bad of [
+      '//evil.example/x',
+      '&#47;&#47;evil.example/x',
+      '/&#x2f;evil.example',
+      '\\\\evil\\x',
+      'mailto:a@b.c',
+    ])
+      expect(knownTargetForm(bad)).toBe(false);
+  });
+
+  it('sends an entity-encoded protocol-relative target to the full review', () => {
+    const p = patchOf(
+      ['See [NIST](https://nist.gov/x).'],
+      ['See [NIST](&#47;&#47;evil.example/x).'],
+    );
+    expect(classify([scoped(p)])).toMatchObject({ kind: 'decided', class: 'content' });
   });
 
   it('audits a changed target on another site as a new link, not a move', () => {
@@ -2001,22 +2037,22 @@ describe('links.scanLinks', () => {
       parsePatch(
         [
           '@@ -1,1 +1,0 @@',
-          '-See [d](https://old.example.com/x) now.',
+          '-See [d](https://example.com/old/x) now.',
           '@@ -10,0 +10,1 @@',
-          '+See [d](https://new.example.com/x) now.',
+          '+See [d](https://example.com/new/x) now.',
         ].join('\n'),
       ),
     );
-    expect(r.links.map((l) => l.url)).toEqual(['https://new.example.com/x']);
+    expect(r.links.map((l) => l.url)).toEqual(['https://example.com/new/x']);
     expect(r.links[0]).not.toHaveProperty('previous');
     expect([...r.targetOnlyLines]).toEqual([]);
   });
 
   it('requires the same number of targets to pair', () => {
     const r = scan(
-      '-See [d](https://old.example.com/x) now.',
-      '+See [d](https://new.example.com/x) now.',
-      '+See [d](https://new.example.com/x) now.',
+      '-See [d](https://example.com/old/x) now.',
+      '+See [d](https://example.com/new/x) now.',
+      '+See [d](https://example.com/new/x) now.',
     );
     // The removed line is used once; the second added line is a new link, deduped by URL.
     expect(r.links).toHaveLength(1);
@@ -2057,13 +2093,13 @@ describe('links.scanLinks', () => {
 
   it('audits a moved URL cited again on a new line as new, at the new line', () => {
     const r = scan(
-      '-See [d](https://old.example.com/x) now.',
-      '+See [d](https://new.example.com/x) now.',
-      '+A new claim backed by https://new.example.com/x too.',
+      '-See [d](https://example.com/old/x) now.',
+      '+See [d](https://example.com/new/x) now.',
+      '+A new claim backed by https://example.com/new/x too.',
     );
     expect(r.links).toHaveLength(1);
     expect(r.links[0]).not.toHaveProperty('previous');
-    expect(r.links[0]).toMatchObject({ url: 'https://new.example.com/x', line: 2 });
+    expect(r.links[0]).toMatchObject({ url: 'https://example.com/new/x', line: 2 });
     expect(r.links[0]?.context).toContain('A new claim');
     expect([...r.targetOnlyLines]).toEqual([1]);
   });
@@ -2205,13 +2241,13 @@ describe('render #89 sections', () => {
     const body = reviewBody(
       base({
         linkChecks: [
-          { url: 'https://new.example.com/x', moved: true, status: 'SAME-RESOURCE' },
+          { url: 'https://example.com/new/x', moved: true, status: 'SAME-RESOURCE' },
           { url: 'https://b.example.com/`y|z', moved: false, status: 'broken (HTTP 404)' },
         ],
       }),
     );
     expect(body).toContain('### Links checked');
-    expect(body).toContain('| `https://new.example.com/x` | moved | SAME-RESOURCE |');
+    expect(body).toContain('| `https://example.com/new/x` | moved | SAME-RESOURCE |');
     const row = body.split('\n').find((l) => l.endsWith('| new | broken (HTTP 404) |')) ?? '';
     expect(row.split('`')).toHaveLength(3); // the hostile backtick cannot break out of the code span
     expect(row).toMatch(/\| new \| broken \(HTTP 404\) \|$/);
