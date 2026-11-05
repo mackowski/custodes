@@ -21,13 +21,13 @@ to unassign the author from the issue. It never closes anything or changes an as
 
 ### Depth
 
-| Change (decided by `scope.ts`)                                   | Reviewers                                               |
-| ---------------------------------------------------------------- | ------------------------------------------------------- |
-| Only link targets changed                                        | links, language                                         |
-| Small edits to existing lines (Haiku decides when it is unclear) | language, links                                         |
-| Content (new guidance, headings, >30 lines, new sheet)           | security ×2, practicality, links, duplication, language |
-| Code (any added line inside a fenced code block)                 | security ×2, practicality, links, duplication, language |
-| No cheat sheet changed                                           | language                                                |
+| Change (decided by `scope.ts`)                                                                                              | Reviewers                                               |
+| --------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| Only Markdown link targets changed (https kept, inline code unchanged)                                                      | links, language                                         |
+| Only punctuation or spacing changed (any word change: Haiku decides)                                                        | language, links                                         |
+| Content (new guidance, headings, >30 lines, new sheet, any inline-code change, a new http:// URL, a sheet not read in full) | security ×2, practicality, links, duplication, language |
+| Code (any added line inside a fenced or indented code block)                                                                | security ×2, practicality, links, duplication, language |
+| No cheat sheet changed                                                                                                      | language                                                |
 
 Security is never dropped for a change to guidance, whatever its size (`MODELS.md`).
 

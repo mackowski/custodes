@@ -52,7 +52,7 @@ import {
 import {
   classify,
   fencedLines,
-  flipsGuidance,
+  sameWords,
   REVIEWERS_FOR,
   type ScopedFile,
 } from '../src/agents/cheatsheet-review/scope.js';
@@ -236,12 +236,20 @@ describe('scope.classify', () => {
     expect(classify([scoped(p)])).toMatchObject({ kind: 'decided', class: 'links-only' });
   });
 
-  it('treats a one-letter typo fix as minor prose', () => {
+  it('decides minor prose only when the words stay the same (punctuation or spacing)', () => {
+    const p = patchOf(
+      ['Always validate the input on the server side'],
+      ['Always validate the input, on the server side.'],
+    );
+    expect(classify([scoped(p)])).toMatchObject({ kind: 'decided', class: 'minor-prose' });
+  });
+
+  it("sends a one-letter typo fix to the classifier (any word change is the model's call)", () => {
     const p = patchOf(
       ['Always validate the inptu on the server side.'],
       ['Always validate the input on the server side.'],
     );
-    expect(classify([scoped(p)])).toMatchObject({ kind: 'decided', class: 'minor-prose' });
+    expect(classify([scoped(p)])).toEqual({ kind: 'ambiguous' });
   });
 
   it('treats an added heading as content', () => {
@@ -2034,18 +2042,59 @@ describe('#93: small edits that flip guidance, indented code', () => {
     expect(classify([scoped(p)])).toEqual({ kind: 'ambiguous' });
   });
 
-  it('keeps a typo fix minor-prose', () => {
-    const p = patchOf(
-      ['Always validate the inptu on the server side.'],
-      ['Always validate the input on the server side.'],
-    );
-    expect(classify([scoped(p)])).toMatchObject({ class: 'minor-prose' });
+  it('never decides minor prose for numbers, algorithms, settings or contractions (#92 round 6)', () => {
+    const pairs: [string, string][] = [
+      ['Use keys of at least 128 bits.', 'Use keys of at least 12 bits.'],
+      ['Use PBKDF2 with 600,000 iterations.', 'Use PBKDF2 with 1,000 iterations.'],
+      ['Require TLS 1.3 for all traffic.', 'Require TLS 1.0 for all traffic.'],
+      ['Hash with SHA-256 before signing.', 'Hash with SHA-1 before signing.'],
+      ['Set SameSite=Strict on the session cookie.', 'Set SameSite=None on the session cookie.'],
+      ['The token is valid for one request.', 'The token isn’t valid for one request.'],
+    ];
+    for (const [before, after] of pairs)
+      expect(classify([scoped(patchOf([before], [after]))])).not.toMatchObject({
+        class: 'minor-prose',
+      });
   });
 
-  it('flipsGuidance looks only at the words that differ', () => {
-    expect(flipsGuidance('You should use TLS.', 'You should not use TLS.')).toBe(true);
-    expect(flipsGuidance('Use TLS 1.2 or later.', 'Use TLS 1.3 or later.')).toBe(false);
-    expect(flipsGuidance('Never log tokens.', 'Never log access tokens.')).toBe(false);
+  it('sameWords compares letters and digits, case-sensitively', () => {
+    expect(sameWords('Use TLS, always.', 'Use TLS always')).toBe(true);
+    expect(sameWords('Use TLS 1.2 or later.', 'Use TLS 1.3 or later.')).toBe(false);
+    expect(sameWords('Match \\w only.', 'Match \\W only.')).toBe(false);
+  });
+
+  it('sees a case change inside inline code', () => {
+    const p = patchOf(['Validate with `^[\\w.-]+$` first.'], ['Validate with `^[\\W.-]+$` first.']);
+    expect(classify([scoped(p)])).toMatchObject({ kind: 'decided', class: 'content' });
+  });
+
+  it('treats a stray backtick or <code> as content, and a very long changed line too', () => {
+    expect(classify([scoped(patchOf(['Use ```x for it.'], ['Use ```y for it.']))])).toMatchObject({
+      class: 'content',
+    });
+    expect(
+      classify([
+        scoped(patchOf(['Use <code class="x">a</code>.'], ['Use <code class="x">b</code>.'])),
+      ]),
+    ).toMatchObject({ class: 'content' });
+    const long = 'a'.repeat(4_100);
+    expect(classify([scoped(patchOf([long], [`${long}b`]))])).toMatchObject({
+      class: 'content',
+      why: 'a very long line changed',
+    });
+  });
+
+  it('counts a fence indented under a list item as code', () => {
+    const md = ['1. Step:', '', '    ```java', '    cookie.setSecure(true);', '    ```'].join('\n');
+    expect([...fencedLines(md)].sort((x, y) => x - y)).toEqual([3, 4, 5]);
+  });
+
+  it('reviews a sheet that was not read as content', () => {
+    const p = patchOf(['old'], ['new']);
+    expect(classify([{ ...scoped(p), codeLines: null }])).toMatchObject({
+      kind: 'decided',
+      class: 'content',
+    });
   });
 
   it('counts indented code blocks as code, but not indented list continuations', () => {

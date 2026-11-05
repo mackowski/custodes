@@ -487,7 +487,11 @@ export class CheatsheetReviewAgent extends CustodesAgent<AgentsEnv, CheatsheetRe
     const scoped: ScopedFile[] = files.map((file) => ({
       file,
       hunks: parsePatch(file.patch),
-      codeLines: fencedLines(contents.get(file.filename) ?? ''),
+      // A sheet beyond MAX_FULL_FILES was not read: its code lines are unknown (reviewed as content).
+      codeLines:
+        isSheet(file.filename) && file.status !== 'removed' && !contents.has(file.filename)
+          ? null
+          : fencedLines(contents.get(file.filename) ?? ''),
     }));
     const sheetNames = await reader.listCheatSheets(repo);
     const related = new Map<string, string>();
