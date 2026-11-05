@@ -6,6 +6,7 @@
 import { CheatSheetPath } from '@custodes/schema';
 import type { PullFile } from '../triage/github.js';
 import { addedLines, removedLines, type Hunk } from './diff.js';
+import { citationTargets, maskedLine } from './links.js';
 
 /**
  * A cheat sheet or draft under the broker's strict name rule (no newlines, one level). File names
@@ -33,12 +34,11 @@ export interface ScopedFile {
 export const AMBIGUOUS_MAX_LINES = 30;
 
 /**
- * Only Markdown link targets count as "a link": autolinks, bare URLs and href/src values are text,
- * so changing one is not links-only (the link extractor would not audit it either; #92 round 10).
+ * A "link" is exactly what the link extractor reads and audits (links.ts): a Markdown link target.
+ * Anything else that looks like one is text here, so changing it is never links-only (#92 rounds
+ * 10-11: a classifier looser than the extractor let changes through with nothing audited).
  */
-const URL_IN_TEXT = /\]\([^)\s]*\)/g;
-const MD_TARGETS = /\]\(\s*<?([^)\s>]+)/g;
-const mdTargets = (t: string) => [...t.matchAll(MD_TARGETS)].map((m) => m[1] ?? '').join('\n');
+const mdTargets = (t: string) => citationTargets(t).join('\n');
 
 /** Inline code: n-backtick spans (CommonMark) and <code> elements. */
 const CODE_SPAN = /(?<!`)(`+)(?:[^`]|[^`][\s\S]*?[^`])\1(?!`)|<code>[\s\S]*?<\/code>/gi;
@@ -50,8 +50,7 @@ function withoutUrls(s: string): string {
   const spans: string[] = [];
   const hidden = s.replace(CODE_SPAN, (m) => `\uE000${spans.push(m) - 1}\uE000`);
   return (
-    hidden
-      .replace(URL_IN_TEXT, ']()')
+    maskedLine(hidden)
       .replace(/\uE000(\d+)\uE000/g, (_, i: string) => spans[Number(i)] ?? '')
       // Leading whitespace is structure (list nesting, indented code): only trailing space is noise.
       .trimEnd()
