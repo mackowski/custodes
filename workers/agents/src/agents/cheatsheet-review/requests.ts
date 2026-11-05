@@ -32,7 +32,7 @@ interface Authored {
 /** Lines of a body that are not Markdown quotes (a maintainer quoting the bot keeps their own words). */
 function unquoted(body: string): string {
   return body
-    .split(/\r?\n/)
+    .split(/\r\n|[\n\r\v\f\u0085\u2028\u2029]/)
     .filter((l) => !/^\s*>/.test(l))
     .join('\n');
 }

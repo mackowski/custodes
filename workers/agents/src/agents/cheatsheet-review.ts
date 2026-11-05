@@ -547,7 +547,7 @@ export class CheatsheetReviewAgent extends CustodesAgent<AgentsEnv, CheatsheetRe
         contents.has(x.filename),
     )) {
       const name = f.filename.split('/').pop() ?? f.filename;
-      if (!sheetNames.includes(name)) continue;
+      if (!sheetNames.includes(name) || f.filename !== `cheatsheets/${name}`) continue;
       try {
         const base = await reader.getCheatSheet(repo, name);
         sizes.push({
