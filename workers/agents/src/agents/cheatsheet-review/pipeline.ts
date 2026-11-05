@@ -63,6 +63,8 @@ export interface LinkCheck {
   line: number;
   moved: boolean;
   status: string;
+  /** For a moved link, the previous URL (shown so a swap is visible at a glance). */
+  previous?: string;
 }
 
 interface LinkStage {
@@ -88,6 +90,16 @@ async function linkStage(snap: Snapshot, deps: PipelineDeps): Promise<LinkStage>
         continue;
       }
       // javascript:, data:, mailto: and other schemes are never fetched; a person has to look.
+      // A protocol-relative //host (or \\host) renders as https://host: verify by hand (Claude review on #92).
+      if (/^[\\/]{2}/.test(link.url)) {
+        findings.push({
+          severity: 'MAJOR',
+          file: link.file,
+          line: link.line,
+          problem: `Protocol-relative link (${link.url.slice(0, 40)}…): verify by hand; cheat sheets cite full https URLs.`,
+        });
+        continue;
+      }
       if (/^[a-z][a-z0-9+.-]*:/i.test(link.url)) {
         findings.push({
           severity: 'MAJOR',
@@ -118,6 +130,7 @@ async function linkStage(snap: Snapshot, deps: PipelineDeps): Promise<LinkStage>
       line: link.line,
       moved: link.previous !== undefined,
       status,
+      ...(link.previous !== undefined ? { previous: link.previous } : {}),
     });
   for (const { link } of external.slice(0, MAX_EXTERNAL_LINKS)) {
     await deps.guard();

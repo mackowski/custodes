@@ -56,6 +56,33 @@ export function maskedLine(text: string): string {
   return text.replace(MD_LINK, (m, u: string) => m.replace(u, '<target>'));
 }
 
+/**
+ * The same site, so a changed target can be a "move" (Claude review on #92): the same registrable
+ * domain (last two labels), the same GitHub owner, or a GitHub organisation and its own domain
+ * (github.com/OWASP and owasp.org, as in #2880). A lookalike domain or a fork is a new source and
+ * is audited as new.
+ */
+export function sameSite(a: string, b: string): boolean {
+  try {
+    const x = new URL(a);
+    const y = new URL(b);
+    const site = (u: URL): string => {
+      const host = u.hostname.toLowerCase();
+      if (host === 'github.com') return `github:${(u.pathname.split('/')[1] ?? '').toLowerCase()}`;
+      return host.split('.').slice(-2).join('.');
+    };
+    const sx = site(x);
+    const sy = site(y);
+    if (sx === sy) return true;
+    // A GitHub organisation and its own domain: github:owasp <-> owasp.org.
+    const org = (s: string) => (s.startsWith('github:') ? s.slice(7) : (s.split('.')[0] ?? ''));
+    const gh = sx.startsWith('github:') !== sy.startsWith('github:');
+    return gh && org(sx) !== '' && org(sx) === org(sy);
+  } catch {
+    return false;
+  }
+}
+
 /** https to http is a downgrade, never a "move": such a line is new text (#92 review). */
 function downgrades(before: readonly string[], after: readonly string[]): boolean {
   return after.some((u, k) => /^http:/i.test(u) && /^https:/i.test(before[k] ?? ''));
@@ -95,8 +122,6 @@ export function scanLinks(file: string, hunks: readonly Hunk[]): LinkScan {
   };
   for (const h of hunks) {
     const removed = h.lines.filter((l) => l.kind === '-');
-    // A target the hunk already had (only the anchor text or the sentence changed) is not new.
-    const before = new Set(removed.flatMap((r) => targets(r.text)));
     const used = new Set<number>();
     // Pairs only inside one contiguous block (removed run, then added run), as scope.ts does.
     let block = new Set<number>();
@@ -134,13 +159,17 @@ export function scanLinks(file: string, hunks: readonly Hunk[]): LinkScan {
         targetOnlyLines.add(l.newLine);
         cited.forEach((url, k) => {
           const previous = prior[k];
-          if (previous !== undefined && previous !== url)
-            push({ url, file, line: l.newLine ?? 0, context: l.text.slice(0, 600), previous });
+          if (previous === undefined || previous === url) return;
+          const base = { url, file, line: l.newLine ?? 0, context: l.text.slice(0, 600) };
+          push(sameSite(previous, url) ? { ...base, previous } : base);
         });
         continue;
       }
+      // A target the same block already had (only the anchor text changed) is not new.
+      const blockTargets = new Set([...block].flatMap((idx) => targets(removed[idx]?.text ?? '')));
       for (const url of now)
-        if (!before.has(url)) push({ url, file, line: l.newLine, context: l.text.slice(0, 600) });
+        if (!blockTargets.has(url))
+          push({ url, file, line: l.newLine, context: l.text.slice(0, 600) });
     }
   }
   return { links, targetOnlyLines };

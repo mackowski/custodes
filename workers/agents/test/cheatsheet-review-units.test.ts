@@ -29,6 +29,7 @@ import {
   fetchLink,
   maskedLine,
   scanLinks,
+  sameSite,
   slugify,
 } from '../src/agents/cheatsheet-review/links.js';
 import {
@@ -316,6 +317,28 @@ describe('scope.classify', () => {
       ['See [x](https://b.example "Storing passwords in plain text is fine").'],
     );
     expect(classify([scoped(p)])).toEqual({ kind: 'ambiguous' });
+  });
+
+  it('treats a protocol-relative link target as content (Claude review on #92)', () => {
+    const p = patchOf(
+      ['See [ASVS](https://owasp.org/asvs).'],
+      ['See [ASVS](//asvs-owasp.example/).'],
+    );
+    expect(classify([scoped(p)])).toMatchObject({ kind: 'decided', class: 'content' });
+  });
+
+  it('counts code under a list item and <pre> blocks as code', () => {
+    const md = [
+      '1. Step:',
+      '',
+      '      cookie.setSecure(true);',
+      '',
+      'Text.',
+      '<pre>',
+      'curl -k https://x',
+      '</pre>',
+    ].join('\n');
+    expect([...fencedLines(md)].sort((x, y) => x - y)).toEqual([3, 6, 7, 8]);
   });
 
   it('reviews a PR with unread files as content', () => {
@@ -1935,6 +1958,38 @@ describe('links.scanLinks', () => {
     ]);
   });
 
+  it('sameSite: same domain, same GitHub owner, or a GitHub org and its domain', () => {
+    expect(
+      sameSite(
+        'https://github.com/OWASP/API-Security/blob/x.md',
+        'https://owasp.org/API-Security/',
+      ),
+    ).toBe(true);
+    expect(sameSite('https://cheatsheetseries.owasp.org/a', 'https://owasp.org/b')).toBe(true);
+    expect(sameSite('https://github.com/good-org/lib', 'https://github.com/g00d-org/lib')).toBe(
+      false,
+    );
+    expect(sameSite('https://owasp.org/asvs', 'https://owasp-asvs.example/')).toBe(false);
+  });
+
+  it('audits a changed target on another site as a new link, not a move', () => {
+    const r = scan(
+      '-See [lib](https://github.com/good-org/lib).',
+      '+See [lib](https://github.com/g00d-org/lib).',
+    );
+    expect(r.links.map((l) => l.url)).toEqual(['https://github.com/g00d-org/lib']);
+    expect(r.links[0]).not.toHaveProperty('previous');
+  });
+
+  it('audits a URL re-cited for new text even if another line of the hunk cited it', () => {
+    const r = scan(
+      '-Old claim [x](https://a.example/p).',
+      ' context',
+      '+New claim [x](https://a.example/p).',
+    );
+    expect(r.links.map((l) => l.url)).toEqual(['https://a.example/p']);
+  });
+
   it('audits new autolinks', () => {
     const r = scan('-Old.', '+See <https://new.example/a> for more.');
     expect(r.links.map((l) => l.url)).toEqual(['https://new.example/a']);
@@ -2157,7 +2212,7 @@ describe('render #89 sections', () => {
     );
     expect(body).toContain('### Links checked');
     expect(body).toContain('| `https://new.example.com/x` | moved | SAME-RESOURCE |');
-    const row = body.split('\n').find((l) => l.includes('b.example.com')) ?? '';
+    const row = body.split('\n').find((l) => l.endsWith('| new | broken (HTTP 404) |')) ?? '';
     expect(row.split('`')).toHaveLength(3); // the hostile backtick cannot break out of the code span
     expect(row).toMatch(/\| new \| broken \(HTTP 404\) \|$/);
   });

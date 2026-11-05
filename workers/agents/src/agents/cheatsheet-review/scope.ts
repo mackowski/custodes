@@ -85,6 +85,9 @@ function securityRelevantChange(
     )
   )
     return 'an http:// URL was added';
+  // A protocol-relative //host target is a new external host the extractor does not fetch.
+  if (added.some((t) => citationTargets(t).some((u) => /^[\\/]{2}/.test(u))))
+    return 'a protocol-relative link target';
   if (codeSpans(added).join('\uE000') !== codeSpans(removed).join('\uE000'))
     return 'inline code changed';
   // The code-span placeholder character typed into the text could spoof a span: full review.
@@ -109,10 +112,24 @@ export function fencedLines(markdown: string): Set<number> {
     else if (line.trim() !== '' && !/^\s/.test(line)) inList = false;
     const isIndented = /^( {4}|\t)/.test(line) && line.trim() !== '';
     const blankBefore = i === 0 || (lines[i - 1] ?? '').trim() === '';
+    // Inside a list, code sits 4 more spaces in than the item text: 6 or more is treated as code.
+    const listCode = inList && /^( {6}|\t {2}|\t\t)/.test(line) && line.trim() !== '';
+    if (listCode && (indented || blankBefore)) {
+      indented = true;
+      out.add(i + 1);
+      return;
+    }
     if (isIndented && !inList && (indented || blankBefore)) {
       indented = true;
       out.add(i + 1);
     } else if (line.trim() !== '') indented = false;
+  });
+  // <pre> blocks are code too.
+  let pre = false;
+  lines.forEach((line, i) => {
+    if (/<pre\b/i.test(line)) pre = true;
+    if (pre) out.add(i + 1);
+    if (/<\/pre>/i.test(line)) pre = false;
   });
   lines.forEach((line, i) => {
     const m = /^\s*(`{3,}|~{3,})/.exec(line);
