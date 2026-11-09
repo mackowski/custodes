@@ -9,6 +9,12 @@ import { describe, expect, it } from 'vitest';
  */
 interface Bindings {
   name?: string;
+  workers_dev?: boolean;
+  preview_urls?: boolean;
+  routes?: unknown[];
+  vars?: Record<string, string>;
+  send_email?: { name: string; allowed_destination_addresses?: string[] }[];
+  queues?: { consumers?: { queue: string }[]; producers?: { queue: string }[] };
   services?: { binding: string; service: string; entrypoint?: string }[];
   durable_objects?: { bindings: { name: string; class_name: string; script_name?: string }[] };
   d1_databases?: { binding: string; database_id: string }[];
@@ -145,5 +151,43 @@ describe('bindings that carry approval authority', () => {
           `${w} binds a Durable Object of ${d.script_name ?? ''}`,
         ).toBe(false);
     }
+  });
+
+  it('keep agent Workers off the internet: no workers.dev, previews or routes (ADR 0018)', () => {
+    const agentWorkers = new Set([...Object.values(owner), SHARED]);
+    for (const w of workers) {
+      const b = readWrangler(w);
+      if (!agentWorkers.has(b.name ?? '')) continue;
+      expect(b.workers_dev, `${w} workers_dev`).toBe(false);
+      expect(b.preview_urls, `${w} preview_urls`).toBe(false);
+      expect(b.routes ?? [], `${w} routes`).toEqual([]);
+    }
+  });
+
+  it('let CALLER_NAME only name the Worker itself, and only where a Keyholder signs', () => {
+    for (const w of workers) {
+      const b = readWrangler(w);
+      const caller = b.vars?.['CALLER_NAME'];
+      const keyholder = (b.durable_objects?.bindings ?? []).some(
+        (d) => d.class_name === 'Keyholder',
+      );
+      expect(caller === undefined, `${w}: CALLER_NAME and Keyholder go together`).toBe(!keyholder);
+      if (caller !== undefined) expect(caller, w).toBe(b.name);
+    }
+  });
+
+  it('let agent Workers e-mail only the addresses the shared Worker may', () => {
+    const allowed = readWrangler('agents').send_email?.[0]?.allowed_destination_addresses ?? [];
+    expect(allowed.length).toBeGreaterThan(0);
+    for (const w of workers)
+      for (const e of readWrangler(w).send_email ?? [])
+        expect(e.allowed_destination_addresses, `${w} ${e.name}`).toEqual(allowed);
+  });
+
+  it('give every queue one consumer Worker', () => {
+    const consumers = workers.flatMap((w) =>
+      (readWrangler(w).queues?.consumers ?? []).map((c) => c.queue),
+    );
+    expect(new Set(consumers).size, consumers.join(',')).toBe(consumers.length);
   });
 });

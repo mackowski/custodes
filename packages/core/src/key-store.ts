@@ -54,6 +54,15 @@ export function newKid(callerName: string, now: Date): string {
 }
 
 async function generate(callerName: string, now: Date): Promise<StoredKey> {
+  const key = await generateKey(callerName, now);
+  // Public data only (kid and the public `x`): how the operator first learns a new key to pin it.
+  console.log(
+    JSON.stringify({ event: 'keyholder.key.created', caller: callerName, kid: key.kid, x: key.x }),
+  );
+  return key;
+}
+
+async function generateKey(callerName: string, now: Date): Promise<StoredKey> {
   const pair = (await crypto.subtle.generateKey({ name: 'Ed25519' }, true, [
     'sign',
     'verify',

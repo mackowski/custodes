@@ -1,9 +1,10 @@
 {
+  // Starts the way custodes-agents started: classic migrations (new_sqlite_classes).
   "name": "custodes-transfer-test-source",
   "main": "worker.js",
   "compatibility_date": "2026-08-15",
   "workers_dev": true,
   "vars": { "SCRIPT": "source" },
   "durable_objects": { "bindings": [{ "name": "PROBE", "class_name": "Probe" }] },
-  "exports": { "Probe": { "type": "durable-object", "storage": "sqlite" } },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Probe"] }],
 }

@@ -82,7 +82,7 @@ have each agent sign its own requests with a key only its Worker holds.
   dead-letter queue per agent), taking over the routing in `workers/agents/src/dispatch.ts`.
 - **State.** We first test an `exports` transfer on throwaway Workers. If the SQLite data moves, we
   transfer each class. If it does not, the agent starts fresh, after `pr-gate`'s `model_comparisons`
-  is exported to D1.
+  is saved to a file.
 - **Cutover.** Halt the agent, deploy, run it on the sandbox, resume. Order: `pr-gate`,
   `cheatsheet-review`, triage. The `hello` smoke-test agent is removed, not moved.
 

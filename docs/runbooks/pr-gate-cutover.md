@@ -4,10 +4,17 @@ ADR 0018, issue #103. Moves the `PrGateAgent` Durable Object, with its stored st
 `custodes-agents` to `custodes-pr-gate`. The Worker then signs every broker call with its own key.
 **After step 3 of the workflow there is no rollback**, so each gate below must pass.
 
-## Before (once PR #106 is merged and deployed)
+## Before PR #106 is marked ready
 
-1. **Transfer test.** Run [scripts/do-transfer-test](../../scripts/do-transfer-test/README.md). All
-   four pass criteria must hold. If any fails, stop here: pr-gate keeps running in `custodes-agents`.
+**Transfer rehearsal.** Run [scripts/do-transfer-test](../../scripts/do-transfer-test/README.md).
+It covers both one-way steps: the `migrations` to `exports` switch that ships with the merge of #106,
+and the transfer itself. All pass criteria must hold. If any fails, do not merge #106 as it is.
+
+## Before the cutover (after #106 is merged and deployed)
+
+1. **Nothing else merges to main from here until the follow-up PR.** `deploy-workers.yml` refuses to
+   deploy `custodes-agents` while it still binds a class another Worker owns, so a merge would stop
+   every fleet deploy until the follow-up lands.
 2. **Queue exists.** `deploy-infra.yml` applied `custodes-inbound-pr-gate` and its DLQ (Cloudflare
    dashboard → Queues).
 3. **Halt pr-gate** and say why: `POST /admin/agents/pr-gate/halt` with
@@ -20,7 +27,8 @@ ADR 0018, issue #103. Moves the `PrGateAgent` Durable Object, with its stored st
 
 ## Cutover
 
-Run **Actions → pr-gate cutover** from `main` with `move PrGateAgent`. It checks the halt flag, then:
+Run **Actions → pr-gate cutover** from `main` with `move PrGateAgent` and phase `full`. It checks the
+halt flag and that `PrGateAgent` still belongs to `custodes-agents` (it never runs twice), then:
 
 1. deploys `custodes-pr-gate` with `PrGateAgent` as `expecting-transfer` (no binding, no crons, no
    queue) and its secrets;
@@ -32,22 +40,25 @@ If a step fails:
 
 - **Step 1:** nothing has moved. Fix the cause and re-run the workflow.
 - **Step 2:** the transfer did not commit (the source still owns the class). Re-run the workflow.
-- **Step 3:** the transfer has committed, but the target is not bound yet. Do not re-run the whole
-  workflow (step 1 would fail now). Re-run only the final deploy: dispatch **Deploy Workers** after
-  the follow-up PR, or ask for a one-off CI run of `wrangler deploy -c ../pr-gate/.cutover.target-final.json`.
+- **Step 3:** the transfer has committed, but the target is not bound yet. Re-run the workflow with
+  phase `final-only`: it checks that `PrGateAgent` now belongs to `custodes-pr-gate` and runs step 3
+  only.
 
 ## After
 
 pr-gate is still halted. On its first broker call (the next cron or a manual run) its Keyholder
 creates a key, and the broker refuses it (`broker.caller.refused`, `unknown_key`) until it is pinned.
 
-1. Open `/admin/keys`, note the `custodes-pr-gate` key fingerprint.
-2. Merge the follow-up PR the key workflow opens. It contains:
-   - the public key in `packages/schema/src/agent-keys.json` (check the fingerprint matches);
-   - `PrGateAgent: transferred` in `workers/agents/wrangler.jsonc` and pr-gate removed from the
+1. Read the key: the Worker logs `keyholder.key.created` with its `kid` and public `x` when it
+   creates the key (Workers Logs for `custodes-pr-gate`; public data only). `/admin/keys` shows it
+   once that page lands.
+2. Merge the follow-up PR (opened by the key workflow, or by hand). It contains:
+   - the public key in `packages/schema/src/agent-keys.json` (check `kid` and `x` against the log);
+   - `PrGateAgent: transferred` in `workers/agents/wrangler.jsonc`, and pr-gate removed from the
      shared Worker's code;
-   - pr-gate in `deploy-workers.yml`;
-   - the gateway sending pr-gate's webhook events to `custodes-inbound-pr-gate`;
+   - pr-gate in `deploy-workers.yml`, after the broker and the agents, with its secrets;
+   - the gateway: pr-gate's webhook events to `custodes-inbound-pr-gate`, and `/agents/pr-gate-agent/*`
+     routed to `custodes-pr-gate` (the only Worker allowed to bind it, in `bindings.test.ts`);
    - `isolated: true` for pr-gate in `policy.json`.
 3. After its deploy: `GET /agents/pr-gate-agent/custodes-sandbox/report`, then a sandbox run
    (`POST /agents/pr-gate-agent/custodes-sandbox/run`). The audit record must show

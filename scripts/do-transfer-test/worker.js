@@ -40,7 +40,9 @@ export class Probe extends DurableObject {
 export default {
   async fetch(request, env) {
     if (!env.PROBE) return Response.json({ script: env.SCRIPT, bound: false });
-    // Same name in both Workers: after the transfer it must reach the same object and data.
-    return env.PROBE.get(env.PROBE.idFromName('probe')).fetch(request);
+    // Same names in both Workers: after the transfer they must reach the same objects and data.
+    // Two objects, as pr-gate has two instances (owasp-cheatsheetseries, custodes-sandbox).
+    const name = new URL(request.url).searchParams.get('name') === 'b' ? 'probe-b' : 'probe-a';
+    return env.PROBE.get(env.PROBE.idFromName(name)).fetch(request);
   },
 };
