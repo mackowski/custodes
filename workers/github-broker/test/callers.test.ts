@@ -1,6 +1,13 @@
 import { env } from 'cloudflare:workers';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { canonicalJson, signRequest, verifyCallerIntent } from '@custodes/core';
+import {
+  canonicalJson,
+  KeyStore,
+  type KeyStorage,
+  signingBroker,
+  signRequest,
+  verifyCallerIntent,
+} from '@custodes/core';
 import { AgentKeys, type CallerName, Policy, verificationKeys } from '@custodes/schema';
 import { CALLER_AGENTS, isIsolated } from '../src/callers.js';
 import { callerApp, sharedAgentApp } from '../src/index.js';
@@ -203,6 +210,57 @@ describe('agent signature in the audit record (ADR 0018, R1)', () => {
     const res = await send(JSON.stringify(request, null, 2));
     expect(res.status).toBe(400);
     expect(await res.json()).toMatchObject({ reason: /canonical JSON/ });
+  });
+});
+
+describe('agent side to broker, end to end (ADR 0018)', () => {
+  it("accepts an agent's signingBroker call once its keyholder's public key is pinned", async () => {
+    const m = new Map<string, unknown>();
+    const storage: KeyStorage = {
+      get: <T>(k: string) => Promise.resolve(m.get(k) as T | undefined),
+      put: (k: string, v: unknown) => Promise.resolve(void m.set(k, structuredClone(v))),
+    };
+    const keyholder = new KeyStore(storage);
+    await keyholder.rotate('custodes-pr-gate'); // creates a key to pin
+    const [next] = await keyholder.publicKeys();
+    await keyholder.activateNext();
+    const pinned = AgentKeys.parse({
+      version: 1,
+      callers: { 'custodes-pr-gate': [{ kid: next!.kid, x: next!.x, addedAt: '2026-11-09' }] },
+    });
+    const app = callerApp('custodes-pr-gate', pinned);
+    const broker = signingBroker(
+      { fetch: (url, init) => Promise.resolve(app.request(new URL(url).pathname, init, env)) },
+      keyholder,
+      'custodes-pr-gate',
+    );
+    const request = {
+      agentId: 'pr-gate',
+      agentVersion: '0.3.0',
+      runId: '9d7c1e9e-2b1a-4b6e-9a2e-1f7d1c2b3a44',
+      triggeredBy: { kind: 'schedule' },
+      action: { type: 'issue.comment', repo: 'mackowski/custodes-sandbox', issue: 1, body: 'x' },
+    };
+    const state = await broker.fetch('https://broker.internal/v1/state', {
+      method: 'POST',
+      body: JSON.stringify({ agentId: 'pr-gate' }),
+    });
+    expect(state.status).toBe(200);
+    // Not canonical on purpose: the client re-serialises before signing.
+    const res = await broker.fetch('https://broker.internal/v1/act', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(request, null, 2),
+    });
+    const out = await res.json<{ code: string; attestationId: string }>();
+    expect(out.code).toBe('policy_denied'); // pr-gate may not comment; nothing reaches GitHub
+    const att = await new AuditStore(env.AUDIT).get(out.attestationId);
+    expect(await verifyCallerIntent(att!.record, (c) => verificationKeys(pinned, c))).toMatchObject(
+      {
+        status: 'valid',
+        kid: next!.kid,
+      },
+    );
   });
 });
 

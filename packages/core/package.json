@@ -6,7 +6,8 @@
   "description": "Agent base class, kill switch, approvals, audit records and Ed25519 attestations",
   "exports": {
     ".": "./src/index.ts",
-    "./agent": "./src/agent.ts"
+    "./agent": "./src/agent.ts",
+    "./keyholder": "./src/keyholder.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",

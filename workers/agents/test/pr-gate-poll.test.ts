@@ -305,3 +305,54 @@ describe('kill switch read through the broker (#103, threat T1)', () => {
     }
   });
 });
+
+describe('broker calls signed by the Worker keyholder (ADR 0018)', () => {
+  /** Runs a poll with `extra` env on top; returns the poll result and what the broker saw. */
+  const pollWith = async (extra: Record<string, unknown>) => {
+    const seen: Headers[] = [];
+    const broker = {
+      fetch: (_url: string, init: RequestInit = {}) => {
+        seen.push(new Headers(init.headers));
+        return Promise.resolve(Response.json({ halted: false }));
+      },
+    };
+    const res = await runInDurableObject(await stub(), async (agent: PrGateAgent) => {
+      const i = agent as unknown as Internals;
+      const original = i.env;
+      const props = Object.fromEntries(
+        Object.entries({ BROKER: broker, ...extra }).map(([k, value]) => [k, { value }]),
+      );
+      i.env = Object.create(original, props) as AgentsEnv;
+      try {
+        return await agent.poll();
+      } catch (err) {
+        return { ok: false, detail: (err as Error).message };
+      } finally {
+        i.env = original;
+      }
+    });
+    return { res, seen };
+  };
+
+  it('signs every call when KEYHOLDER and CALLER_NAME are set', async () => {
+    const signer = {
+      signRequest: () => Promise.resolve({ 'x-custodes-key-id': 'pr-gate-20261109-a1b2c3d4' }),
+    };
+    const keyholder = { idFromName: () => 'id', get: () => signer };
+    const { seen } = await pollWith({ KEYHOLDER: keyholder, CALLER_NAME: 'custodes-pr-gate' });
+    expect(seen.length).toBeGreaterThan(0);
+    for (const h of seen) expect(h.get('x-custodes-key-id')).toBe('pr-gate-20261109-a1b2c3d4');
+  });
+
+  it('refuses to run half-configured instead of sending unsigned requests', async () => {
+    const { res, seen } = await pollWith({ CALLER_NAME: 'custodes-pr-gate' });
+    expect(res.ok).toBe(false);
+    expect(seen).toHaveLength(0);
+  });
+
+  it('stays unsigned on the shared Worker (neither is set)', async () => {
+    const { seen } = await pollWith({});
+    expect(seen.length).toBeGreaterThan(0);
+    for (const h of seen) expect(h.get('x-custodes-key-id')).toBeNull();
+  });
+});

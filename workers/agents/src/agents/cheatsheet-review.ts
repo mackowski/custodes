@@ -194,7 +194,7 @@ export class CheatsheetReviewAgent extends CustodesAgent<AgentsEnv, CheatsheetRe
     turn: Turn,
     span: { set: (k: string, v: string | number | boolean | undefined) => void },
   ): Promise<ReviewOutcome> {
-    const reader = new BrokerGitHubReader(this.env.BROKER, this.manifest.id, runId).inTurn(turn);
+    const reader = new BrokerGitHubReader(this.broker, this.manifest.id, runId).inTurn(turn);
 
     // 1. Re-check the trigger against GitHub, never the webhook.
     const pr = await reader.getPull(repo, pull);

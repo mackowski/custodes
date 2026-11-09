@@ -319,7 +319,7 @@ export abstract class SpecialistAgent extends CustodesAgent<AgentsEnv, Specialis
     });
     const meta = (issue: number) => ({ agentId: this.manifest.id, runId, issue: String(issue) });
     return {
-      reader: new BrokerGitHubReader(this.env.BROKER, this.manifest.id, runId, turn),
+      reader: new BrokerGitHubReader(this.broker, this.manifest.id, runId, turn),
       select: async (system, user, issue) => {
         await this.guard();
         return AnthropicGateway.text(

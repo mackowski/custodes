@@ -272,7 +272,7 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
       gatewayId: this.env.AI_GATEWAY_ID,
       gatewayToken: this.env.AI_GATEWAY_TOKEN,
     });
-    const reader = new BrokerGitHubReader(this.env.BROKER, this.manifest.id, runId);
+    const reader = new BrokerGitHubReader(this.broker, this.manifest.id, runId);
     try {
       const result = await runTriage(this.repo, since, {
         reader,
@@ -394,7 +394,7 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
     // The issues as they are now, so the digest never repeats advice a maintainer already acted on.
     const state = { complete: true };
     const current = await currentSince(
-      new BrokerGitHubReader(this.env.BROKER, this.manifest.id, crypto.randomUUID()),
+      new BrokerGitHubReader(this.broker, this.manifest.id, crypto.randomUUID()),
       this.repo,
       // When we saw each issue open (currentSince subtracts slack for a change during a poll). Not
       // the issue's own updated_at: a dormant accepted issue would push the window back years.

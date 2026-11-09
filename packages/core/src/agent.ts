@@ -9,6 +9,8 @@ import {
   type BrokerRequest,
   type Trigger,
 } from '@custodes/schema';
+import type { Keyholder } from './keyholder.js';
+import { type BrokerFetcher, signingBroker } from './signed-broker.js';
 import { conversationOf, executeTool, NO_TRACER, type Tracer, type Turn } from './tracing.js';
 
 /** Bindings every Custodes agent Worker must have. Extend per Worker. */
@@ -17,6 +19,12 @@ export interface CustodesEnv {
   BROKER: Fetcher;
   /** `"true"` records model and tool payloads in trace spans (ADR 0016). */
   TRACE_PAYLOADS: string;
+  /**
+   * Set only in a per-agent Worker (ADR 0018): its `Keyholder` and its caller name, e.g.
+   * `custodes-pr-gate`. With both, every broker call is signed; the shared Worker has neither.
+   */
+  KEYHOLDER?: DurableObjectNamespace<Keyholder>;
+  CALLER_NAME?: string;
 }
 
 export class AgentHaltedError extends Error {
@@ -74,6 +82,20 @@ export abstract class CustodesAgent<
   }
 
   /**
+   * The broker, as this agent must call it: signed with the Worker's own key in a per-agent Worker,
+   * plain on the shared Worker until it moves (ADR 0018). Read on every call, so tests that replace
+   * `env.BROKER` keep working. Use this, never `env.BROKER`, for every broker request.
+   */
+  protected get broker(): BrokerFetcher {
+    const { KEYHOLDER, CALLER_NAME, BROKER } = this.env;
+    if (KEYHOLDER === undefined && CALLER_NAME === undefined) return BROKER;
+    // Half-configured is a deploy mistake: fail loudly instead of sending unsigned requests.
+    if (KEYHOLDER === undefined || CALLER_NAME === undefined)
+      throw new Error('KEYHOLDER and CALLER_NAME must be set together');
+    return signingBroker(BROKER, KEYHOLDER.get(KEYHOLDER.idFromName('default')), CALLER_NAME);
+  }
+
+  /**
    * This agent's kill-switch state, read from the broker: agents do not bind the KV namespace,
    * because a KV binding can also write and an agent could clear its own halt flag (#103, threat T1).
    * Fails closed: if the broker does not answer with a valid state, the agent counts as halted.
@@ -81,7 +103,7 @@ export abstract class CustodesAgent<
   protected async haltState(): Promise<KillSwitchState> {
     let status: number | null = null;
     try {
-      const res = await this.env.BROKER.fetch('https://broker.internal/v1/state', {
+      const res = await this.broker.fetch('https://broker.internal/v1/state', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ agentId: this.manifest.id }),
@@ -127,7 +149,7 @@ export abstract class CustodesAgent<
     return executeTool(opts.turn, action.type, async (span) => {
       // The action is our own output (it becomes public on GitHub); approval ids are not recorded.
       span.payload('gen_ai.tool.call.arguments', action);
-      const res = await this.env.BROKER.fetch('https://broker.internal/v1/act', {
+      const res = await this.broker.fetch('https://broker.internal/v1/act', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(request),
@@ -159,7 +181,7 @@ export abstract class CustodesAgent<
       action,
     };
     return executeTool(opts.turn, 'approval.request', async (span) => {
-      const res = await this.env.BROKER.fetch('https://broker.internal/v1/approvals', {
+      const res = await this.broker.fetch('https://broker.internal/v1/approvals', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ request, rationale: rationale.slice(0, 4_000) }),

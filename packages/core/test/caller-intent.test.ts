@@ -90,6 +90,8 @@ describe('agent signature in the audit record (ADR 0018, R1)', () => {
       },
       { ...record, githubUrl: 'https://github.com/mackowski/custodes-sandbox/pull/70' },
       { ...record, githubUrl: 'https://github.com/mackowski/custodes-sandbox/pull/7/../8' },
+      // `$` without the m flag: a trailing newline does not slip through.
+      { ...record, githubUrl: 'https://github.com/mackowski/custodes-sandbox/pull/7\n' },
     ])
       expect(await verifyCallerIntent(forged, () => [pinned])).toEqual({
         status: 'invalid',
