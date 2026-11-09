@@ -1,31 +1,66 @@
 import { DurableObject } from 'cloudflare:workers';
 import { KeyStore, type PublicKeyInfo } from './key-store.js';
+import { CallerName } from '@custodes/schema';
+import { canonicalJson } from './canonical.js';
 import type { SignedPart } from './request-signature.js';
+
+/** What the Keyholder needs from its Worker's env. */
+export interface KeyholderEnv {
+  CALLER_NAME: string;
+  BROKER: Fetcher;
+}
 
 export type { PublicKeyInfo } from './key-store.js';
 
 /**
  * Holds one agent Worker's signing key (ADR 0018); see `KeyStore` for the rules. Each agent Worker
  * exports this class, binds it as `KEYHOLDER` and is the only Worker that does, so no other Worker
- * can sign as it. No method returns the private key.
+ * can sign as it. No method returns the private key; the methods are exactly signRequest,
+ * publicKeys, rotate and activateNextIfAccepted (pinned by a test).
  */
-/** The Durable Object each agent Worker exports and binds as `KEYHOLDER`. */
-export class Keyholder extends DurableObject {
-  private readonly keys = new KeyStore(this.ctx.storage);
+/** Any agent the Worker hosts works for the probe: `/v1/state` only reads. */
+const AGENT_FOR_PROBE: Readonly<Record<CallerName, string>> = {
+  'custodes-pr-gate': 'pr-gate',
+  'custodes-cheatsheet-review': 'cheatsheet-review',
+  'custodes-triage': 'triage',
+};
 
-  signRequest(callerName: string, part: SignedPart): Promise<Record<string, string>> {
-    return this.keys.signRequest(callerName, part);
+/** The Durable Object each agent Worker exports and binds as `KEYHOLDER`. */
+export class Keyholder extends DurableObject<KeyholderEnv> {
+  private readonly keys: KeyStore;
+
+  constructor(ctx: DurableObjectState, env: KeyholderEnv) {
+    super(ctx, env);
+    // Its own name, from its own Worker's config: no caller can make it mint another Worker's kid.
+    const name = CallerName.parse(env.CALLER_NAME);
+    this.keys = new KeyStore(ctx.storage, name, undefined, (fn) => ctx.blockConcurrencyWhile(fn));
+  }
+
+  signRequest(part: SignedPart): Promise<Record<string, string>> {
+    return this.keys.signRequest(part);
   }
 
   publicKeys(): Promise<PublicKeyInfo[]> {
     return this.keys.publicKeys();
   }
 
-  rotate(callerName: string): Promise<PublicKeyInfo> {
-    return this.keys.rotate(callerName);
+  rotate(): Promise<PublicKeyInfo> {
+    return this.keys.rotate();
   }
 
-  activateNext(): Promise<PublicKeyInfo> {
-    return this.keys.activateNext();
+  /** Called by the agent on each run: switches to the next key once the broker accepts it. */
+  activateNextIfAccepted(): Promise<boolean> {
+    return this.keys.activateNextIfAccepted(async (sign) => {
+      const body = canonicalJson({
+        agentId: AGENT_FOR_PROBE[CallerName.parse(this.env.CALLER_NAME)],
+      });
+      const headers = await sign({ method: 'POST', path: '/v1/state', body });
+      const res = await this.env.BROKER.fetch('https://broker.internal/v1/state', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', ...headers },
+        body,
+      });
+      return res.status === 200;
+    });
   }
 }

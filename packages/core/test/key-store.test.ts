@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { PinnedAgentKey } from '@custodes/schema';
-import { KeyStore, newKid, type KeyStorage } from '../src/key-store.js';
+import { KeyStore, newKid, type AcceptanceProbe, type KeyStorage } from '../src/key-store.js';
 import { verifyRequestSignature } from '../src/request-signature.js';
 import { signingBroker } from '../src/signed-broker.js';
 import { canonicalJson } from '../src/canonical.js';
@@ -8,7 +8,7 @@ import { canonicalJson } from '../src/canonical.js';
 const NOW = new Date(Date.UTC(2026, 10, 9, 12, 0, 0));
 const CALLER = 'custodes-pr-gate';
 
-function memStorage(): KeyStorage & { dump(): string } {
+function memStorage(): KeyStorage & { privateScalars(): string[] } {
   const m = new Map<string, unknown>();
   return {
     get: <T>(k: string) => Promise.resolve(m.get(k) as T | undefined),
@@ -16,7 +16,9 @@ function memStorage(): KeyStorage & { dump(): string } {
       m.set(k, structuredClone(v));
       return Promise.resolve();
     },
-    dump: () => JSON.stringify([...m.entries()]),
+    /** Every `d` currently stored, so the canaries can look for each of them. */
+    privateScalars: () =>
+      [...JSON.stringify([...m.values()]).matchAll(/"d":"([^"]+)"/g)].map((x) => x[1] ?? ''),
   };
 }
 
@@ -25,50 +27,82 @@ const pinnedOf = (k: { kid: string; x: string }): PinnedAgentKey => ({
   x: k.x,
   addedAt: '2026-11-09',
 });
-
 const part = { method: 'POST', path: '/v1/state', body: '{"agentId":"pr-gate"}' };
+const newStore = (storage: KeyStorage) => new KeyStore(storage, CALLER, () => NOW);
+
+/** A broker double for the activation probe that accepts exactly the pinned kids. */
+const acceptsOnly =
+  (pinned: () => PinnedAgentKey[]): AcceptanceProbe =>
+  async (sign) =>
+    (await verifyRequestSignature(pinned(), new Headers(await sign(part)), part, NOW.getTime())).ok;
 
 describe('Keyholder key store (ADR 0018)', () => {
   it('creates a key on first use and signs requests the broker accepts with its public key', async () => {
-    const store = new KeyStore(memStorage(), () => NOW);
-    const headers = await store.signRequest(CALLER, part);
+    const store = newStore(memStorage());
+    const headers = await store.signRequest(part);
     const [active] = await store.publicKeys();
     expect(active).toMatchObject({ state: 'active' });
     expect(active?.kid).toMatch(/^pr-gate-20261109-[0-9a-f]{8}$/);
     expect(
       await verifyRequestSignature([pinnedOf(active!)], new Headers(headers), part, NOW.getTime()),
     ).toMatchObject({ ok: true, keyId: active?.kid });
-    // Same key next time.
-    await store.signRequest(CALLER, part);
+    await store.signRequest(part);
     expect(await store.publicKeys()).toHaveLength(1);
   });
 
-  it('never returns the private key', async () => {
-    const storage = memStorage();
-    const store = new KeyStore(storage, () => NOW);
-    const headers = await store.signRequest(CALLER, part);
-    const d = (JSON.parse(storage.dump()) as [string, { active: { d: string } }][])[0]![1].active.d;
-    expect(d).toMatch(/^[A-Za-z0-9_-]{43}$/);
-    for (const out of [headers, await store.publicKeys(), await store.rotate(CALLER)])
-      expect(JSON.stringify(out)).not.toContain(d);
-    expect(JSON.stringify(await store.activateNext())).not.toContain(d);
+  it('makes one key for concurrent first uses when generation is serialised', async () => {
+    let chain: Promise<unknown> = Promise.resolve();
+    const serialize = <T>(fn: () => Promise<T>): Promise<T> => {
+      const run = chain.then(fn);
+      chain = run.catch(() => undefined);
+      return run;
+    };
+    const store = new KeyStore(memStorage(), CALLER, () => NOW, serialize);
+    await Promise.all(Array.from({ length: 20 }, () => store.signRequest(part)));
+    expect(await store.publicKeys()).toHaveLength(1);
   });
 
-  it('rotates without stopping: the old key signs until the next one is activated, then is gone', async () => {
+  it('never returns a private key, active or next, in any output or error', async () => {
     const storage = memStorage();
-    const store = new KeyStore(storage, () => NOW);
-    await store.signRequest(CALLER, part);
+    const store = newStore(storage);
+    const outputs: unknown[] = [
+      await store.signRequest(part),
+      await store.rotate(),
+      await store.publicKeys(),
+      await store.activateNextIfAccepted(() => Promise.resolve(false)),
+      await store.rotate(),
+      await store
+        .activateNextIfAccepted(() => Promise.reject(new Error('probe failed')))
+        .catch((e: unknown) => (e instanceof Error ? e.message : String(e))),
+    ];
+    const secrets = storage.privateScalars();
+    expect(secrets).toHaveLength(2); // the active and the next key
+    for (const d of secrets) {
+      expect(d).toMatch(/^[A-Za-z0-9_-]{43}$/);
+      for (const out of outputs) expect(JSON.stringify(out)).not.toContain(d);
+    }
+  });
+
+  it('rotates without downtime: switches to the next key only once the broker accepts it', async () => {
+    const storage = memStorage();
+    const store = newStore(storage);
+    await store.signRequest(part);
     const [old] = await store.publicKeys();
-    const next = await store.rotate(CALLER);
-    expect(await store.rotate(CALLER)).toEqual(next); // idempotent while pending
-    const during = await store.signRequest(CALLER, part);
-    expect(during['x-custodes-key-id']).toBe(old?.kid);
-    await store.activateNext();
+    const next = await store.rotate();
+    let pinned = [pinnedOf(old!)];
+    const probe = acceptsOnly(() => pinned);
+
+    // Not pinned yet: stays on the old key.
+    expect(await store.activateNextIfAccepted(probe)).toBe(false);
+    expect((await store.signRequest(part))['x-custodes-key-id']).toBe(old?.kid);
+
+    // Pinned next to the old one (the rotation PR): switches, old private key gone.
+    pinned = [pinnedOf(old!), pinnedOf(next)];
+    expect(await store.activateNextIfAccepted(probe)).toBe(true);
     expect(await store.publicKeys()).toEqual([{ ...next, state: 'active' }]);
-    const after = await store.signRequest(CALLER, part);
-    expect(after['x-custodes-key-id']).toBe(next.kid);
-    expect(storage.dump()).not.toContain(old!.x); // the old key pair is deleted
-    await expect(store.activateNext()).rejects.toThrow('no next key');
+    expect((await store.signRequest(part))['x-custodes-key-id']).toBe(next.kid);
+    expect(storage.privateScalars()).toHaveLength(1);
+    expect(await store.activateNextIfAccepted(probe)).toBe(false); // nothing pending
   });
 
   it('builds kids in the pinned format', () => {
@@ -80,7 +114,7 @@ describe('Keyholder key store (ADR 0018)', () => {
 
 describe('signing broker client (ADR 0018)', () => {
   it('sends canonical JSON with signature headers that verify for that exact body and path', async () => {
-    const store = new KeyStore(memStorage(), () => NOW);
+    const store = newStore(memStorage());
     const seen: { url: string; init: RequestInit }[] = [];
     const broker = signingBroker(
       {
@@ -90,7 +124,6 @@ describe('signing broker client (ADR 0018)', () => {
         },
       },
       store,
-      CALLER,
     );
     await broker.fetch('https://broker.internal/v1/act', {
       method: 'POST',
@@ -115,8 +148,7 @@ describe('signing broker client (ADR 0018)', () => {
   it('refuses to send a body it cannot sign', async () => {
     const broker = signingBroker(
       { fetch: () => Promise.resolve(new Response()) },
-      new KeyStore(memStorage(), () => NOW),
-      CALLER,
+      newStore(memStorage()),
     );
     await expect(
       broker.fetch('https://broker.internal/v1/act', { method: 'POST' }),

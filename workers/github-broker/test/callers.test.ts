@@ -214,26 +214,46 @@ describe('agent signature in the audit record (ADR 0018, R1)', () => {
 });
 
 describe('agent side to broker, end to end (ADR 0018)', () => {
-  it("accepts an agent's signingBroker call once its keyholder's public key is pinned", async () => {
+  const memStorage = (): KeyStorage => {
     const m = new Map<string, unknown>();
-    const storage: KeyStorage = {
+    return {
       get: <T>(k: string) => Promise.resolve(m.get(k) as T | undefined),
       put: (k: string, v: unknown) => Promise.resolve(void m.set(k, structuredClone(v))),
     };
-    const keyholder = new KeyStore(storage);
-    await keyholder.rotate('custodes-pr-gate'); // creates a key to pin
-    const [next] = await keyholder.publicKeys();
-    await keyholder.activateNext();
-    const pinned = AgentKeys.parse({
+  };
+  const pin = (...ks: { kid: string; x: string }[]) =>
+    AgentKeys.parse({
       version: 1,
-      callers: { 'custodes-pr-gate': [{ kid: next!.kid, x: next!.x, addedAt: '2026-11-09' }] },
+      callers: {
+        'custodes-pr-gate': ks.map((k) => ({ kid: k.kid, x: k.x, addedAt: '2026-11-09' })),
+      },
     });
-    const app = callerApp('custodes-pr-gate', pinned);
-    const broker = signingBroker(
-      { fetch: (url, init) => Promise.resolve(app.request(new URL(url).pathname, init, env)) },
+  /** The agent's signed client against a broker that pins `keys()` (read on every call). */
+  const wire = (keyholder: KeyStore, keys: () => AgentKeys) =>
+    signingBroker(
+      {
+        fetch: (url, init) =>
+          Promise.resolve(
+            callerApp('custodes-pr-gate', keys()).request(new URL(url).pathname, init, env),
+          ),
+      },
       keyholder,
-      'custodes-pr-gate',
     );
+  const state = (broker: ReturnType<typeof wire>) =>
+    broker.fetch('https://broker.internal/v1/state', {
+      method: 'POST',
+      body: JSON.stringify({ agentId: 'pr-gate' }),
+    });
+
+  it("accepts an agent's signed call once its key is pinned, and records a valid agent signature", async () => {
+    const keyholder = new KeyStore(memStorage(), 'custodes-pr-gate');
+    await keyholder.signRequest({ method: 'POST', path: '/x', body: '{}' }); // first use makes the key
+    const [active] = await keyholder.publicKeys();
+    let pinned = pin(); // not pinned yet: refused, so the agent stays stopped
+    const broker = wire(keyholder, () => pinned);
+    expect((await state(broker)).status).toBe(401);
+    pinned = pin(active!);
+    expect((await state(broker)).status).toBe(200);
     const request = {
       agentId: 'pr-gate',
       agentVersion: '0.3.0',
@@ -241,11 +261,6 @@ describe('agent side to broker, end to end (ADR 0018)', () => {
       triggeredBy: { kind: 'schedule' },
       action: { type: 'issue.comment', repo: 'mackowski/custodes-sandbox', issue: 1, body: 'x' },
     };
-    const state = await broker.fetch('https://broker.internal/v1/state', {
-      method: 'POST',
-      body: JSON.stringify({ agentId: 'pr-gate' }),
-    });
-    expect(state.status).toBe(200);
     // Not canonical on purpose: the client re-serialises before signing.
     const res = await broker.fetch('https://broker.internal/v1/act', {
       method: 'POST',
@@ -256,11 +271,38 @@ describe('agent side to broker, end to end (ADR 0018)', () => {
     expect(out.code).toBe('policy_denied'); // pr-gate may not comment; nothing reaches GitHub
     const att = await new AuditStore(env.AUDIT).get(out.attestationId);
     expect(await verifyCallerIntent(att!.record, (c) => verificationKeys(pinned, c))).toMatchObject(
-      {
-        status: 'valid',
-        kid: next!.kid,
-      },
+      { status: 'valid', kid: active!.kid },
     );
+  });
+
+  it('rotates without downtime: old key works throughout, next key takes over once pinned', async () => {
+    const keyholder = new KeyStore(memStorage(), 'custodes-pr-gate');
+    await keyholder.signRequest({ method: 'POST', path: '/x', body: '{}' });
+    const [old] = await keyholder.publicKeys();
+    let pinned = pin(old!);
+    const broker = wire(keyholder, () => pinned);
+    const probe = async (
+      sign: Parameters<Parameters<KeyStore['activateNextIfAccepted']>[0]>[0],
+    ) => {
+      const body = JSON.stringify({ agentId: 'pr-gate' });
+      const headers = await sign({ method: 'POST', path: '/v1/state', body });
+      const res = await callerApp('custodes-pr-gate', pinned).request(
+        '/v1/state',
+        { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body },
+        env,
+      );
+      return res.status === 200;
+    };
+
+    const next = await keyholder.rotate();
+    expect((await state(broker)).status).toBe(200); // still the old key
+    expect(await keyholder.activateNextIfAccepted(probe)).toBe(false); // next not pinned yet
+    pinned = pin(old!, next); // the rotation PR pins both
+    expect((await state(broker)).status).toBe(200);
+    expect(await keyholder.activateNextIfAccepted(probe)).toBe(true);
+    expect((await state(broker)).status).toBe(200); // now signed with the next key
+    pinned = pin(next); // the follow-up retires the old key
+    expect((await state(broker)).status).toBe(200);
   });
 });
 

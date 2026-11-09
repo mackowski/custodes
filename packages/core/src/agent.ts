@@ -87,12 +87,22 @@ export abstract class CustodesAgent<
    * `env.BROKER` keep working. Use this, never `env.BROKER`, for every broker request.
    */
   protected get broker(): BrokerFetcher {
-    const { KEYHOLDER, CALLER_NAME, BROKER } = this.env;
-    if (KEYHOLDER === undefined && CALLER_NAME === undefined) return BROKER;
+    const keyholder = this.keyholder;
+    return keyholder === null ? this.env.BROKER : signingBroker(this.env.BROKER, keyholder);
+  }
+
+  /** This Worker's Keyholder, or null on the shared Worker. Throws when half-configured. */
+  private get keyholder(): DurableObjectStub<Keyholder> | null {
+    const { KEYHOLDER, CALLER_NAME } = this.env;
+    if (KEYHOLDER === undefined && CALLER_NAME === undefined) return null;
     // Half-configured is a deploy mistake: fail loudly instead of sending unsigned requests.
-    if (KEYHOLDER === undefined || CALLER_NAME === undefined)
+    if (KEYHOLDER === undefined || CALLER_NAME === undefined) {
+      console.error(
+        JSON.stringify({ event: 'agent.broker.misconfigured', agentId: this.manifest.id }),
+      );
       throw new Error('KEYHOLDER and CALLER_NAME must be set together');
-    return signingBroker(BROKER, KEYHOLDER.get(KEYHOLDER.idFromName('default')), CALLER_NAME);
+    }
+    return KEYHOLDER.get(KEYHOLDER.idFromName('default'));
   }
 
   /**
@@ -121,8 +131,23 @@ export abstract class CustodesAgent<
     return { halted: true, reason: 'kill-switch state unavailable' };
   }
 
+  /**
+   * After a rotation, switches the Worker to its next key once the broker accepts it (ADR 0018,
+   * threat D1). A no-op on the shared Worker and when there is no next key; never blocks a run.
+   */
+  private async adoptNextKey(): Promise<void> {
+    try {
+      const keyholder = this.keyholder;
+      if (keyholder !== null && (await keyholder.activateNextIfAccepted()))
+        console.log(JSON.stringify({ event: 'agent.key.activated', agentId: this.manifest.id }));
+    } catch {
+      // A half-configured Worker or an unreachable keyholder: haltState() fails closed next.
+    }
+  }
+
   /** Throws if this agent (or the whole fleet) is halted. Call at the start of every run. */
   protected async guard(): Promise<void> {
+    await this.adoptNextKey();
     const state = await this.haltState();
     if (state.halted) throw new AgentHaltedError(this.manifest.id, state.reason);
   }

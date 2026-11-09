@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import worker from '../src/index.js';
 import type { AgentsEnv } from '../src/env.js';
 import {
+  AGENT_CLASSES,
   allowedAgentPath,
   INSTANCE_REPOS,
   instanceOf,
@@ -117,6 +118,18 @@ describe('on-demand routes', () => {
     expect(allowedAgentPath('/agents/triage-agent/__proto__')).toBe(false);
     expect(allowedAgentPath('/agents/triage-agent/%E0%A4%A')).toBe(false);
     expect(allowedAgentPath('/agents/triage-agent/custodes%2Dsandbox')).toBe(true);
+    // Only agent classes: never a Worker's Keyholder or any other Durable Object (ADR 0018).
+    expect(allowedAgentPath(`/agents/keyholder/${OWASP_INSTANCE}`)).toBe(false);
+    expect(allowedAgentPath('/agents/keyholder/default')).toBe(false);
+    expect(allowedAgentPath(`/agents/not-an-agent/${OWASP_INSTANCE}`)).toBe(false);
+  });
+
+  it('lists every Durable Object binding of this Worker as a routable agent class', async () => {
+    const exported = Object.keys(await import('../src/index.js')).filter((k) =>
+      k.endsWith('Agent'),
+    );
+    const kebab = (s: string) => s.replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase();
+    expect(new Set(exported.map(kebab))).toEqual(AGENT_CLASSES);
   });
 
   it('preview the sandbox summary without sending it', async () => {
@@ -132,5 +145,14 @@ describe('on-demand routes', () => {
     const out = await res.json<{ ok: boolean; detail: string }>();
     expect(out.ok).toBe(false);
     expect(out.detail).toMatch(/^list pulls failed/);
+  });
+});
+
+describe('Keyholder surface (ADR 0018, threat I1)', () => {
+  it('exposes exactly the documented methods over RPC, none of which returns key material', async () => {
+    const { Keyholder } = await import('@custodes/core/keyholder');
+    expect(Object.getOwnPropertyNames(Keyholder.prototype).sort()).toEqual(
+      ['constructor', 'signRequest', 'publicKeys', 'rotate', 'activateNextIfAccepted'].sort(),
+    );
   });
 });

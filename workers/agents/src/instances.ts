@@ -54,6 +54,16 @@ export function unknownInstance(): Response {
   return Response.json({ error: 'unknown instance' }, { status: 404 });
 }
 
+/** The agent classes the gateway may route to, as the Agents SDK names them (kebab-case). */
+export const AGENT_CLASSES: ReadonlySet<string> = new Set([
+  'hello-agent',
+  'triage-agent',
+  'implementation-check-agent',
+  'proposal-review-agent',
+  'pr-gate-agent',
+  'cheatsheet-review-agent',
+]);
+
 /** The hello smoke-test agent is not bound to a repository and keeps its single `default` instance. */
 const UNBOUND: Readonly<Record<string, readonly string[]>> = { 'hello-agent': ['default'] };
 
@@ -65,6 +75,9 @@ export function allowedAgentPath(pathname: string): boolean {
   const m = /^\/agents\/([^/]+)\/([^/]+)/.exec(pathname);
   if (!m) return true;
   const [, cls = '', rawInstance = ''] = m;
+  // The SDK router would reach any Durable Object binding by its kebab-cased name, including a
+  // Worker's Keyholder (ADR 0018): only agent classes are routable.
+  if (!AGENT_CLASSES.has(cls)) return false;
   let instance: string;
   try {
     instance = decodeURIComponent(rawInstance);

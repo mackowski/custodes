@@ -36,6 +36,8 @@ regexTarget = "line"
 commits = [
   # PR #106: a test agent key id (`pr-gate-20261109-…`), public by design; renamed to `kid` later.
   "3a146ff65bc6a7a123fe5230ac4c20ec6db7137e",
+  # PR #106: the same kind of test kid as a header value in pr-gate-poll.test.ts; assembled later.
+  "4e76ef075dd9c8a3aba473758f7c2bb3ac74869d",
 ]
 paths = [
   '''pnpm-lock\.yaml''',
