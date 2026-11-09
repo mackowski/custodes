@@ -49,13 +49,16 @@
       { "name": "CheatsheetReviewAgent", "class_name": "CheatsheetReviewAgent" },
     ],
   },
-  "migrations": [
-    { "tag": "v1", "new_sqlite_classes": ["HelloAgent"] },
-    { "tag": "v2", "new_sqlite_classes": ["TriageAgent"] },
-    { "tag": "v3", "new_sqlite_classes": ["ImplementationCheckAgent", "ProposalReviewAgent"] },
-    { "tag": "v4", "new_sqlite_classes": ["PrGateAgent"] },
-    { "tag": "v5", "new_sqlite_classes": ["CheatsheetReviewAgent"] },
-  ],
+  // Durable Object classes, declaratively (ADR 0018): replaces the old `migrations` tags v1..v5.
+  // One-way: once deployed with `exports`, this Worker cannot go back to `migrations`.
+  "exports": {
+    "HelloAgent": { "type": "durable-object", "storage": "sqlite" },
+    "TriageAgent": { "type": "durable-object", "storage": "sqlite" },
+    "ImplementationCheckAgent": { "type": "durable-object", "storage": "sqlite" },
+    "ProposalReviewAgent": { "type": "durable-object", "storage": "sqlite" },
+    "PrGateAgent": { "type": "durable-object", "storage": "sqlite" },
+    "CheatsheetReviewAgent": { "type": "durable-object", "storage": "sqlite" },
+  },
   // Must match CRON_TRIAGE_POLL / CRON_TRIAGE_PREPARE / CRON_TRIAGE_DIGEST in src/index.ts (UTC).
   // pr-gate shares them (polls on the first two, summary with the digest).
   "triggers": { "crons": ["17 */4 * * *", "30 5 * * *", "0 7 * * *"] },
