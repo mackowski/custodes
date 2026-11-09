@@ -1,8 +1,9 @@
 import { env } from 'cloudflare:workers';
+import { testKillSwitch, withHaltState } from './helpers/halt-state.js';
 import { runInDurableObject } from 'cloudflare:test';
 import { getAgentByName } from 'agents';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { chat, KillSwitch, type Tracer, type Turn } from '@custodes/core';
+import { chat, type Tracer, type Turn } from '@custodes/core';
 import type { ChatModel, ChatRequest, ReviewModel } from '@custodes/llm';
 import { BrokerRequest } from '@custodes/schema';
 import type { CheatsheetReviewAgent, ReviewOutcome } from '../src/agents/cheatsheet-review.js';
@@ -308,7 +309,7 @@ async function drive(opts: Options = {}): Promise<Run & { outs: ReviewOutcome[] 
     const i = agent as unknown as Internals;
     const original = i.env;
     i.env = Object.create(original, {
-      BROKER: { value: broker },
+      BROKER: { value: withHaltState(broker) },
       EMAIL: { value: email },
     }) as AgentsEnv;
     i.clients = () => models.clients;
@@ -352,12 +353,12 @@ beforeEach(async () => {
 
 afterEach(async () => {
   vi.restoreAllMocks();
-  await new KillSwitch(testEnv.KILL_SWITCH).resume('cheatsheet-review');
+  await testKillSwitch().resume('cheatsheet-review');
 });
 
 describe('cheatsheet-review: refusing to run', () => {
   it('does nothing at all while halted: no read, no model call, no act, no mail', async () => {
-    await new KillSwitch(testEnv.KILL_SWITCH).halt('cheatsheet-review', 'test', 'tester');
+    await testKillSwitch().halt('cheatsheet-review', 'test', 'tester');
     const r = await drive();
     expect(r.out).toMatchObject({ ok: false, status: 'halted' });
     expect(r.broker.reads).toEqual([]);
@@ -367,14 +368,14 @@ describe('cheatsheet-review: refusing to run', () => {
   });
 
   it('is stopped by the global kill switch too', async () => {
-    await new KillSwitch(testEnv.KILL_SWITCH).halt('*', 'fleet', 'tester');
+    await testKillSwitch().halt('*', 'fleet', 'tester');
     try {
       const r = await drive();
       expect(r.out).toMatchObject({ ok: false, status: 'halted' });
       expect(r.models.calls).toEqual([]);
       expect(r.broker.acts).toEqual([]);
     } finally {
-      await new KillSwitch(testEnv.KILL_SWITCH).resume('*');
+      await testKillSwitch().resume('*');
     }
   });
 
@@ -668,7 +669,7 @@ describe('cheatsheet-review: failing safe', () => {
     const out = await runInDurableObject(await stub(), async (agent: CheatsheetReviewAgent) => {
       const i = agent as unknown as Internals;
       const orig = i.env;
-      i.env = Object.create(orig, { BROKER: { value: broker } }) as AgentsEnv;
+      i.env = Object.create(orig, { BROKER: { value: withHaltState(broker) } }) as AgentsEnv;
       i.clients = () => fakeModels(defaultScript(decisionJson())).clients;
       try {
         const run = await agent.runReview(PR);

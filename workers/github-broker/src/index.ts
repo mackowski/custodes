@@ -1,6 +1,7 @@
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import { Hono } from 'hono';
 import { z } from 'zod';
+import { KillSwitch } from '@custodes/core';
 import { AgentId, BrokerReadRequest, BrokerRequest } from '@custodes/schema';
 import { act } from './act.js';
 import { approvalByToken, createApproval, decideApproval } from './approvals.js';
@@ -53,6 +54,19 @@ agentApp.post('/v1/read', async (c) => {
   if (!parsed.success)
     return c.json({ ok: false, code: 'invalid', reason: parsed.error.message }, 400);
   return c.json(await read(c.env, parsed.data));
+});
+
+const StateRequest = z.object({ agentId: AgentId });
+/**
+ * The kill-switch state for one agent. Agents do not bind the KV namespace (a KV binding can
+ * write, so an agent could delete its own halt flag); they read the flag here (#103, threat T1).
+ */
+agentApp.post('/v1/state', async (c) => {
+  const parsed = StateRequest.safeParse(await c.req.json().catch(() => null));
+  if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
+  // Only what the agent needs: who halted it (the operator's e-mail) stays out of agent reach.
+  const { halted, reason } = await new KillSwitch(c.env.KILL_SWITCH).state(parsed.data.agentId);
+  return c.json(reason === undefined ? { halted } : { halted, reason });
 });
 
 const CreateApproval = z.object({

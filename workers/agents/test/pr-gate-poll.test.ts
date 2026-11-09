@@ -1,8 +1,8 @@
 import { env } from 'cloudflare:workers';
+import { testKillSwitch, withHaltState } from './helpers/halt-state.js';
 import { runInDurableObject } from 'cloudflare:test';
 import { getAgentByName } from 'agents';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { KillSwitch } from '@custodes/core';
 import {
   MAX_CLOSES_PER_DAY,
   MAX_EVALUATIONS_PER_DAY,
@@ -79,7 +79,7 @@ async function inAgent<T>(
     const i = agent as unknown as Internals;
     const original = i.env;
     i.env = Object.create(original, {
-      BROKER: { value: fakeBroker(pulls) },
+      BROKER: { value: withHaltState(fakeBroker(pulls)) },
     }) as AgentsEnv;
     try {
       return await fn(agent, i);
@@ -116,7 +116,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  await new KillSwitch(testEnv.KILL_SWITCH).resume('pr-gate');
+  await testKillSwitch().resume('pr-gate');
 });
 
 describe('pr-gate poll budgets', () => {
@@ -227,7 +227,7 @@ describe('pr-gate poll self-scheduling', () => {
 
   it('schedules nothing when the kill switch is on, whatever is waiting', async () => {
     const p = pull(9151, { updated_at: ago(10 * 60_000) });
-    await new KillSwitch(testEnv.KILL_SWITCH).halt('pr-gate', 'test', 'tester');
+    await testKillSwitch().halt('pr-gate', 'test', 'tester');
     const r = await inAgent([p], async (agent) => ({
       res: await agent.poll(),
       schedules: await wakes(agent),
@@ -238,7 +238,7 @@ describe('pr-gate poll self-scheduling', () => {
   });
 
   it('answers halted, not "in progress", and schedules nothing when halted during a running poll', async () => {
-    await new KillSwitch(testEnv.KILL_SWITCH).halt('pr-gate', 'test', 'tester');
+    await testKillSwitch().halt('pr-gate', 'test', 'tester');
     const r = await inAgent([], async (agent, i) => {
       i.pollingSince = Date.now();
       try {
@@ -277,5 +277,31 @@ describe('pr-gate poll lock', () => {
     expect(r.res.ok).toBe(true);
     expect(r.res.detail).toBe('1 open, 1 evaluated, 0 close attempt(s)');
     expect(r.since).toBeNull();
+  });
+});
+
+describe('kill switch read through the broker (#103, threat T1)', () => {
+  const failing = async (fetch: () => Response | Promise<Response>) =>
+    runInDurableObject(await stub(), async (agent: PrGateAgent) => {
+      const i = agent as unknown as Internals;
+      const original = i.env;
+      i.env = Object.create(original, { BROKER: { value: { fetch } } }) as AgentsEnv;
+      try {
+        return await agent.poll();
+      } finally {
+        i.env = original;
+      }
+    });
+
+  it('fails closed when the broker errors, answers garbage, or is unreachable', async () => {
+    for (const fetch of [
+      () => new Response('boom', { status: 500 }),
+      () => Response.json({ halted: 'no' }),
+      () => Promise.reject(new Error('unreachable')),
+    ]) {
+      const res = await failing(fetch);
+      expect(res.ok).toBe(false);
+      expect(res.detail).toContain('kill-switch state unavailable');
+    }
   });
 });

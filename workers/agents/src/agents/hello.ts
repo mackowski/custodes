@@ -35,7 +35,7 @@ export class HelloAgent extends CustodesAgent<AgentsEnv, HelloState> {
     return Response.json({
       manifest: this.manifest,
       state: this.state,
-      killSwitch: await this.killSwitch.state(this.manifest.id),
+      killSwitch: await this.haltState(),
     });
   }
 

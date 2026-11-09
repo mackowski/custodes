@@ -536,7 +536,7 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
     return Response.json({
       manifest: this.manifest,
       state: this.state,
-      killSwitch: await this.killSwitch.state(this.manifest.id),
+      killSwitch: await this.haltState(),
       recent: recent.map((r) => ({
         issue: r.issue,
         title: inertText(r.title, 200),

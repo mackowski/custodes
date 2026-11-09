@@ -939,7 +939,7 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
       manifest: this.manifest,
       enforcing: this.enforcing,
       state: this.state,
-      killSwitch: await this.killSwitch.state(this.manifest.id),
+      killSwitch: await this.haltState(),
       recent: this.sql<{ pr: number; outcome: string; detail: string; decided_at: string }>`
         SELECT pr, outcome, detail, decided_at FROM decisions ORDER BY decided_at DESC LIMIT 30`,
     });

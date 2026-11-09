@@ -1,6 +1,6 @@
 import { env } from 'cloudflare:workers';
 import { describe, expect, it } from 'vitest';
-import { KillSwitch } from '@custodes/core';
+import { testKillSwitch } from './helpers/halt-state.js';
 import worker from '../src/index.js';
 import type { AgentsEnv } from '../src/env.js';
 
@@ -28,13 +28,13 @@ describe('agents worker', () => {
     );
     expect(await run.json()).toMatchObject({ ok: true });
 
-    await new KillSwitch(testEnv.KILL_SWITCH).halt('hello', 'test', 'tester');
+    await testKillSwitch().halt('hello', 'test', 'tester');
     const halted = await worker.fetch(
       new Request('https://x/agents/hello-agent/default/run', { method: 'POST' }),
       testEnv,
       ctx,
     );
     expect(await halted.json()).toMatchObject({ ok: false });
-    await new KillSwitch(testEnv.KILL_SWITCH).resume('hello');
+    await testKillSwitch().resume('hello');
   });
 });

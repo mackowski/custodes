@@ -4,19 +4,17 @@ import {
   type AgentManifest,
   ApprovalCreated,
   type BrokerAction,
+  KillSwitchState,
   BrokerResponse,
   type BrokerRequest,
   type Trigger,
 } from '@custodes/schema';
-import { KillSwitch } from './killswitch.js';
 import { conversationOf, executeTool, NO_TRACER, type Tracer, type Turn } from './tracing.js';
 
 /** Bindings every Custodes agent Worker must have. Extend per Worker. */
 export interface CustodesEnv {
   /** Service binding to workers/github-broker. Agents never talk to GitHub directly. */
   BROKER: Fetcher;
-  /** KV namespace holding kill-switch flags. */
-  KILL_SWITCH: KVNamespace;
   /** `"true"` records model and tool payloads in trace spans (ADR 0016). */
   TRACE_PAYLOADS: string;
 }
@@ -75,13 +73,35 @@ export abstract class CustodesAgent<
     };
   }
 
-  protected get killSwitch(): KillSwitch {
-    return new KillSwitch(this.env.KILL_SWITCH);
+  /**
+   * This agent's kill-switch state, read from the broker: agents do not bind the KV namespace,
+   * because a KV binding can also write and an agent could clear its own halt flag (#103, threat T1).
+   * Fails closed: if the broker does not answer with a valid state, the agent counts as halted.
+   */
+  protected async haltState(): Promise<KillSwitchState> {
+    let status: number | null = null;
+    try {
+      const res = await this.env.BROKER.fetch('https://broker.internal/v1/state', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ agentId: this.manifest.id }),
+      });
+      status = res.status;
+      const parsed = res.ok ? KillSwitchState.safeParse(await res.json()) : null;
+      if (parsed?.success) return parsed.data;
+    } catch {
+      // fall through: unreachable broker counts as halted
+    }
+    // Ids and status only: tells a broker outage or rollback apart from an operator halt in logs.
+    console.warn(
+      JSON.stringify({ event: 'agent.halt_state.unavailable', agentId: this.manifest.id, status }),
+    );
+    return { halted: true, reason: 'kill-switch state unavailable' };
   }
 
   /** Throws if this agent (or the whole fleet) is halted. Call at the start of every run. */
   protected async guard(): Promise<void> {
-    const state = await this.killSwitch.state(this.manifest.id);
+    const state = await this.haltState();
     if (state.halted) throw new AgentHaltedError(this.manifest.id, state.reason);
   }
 

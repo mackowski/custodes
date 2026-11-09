@@ -1,4 +1,5 @@
 import { env } from 'cloudflare:workers';
+import { withHaltState } from './helpers/halt-state.js';
 import { runInDurableObject } from 'cloudflare:test';
 import { getAgentByName } from 'agents';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -216,7 +217,10 @@ async function inAgent<T>(
   return runInDurableObject(await stub(), async (agent: PrGateAgent) => {
     const i = agent as unknown as Internals;
     const original = i.env;
-    i.env = Object.create(original, { BROKER: { value: broker }, AI: { value: ai } }) as AgentsEnv;
+    i.env = Object.create(original, {
+      BROKER: { value: withHaltState(broker) },
+      AI: { value: ai },
+    }) as AgentsEnv;
     try {
       return await fn(agent, i);
     } finally {

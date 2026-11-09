@@ -92,7 +92,7 @@ describe('buildReadPath() properties', () => {
         const path = buildReadPath(parsed.data);
         const [route = '', query = ''] = path.split('?');
         expect(route).toMatch(
-          /^\/repos\/OWASP\/CheatSheetSeries\/(issues(\/\d+(\/(timeline|comments))?)?|labels|contents\/cheatsheets(_draft)?(\/[A-Za-z0-9_.-]+\.md)?|pulls(\/\d+(\/files)?)?)$/,
+          /^\/repos\/OWASP\/CheatSheetSeries\/(issues(\/\d+(\/(timeline|comments))?)?|labels|contents\/cheatsheets(_draft)?(\/[A-Za-z0-9_.-]+\.md)?|pulls(\/\d+(\/(files|reviews))?)?)$/,
         );
         expect(route).not.toContain('..');
         if (parsed.data.resource === 'pull_file_at_ref')

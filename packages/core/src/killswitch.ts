@@ -39,7 +39,13 @@ export class KillSwitch {
   private async read(key: string): Promise<KillSwitchState> {
     const raw = await this.kv.get(key);
     if (raw === null) return { halted: false };
-    const parsed = KillSwitchState.safeParse(JSON.parse(raw));
+    let json: unknown;
+    try {
+      json = JSON.parse(raw);
+    } catch {
+      json = null;
+    }
+    const parsed = KillSwitchState.safeParse(json);
     // A corrupt flag fails closed: treat as halted.
     return parsed.success ? parsed.data : { halted: true, reason: 'corrupt kill-switch state' };
   }
