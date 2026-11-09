@@ -37,3 +37,14 @@ resource "cloudflare_queue" "inbound_pr_gate_dlq" {
   account_id = var.account_id
   queue_name = "custodes-inbound-pr-gate-dlq"
 }
+
+# cheatsheet-review in its own Worker (ADR 0018): its trigger-label wake-ups.
+resource "cloudflare_queue" "inbound_cheatsheet_review" {
+  account_id = var.account_id
+  queue_name = "custodes-inbound-cheatsheet-review"
+}
+
+resource "cloudflare_queue" "inbound_cheatsheet_review_dlq" {
+  account_id = var.account_id
+  queue_name = "custodes-inbound-cheatsheet-review-dlq"
+}

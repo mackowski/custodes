@@ -4,7 +4,7 @@ A rehearsal of both one-way steps in moving `PrGateAgent` (ADR 0018), on two thr
 
 1. the switch from `migrations` to `exports`, which merging PR #106 makes in `custodes-agents` for
    all six agents;
-2. the transfer of a class with its data to another Worker (`pr-gate-cutover.yml`).
+2. the transfer of a class with its data to another Worker (`agent-cutover.yml`).
 
 The Cloudflare docs do not state whether SQLite data, alarms and object ids survive these. **Run it
 before PR #106 is marked ready**: the first step ships with the merge.

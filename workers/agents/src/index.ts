@@ -18,6 +18,11 @@ import { CRON_TRIAGE_DIGEST, CRON_TRIAGE_POLL, CRON_TRIAGE_PREPARE } from './cro
 
 export { CRON_TRIAGE_DIGEST, CRON_TRIAGE_POLL, CRON_TRIAGE_PREPARE } from './crons.js';
 
+/** False once cheatsheet-review has moved to its own Worker and this one no longer binds it. */
+function hasCheatsheetReview(env: AgentsEnv): boolean {
+  return (env as Partial<AgentsEnv>).CheatsheetReviewAgent !== undefined;
+}
+
 /** False once pr-gate has moved to `custodes-pr-gate` and this Worker no longer binds it. */
 function hasPrGate(env: AgentsEnv): boolean {
   return (env as Partial<AgentsEnv>).PrGateAgent !== undefined;
@@ -99,6 +104,17 @@ export default {
         continue;
       }
       try {
+        if (r.agent === 'cheatsheet-review' && !hasCheatsheetReview(env)) {
+          console.log(
+            JSON.stringify({
+              ...ids,
+              outcome: 'ignored',
+              why: 'runs in custodes-cheatsheet-review',
+            }),
+          );
+          msg.ack();
+          continue;
+        }
         if (r.agent === 'pr-gate' && !hasPrGate(env)) {
           // Its own Worker consumes its own queue; an event still arriving here is dropped.
           console.log(

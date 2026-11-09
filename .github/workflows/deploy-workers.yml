@@ -35,14 +35,17 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm types && pnpm typecheck && pnpm test
       - name: Refuse to redeploy a Durable Object class another Worker now owns
-        # Before any deploy, so a refusal changes nothing. After the pr-gate cutover (ADR 0018) and
-        # before its follow-up PR, workers/agents/wrangler.jsonc still declares PrGateAgent live;
-        # deploying it would recreate an empty pr-gate in the shared Worker (or fail). An empty or
-        # different owner refuses. docs/runbooks/pr-gate-cutover.md: merge the follow-up first.
+        # Before any deploy, so a refusal changes nothing. After an agent's cutover (ADR 0018) and
+        # before its follow-up PR, workers/agents/wrangler.jsonc still declares its classes live;
+        # deploying it would recreate an empty agent in the shared Worker (or fail). An empty or
+        # different owner refuses. docs/runbooks/agent-cutover.md: merge the follow-up first.
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN_DEPLOY }}
           CLOUDFLARE_ACCOUNT_ID: 5f62912564df344533c9563904c77662
-        run: node --experimental-strip-types scripts/do-namespace-owner.ts PrGateAgent --guard workers/agents custodes-agents
+        run: |
+          # Every class that has a planned move (scripts/agent-cutover-config.ts).
+          classes="$(node --experimental-strip-types scripts/agent-cutover-config.ts classes)"
+          node --experimental-strip-types scripts/do-namespace-owner.ts "$classes" --guard workers/agents custodes-agents
       - name: Model smoke test (the real triage request through AI Gateway)
         # Fails the deploy if the model rejects a request parameter, the BYOK key or gateway token is
         # bad, or the answer no longer parses. Costs a fraction of a cent.

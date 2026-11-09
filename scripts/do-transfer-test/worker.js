@@ -1,4 +1,4 @@
-// Throwaway Worker for testing a Durable Object transfer (ADR 0018, docs/runbooks/pr-gate-cutover.md).
+// Throwaway Worker for testing a Durable Object transfer (ADR 0018, docs/runbooks/agent-cutover.md).
 // Deployed twice: as custodes-transfer-test-source and as custodes-transfer-test-target. Nothing
 // here touches Custodes resources. Delete both Workers when the test is done.
 import { DurableObject } from 'cloudflare:workers';

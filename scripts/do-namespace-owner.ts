@@ -1,10 +1,10 @@
 // Durable Object namespace ownership checks for the deploy workflows (ADR 0018,
-// docs/runbooks/pr-gate-cutover.md).
+// docs/runbooks/agent-cutover.md).
 //
 //   do-namespace-owner.ts <ClassName>
 //       Prints the Worker (script) that owns the class's namespace, or nothing if there is none.
-//   do-namespace-owner.ts <ClassName> --guard <workers/dir> <script>
-//       Fails unless it is safe to deploy that Worker: if its wrangler.jsonc declares the class live
+//   do-namespace-owner.ts <Class,Class,...> --guard <workers/dir> <script>
+//       Fails unless it is safe to deploy that Worker: if its wrangler.jsonc declares a class live
 //       (an `exports` entry without a `state`, or a binding without `script_name`), the owner must
 //       be exactly <script>. An empty or different owner fails: a guard must not pass on a lookup
 //       that found nothing.
@@ -30,8 +30,9 @@ interface WranglerConfig {
 const PER_PAGE = 100;
 const MAX_PAGES = 50;
 
-async function owners(className: string, token: string, account: string): Promise<Set<string>> {
-  const found = new Set<string>();
+/** Every namespace's owner, by class. */
+async function ownersByClass(token: string, account: string): Promise<Map<string, Set<string>>> {
+  const found = new Map<string, Set<string>>();
   let seen = 0;
   for (let page = 1; page <= MAX_PAGES; page++) {
     const res = await fetch(
@@ -42,7 +43,12 @@ async function owners(className: string, token: string, account: string): Promis
     if (!res.ok || !body.success) throw new Error(`namespace list refused (HTTP ${res.status})`);
     const rows = body.result ?? [];
     seen += rows.length;
-    for (const ns of rows) if (ns.class === className && ns.script) found.add(ns.script);
+    for (const ns of rows) {
+      if (!ns.class || !ns.script) continue;
+      const set = found.get(ns.class) ?? new Set<string>();
+      set.add(ns.script);
+      found.set(ns.class, set);
+    }
     // total_count is reported (total_pages is not, checked 2026-11-09).
     const total = body.result_info?.total_count;
     if (total === undefined) throw new Error('namespace list has no total_count');
@@ -67,32 +73,41 @@ function declaresLive(dir: string, className: string): boolean {
   return liveExport || ownBinding;
 }
 
-const [className = '', flag, dir, script] = process.argv.slice(2);
+const [classArg = '', flag, dir, script] = process.argv.slice(2);
+const classes = classArg.split(',');
 const token = process.env['CLOUDFLARE_API_TOKEN'];
 const account = process.env['CLOUDFLARE_ACCOUNT_ID'];
-if (!/^[A-Za-z][A-Za-z0-9]*$/.test(className) || !token || !account) {
-  console.error('usage: do-namespace-owner.ts <ClassName> [--guard <dir> <script>]');
+const usage = 'usage: do-namespace-owner.ts <Class> | <Class,Class,...> --guard <dir> <script>';
+if (!classes.every((c) => /^[A-Za-z][A-Za-z0-9]*$/.test(c)) || !token || !account) {
+  console.error(usage);
   process.exit(2);
 }
-const found = await owners(className, token, account);
-if (found.size > 1) {
-  console.error(`more than one namespace for ${className}: ${[...found].join(', ')}`);
-  process.exit(1);
-}
-const owner = [...found][0] ?? '';
-
-if (flag === undefined) {
-  console.log(owner);
-} else if (flag === '--guard' && dir && script) {
-  if (declaresLive(dir, className) && owner !== script) {
-    console.error(
-      `${dir} declares ${className} live, but its namespace belongs to '${owner || 'nobody'}', not ${script}. ` +
-        'After a cutover, merge its follow-up PR first (docs/runbooks/pr-gate-cutover.md).',
-    );
+const all = await ownersByClass(token, account);
+const ownerOf = (c: string): string => {
+  const set = all.get(c) ?? new Set<string>();
+  if (set.size > 1) {
+    console.error(`more than one namespace for ${c}: ${[...set].join(', ')}`);
     process.exit(1);
   }
-  console.log(`${className}: owner ${owner || '(none)'}, ok for ${script}`);
+  return [...set][0] ?? '';
+};
+
+if (flag === undefined && classes.length === 1) {
+  console.log(ownerOf(classes[0] ?? ''));
+} else if (flag === '--guard' && dir && script) {
+  let refused = false;
+  for (const c of classes) {
+    const owner = ownerOf(c);
+    if (declaresLive(dir, c) && owner !== script) {
+      console.error(
+        `${dir} declares ${c} live, but its namespace belongs to '${owner || 'nobody'}', not ${script}. ` +
+          'After a cutover, merge its follow-up PR first (docs/runbooks/agent-cutover.md).',
+      );
+      refused = true;
+    } else console.log(`${c}: owner ${owner || '(none)'}, ok for ${script}`);
+  }
+  if (refused) process.exit(1);
 } else {
-  console.error('usage: do-namespace-owner.ts <ClassName> [--guard <dir> <script>]');
+  console.error(usage);
   process.exit(2);
 }

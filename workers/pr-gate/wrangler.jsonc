@@ -5,7 +5,7 @@
   // workers/agents with `-c ../pr-gate/wrangler.jsonc` (the pinned wrangler of that package).
   //
   // This is the steady state, after the move. The first deploys come from the cutover workflow
-  // (.github/workflows/pr-gate-cutover.yml, docs/runbooks/pr-gate-cutover.md), which derives the
+  // (.github/workflows/agent-cutover.yml, docs/runbooks/agent-cutover.md), which derives the
   // `expecting-transfer` phase from this file.
   "name": "custodes-pr-gate",
   "main": "../agents/src/pr-gate-worker.ts",
