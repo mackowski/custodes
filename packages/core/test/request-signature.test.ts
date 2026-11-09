@@ -6,6 +6,7 @@ import {
   signRequest,
   verifyRequestSignature,
 } from '../src/request-signature.js';
+import { sha256Hex } from '../src/canonical.js';
 
 const NOW = Date.UTC(2026, 10, 9, 12, 0, 0);
 const NONCE = '9d7c1e9e-2b1a-4b6e-9a2e-1f7d1c2b3a44';
@@ -31,6 +32,8 @@ describe('agent-signed broker requests (ADR 0018)', () => {
       keyId: pinned.kid,
       nonce: NONCE,
       signature: h[SIGNATURE_HEADERS.signature],
+      timestamp: String(NOW),
+      bodySha256: await sha256Hex(part.body),
     });
   });
 

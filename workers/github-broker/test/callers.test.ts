@@ -1,9 +1,10 @@
 import { env } from 'cloudflare:workers';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { signRequest } from '@custodes/core';
-import { AgentKeys, type CallerName, Policy } from '@custodes/schema';
+import { canonicalJson, signRequest, verifyCallerIntent } from '@custodes/core';
+import { AgentKeys, type CallerName, Policy, verificationKeys } from '@custodes/schema';
 import { CALLER_AGENTS, isIsolated } from '../src/callers.js';
 import { callerApp, sharedAgentApp } from '../src/index.js';
+import { AuditStore } from '../src/store.js';
 import { policy } from '../src/policy.js';
 
 const KID = 'pr-gate-20261109-a1b2c3d4';
@@ -123,6 +124,54 @@ describe('per-Worker broker entrypoints (ADR 0018)', () => {
   it('maps each agent id to at most one Worker', () => {
     const all = Object.values(CALLER_AGENTS).flat();
     expect(new Set(all).size).toBe(all.length);
+  });
+});
+
+describe('agent signature in the audit record (ADR 0018, R1)', () => {
+  // pr-gate may not comment, so the broker denies this: it still writes a signed audit record,
+  // and nothing reaches GitHub.
+  const request = {
+    agentId: 'pr-gate',
+    agentVersion: '0.3.0',
+    runId: '9d7c1e9e-2b1a-4b6e-9a2e-1f7d1c2b3a44',
+    triggeredBy: { kind: 'schedule' },
+    action: { type: 'issue.comment', repo: 'mackowski/custodes-sandbox', issue: 1, body: 'x' },
+  };
+  const send = async (body: string) =>
+    callerApp('custodes-pr-gate', keys).request(
+      '/v1/act',
+      {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          ...(await signRequest(priv, KID, { method: 'POST', path: '/v1/act', body })),
+        },
+        body,
+      },
+      env,
+    );
+
+  it('records the signature, and /verify logic finds it valid for that exact request', async () => {
+    const res = await send(canonicalJson(request));
+    const out = await res.json<{ ok: boolean; code: string; attestationId: string }>();
+    expect(out).toMatchObject({ ok: false, code: 'policy_denied' });
+    const att = await new AuditStore(env.AUDIT).get(out.attestationId);
+    expect(att?.record.callerSignature).toMatchObject({
+      caller: 'custodes-pr-gate',
+      kid: KID,
+      path: '/v1/act',
+    });
+    expect(await verifyCallerIntent(att!.record, (c) => verificationKeys(keys, c))).toEqual({
+      status: 'valid',
+      caller: 'custodes-pr-gate',
+      kid: KID,
+    });
+  });
+
+  it('refuses a signed body that is not the canonical JSON of the request', async () => {
+    const res = await send(JSON.stringify(request, null, 2));
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ reason: /canonical JSON/ });
   });
 });
 

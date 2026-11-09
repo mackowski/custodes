@@ -75,6 +75,11 @@ export const AgentKeys = z
   .object({
     version: z.literal(1),
     callers: z.partialRecord(CallerName, z.array(PinnedAgentKey).max(2)),
+    /**
+     * Keys rotated out: never accepted for new requests, kept so `/verify` can still check the
+     * agent signatures in older audit records. Move a key here instead of deleting it.
+     */
+    retired: z.partialRecord(CallerName, z.array(PinnedAgentKey)).default({}),
   })
   .refine(
     (k) =>
@@ -84,3 +89,8 @@ export const AgentKeys = z
     { message: 'duplicate kid for a caller', path: ['callers'] },
   );
 export type AgentKeys = z.infer<typeof AgentKeys>;
+
+/** Active and retired keys of one caller: what an audit record's agent signature is checked against. */
+export function verificationKeys(keys: AgentKeys, caller: CallerName): PinnedAgentKey[] {
+  return [...(keys.callers[caller] ?? []), ...(keys.retired[caller] ?? [])];
+}

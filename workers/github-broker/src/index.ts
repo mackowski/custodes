@@ -1,13 +1,14 @@
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { KillSwitch } from '@custodes/core';
+import { canonicalJson, KillSwitch, sha256Hex } from '@custodes/core';
 import {
   AgentId,
   type AgentKeys,
   BrokerReadRequest,
   BrokerRequest,
   type CallerName,
+  type CallerSignature,
   type Policy,
 } from '@custodes/schema';
 import { act } from './act.js';
@@ -18,6 +19,7 @@ import {
   CALLER_AGENTS,
   CALLER_ENTRYPOINTS,
   isIsolated,
+  type VerifiedCall,
 } from './callers.js';
 import { read } from './read.js';
 import { keyring, type BrokerEnv } from './env.js';
@@ -37,7 +39,8 @@ import { ApprovalStore, AuditStore } from './store.js';
  * - `BrokerAdmin`, bound only by the gateway, which authenticates with Access first: deciding
  *   approvals, the audit log and keys. An agent cannot approve its own request.
  */
-type App = Hono<{ Bindings: BrokerEnv }>;
+/** `call` is set only on a per-agent entrypoint, after the signature and nonce checks passed. */
+type App = Hono<{ Bindings: BrokerEnv; Variables: { call?: VerifiedCall } }>;
 
 /** Null when `agentId` may be served on this entrypoint, else the reason it may not. */
 type Admit = (agentId: string) => string | null;
@@ -88,7 +91,21 @@ function agentRoutes(app: App, admitAgent: Admit, entrypoint: string): App {
         400,
       );
     }
-    return c.json(await act(c.env, parsed.data));
+    const call = c.get('call');
+    if (call === undefined) return c.json(await act(c.env, parsed.data));
+    // Signed: the body must be the canonical JSON of the request, so the audit record (which holds
+    // the parsed request) lets /verify recompute what the agent signed (ADR 0018, R1).
+    if ((await sha256Hex(canonicalJson(parsed.data))) !== call.bodySha256)
+      return c.json(
+        { ok: false, code: 'invalid', reason: 'body must be the canonical JSON of the request' },
+        400,
+      );
+    const callerSignature: CallerSignature = {
+      ...call,
+      method: 'POST',
+      path: '/v1/act',
+    };
+    return c.json(await act(c.env, parsed.data, new Date(), callerSignature));
   });
 
   /** GET-only, allow-listed GitHub reads for agents (ADR 0009). */
@@ -152,6 +169,7 @@ export function callerApp(caller: CallerName, keys: AgentKeys = agentKeys): App 
     const body = await c.req.text();
     const auth = await authenticateCaller(c.env, caller, c.req.raw, body, keys);
     if (!auth.ok) return c.json({ ok: false, code: 'unauthenticated', reason: auth.reason }, 401);
+    c.set('call', auth.call);
     await next();
   });
   const hosted = CALLER_AGENTS[caller];
@@ -247,6 +265,9 @@ adminApp.get('/v1/attestations', async (c) => {
     return c.json({ error: 'bad agent id' }, 400);
   return c.json(await new AuditStore(c.env.AUDIT).list(agent, limit));
 });
+
+/** The agent Workers' pinned public keys (agent-keys.json), for checking agent signatures. */
+adminApp.get('/v1/agent-keys', (c) => c.json(agentKeys));
 
 /** Public keys (active and retired) for verification. Private halves never leave the Keyring. */
 adminApp.get('/v1/keys', async (c) => c.json(await keyring(c.env).publicKeys()));

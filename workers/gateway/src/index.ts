@@ -1,6 +1,12 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { importPublicKey, KillSwitch, verifyAttestation } from '@custodes/core';
+import {
+  type CallerIntent,
+  importPublicKey,
+  KillSwitch,
+  verifyAttestation,
+  verifyCallerIntent,
+} from '@custodes/core';
 import { verifyGitHubWebhookSignature } from '@custodes/github';
 import {
   AgentId,
@@ -10,6 +16,8 @@ import {
   type AdminActor,
   type InboundEvent,
   type PublicKeyEntry,
+  AgentKeys,
+  verificationKeys,
 } from '@custodes/schema';
 import { adminWriteAllowed, agentWriteAllowed, crossSiteWrite, verifyAccessJwt } from './access.js';
 import {
@@ -45,7 +53,31 @@ app.get('/verify/:id', async (c) => {
   const key = keys.find((k) => k.keyId === att.keyId);
   if (!key) return c.json({ valid: false, reason: 'unknown key' });
   const result = await verifyAttestation(att, await importPublicKey(key.jwk));
-  return c.json({ valid: result.valid, reason: result.reason, attestation: result.attestation });
+  if (!result.valid || !result.attestation)
+    return c.json({ valid: false, reason: result.reason, attestation: result.attestation });
+  // The agent's own signature (ADR 0018): only records from a per-agent Worker carry one. A record
+  // whose agent signature does not check out is not valid, even if the broker signed it.
+  const record = result.attestation.record;
+  let agentSignature: CallerIntent = { status: 'none' };
+  if (record.callerSignature !== undefined) {
+    const keysRes2 = await c.env.BROKER.fetch('https://broker.internal/v1/agent-keys');
+    if (!keysRes2.ok) return c.json({ error: 'broker unavailable' }, 502);
+    const agentKeys = AgentKeys.parse(await keysRes2.json());
+    agentSignature = await verifyCallerIntent(record, (caller) =>
+      verificationKeys(agentKeys, caller),
+    );
+  }
+  const valid = agentSignature.status !== 'invalid';
+  return c.json({
+    valid,
+    ...(valid
+      ? {}
+      : {
+          reason: `agent signature: ${agentSignature.status === 'invalid' ? agentSignature.reason : ''}`,
+        }),
+    agentSignature,
+    attestation: result.attestation,
+  });
 });
 
 // ---------- GitHub webhooks (optional per repo; polling is the default) ----------

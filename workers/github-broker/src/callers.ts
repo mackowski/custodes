@@ -33,7 +33,17 @@ export function isIsolated(agentId: string, p: Policy = policy): boolean {
   );
 }
 
-export type CallerAuth = { ok: true } | { ok: false; reason: string };
+/** What a verified request carries forward into the audit record. */
+export interface VerifiedCall {
+  caller: CallerName;
+  kid: string;
+  signature: string;
+  timestamp: string;
+  nonce: string;
+  bodySha256: string;
+}
+
+export type CallerAuth = { ok: true; call: VerifiedCall } | { ok: false; reason: string };
 
 /**
  * Authenticates one request on a caller entrypoint: a valid signature by a key pinned for that
@@ -59,10 +69,22 @@ export async function authenticateCaller(
     !(await new NonceStore(env.AUDIT).claim(check.nonce, caller, now, NONCE_RETENTION_MS))
   )
     reason = 'replayed';
-  if (reason === null) return { ok: true };
+  if (reason === null && check.ok)
+    return {
+      ok: true,
+      call: {
+        caller,
+        kid: check.keyId,
+        signature: check.signature,
+        timestamp: check.timestamp,
+        nonce: check.nonce,
+        bodySha256: check.bodySha256,
+      },
+    };
   // Ids only. `unknown_key` after a lost or rotated key is what the operator needs to see.
-  console.warn(JSON.stringify({ event: 'broker.caller.refused', caller, reason }));
-  return { ok: false, reason };
+  const refusedFor = reason ?? 'replayed';
+  console.warn(JSON.stringify({ event: 'broker.caller.refused', caller, reason: refusedFor }));
+  return { ok: false, reason: refusedFor };
 }
 
 /**

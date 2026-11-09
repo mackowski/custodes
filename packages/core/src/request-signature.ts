@@ -1,4 +1,8 @@
-import { isWeakEd25519PublicKey, type PinnedAgentKey } from '@custodes/schema';
+import {
+  type CallerSignature,
+  isWeakEd25519PublicKey,
+  type PinnedAgentKey,
+} from '@custodes/schema';
 import { fromBase64Url, sha256Hex, toBase64Url } from './canonical.js';
 
 /**
@@ -39,14 +43,25 @@ export async function signingInput(
   timestamp: string,
   nonce: string,
 ): Promise<string> {
+  return signingInputFromHash(part.method, part.path, timestamp, nonce, await sha256Hex(part.body));
+}
+
+/** The same bytes, from a stored body hash: what `/verify` uses for an audit record. */
+export function signingInputFromHash(
+  method: string,
+  path: string,
+  timestamp: string,
+  nonce: string,
+  bodySha256: string,
+): string {
   return [
     SIGNATURE_VERSION,
     BROKER_AUDIENCE,
-    part.method.toUpperCase(),
-    part.path,
+    method.toUpperCase(),
+    path,
     timestamp,
     nonce,
-    await sha256Hex(part.body),
+    bodySha256,
   ].join('\n');
 }
 
@@ -70,7 +85,14 @@ export async function signRequest(
 }
 
 export type SignatureCheck =
-  | { ok: true; keyId: string; nonce: string; signature: string }
+  | {
+      ok: true;
+      keyId: string;
+      nonce: string;
+      signature: string;
+      timestamp: string;
+      bodySha256: string;
+    }
   | { ok: false; reason: 'missing' | 'malformed' | 'stale' | 'unknown_key' | 'bad_signature' };
 
 /**
@@ -103,7 +125,36 @@ export async function verifyRequestSignature(
     false,
     ['verify'],
   );
-  const data = new TextEncoder().encode(await signingInput(part, timestamp, nonce));
+  const bodySha256 = await sha256Hex(part.body);
+  const data = new TextEncoder().encode(
+    signingInputFromHash(part.method, part.path, timestamp, nonce, bodySha256),
+  );
   const valid = await crypto.subtle.verify(ALG, publicKey, fromBase64Url(signature), data);
-  return valid ? { ok: true, keyId, nonce, signature } : { ok: false, reason: 'bad_signature' };
+  return valid
+    ? { ok: true, keyId, nonce, signature, timestamp, bodySha256 }
+    : { ok: false, reason: 'bad_signature' };
+}
+
+/**
+ * Checks an agent signature stored in an audit record (no time window: the record is history).
+ * Proves the agent Worker signed a request with `bodySha256` at that time and path; the caller of
+ * this function must also check that `bodySha256` matches the record's request.
+ */
+export async function verifyRecordedCallerSignature(
+  pinned: readonly PinnedAgentKey[],
+  sig: CallerSignature,
+): Promise<boolean> {
+  const key = pinned.find((k) => k.kid === sig.kid);
+  if (!key || isWeakEd25519PublicKey(key.x)) return false;
+  const publicKey = await crypto.subtle.importKey(
+    'jwk',
+    { kty: 'OKP', crv: 'Ed25519', x: key.x },
+    ALG,
+    false,
+    ['verify'],
+  );
+  const data = new TextEncoder().encode(
+    signingInputFromHash(sig.method, sig.path, sig.timestamp, sig.nonce, sig.bodySha256),
+  );
+  return crypto.subtle.verify(ALG, publicKey, fromBase64Url(sig.signature), data);
 }

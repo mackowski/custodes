@@ -19,6 +19,7 @@ import type {
   BrokerDenialCode,
   BrokerRequest,
   BrokerResponse,
+  CallerSignature,
 } from '@custodes/schema';
 import { keyring, secretBinding, type BrokerEnv } from './env.js';
 import { policy } from './policy.js';
@@ -33,7 +34,10 @@ export async function act(
   env: BrokerEnv,
   req: BrokerRequest,
   now = new Date(),
+  /** The agent Worker's signature over `req` (per-agent entrypoints, ADR 0018); kept in every record. */
+  callerSignature?: CallerSignature,
 ): Promise<BrokerResponse> {
+  const signed = callerSignature !== undefined ? { callerSignature } : {};
   const audit = new AuditStore(env.AUDIT);
   const approvals = new ApprovalStore(env.AUDIT);
 
@@ -62,7 +66,7 @@ export async function act(
       );
       return { ok: false, code, reason };
     }
-    const record = await buildAuditRecord({ request: req, decision, reason, now });
+    const record = await buildAuditRecord({ request: req, decision, reason, now, ...signed });
     await attest(record);
     return { ok: false, code, reason, attestationId: record.id };
   };
@@ -129,6 +133,7 @@ export async function act(
       reason,
       now,
       id: attestationId,
+      ...signed,
     });
     await attest(record);
     return { ok: false, code: 'github_error', reason, attestationId };
@@ -139,6 +144,7 @@ export async function act(
     decision: 'allowed',
     now,
     id: attestationId,
+    ...signed,
     ...(githubUrl !== undefined ? { githubUrl } : {}),
   });
   await attest(record);
