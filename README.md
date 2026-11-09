@@ -64,8 +64,8 @@ Worker on its own port in a second terminal:
 ```bash
 pnpm dev:agents            # http://localhost:8788
 curl localhost:8788/registry
-curl -X POST localhost:8788/agents/hello-agent/default/run
-curl localhost:8788/agents/hello-agent/default
+curl localhost:8788/agents/pr-gate-agent/custodes-sandbox/report
+curl -X POST localhost:8788/agents/pr-gate-agent/custodes-sandbox/run
 ```
 
 Deployment needs a Cloudflare account with a domain for e-mail and Access; see
@@ -81,8 +81,9 @@ No secrets are ever stored in files. CI reads them from GitHub Environment secre
 
 ## Status
 
-Scaffold. The `hello` agent exercises the full pipeline; the first real agents (issue triage, PR
-review) are built with the `/new-agent` skill.
+Agents in use on OWASP CheatSheetSeries: triage (with its implementation-check and proposal-review
+specialists), pr-gate and cheatsheet-review (see `docs/agents/`). New agents are built with the
+`/new-agent` skill.
 
 ## Security
 

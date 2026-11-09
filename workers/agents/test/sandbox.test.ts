@@ -1,6 +1,7 @@
 import { env } from 'cloudflare:workers';
 import { describe, expect, it } from 'vitest';
 import worker from '../src/index.js';
+import { testKillSwitch } from './helpers/halt-state.js';
 import type { AgentsEnv } from '../src/env.js';
 import {
   AGENT_CLASSES,
@@ -58,10 +59,6 @@ describe('instances', () => {
       'OWASP/CheatSheetSeries': ['pr.review.inline'],
     });
   });
-
-  it('keeps the hello agent off the sandbox', () => {
-    expect(policy.agents.hello.repos).toEqual(['OWASP/CheatSheetSeries']);
-  });
 });
 
 describe('pr-gate maintainer exemption in the sandbox', () => {
@@ -113,8 +110,8 @@ describe('on-demand routes', () => {
     expect(allowedAgentPath('/registry')).toBe(true);
     expect(allowedAgentPath(`/agents/triage-agent/${OWASP_INSTANCE}`)).toBe(true);
     expect(allowedAgentPath(`/agents/pr-gate-agent/${SANDBOX_INSTANCE}/run`)).toBe(true);
-    expect(allowedAgentPath('/agents/hello-agent/default/run')).toBe(true);
-    expect(allowedAgentPath('/agents/hello-agent/owasp-cheatsheetseries')).toBe(false);
+    // The removed hello agent is no longer routable (#103).
+    expect(allowedAgentPath('/agents/hello-agent/default/run')).toBe(false);
     expect(allowedAgentPath('/agents/triage-agent/__proto__')).toBe(false);
     expect(allowedAgentPath('/agents/triage-agent/%E0%A4%A')).toBe(false);
     expect(allowedAgentPath('/agents/triage-agent/custodes%2Dsandbox')).toBe(true);
@@ -150,6 +147,34 @@ describe('on-demand routes', () => {
     const out = await res.json<{ ok: boolean; detail: string }>();
     expect(out.ok).toBe(false);
     expect(out.detail).toMatch(/^list pulls failed/);
+  });
+
+  it('respects the kill switch read through the (stub) broker, end to end', async () => {
+    // Was hello.test.ts: the Worker reads its halt flag from the broker's /v1/state (#103, T1).
+    await testKillSwitch().halt('pr-gate', 'test', 'tester');
+    try {
+      const res = await call(`/agents/pr-gate-agent/${SANDBOX_INSTANCE}/run`, 'POST');
+      const out = await res.json<{ ok: boolean; detail: string }>();
+      expect(out.ok).toBe(false);
+      expect(out.detail).not.toMatch(/^list pulls failed/); // stopped before any read
+    } finally {
+      await testKillSwitch().resume('pr-gate');
+    }
+  });
+
+  it('lists the registry without the removed hello agent', async () => {
+    const res = await call('/registry');
+    const ids = (await res.json<{ id: string }[]>()).map((m) => m.id);
+    expect(ids).toEqual(
+      expect.arrayContaining([
+        'triage',
+        'implementation-check',
+        'proposal-review',
+        'pr-gate',
+        'cheatsheet-review',
+      ]),
+    );
+    expect(ids).not.toContain('hello');
   });
 });
 

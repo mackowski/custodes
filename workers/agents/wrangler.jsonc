@@ -38,7 +38,6 @@
   // Secrets (set by CI on deploy): AI_GATEWAY_TOKEN, OPENROUTER_API_KEY
   "durable_objects": {
     "bindings": [
-      { "name": "HelloAgent", "class_name": "HelloAgent" },
       { "name": "TriageAgent", "class_name": "TriageAgent" },
       // Specialists triage delegates to over RPC (read-only, own broker read policy each).
       { "name": "ImplementationCheckAgent", "class_name": "ImplementationCheckAgent" },
@@ -52,7 +51,8 @@
   // Durable Object classes, declaratively (ADR 0018): replaces the old `migrations` tags v1..v5.
   // One-way: once deployed with `exports`, this Worker cannot go back to `migrations`.
   "exports": {
-    "HelloAgent": { "type": "durable-object", "storage": "sqlite" },
+    // The hello smoke-test agent is removed with its stored data (#103).
+    "HelloAgent": { "type": "durable-object", "state": "deleted" },
     "TriageAgent": { "type": "durable-object", "storage": "sqlite" },
     "ImplementationCheckAgent": { "type": "durable-object", "storage": "sqlite" },
     "ProposalReviewAgent": { "type": "durable-object", "storage": "sqlite" },

@@ -27,11 +27,6 @@
   // One GitHub PAT per agent, pushed into Secrets Store by CI from the GitHub secret PAT_<AGENT>.
   // Binding names must match policy/policy.json tokenBinding.
   "secrets_store_secrets": [
-    {
-      "binding": "PAT_HELLO",
-      "store_id": "92c5c38062fc4da98fad1fe4f5a8bda1",
-      "secret_name": "github-pat-hello",
-    },
     // pr-gate: fine-grained, OWASP/CheatSheetSeries only, Pull requests: read & write (ADR 0011).
     {
       "binding": "PAT_PR_GATE",

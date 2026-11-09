@@ -34,7 +34,7 @@ describe('broker read()', () => {
 
   it('denies agents without a read policy and repos outside it, before any network call', async () => {
     const fetchImpl = vi.fn();
-    expect(await read(testEnv, req({ agentId: 'hello' }), fetchImpl)).toMatchObject({
+    expect(await read(testEnv, req({ agentId: 'ghost' }), fetchImpl)).toMatchObject({
       ok: false,
       code: 'unknown_agent',
     });

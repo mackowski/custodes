@@ -13,7 +13,7 @@ describe('custodes audit verify', () => {
     const { publicJwk, privateJwk } = await generateAgentKeyPair();
     const record = await buildAuditRecord({
       request: {
-        agentId: 'hello',
+        agentId: 'pr-gate',
         agentVersion: '0.1.0',
         runId: '9d7c1e9e-2b1a-4b6e-9a2e-1f7d1c2b3a44',
         triggeredBy: { kind: 'cli' },
@@ -21,12 +21,12 @@ describe('custodes audit verify', () => {
       },
       decision: 'allowed',
     });
-    const att = await signAuditRecord(record, await importPrivateKey(privateJwk), 'hello-test');
+    const att = await signAuditRecord(record, await importPrivateKey(privateJwk), 'pr-gate-test');
     expect(
       await verifyLocally(att, [
         {
-          keyId: 'hello-test',
-          agentId: 'hello',
+          keyId: 'pr-gate-test',
+          agentId: 'pr-gate',
           jwk: publicJwk,
           createdAt: new Date(0).toISOString(),
         },
@@ -35,7 +35,7 @@ describe('custodes audit verify', () => {
     expect((await verifyLocally(att, [])).valid).toBe(false);
   });
   it('maps agent ids to SDK routes', () => {
-    expect(toKebab('hello')).toBe('hello-agent');
-    expect(toKebab('hello-agent')).toBe('hello-agent');
+    expect(toKebab('pr-gate')).toBe('pr-gate-agent');
+    expect(toKebab('pr-gate-agent')).toBe('pr-gate-agent');
   });
 });

@@ -202,7 +202,7 @@ describe('evaluatePolicy for pr-gate (real broker policy)', () => {
     expect(
       evaluatePolicy(real, {
         ...base,
-        agentId: 'hello',
+        agentId: 'cheatsheet-review',
         action: { type: 'pr.close', repo: 'OWASP/CheatSheetSeries', pull: 7, body: 'x' },
       }),
     ).toMatchObject({ allow: false, code: 'policy_denied' });
@@ -317,7 +317,7 @@ describe('evaluatePolicy for cheatsheet-review (real broker policy)', () => {
       expect(a.actions.includes('issue.label.add'), id).toBe(false);
   });
   it('does not let other agents post inline reviews', () => {
-    for (const agentId of ['pr-gate', 'hello', 'triage']) {
+    for (const agentId of ['pr-gate', 'triage']) {
       expect(evaluatePolicy(real, { ...base, agentId, action: review })).toMatchObject({
         allow: false,
       });

@@ -56,16 +56,12 @@ export function unknownInstance(): Response {
 
 /** The agent classes the gateway may route to, as the Agents SDK names them (kebab-case). */
 export const AGENT_CLASSES: ReadonlySet<string> = new Set([
-  'hello-agent',
   'triage-agent',
   'implementation-check-agent',
   'proposal-review-agent',
   'pr-gate-agent',
   'cheatsheet-review-agent',
 ]);
-
-/** The hello smoke-test agent is not bound to a repository and keeps its single `default` instance. */
-const UNBOUND: Readonly<Record<string, readonly string[]>> = { 'hello-agent': ['default'] };
 
 /**
  * True when an `/agents/<class>/<instance>/...` path names an instance that may exist. Other paths
@@ -88,7 +84,5 @@ export function allowedAgentPath(pathname: string): boolean {
   } catch {
     return false;
   }
-  const unbound = Object.hasOwn(UNBOUND, cls) ? UNBOUND[cls] : undefined;
-  if (unbound) return unbound.includes(instance);
   return Object.hasOwn(INSTANCES, instance);
 }

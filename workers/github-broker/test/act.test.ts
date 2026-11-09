@@ -15,7 +15,7 @@ import { ApprovalStore, AuditStore } from '../src/store.js';
 
 const runId = '9d7c1e9e-2b1a-4b6e-9a2e-1f7d1c2b3a44';
 const base: Omit<BrokerRequest, 'action'> = {
-  agentId: 'hello',
+  agentId: 'pr-gate',
   agentVersion: '0.1.0',
   runId,
   triggeredBy: { kind: 'cli', ref: 'test' },
@@ -26,6 +26,20 @@ const comment = (repo: string, body = 'x'): BrokerRequest['action'] => ({
   issue: 1,
   body,
 });
+/** An inline review on OWASP: cheatsheet-review may post it only with an approval there. */
+const review = (body = 'LLM review'): BrokerRequest => ({
+  ...base,
+  agentId: 'cheatsheet-review',
+  action: {
+    type: 'pr.review.inline',
+    repo: 'OWASP/CheatSheetSeries',
+    pull: 3,
+    commitId: '0123456789abcdef0123456789abcdef01234567',
+    event: 'COMMENT',
+    body,
+    comments: [{ path: 'cheatsheets/A.md', line: 2, side: 'RIGHT', body: 'x' }],
+  },
+});
 
 let testEnv: BrokerEnv;
 
@@ -34,7 +48,6 @@ beforeAll(() => {
   // every case is denied before the execute step.
   testEnv = {
     ...env,
-    PAT_HELLO: { get: () => Promise.resolve('unused') },
     PAT_PR_GATE: { get: () => Promise.resolve('unused') },
     PAT_CHEATSHEET_REVIEW: { get: () => Promise.resolve('review-token') },
   };
@@ -53,7 +66,7 @@ describe('broker act()', () => {
     const att = await new AuditStore(env.AUDIT).get(res.attestationId);
     expect(att?.record.decision).toBe('denied');
     const keys = await keyring(env).publicKeys();
-    const key = keys.find((k) => k.keyId === att?.keyId && k.agentId === 'hello');
+    const key = keys.find((k) => k.keyId === att?.keyId && k.agentId === 'pr-gate');
     expect(key).toBeDefined();
     expect((await verifyAttestation(att, await importPublicKey(key!.jwk))).valid).toBe(true);
   });
@@ -61,7 +74,7 @@ describe('broker act()', () => {
   it('keeps old attestations verifiable after key rotation', async () => {
     const before = await act(testEnv, { ...base, action: comment('evil/repo') });
     if (before.ok || !before.attestationId) throw new Error('expected a signed denial');
-    const rotated = await keyring(env).rotate('hello');
+    const rotated = await keyring(env).rotate('pr-gate');
     const after = await act(testEnv, { ...base, action: comment('evil/repo') });
     if (after.ok || !after.attestationId) throw new Error('expected a signed denial');
     const store = new AuditStore(env.AUDIT);
@@ -81,32 +94,30 @@ describe('broker act()', () => {
 
   it('denies when halted', async () => {
     const ks = new KillSwitch(env.KILL_SWITCH);
-    await ks.halt('hello', 'test', 'tester');
-    const res = await act(testEnv, { ...base, action: comment('OWASP/CheatSheetSeries') });
+    await ks.halt('pr-gate', 'test', 'tester');
+    const res = await act(testEnv, {
+      ...base,
+      action: { type: 'pr.close', repo: 'OWASP/CheatSheetSeries', pull: 1, body: 'x' },
+    });
     expect(res).toMatchObject({ ok: false, code: 'halted' });
-    await ks.resume('hello');
+    await ks.resume('pr-gate');
   });
 
-  it('requires an approval for a hitl agent', async () => {
-    const res = await act(testEnv, { ...base, action: comment('OWASP/CheatSheetSeries') });
-    expect(res).toMatchObject({ ok: false, code: 'approval_required' });
+  it('requires an approval where the policy says so', async () => {
+    expect(await act(testEnv, review())).toMatchObject({ ok: false, code: 'approval_required' });
   });
 
   it('rejects an approval issued for a different action', async () => {
     const store = new ApprovalStore(env.AUDIT);
-    const other = comment('OWASP/CheatSheetSeries', 'a different comment');
+    const other = review('a different review');
     const approval = await store.create(
-      { ...base, action: other },
+      other,
       'because',
-      await sha256Hex(canonicalJson(other)),
+      await sha256Hex(canonicalJson(other.action)),
       3600,
     );
     expect(await store.decide(approval.id, 'approved', 'tester')).toBe('ok');
-    const res = await act(testEnv, {
-      ...base,
-      approvalId: approval.id,
-      action: comment('OWASP/CheatSheetSeries'),
-    });
+    const res = await act(testEnv, { ...review(), approvalId: approval.id });
     expect(res).toMatchObject({ ok: false, code: 'approval_invalid' });
   });
 
@@ -206,7 +217,7 @@ describe('broker act() for cheatsheet-review', () => {
 
   it('denies inline reviews from any other agent before reaching GitHub', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch');
-    for (const agentId of ['pr-gate', 'hello']) {
+    for (const agentId of ['pr-gate']) {
       expect(await act(testEnv, inline(agentId))).toMatchObject({
         ok: false,
         code: 'policy_denied',

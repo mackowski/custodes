@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Push each agent's GitHub PAT from the CI environment into Cloudflare Secrets Store.
 #
-# For every tokenBinding in workers/github-broker/policy/policy.json (agents and reads), e.g. PAT_HELLO
+# For every tokenBinding in workers/github-broker/policy/policy.json (agents and reads), e.g. PAT_PR_GATE
 # or PAT_READONLY, reads the env var of that name (a GitHub secret) and writes it to the Secrets
-# Store entry github-pat-<suffix> (github-pat-hello, github-pat-readonly): PATCH when the
+# Store entry github-pat-<suffix> (github-pat-pr-gate, github-pat-readonly): PATCH when the
 # entry exists (Terraform creates it with a placeholder), POST when it does not. Agents whose
 # variable is unset are skipped with a warning, so a missing PAT never blocks a deploy.
 #
