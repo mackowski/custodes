@@ -161,6 +161,7 @@ describe('bindings that carry approval authority', () => {
       expect(b.workers_dev, `${w} workers_dev`).toBe(false);
       expect(b.preview_urls, `${w} preview_urls`).toBe(false);
       expect(b.routes ?? [], `${w} routes`).toEqual([]);
+      expect((b as { route?: unknown }).route, `${w} route`).toBeUndefined();
     }
   });
 
