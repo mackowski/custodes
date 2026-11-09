@@ -31,7 +31,7 @@ export default defineConfig({
       // The AI binding (Clef) is remote-only: tests never reach Workers AI, they inject a fake.
       remoteBindings: false,
       miniflare: {
-        // Test-only: the Worker itself no longer binds the kill switch (ADR 0018, T1). Tests write
+        // Test-only: the Worker itself no longer binds the kill switch (#103, threat T1). Tests write
         // halt flags here and the stub broker above reads the same namespace.
         kvNamespaces: { KILL_SWITCH: 'kill-switch' },
         bindings: {

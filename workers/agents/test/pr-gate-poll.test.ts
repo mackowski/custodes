@@ -280,7 +280,7 @@ describe('pr-gate poll lock', () => {
   });
 });
 
-describe('kill switch read through the broker (ADR 0018, T1)', () => {
+describe('kill switch read through the broker (#103, threat T1)', () => {
   const failing = async (fetch: () => Response | Promise<Response>) =>
     runInDurableObject(await stub(), async (agent: PrGateAgent) => {
       const i = agent as unknown as Internals;

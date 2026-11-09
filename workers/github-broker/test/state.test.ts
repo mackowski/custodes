@@ -20,7 +20,7 @@ afterEach(async () => {
   await kill().resume('*');
 });
 
-describe('broker /v1/state (ADR 0018, T1: agents do not bind the kill switch)', () => {
+describe('broker /v1/state (#103, threat T1: agents do not bind the kill switch)', () => {
   it('answers not halted when no flag is set', async () => {
     const res = await state({ agentId: 'pr-gate' });
     expect(res.status).toBe(200);

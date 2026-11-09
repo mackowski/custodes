@@ -75,7 +75,7 @@ export abstract class CustodesAgent<
 
   /**
    * This agent's kill-switch state, read from the broker: agents do not bind the KV namespace,
-   * because a KV binding can also write and an agent could clear its own halt flag (ADR 0018, T1).
+   * because a KV binding can also write and an agent could clear its own halt flag (#103, threat T1).
    * Fails closed: if the broker does not answer with a valid state, the agent counts as halted.
    */
   protected async haltState(): Promise<KillSwitchState> {

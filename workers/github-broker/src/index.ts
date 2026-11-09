@@ -59,7 +59,7 @@ agentApp.post('/v1/read', async (c) => {
 const StateRequest = z.object({ agentId: AgentId });
 /**
  * The kill-switch state for one agent. Agents do not bind the KV namespace (a KV binding can
- * write, so an agent could delete its own halt flag); they read the flag here (ADR 0018, T1).
+ * write, so an agent could delete its own halt flag); they read the flag here (#103, threat T1).
  */
 agentApp.post('/v1/state', async (c) => {
   const parsed = StateRequest.safeParse(await c.req.json().catch(() => null));

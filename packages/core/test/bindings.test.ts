@@ -11,6 +11,7 @@ interface Bindings {
   services?: { binding: string; service: string; entrypoint?: string }[];
   durable_objects?: { bindings: { name: string; class_name: string; script_name?: string }[] };
   d1_databases?: { binding: string; database_id: string }[];
+  kv_namespaces?: { binding: string; id: string }[];
   env?: Record<string, unknown>;
 }
 
@@ -33,6 +34,9 @@ const workers = readdirSync(WORKERS, { withFileTypes: true })
   .map((d) => d.name);
 const others = workers.filter((w) => w !== 'github-broker');
 const auditDb = readWrangler('github-broker').d1_databases?.find((d) => d.binding === 'AUDIT');
+const killSwitch = readWrangler('github-broker').kv_namespaces?.find(
+  (k) => k.binding === 'KILL_SWITCH',
+);
 
 describe('bindings that carry approval authority', () => {
   it('reads every Worker, with no per-environment overrides that this test would not see', () => {
@@ -60,6 +64,18 @@ describe('bindings that carry approval authority', () => {
       ).toEqual([]);
       expect(
         (b.d1_databases ?? []).filter((d) => d.database_id === auditDb?.database_id),
+        w,
+      ).toEqual([]);
+    }
+  });
+
+  it('let only the broker and the gateway bind the kill switch (a KV binding can also write)', () => {
+    expect(killSwitch?.id).toMatch(/^[0-9a-f]{32}$/);
+    expect(readWrangler('gateway').kv_namespaces?.map((k) => k.id)).toContain(killSwitch?.id);
+    for (const w of others.filter((x) => x !== 'gateway')) {
+      const kv = readWrangler(w).kv_namespaces ?? [];
+      expect(
+        kv.filter((k) => k.id === killSwitch?.id || k.binding === 'KILL_SWITCH'),
         w,
       ).toEqual([]);
     }

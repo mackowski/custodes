@@ -23,7 +23,7 @@
 
 Agents do not bind the kill-switch KV namespace: a KV binding can write, so agent code could clear
 its own halt flag. They read their state from the broker (`/v1/state`, fail closed); only the broker
-and the gateway bind the namespace (ADR 0018, T1).
+and the gateway bind the namespace (issue #103, threat T1; ADR 0018 proposed in PR #106).
 
 Note: agents deployed in one Worker share a trust domain. A compromised agent can request actions
 _as_ another agent id. The broker's policy limits the blast radius to the union of what the Worker's
