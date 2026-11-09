@@ -79,17 +79,23 @@ export abstract class CustodesAgent<
    * Fails closed: if the broker does not answer with a valid state, the agent counts as halted.
    */
   protected async haltState(): Promise<KillSwitchState> {
+    let status: number | null = null;
     try {
       const res = await this.env.BROKER.fetch('https://broker.internal/v1/state', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ agentId: this.manifest.id }),
       });
+      status = res.status;
       const parsed = res.ok ? KillSwitchState.safeParse(await res.json()) : null;
       if (parsed?.success) return parsed.data;
     } catch {
       // fall through: unreachable broker counts as halted
     }
+    // Ids and status only: tells a broker outage or rollback apart from an operator halt in logs.
+    console.warn(
+      JSON.stringify({ event: 'agent.halt_state.unavailable', agentId: this.manifest.id, status }),
+    );
     return { halted: true, reason: 'kill-switch state unavailable' };
   }
 
