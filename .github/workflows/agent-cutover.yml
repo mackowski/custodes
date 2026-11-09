@@ -60,6 +60,7 @@ jobs:
           AGENT_IDS: ${{ steps.plan.outputs.agent_ids }}
         run: |
           IFS=, read -ra ids <<< "$AGENT_IDS"
+          [ "${#ids[@]}" -gt 0 ] || { echo "no agent ids in the move"; exit 1; }
           for id in "${ids[@]}"; do
             state="$(pnpm exec wrangler kv key get --remote --namespace-id 841e2b0dd14d48fbac292217839957a4 "halt:$id" 2>/dev/null || true)"
             echo "$state" | grep -q '"halted":true' || { echo "$id is not halted; halt it first"; exit 1; }
@@ -77,6 +78,7 @@ jobs:
           want=custodes-agents
           [ "$PHASE" = final-only ] && want="$TARGET"
           IFS=, read -ra class_list <<< "$CLASSES"
+          [ "${#class_list[@]}" -gt 0 ] || { echo "no classes in the move"; exit 1; }
           for c in "${class_list[@]}"; do
             owner="$(node --experimental-strip-types scripts/do-namespace-owner.ts "$c")"
             [ "$owner" = "$want" ] || { echo "$c belongs to '$owner', expected '$want' for $PHASE"; exit 1; }

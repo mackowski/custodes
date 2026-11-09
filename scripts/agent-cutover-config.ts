@@ -151,6 +151,8 @@ if (!move || !what) {
   process.exit(2);
 }
 if (what === 'plan') {
+  if (move.classes.length === 0 || move.agentIds.length === 0)
+    throw new Error(`the move for ${agent} names no classes or no agent ids`);
   const lines = [
     `target=${move.target}`,
     `dir=${move.dir}`,

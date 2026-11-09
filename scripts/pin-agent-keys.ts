@@ -36,7 +36,7 @@ interface Row {
 }
 
 const KID = /^[a-z0-9][a-z0-9-]{7,79}$/;
-const X = /^[A-Za-z0-9_-]{43}$/;
+const X = /^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$/;
 const CALLER = /^custodes-[a-z-]+$/;
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');

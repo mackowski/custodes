@@ -45,6 +45,10 @@ describe('agent-keys.json schema (ADR 0018)', () => {
     // y = p (0x7fff…ffed): non-canonical encoding of 0.
     expect(isWeakEd25519PublicKey('7f_______________________________________38')).toBe(true);
     expect(isWeakEd25519PublicKey(REAL_X)).toBe(false);
+    // Same 32 bytes, non-canonical last character (padding bits set): refused.
+    expect(
+      PinnedAgentKey.safeParse(key('pr-gate-20261109-a1b2c3d4', `${REAL_X.slice(0, 42)}p`)).success,
+    ).toBe(false);
   });
 
   it('refuses a third key, a duplicate kid, an unknown caller and a malformed key', () => {

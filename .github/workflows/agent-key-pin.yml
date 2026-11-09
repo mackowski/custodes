@@ -77,6 +77,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           cp "$RUNNER_TEMP/in/agent-keys.json" packages/schema/src/agent-keys.json
+          [ -s "$RUNNER_TEMP/in/changes.txt" ] || { echo "agent-keys.json changed with no listed change"; exit 1; }
+          # The artifact comes from a job that ran dependencies: accept only the lines the pin script
+          # writes (no [skip ci], no Markdown, no links) before they reach the commit or the summary.
+          grep -Evq '^(pin custodes-[a-z-]+ (active|next) [a-z0-9][a-z0-9-]{7,79} x=[A-Za-z0-9_-]{43}|retire custodes-[a-z-]+ [a-z0-9][a-z0-9-]{7,79})$' "$RUNNER_TEMP/in/changes.txt" && { echo "unexpected line in changes.txt"; exit 1; }
           # Only that one file may change; anything else means the artifact is not what prepare made.
           [ "$(git status --porcelain | awk '{print $2}')" = "packages/schema/src/agent-keys.json" ] || { echo "unexpected changes"; git status --porcelain; exit 1; }
           branch="keys/pin-$(date -u +%Y%m%d)-${GITHUB_RUN_ID}"
@@ -93,9 +97,9 @@ jobs:
             echo '```'
             cat "$RUNNER_TEMP/in/changes.txt"
             echo '```'
-            echo "Before merging, compare each pinned x with the keyholder.key.created log line of"
-            echo "that Worker (Workers Logs). The page comes from the same gateway as this run, so"
-            echo "comparing with it proves nothing."
+            echo "Before merging, compare each x in the pull request's diff of agent-keys.json with the"
+            echo "keyholder.key.created log line of that Worker (Workers Logs). Neither this summary nor"
+            echo "the keys page proves anything: both come from this run and the same gateway."
             echo ""
             echo "[Open the pull request](https://github.com/${GITHUB_REPOSITORY}/compare/main...${branch}?expand=1)"
           } >> "$GITHUB_STEP_SUMMARY"

@@ -68,7 +68,9 @@ export const PinnedAgentKey = z.object({
   kid: z.string().regex(/^[a-z0-9][a-z0-9-]{7,79}$/),
   x: z
     .string()
-    .regex(/^[A-Za-z0-9_-]{43}$/)
+    // 43 base64url characters for 32 bytes; the last one carries 2 padding bits, so only its
+    // canonical forms are accepted (otherwise four strings name the same key).
+    .regex(/^[A-Za-z0-9_-]{42}[AEIMQUYcgkosw048]$/)
     .refine(
       (x) => !isWeakEd25519PublicKey(x),
       'weak Ed25519 public key (small order or non-canonical)',
