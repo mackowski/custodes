@@ -56,9 +56,9 @@ jobs:
           git switch -c "$branch"
           git add packages/schema/src/agent-keys.json
           git commit -q -m "chore(keys): pin agent Worker keys (ADR 0018)" -m "$(cat "$RUNNER_TEMP/changes.txt")"
-          auth="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
-          echo "::add-mask::$auth"
-          git -c http.extraheader="AUTHORIZATION: basic $auth" push -q origin "$branch"
+          # gh's credential helper reads GH_TOKEN; the token is never written to a file or printed.
+          gh auth setup-git
+          git push -q origin "$branch"
           {
             echo "### Agent keys to pin"
             echo '```'
