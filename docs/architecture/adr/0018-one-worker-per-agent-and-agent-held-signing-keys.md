@@ -68,6 +68,10 @@ have each agent sign its own requests with a key only its Worker holds.
 - **Transition.** An `isolated: true` flag in the agent's policy makes the default entrypoint refuse
   that agent and its own entrypoint require a signature. The default entrypoint is removed after the
   last migration. Each agent is protected from its own migration on.
+- **Kill switch out of agent reach.** Agent Workers no longer bind the `KILL_SWITCH` KV namespace.
+  A KV binding can write, so today any agent code can delete a halt key and resume itself. `guard()`
+  asks the broker for the halt state through a signed call, and only the broker and the gateway
+  bind the namespace. This can ship first, in the current single Worker.
 - **Webhooks.** The gateway publishes each verified event to the owning agent's queue (one queue and
   dead-letter queue per agent), taking over the routing in `workers/agents/src/dispatch.ts`.
 - **State.** We first test an `exports` transfer on throwaway Workers. If the SQLite data moves, we

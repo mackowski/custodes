@@ -1,5 +1,7 @@
 # Threat model
 
+Proposed change: [agent isolation (ADR 0018)](threat-model-agent-isolation.md).
+
 ## Assets
 
 1. **Authority over target repositories**: the ability to comment, label, and review on OWASP
