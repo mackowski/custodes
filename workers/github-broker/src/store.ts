@@ -268,3 +268,26 @@ function toApproval(
     consumedAt: row.consumed_at,
   };
 }
+
+/** Nonces of agent-signed requests (ADR 0018): each is accepted once. */
+export class NonceStore {
+  constructor(private readonly db: D1Database) {}
+
+  /**
+   * Records `nonce` for `caller`; false when it was already used. Rows older than `retentionMs`
+   * are removed first: by then the request would be refused as stale anyway.
+   */
+  async claim(nonce: string, caller: string, now: number, retentionMs = 600_000): Promise<boolean> {
+    await this.db
+      .prepare('DELETE FROM request_nonces WHERE seen_at < ?1')
+      .bind(now - retentionMs)
+      .run();
+    const res = await this.db
+      .prepare(
+        'INSERT INTO request_nonces (nonce, caller, seen_at) VALUES (?1, ?2, ?3) ON CONFLICT (nonce) DO NOTHING',
+      )
+      .bind(nonce, caller, now)
+      .run();
+    return res.meta.changes === 1;
+  }
+}

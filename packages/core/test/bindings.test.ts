@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest';
  * pinned here for every Worker in the repository.
  */
 interface Bindings {
+  name?: string;
   services?: { binding: string; service: string; entrypoint?: string }[];
   durable_objects?: { bindings: { name: string; class_name: string; script_name?: string }[] };
   d1_databases?: { binding: string; database_id: string }[];
@@ -50,7 +51,7 @@ describe('bindings that carry approval authority', () => {
     expect(gateway?.entrypoint).toBe('BrokerAdmin');
     for (const w of others.filter((x) => x !== 'gateway'))
       for (const s of readWrangler(w).services?.filter((x) => x.service === BROKER) ?? [])
-        expect(s.entrypoint, w).toBeUndefined();
+        expect(s.entrypoint, w).not.toBe('BrokerAdmin');
   });
 
   it('let no other Worker reach the Keyring or the audit database', () => {
@@ -78,6 +79,28 @@ describe('bindings that carry approval authority', () => {
         kv.filter((k) => k.id === killSwitch?.id || k.binding === 'KILL_SWITCH'),
         w,
       ).toEqual([]);
+    }
+  });
+
+  it('let each agent Worker bind only its own broker entrypoint (ADR 0018)', () => {
+    // Entrypoint → the one Worker (wrangler `name`) allowed to bind it. Mirrors CALLER_ENTRYPOINTS
+    // in workers/github-broker/src/callers.ts; the next assertion keeps the two in step.
+    const owner: Record<string, string> = {
+      PrGateBroker: 'custodes-pr-gate',
+      CheatsheetReviewBroker: 'custodes-cheatsheet-review',
+      TriageBroker: 'custodes-triage',
+    };
+    const brokerSrc = readFileSync(new URL('github-broker/src/index.ts', WORKERS), 'utf8');
+    const exported = [...brokerSrc.matchAll(/export class (\w+) extends WorkerEntrypoint/g)].map(
+      (m) => m[1],
+    );
+    expect(exported.sort()).toEqual([...Object.keys(owner), 'BrokerAdmin'].sort());
+    for (const w of others) {
+      const b = readWrangler(w);
+      for (const s of b.services?.filter((x) => x.service === BROKER) ?? []) {
+        if (s.entrypoint === undefined || s.entrypoint === 'BrokerAdmin') continue;
+        expect(owner[s.entrypoint], `${w} binds ${s.entrypoint}`).toBe(b.name);
+      }
     }
   });
 });

@@ -15,6 +15,7 @@ const policy: Policy = {
       requiresApproval: ['issue.label.add'],
       requiresApprovalOn: { 'mackowski/custodes-sandbox': ['issue.comment'] },
       rateLimitPerHour: 60,
+      isolated: false,
     },
   },
 };
@@ -135,6 +136,7 @@ describe('evaluatePolicy for read-only agents', () => {
           requiresApproval: [],
           requiresApprovalOn: {},
           rateLimitPerHour: 60,
+          isolated: false,
         },
       },
     };

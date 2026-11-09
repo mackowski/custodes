@@ -28,6 +28,11 @@ export const AgentPolicy = z
      * a label grant covers every label in the repository.
      */
     labels: z.array(z.string().min(1).max(50)).min(1).optional(),
+    /**
+     * Moved to its own Worker (ADR 0018): the broker's default entrypoint refuses this agent, and
+     * only its caller entrypoint with a valid signature is accepted.
+     */
+    isolated: z.boolean().default(false),
   })
   .refine(
     (a) =>
@@ -52,6 +57,11 @@ export const ReadPolicy = z.object({
   repos: z.array(GitHubRepo).min(1),
   /** The only resources this agent may read. Explicit, so a new resource is never granted by default. */
   resources: z.array(ReadResource).min(1),
+  /**
+   * Moved to its own Worker (ADR 0018): the broker's default entrypoint refuses this agent, and
+   * only its caller entrypoint with a valid signature is accepted.
+   */
+  isolated: z.boolean().default(false),
 });
 export type ReadPolicy = z.infer<typeof ReadPolicy>;
 
