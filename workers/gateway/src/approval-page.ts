@@ -50,7 +50,7 @@ pre{white-space:pre-wrap;word-break:break-word;background:#f6f8fa;border:1px sol
 dt{font-weight:600}dd{margin:0 0 .5rem}button{font:inherit;padding:.5rem 1.25rem;margin-right:.75rem;border-radius:6px;border:1px solid #1f2328;cursor:pointer}
 .approve{background:#1a7f37;color:#fff;border-color:#1a7f37}.note{color:#59636e}`;
 
-function layout(title: string, body: string): string {
+export function layout(title: string, body: string): string {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title)}</title><style>${STYLE}</style></head><body>${body}</body></html>`;
 }
 

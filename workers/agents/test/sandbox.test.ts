@@ -161,3 +161,12 @@ describe('Keyholder surface (ADR 0018, threat I1)', () => {
     );
   });
 });
+
+describe('KeyAdmin surface (ADR 0018)', () => {
+  it('offers the gateway public keys and Rotate only', async () => {
+    const { KeyAdmin } = await import('@custodes/core/keyholder');
+    expect(Object.getOwnPropertyNames(KeyAdmin.prototype).sort()).toEqual(
+      ['constructor', 'keyholder', 'publicKeys', 'rotate'].sort(),
+    );
+  });
+});

@@ -141,8 +141,15 @@ describe('bindings that carry approval authority', () => {
     for (const w of workers) {
       const b = readWrangler(w);
       for (const s of b.services ?? []) {
+        // The gateway (behind Access) may reach the shared Worker over HTTP, and a per-agent Worker
+        // over HTTP or through its KeyAdmin entrypoint (public keys and Rotate only, ADR 0018).
+        const fromGateway = b.name === 'custodes-gateway';
         const allowed =
-          s.service === b.name || (s.service === SHARED && b.name === 'custodes-gateway');
+          s.service === b.name ||
+          (fromGateway && s.service === SHARED && s.entrypoint === undefined) ||
+          (fromGateway &&
+            Object.values(owner).includes(s.service) &&
+            (s.entrypoint === undefined || s.entrypoint === 'KeyAdmin'));
         expect(agentWorkers.has(s.service) && !allowed, `${w} binds ${s.service}`).toBe(false);
       }
       for (const d of b.durable_objects?.bindings ?? [])

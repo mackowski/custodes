@@ -62,11 +62,12 @@ have each agent sign its own requests with a key only its Worker holds.
   per agent may be pinned during a rotation. A rotated key moves to `retired`, which only `/verify`
   reads; a compromised key is deleted instead.
 - **Rotation and loss, without the CLI.**
-  - An Access-protected page `/admin/keys` shows each agent's active and pinned key fingerprints and
+  - An Access-protected page `/admin/agent-keys/page` shows each agent's active and pinned key fingerprints and
     has a Rotate button. Only approvers can use it, through a POST with the same CSRF guard as
     approvals.
   - A GitHub Actions workflow reads the new public key with the read-only Access service token and
-    opens the pinning pull request.
+    prepares the pinning branch (`agent-key-pin.yml`); Actions may not create pull requests in this
+    repository, so the operator opens it from the link in the run summary.
   - When the broker refuses an unknown key, the operator gets an e-mail linking to both. The agent
     stays stopped until the pull request is merged.
 - **Transition.** An `isolated: true` flag in the agent's policy makes the default entrypoint refuse

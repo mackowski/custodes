@@ -97,6 +97,6 @@ jobs:
             echo "### PrGateAgent moved to custodes-pr-gate"
             echo "pr-gate stays halted. Its Keyholder makes a key on the first broker call, which the"
             echo "broker refuses until the key is pinned. Follow docs/runbooks/pr-gate-cutover.md:"
-            echo "open /admin/keys, merge the follow-up PR (key pin, transferred tombstone in"
+            echo "open /admin/agent-keys/page, merge the follow-up PR (key pin, transferred tombstone in"
             echo "custodes-agents, pr-gate in deploy-workers.yml, gateway queue, isolated: true), resume."
           } >> "$GITHUB_STEP_SUMMARY"

@@ -1,4 +1,4 @@
-import { DurableObject } from 'cloudflare:workers';
+import { DurableObject, WorkerEntrypoint } from 'cloudflare:workers';
 import { KeyStore, type PublicKeyInfo } from './key-store.js';
 import { CALLER_AGENTS, CallerName } from '@custodes/schema';
 import { canonicalJson } from './canonical.js';
@@ -56,5 +56,29 @@ export class Keyholder extends DurableObject<KeyholderEnv> {
       });
       return res.status === 200;
     });
+  }
+}
+
+/** What KeyAdmin needs from its Worker's env. */
+export interface KeyAdminEnv extends KeyholderEnv {
+  KEYHOLDER: DurableObjectNamespace<Keyholder>;
+}
+
+/**
+ * The operator's view of a Worker's key (ADR 0018): public keys and Rotate, nothing else. Bound only
+ * by the gateway, behind Access, for `/admin/agent-keys` (bindings.test pins that). It never returns
+ * key material and cannot activate a key: activation happens only once the broker accepts it.
+ */
+export class KeyAdmin extends WorkerEntrypoint<KeyAdminEnv> {
+  private get keyholder(): DurableObjectStub<Keyholder> {
+    return this.env.KEYHOLDER.get(this.env.KEYHOLDER.idFromName('default'));
+  }
+
+  publicKeys(): Promise<PublicKeyInfo[]> {
+    return this.keyholder.publicKeys();
+  }
+
+  rotate(): Promise<PublicKeyInfo> {
+    return this.keyholder.rotate();
   }
 }

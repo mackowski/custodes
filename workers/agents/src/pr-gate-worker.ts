@@ -13,7 +13,7 @@ import { CRON_TRIAGE_DIGEST, CRON_TRIAGE_POLL, CRON_TRIAGE_PREPARE } from './cro
  * only its own bindings and secrets.
  */
 export { PrGateAgent } from './agents/pr-gate.js';
-export { Keyholder } from '@custodes/core/keyholder';
+export { KeyAdmin, Keyholder } from '@custodes/core/keyholder';
 
 /** The only agent class this Worker routes to (kebab-case, as the Agents SDK names it). */
 const CLASS = 'pr-gate-agent';

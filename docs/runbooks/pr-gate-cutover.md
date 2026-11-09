@@ -50,9 +50,10 @@ pr-gate is still halted. On its first broker call (the next cron or a manual run
 creates a key, and the broker refuses it (`broker.caller.refused`, `unknown_key`) until it is pinned.
 
 1. Read the key: the Worker logs `keyholder.key.created` with its `kid` and public `x` when it
-   creates the key (Workers Logs for `custodes-pr-gate`; public data only). `/admin/keys` shows it
+   creates the key (Workers Logs for `custodes-pr-gate`; public data only). `/admin/agent-keys/page` shows it
    once that page lands.
-2. Merge the follow-up PR (opened by the key workflow, or by hand). It contains:
+2. Open and merge the follow-up PR, by hand. It contains (the key pin can come from **Actions → Agent key
+   pin** only once the gateway binds the Worker, which is part of this PR, so pin by hand here):
    - the public key in `packages/schema/src/agent-keys.json` (check `kid` and `x` against the log);
    - `PrGateAgent: transferred` in `workers/agents/wrangler.jsonc`, and pr-gate removed from the
      shared Worker's code;

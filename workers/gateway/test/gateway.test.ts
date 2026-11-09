@@ -1,7 +1,13 @@
 import { env } from 'cloudflare:workers';
 import { describe, expect, it } from 'vitest';
 import worker from '../src/index.js';
-import type { ApprovalRequest, AuditRecord } from '@custodes/schema';
+import { AgentKeys, type ApprovalRequest, type AuditRecord } from '@custodes/schema';
+import {
+  agentKeysPage,
+  listAgentKeys,
+  type HeldKey,
+  type KeyAdminLike,
+} from '../src/agent-keys.js';
 import {
   buildAuditRecord,
   generateAgentKeyPair,
@@ -438,5 +444,98 @@ describe('public /verify (ADR 0018, R1)', () => {
       valid: false,
       reason: 'agent signature: unknown_key',
     });
+  });
+});
+
+describe('agent Worker keys page (ADR 0018)', () => {
+  const RFC1 = '11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo';
+  const RFC2 = 'PUAXw-hDiVqStwqnTRt-vJyYLM8uxJaMwM1V8Sr0Zgw';
+  const pinned = AgentKeys.parse({
+    version: 1,
+    callers: {
+      'custodes-pr-gate': [{ kid: 'pr-gate-20261109-aaaaaaaa', x: RFC1, addedAt: '2026-11-09' }],
+    },
+    retired: {},
+  });
+  const admin = (keys: HeldKey[]): KeyAdminLike => ({
+    publicKeys: () => Promise.resolve(keys),
+    rotate: () => Promise.reject(new Error('not in this test')),
+  });
+
+  it('shows each held key with its pin state, and Workers not bound yet', async () => {
+    const env = {
+      KEYS_PR_GATE: admin([
+        {
+          kid: 'pr-gate-20261109-aaaaaaaa',
+          x: RFC1,
+          state: 'active',
+          createdAt: '2026-11-09T00:00:00Z',
+        },
+        {
+          kid: 'pr-gate-20261110-bbbbbbbb',
+          x: RFC2,
+          state: 'next',
+          createdAt: '2026-11-10T00:00:00Z',
+        },
+      ]),
+    };
+    const rows = await listAgentKeys(env, pinned);
+    const gate = rows.find((r) => r.caller === 'custodes-pr-gate');
+    expect(gate?.keys.map((k) => [k.state, k.pin])).toEqual([
+      ['active', 'pinned'],
+      ['next', 'not pinned'],
+    ]);
+    expect(gate?.keys[0]?.fingerprint).toMatch(/^[0-9a-f]{16}$/);
+    expect(rows.find((r) => r.caller === 'custodes-triage')).toMatchObject({ bound: false });
+    const html = agentKeysPage(rows);
+    expect(html).toContain('pr-gate-20261110-bbbbbbbb');
+    expect(html).not.toContain('<form method="post" action="/admin/agent-keys/custodes-pr-gate'); // next pending
+  });
+
+  it('flags a pinned kid whose key differs, and pinned keys the Keyholder no longer holds', async () => {
+    const env = {
+      KEYS_PR_GATE: admin([
+        {
+          kid: 'pr-gate-20261109-aaaaaaaa',
+          x: RFC2,
+          state: 'active',
+          createdAt: '2026-11-09T00:00:00Z',
+        },
+      ]),
+    };
+    const [gate] = (await listAgentKeys(env, pinned)).filter(
+      (r) => r.caller === 'custodes-pr-gate',
+    );
+    expect(gate?.keys[0]?.pin).toBe('pinned, different key');
+    const moved = await listAgentKeys({ KEYS_PR_GATE: admin([]) }, pinned);
+    expect(moved.find((r) => r.caller === 'custodes-pr-gate')?.pinnedNotHeld).toEqual([
+      'pr-gate-20261109-aaaaaaaa',
+    ]);
+  });
+
+  it('escapes everything a Worker reports and hides its errors', async () => {
+    const env = {
+      KEYS_PR_GATE: admin([
+        { kid: '<script>x</script>', x: '"><img>', state: 'active', createdAt: '<b>' },
+      ]),
+      KEYS_TRIAGE: {
+        publicKeys: () => Promise.reject(new Error('<secret detail>')),
+        rotate: () => Promise.reject(new Error('no')),
+      },
+    };
+    const html = agentKeysPage(await listAgentKeys(env, pinned));
+    expect(html).not.toMatch(/<script>|<img>|<b>/);
+    expect(html).not.toContain('secret detail');
+  });
+
+  it('needs Access for the page and for Rotate', async () => {
+    for (const [path, method] of [
+      ['/admin/agent-keys', 'GET'],
+      ['/admin/agent-keys/page', 'GET'],
+      ['/admin/agent-keys/custodes-pr-gate/rotate', 'POST'],
+    ] as const) {
+      const res = await worker.fetch(new Request(`https://x${path}`, { method }), testEnv(), ctx);
+      expect(res.status, path).toBe(401);
+    }
   });
 });

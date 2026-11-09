@@ -12,7 +12,9 @@ import {
   type PublicKeyEntry,
   PINNED_AGENT_KEYS,
   verificationKeys,
+  CallerName,
 } from '@custodes/schema';
+import { agentKeysPage, keyAdminOf, listAgentKeys } from './agent-keys.js';
 import { adminWriteAllowed, agentWriteAllowed, crossSiteWrite, verifyAccessJwt } from './access.js';
 import {
   approvalPage,
@@ -239,6 +241,32 @@ admin.get('/audit', (c) => {
 admin.get('/audit/:id', (c) =>
   proxy(c.env.BROKER, `/v1/attestations/${encodeURIComponent(c.req.param('id'))}`),
 );
+// Agent Worker keys (ADR 0018): public keys and pin state; Rotate for approvers only.
+admin.get('/agent-keys', async (c) => c.json(await listAgentKeys(c.env)));
+admin.get('/agent-keys/page', async (c) =>
+  c.body(agentKeysPage(await listAgentKeys(c.env)), 200, PAGE_HEADERS),
+);
+admin.post('/agent-keys/:caller/rotate', async (c) => {
+  const actor = c.get('actor');
+  if (!isApprover(actor, c.env.APPROVER_EMAILS))
+    return c.json({ error: 'only an approver may rotate keys' }, 403);
+  const caller = CallerName.safeParse(c.req.param('caller'));
+  if (!caller.success) return c.json({ error: 'unknown caller' }, 404);
+  const admin = keyAdminOf(c.env, caller.data);
+  if (!admin) return c.json({ error: 'that Worker is not reachable yet' }, 409);
+  const next = await admin.rotate();
+  console.log(
+    JSON.stringify({
+      event: 'admin.agent_keys.rotate',
+      caller: caller.data,
+      kid: next.kid,
+      by: actor.subject,
+    }),
+  );
+  // Back to the page: it now shows the pending key to pin.
+  return c.redirect('/admin/agent-keys/page', 303);
+});
+
 admin.get('/keys', (c) => proxy(c.env.BROKER, '/v1/keys'));
 admin.post('/keys/:agent/rotate', (c) => {
   const agent = c.req.param('agent');
