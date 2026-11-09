@@ -56,7 +56,17 @@ const CreateApproval = z.object({
 });
 
 /** The routes agents use, behind `admit`. Shared by the default and the per-Worker entrypoints. */
-function agentRoutes(app: App, admit: Admit): App {
+function agentRoutes(app: App, admitAgent: Admit, entrypoint: string): App {
+  /**
+   * Logs every refusal: a signed request from one Worker naming another Worker's agent is the
+   * clearest sign of the compromise ADR 0018 is about (threat S1). Ids only.
+   */
+  const admit: Admit = (agentId) => {
+    const no = admitAgent(agentId);
+    if (no !== null)
+      console.warn(JSON.stringify({ event: 'broker.admit.refused', entrypoint, agentId }));
+    return no;
+  };
   app.post('/v1/act', async (c) => {
     const parsed = BrokerRequest.safeParse(await c.req.json().catch(() => null));
     if (!parsed.success)
@@ -124,8 +134,11 @@ function agentRoutes(app: App, admit: Admit): App {
 export function sharedAgentApp(p: Policy = policy): App {
   const app: App = new Hono();
   app.get('/healthz', (c) => c.json({ ok: true, agents: Object.keys(p.agents) }));
-  return agentRoutes(app, (id) =>
-    isIsolated(id, p) ? `agent ${id} runs in its own Worker; use its broker entrypoint` : null,
+  return agentRoutes(
+    app,
+    (id) =>
+      isIsolated(id, p) ? `agent ${id} runs in its own Worker; use its broker entrypoint` : null,
+    'default',
   );
 }
 export const agentApp: App = sharedAgentApp();
@@ -142,7 +155,11 @@ export function callerApp(caller: CallerName, keys: AgentKeys = agentKeys): App 
     await next();
   });
   const hosted = CALLER_AGENTS[caller];
-  return agentRoutes(app, (id) => (hosted.includes(id) ? null : `agent ${id} is not in ${caller}`));
+  return agentRoutes(
+    app,
+    (id) => (hosted.includes(id) ? null : `agent ${id} is not in ${caller}`),
+    caller,
+  );
 }
 
 const callerApps = {

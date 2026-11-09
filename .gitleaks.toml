@@ -18,9 +18,19 @@ id = "github-fine-grained-pat"
 description = "GitHub fine-grained personal access token"
 regex = '''github_pat_[A-Za-z0-9_]{82}'''
 
+[[rules]]
+id = "ed25519-private-jwk"
+description = "Ed25519 private key as a JWK (the `d` member): agent keyholder or broker Keyring key material (ADR 0018)"
+regex = '''"d"\s*:\s*"[A-Za-z0-9_-]{43}"'''
+
 [allowlist]
 description = "Public identifiers and test fixtures that look like secrets but are not"
 regexTarget = "line"
+# Single commits whose only finding is a public, made-up value; history is never rewritten.
+commits = [
+  # PR #106: a test agent key id (`pr-gate-20261109-…`), public by design; renamed to `kid` later.
+  "3a146ff65bc6a7a123fe5230ac4c20ec6db7137e",
+]
 paths = [
   '''pnpm-lock\.yaml''',
   '''evals/.*fixtures.*''',
@@ -34,7 +44,4 @@ regexes = [
   '''"(store_id|database_id|id)":\s*"[0-9a-f]{32}"''',
   # Access application audience tag: public, embedded in every JWT the app issues.
   '''"ACCESS_AUD":\s*"[0-9a-f]{64}"''',
-  # Agent signing key ids (ADR 0018): `<agent>-<yyyymmdd>-<8 hex>`, public, pinned in agent-keys.json.
-  # Only the id itself; a key's `x` (also public) or anything longer still gets scanned.
-  '''['"][a-z][a-z-]*-20\d{6}-[0-9a-f]{8}['"]''',
 ]

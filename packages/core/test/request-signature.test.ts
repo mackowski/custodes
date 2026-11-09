@@ -17,7 +17,7 @@ async function keyPair(keyId: string): Promise<{ priv: CryptoKey; pinned: Pinned
     'verify',
   ])) as CryptoKeyPair;
   const jwk = (await crypto.subtle.exportKey('jwk', pair.publicKey)) as { x: string };
-  return { priv: pair.privateKey, pinned: { keyId, x: jwk.x, addedAt: '2026-11-09' } };
+  return { priv: pair.privateKey, pinned: { kid: keyId, x: jwk.x, addedAt: '2026-11-09' } };
 }
 
 const headersOf = (h: Record<string, string>) => new Headers(h);
@@ -25,10 +25,10 @@ const headersOf = (h: Record<string, string>) => new Headers(h);
 describe('agent-signed broker requests (ADR 0018)', () => {
   it('verifies a request signed by a pinned key', async () => {
     const { priv, pinned } = await keyPair('pr-gate-20261109-a1b2c3d4');
-    const h = await signRequest(priv, pinned.keyId, part, NOW, NONCE);
+    const h = await signRequest(priv, pinned.kid, part, NOW, NONCE);
     expect(await verifyRequestSignature([pinned], headersOf(h), part, NOW)).toEqual({
       ok: true,
-      keyId: pinned.keyId,
+      keyId: pinned.kid,
       nonce: NONCE,
       signature: h[SIGNATURE_HEADERS.signature],
     });
@@ -36,7 +36,7 @@ describe('agent-signed broker requests (ADR 0018)', () => {
 
   it('refuses any change to the body, path or method after signing', async () => {
     const { priv, pinned } = await keyPair('pr-gate-20261109-a1b2c3d4');
-    const h = headersOf(await signRequest(priv, pinned.keyId, part, NOW, NONCE));
+    const h = headersOf(await signRequest(priv, pinned.kid, part, NOW, NONCE));
     for (const changed of [
       { ...part, body: '{"agentId":"cheatsheet-review"}' },
       { ...part, path: '/v1/read' },
@@ -51,7 +51,7 @@ describe('agent-signed broker requests (ADR 0018)', () => {
   it("refuses another Worker's key, even with a matching key id", async () => {
     const mine = await keyPair('pr-gate-20261109-a1b2c3d4');
     const theirs = await keyPair('pr-gate-20261109-a1b2c3d4');
-    const h = headersOf(await signRequest(theirs.priv, mine.pinned.keyId, part, NOW, NONCE));
+    const h = headersOf(await signRequest(theirs.priv, mine.pinned.kid, part, NOW, NONCE));
     expect(await verifyRequestSignature([mine.pinned], h, part, NOW)).toMatchObject({
       ok: false,
       reason: 'bad_signature',
@@ -70,20 +70,20 @@ describe('agent-signed broker requests (ADR 0018)', () => {
   it('refuses a timestamp outside the window, either way', async () => {
     const { priv, pinned } = await keyPair('pr-gate-20261109-a1b2c3d4');
     for (const skew of [SIGNATURE_WINDOW_MS + 1, -(SIGNATURE_WINDOW_MS + 1)]) {
-      const h = headersOf(await signRequest(priv, pinned.keyId, part, NOW + skew, NONCE));
+      const h = headersOf(await signRequest(priv, pinned.kid, part, NOW + skew, NONCE));
       expect(await verifyRequestSignature([pinned], h, part, NOW)).toMatchObject({
         reason: 'stale',
       });
     }
     const edge = headersOf(
-      await signRequest(priv, pinned.keyId, part, NOW - SIGNATURE_WINDOW_MS, NONCE),
+      await signRequest(priv, pinned.kid, part, NOW - SIGNATURE_WINDOW_MS, NONCE),
     );
     expect(await verifyRequestSignature([pinned], edge, part, NOW)).toMatchObject({ ok: true });
   });
 
   it('refuses missing or malformed headers before touching a key', async () => {
     const { priv, pinned } = await keyPair('pr-gate-20261109-a1b2c3d4');
-    const good = await signRequest(priv, pinned.keyId, part, NOW, NONCE);
+    const good = await signRequest(priv, pinned.kid, part, NOW, NONCE);
     for (const name of Object.values(SIGNATURE_HEADERS)) {
       const h = headersOf(good);
       h.delete(name);
@@ -107,10 +107,10 @@ describe('agent-signed broker requests (ADR 0018)', () => {
     const old = await keyPair('pr-gate-20261001-00000000');
     const next = await keyPair('pr-gate-20261109-a1b2c3d4');
     for (const k of [old, next]) {
-      const h = headersOf(await signRequest(k.priv, k.pinned.keyId, part, NOW, NONCE));
+      const h = headersOf(await signRequest(k.priv, k.pinned.kid, part, NOW, NONCE));
       expect(await verifyRequestSignature([old.pinned, next.pinned], h, part, NOW)).toMatchObject({
         ok: true,
-        keyId: k.pinned.keyId,
+        keyId: k.pinned.kid,
       });
     }
   });

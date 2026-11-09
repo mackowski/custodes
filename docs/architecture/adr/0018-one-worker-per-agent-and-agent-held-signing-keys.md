@@ -47,9 +47,11 @@ have each agent sign its own requests with a key only its Worker holds.
   asserts that each agent Worker's `wrangler.jsonc` binds only its own entrypoint.
 - **Agent signature.** One `keyholder` Durable Object per agent Worker generates an Ed25519 key pair
   and keeps the private key in its storage. It signs every broker call (`/v1/act`, `/v1/read`,
-  `/v1/approvals`) over the canonical JSON of `agentId`, `runId`, the action or read, a timestamp
-  and a nonce. The broker verifies the signature against the public keys pinned for that agent and
-  refuses a timestamp outside 5 minutes or a nonce it has seen (nonces kept in D1 for the window).
+  `/v1/state`, `/v1/approvals`) over the audience, the method, the path, a timestamp, a nonce and
+  the SHA-256 of the exact body bytes. The broker verifies the signature against the public keys
+  pinned for that agent Worker and refuses a timestamp outside 5 minutes or a nonce it has seen
+  (nonces kept in D1 for twice the window plus a minute). The schema refuses weak public keys
+  (small-order or non-canonical Ed25519 points, which would accept forged signatures).
 - **Countersignature.** The broker keeps signing its audit record with its own `Keyring` key. The
   record now carries both signatures: the agent's (intent) and the broker's (execution under the
   policy). `/verify` and the CLI check both, and comment trailers are unchanged.
@@ -67,7 +69,9 @@ have each agent sign its own requests with a key only its Worker holds.
     stays stopped until the pull request is merged.
 - **Transition.** An `isolated: true` flag in the agent's policy makes the default entrypoint refuse
   that agent and its own entrypoint require a signature. The default entrypoint is removed after the
-  last migration. Each agent is protected from its own migration on.
+  last migration. Each agent is protected from its own migration on. Setting `isolated` back from
+  `true` to `false` reopens the unsigned path for that agent: it is a policy widening and needs a
+  linked ADR or issue (invariant 4).
 - **Kill switch out of agent reach.** Agent Workers no longer bind the `KILL_SWITCH` KV namespace.
   A KV binding can write, so today any agent code can delete a halt key and resume itself. `guard()`
   asks the broker for the halt state through a signed call, and only the broker and the gateway

@@ -1,4 +1,4 @@
-import type { PinnedAgentKey } from '@custodes/schema';
+import { isWeakEd25519PublicKey, type PinnedAgentKey } from '@custodes/schema';
 import { fromBase64Url, sha256Hex, toBase64Url } from './canonical.js';
 
 /**
@@ -93,8 +93,9 @@ export async function verifyRequestSignature(
     return { ok: false, reason: 'malformed' };
   if (Math.abs(now - Number(timestamp)) > SIGNATURE_WINDOW_MS)
     return { ok: false, reason: 'stale' };
-  const key = pinned.find((k) => k.keyId === keyId);
-  if (!key) return { ok: false, reason: 'unknown_key' };
+  const key = pinned.find((k) => k.kid === keyId);
+  // The schema refuses weak keys already; checked again so a key built in code cannot slip by.
+  if (!key || isWeakEd25519PublicKey(key.x)) return { ok: false, reason: 'unknown_key' };
   const publicKey = await crypto.subtle.importKey(
     'jwk',
     { kty: 'OKP', crv: 'Ed25519', x: key.x },

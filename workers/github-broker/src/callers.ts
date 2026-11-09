@@ -65,5 +65,8 @@ export async function authenticateCaller(
   return { ok: false, reason };
 }
 
-/** Kept for twice the window: an older nonce is refused as stale before it is looked up. */
-export const NONCE_RETENTION_MS = 2 * SIGNATURE_WINDOW_MS;
+/**
+ * A request can be replayed for up to twice the window (signed at +window, replayed at -window).
+ * Kept one minute longer, so clock skew between broker isolates cannot delete a nonce early.
+ */
+export const NONCE_RETENTION_MS = 2 * SIGNATURE_WINDOW_MS + 60_000;

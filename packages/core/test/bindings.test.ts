@@ -30,6 +30,17 @@ function readWrangler(worker: string): Bindings {
 }
 
 const BROKER = 'custodes-github-broker';
+/** The shared agents Worker: the only one allowed on the broker's unsigned default entrypoint. */
+const SHARED = 'custodes-agents';
+/**
+ * Broker entrypoint → the one Worker (wrangler `name`) allowed to bind it (ADR 0018). Mirrors
+ * CALLER_ENTRYPOINTS in workers/github-broker/src/callers.ts; a test below keeps them in step.
+ */
+const owner: Record<string, string> = {
+  PrGateBroker: 'custodes-pr-gate',
+  CheatsheetReviewBroker: 'custodes-cheatsheet-review',
+  TriageBroker: 'custodes-triage',
+};
 const workers = readdirSync(WORKERS, { withFileTypes: true })
   .filter((d) => d.isDirectory())
   .map((d) => d.name);
@@ -83,13 +94,6 @@ describe('bindings that carry approval authority', () => {
   });
 
   it('let each agent Worker bind only its own broker entrypoint (ADR 0018)', () => {
-    // Entrypoint → the one Worker (wrangler `name`) allowed to bind it. Mirrors CALLER_ENTRYPOINTS
-    // in workers/github-broker/src/callers.ts; the next assertion keeps the two in step.
-    const owner: Record<string, string> = {
-      PrGateBroker: 'custodes-pr-gate',
-      CheatsheetReviewBroker: 'custodes-cheatsheet-review',
-      TriageBroker: 'custodes-triage',
-    };
     const brokerSrc = readFileSync(new URL('github-broker/src/index.ts', WORKERS), 'utf8');
     const exported = [...brokerSrc.matchAll(/export class (\w+) extends WorkerEntrypoint/g)].map(
       (m) => m[1],
@@ -97,10 +101,32 @@ describe('bindings that carry approval authority', () => {
     expect(exported.sort()).toEqual([...Object.keys(owner), 'BrokerAdmin'].sort());
     for (const w of others) {
       const b = readWrangler(w);
-      for (const s of b.services?.filter((x) => x.service === BROKER) ?? []) {
-        if (s.entrypoint === undefined || s.entrypoint === 'BrokerAdmin') continue;
-        expect(owner[s.entrypoint], `${w} binds ${s.entrypoint}`).toBe(b.name);
+      const toBroker = b.services?.filter((x) => x.service === BROKER) ?? [];
+      // One broker binding per Worker: a second one would be a second identity.
+      expect(toBroker.length, w).toBeLessThanOrEqual(1);
+      for (const s of toBroker) {
+        if (s.entrypoint === 'BrokerAdmin') continue;
+        // The unsigned default entrypoint is only for the shared Worker, until every agent moved.
+        if (s.entrypoint === undefined)
+          expect(b.name, `${w} binds the default entrypoint`).toBe(SHARED);
+        else expect(owner[s.entrypoint], `${w} binds ${s.entrypoint}`).toBe(b.name);
       }
+    }
+  });
+
+  it('let no Worker reach an agent Worker directly (they share no binding)', () => {
+    const agentWorkers = new Set(Object.values(owner));
+    for (const w of workers) {
+      const b = readWrangler(w);
+      for (const s of b.services ?? [])
+        expect(agentWorkers.has(s.service) && s.service !== b.name, `${w} binds ${s.service}`).toBe(
+          false,
+        );
+      for (const d of b.durable_objects?.bindings ?? [])
+        expect(
+          d.script_name !== undefined && agentWorkers.has(d.script_name),
+          `${w} binds a Durable Object of ${d.script_name ?? ''}`,
+        ).toBe(false);
     }
   });
 });

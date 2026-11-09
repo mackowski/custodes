@@ -30,7 +30,8 @@ export const AgentPolicy = z
     labels: z.array(z.string().min(1).max(50)).min(1).optional(),
     /**
      * Moved to its own Worker (ADR 0018): the broker's default entrypoint refuses this agent, and
-     * only its caller entrypoint with a valid signature is accepted.
+     * only its caller entrypoint with a valid signature is accepted. `true` → `false` reopens the
+     * unsigned path: a widening that needs a linked ADR or issue (invariant 4).
      */
     isolated: z.boolean().default(false),
   })
@@ -59,7 +60,8 @@ export const ReadPolicy = z.object({
   resources: z.array(ReadResource).min(1),
   /**
    * Moved to its own Worker (ADR 0018): the broker's default entrypoint refuses this agent, and
-   * only its caller entrypoint with a valid signature is accepted.
+   * only its caller entrypoint with a valid signature is accepted. `true` → `false` is a widening
+   * (invariant 4).
    */
   isolated: z.boolean().default(false),
 });

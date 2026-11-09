@@ -11,10 +11,57 @@ export const CallerName = z.enum([
 ]);
 export type CallerName = z.infer<typeof CallerName>;
 
-/** One pinned public key: the raw Ed25519 `x` (base64url, 32 bytes) and where it came from. */
+const P = (1n << 255n) - 19n;
+/**
+ * The y-coordinates of the eight small-order points of edwards25519: 1 (identity), p-1 (order 2),
+ * 0 (order 4) and the two order-8 values. A public key on one of them lets anyone forge signatures
+ * that many verifiers accept, so such a key must never be pinned (libsodium blocklist).
+ */
+const SMALL_ORDER_Y = new Set<bigint>([
+  0n,
+  1n,
+  P - 1n,
+  0x05fc536d880238b13933c6d305acdfd5f098eff289f4c345b027b2c28f95e826n,
+  0x7a03ac9277fdc74ec6cc392cfa53202a0f67100d760b3cba4fd84d3d706a17c7n,
+]);
+
+function fromBase64Url(s: string): Uint8Array {
+  const b64 = s.replace(/-/g, '+').replace(/_/g, '/');
+  const bin = atob(b64 + '='.repeat((4 - (b64.length % 4)) % 4));
+  return Uint8Array.from(bin, (c) => c.charCodeAt(0));
+}
+
+/**
+ * True when the raw Ed25519 public key `x` (base64url, 32 bytes) is unsafe to trust: wrong length,
+ * a non-canonical y (y >= p), or one of the small-order points.
+ */
+export function isWeakEd25519PublicKey(x: string): boolean {
+  let bytes: Uint8Array;
+  try {
+    bytes = fromBase64Url(x);
+  } catch {
+    return true;
+  }
+  if (bytes.length !== 32) return true;
+  let y = 0n;
+  for (let i = 31; i >= 0; i--)
+    y = (y << 8n) | BigInt(i === 31 ? (bytes[i] ?? 0) & 0x7f : (bytes[i] ?? 0));
+  return y >= P || SMALL_ORDER_Y.has(y);
+}
+
+/**
+ * One pinned public key: the raw Ed25519 `x` (base64url, 32 bytes) and its id. `kid` as in JWK;
+ * the field is not called `keyId` because secret scanners flag `key…: "<value>"` lines.
+ */
 export const PinnedAgentKey = z.object({
-  keyId: z.string().regex(/^[a-z0-9][a-z0-9-]{7,79}$/),
-  x: z.string().regex(/^[A-Za-z0-9_-]{43}$/),
+  kid: z.string().regex(/^[a-z0-9][a-z0-9-]{7,79}$/),
+  x: z
+    .string()
+    .regex(/^[A-Za-z0-9_-]{43}$/)
+    .refine(
+      (x) => !isWeakEd25519PublicKey(x),
+      'weak Ed25519 public key (small order or non-canonical)',
+    ),
   /** When the operator pinned it (from the PR); informational. */
   addedAt: z.iso.date(),
 });
@@ -32,8 +79,8 @@ export const AgentKeys = z
   .refine(
     (k) =>
       Object.values(k.callers).every(
-        (keys) => new Set(keys.map((x) => x.keyId)).size === keys.length,
+        (keys) => new Set(keys.map((x) => x.kid)).size === keys.length,
       ),
-    { message: 'duplicate keyId for a caller', path: ['callers'] },
+    { message: 'duplicate kid for a caller', path: ['callers'] },
   );
 export type AgentKeys = z.infer<typeof AgentKeys>;

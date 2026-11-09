@@ -100,7 +100,7 @@ GitHub Actions (service token, read) ─► gateway /admin/keys (public keys) �
 
 1. **A malicious package update lands only in `custodes-cheatsheet-review`** (it is the only
    Worker that bundles it) and tries to close OWASP PRs as `pr-gate`. Its binding reaches only the
-   `CheatsheetReview` entrypoint, which refuses `agentId: pr-gate`, and its key is not pinned for
+   `CheatsheetReviewBroker` entrypoint, which refuses `agentId: pr-gate`, and its key is not pinned for
    `pr-gate`. It can act only as `cheatsheet-review`, and on OWASP every review still needs the
    operator's click.
 2. **The operator halts `pr-gate` after a wrong close; compromised code in `pr-gate`'s Worker
@@ -111,27 +111,34 @@ GitHub Actions (service token, read) ─► gateway /admin/keys (public keys) �
 4. **Rogue rotation.** A compromised gateway presses Rotate and returns its own public key to the
    workflow, which opens a pinning PR. If the operator merges it without comparing fingerprints,
    the gateway holds a pinned key for `pr-gate`, but it binds only `BrokerAdmin`, not the
-   `PrGate` entrypoint, so the key authorises nothing. The real agent keeps working on its old key
+   `PrGateBroker` entrypoint, so the key authorises nothing. The real agent keeps working on its old key
    until the operator notices the mismatch.
 5. **A sneaky config change.** A PR changes `custodes-triage`'s `wrangler.jsonc` to bind the
-   `PrGate` entrypoint. The CI binding test fails, and the broker policy change it would also need is
+   `PrGateBroker` entrypoint. The CI binding test fails, and the broker policy change it would also need is
    CODEOWNERS-reviewed.
 
 ## 6. Required changes before merge
 
 1. Per-agent broker entrypoints with fixed allowed ids, and a CI test over all `wrangler.jsonc`
    files (S1, abuse case 5).
-2. Signature over canonical JSON of body + path + audience + timestamp + nonce. Nonce table in D1
-   with expiry. Tests: missing, wrong key, another agent's key, stale, replayed, other path (S1–S3).
+2. Signature over audience + method + path + timestamp + nonce + SHA-256 of the exact body bytes.
+   Nonce table in D1, kept for twice the window plus a minute. Weak (small-order, non-canonical)
+   public keys refused by the schema and again at verification. Tests: missing, wrong key, another
+   agent's key, stale, replayed, other path, every small-order key (S1–S3). The query string and other
+   headers are not signed: no route reads them, and a route that does must extend the signature.
 3. **Remove the `KILL_SWITCH` binding from agent Workers.** `guard()` uses a signed broker call,
    and only the broker and gateway bind the KV (T1). This can ship first, in the current single
    Worker.
-4. `isolated: true` honoured on the default entrypoint for act, read and approvals, with tests (T2).
+4. `isolated: true` honoured on the default entrypoint for act, read, state and approvals, for both
+   `agents` and `reads` entries, with tests (T2). Refusals are logged (`broker.admit.refused`).
+   Turning `isolated` back to `false` is a widening (invariant 4).
 5. Audit record stores the agent signature and key id; `/verify` checks both signatures (R1).
 6. `keyholder` exposes only `sign`, `publicKey`, `rotate`, and canary tests cover key material (I1).
 7. Rotation keeps the old key valid until the new one is pinned (D1). Page and workflow show
    fingerprints (S4).
-8. Cutover runbook: halt, export `model_comparisons`, deploy (old crons and consumer removed),
+8. Cutover runbook: halt, reject the agent's pending approvals (they were created through the
+   shared Worker, where any code could have asked as this agent, and `isolated` is not checked when
+   an approval is decided), export `model_comparisons`, deploy (old crons and consumer removed),
    sandbox run, resume (T3, T4).
 
 ## Accepted risks
