@@ -25,3 +25,15 @@ resource "cloudflare_queue" "inbound_dlq" {
   account_id = var.account_id
   queue_name = "custodes-inbound-dlq"
 }
+
+# pr-gate in its own Worker (ADR 0018): the gateway sends it webhook wake-ups on its own queue,
+# consumed only by custodes-pr-gate (one consumer per queue).
+resource "cloudflare_queue" "inbound_pr_gate" {
+  account_id = var.account_id
+  queue_name = "custodes-inbound-pr-gate"
+}
+
+resource "cloudflare_queue" "inbound_pr_gate_dlq" {
+  account_id = var.account_id
+  queue_name = "custodes-inbound-pr-gate-dlq"
+}
