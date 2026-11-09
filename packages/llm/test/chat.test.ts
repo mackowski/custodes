@@ -139,11 +139,11 @@ describe('WorkersAiChat', () => {
     const run = vi.fn<AiRunner['run']>(() => Promise.resolve(completion()));
     const out = await new WorkersAiChat({ ai: { run }, gatewayId: 'gw' }).complete({
       ...req,
-      model: '@cf/deepseek-ai/deepseek-v4-pro-0813',
+      model: '@cf/deepseek-ai/deepseek-v4.1-flash-1017',
     });
     expect(out.text).toBe('{"ok":true}');
     const [model, inputs, options] = run.mock.calls[0]!;
-    expect(model).toBe('@cf/deepseek-ai/deepseek-v4-pro-0813');
+    expect(model).toBe('@cf/deepseek-ai/deepseek-v4.1-flash-1017');
     expect(inputs).toMatchObject({
       max_tokens: 500,
       response_format: { type: 'json_schema', json_schema: { type: 'object' } },
