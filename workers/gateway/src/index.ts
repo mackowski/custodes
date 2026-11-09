@@ -1,12 +1,6 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import {
-  type CallerIntent,
-  importPublicKey,
-  KillSwitch,
-  verifyAttestation,
-  verifyCallerIntent,
-} from '@custodes/core';
+import { importPublicKey, KillSwitch, verifyAttestation, verifyCallerIntent } from '@custodes/core';
 import { verifyGitHubWebhookSignature } from '@custodes/github';
 import {
   AgentId,
@@ -16,7 +10,7 @@ import {
   type AdminActor,
   type InboundEvent,
   type PublicKeyEntry,
-  AgentKeys,
+  PINNED_AGENT_KEYS,
   verificationKeys,
 } from '@custodes/schema';
 import { adminWriteAllowed, agentWriteAllowed, crossSiteWrite, verifyAccessJwt } from './access.js';
@@ -55,29 +49,30 @@ app.get('/verify/:id', async (c) => {
   const result = await verifyAttestation(att, await importPublicKey(key.jwk));
   if (!result.valid || !result.attestation)
     return c.json({ valid: false, reason: result.reason, attestation: result.attestation });
-  // The agent's own signature (ADR 0018): only records from a per-agent Worker carry one. A record
-  // whose agent signature does not check out is not valid, even if the broker signed it.
   const record = result.attestation.record;
-  let agentSignature: CallerIntent = { status: 'none' };
-  if (record.callerSignature !== undefined) {
-    const keysRes2 = await c.env.BROKER.fetch('https://broker.internal/v1/agent-keys');
-    if (!keysRes2.ok) return c.json({ error: 'broker unavailable' }, 502);
-    const agentKeys = AgentKeys.parse(await keysRes2.json());
-    agentSignature = await verifyCallerIntent(record, (caller) =>
-      verificationKeys(agentKeys, caller),
-    );
-  }
-  const valid = agentSignature.status !== 'invalid';
-  return c.json({
-    valid,
-    ...(valid
-      ? {}
-      : {
-          reason: `agent signature: ${agentSignature.status === 'invalid' ? agentSignature.reason : ''}`,
-        }),
-    agentSignature,
-    attestation: result.attestation,
-  });
+  // A row copied under another id (for example the one in a comment trailer) is not that record.
+  if (record.id !== id)
+    return c.json({
+      valid: false,
+      reason: 'record id does not match',
+      attestation: result.attestation,
+    });
+  /*
+   * The agent's own signature (ADR 0018, R1), checked against the keys committed in the repository
+   * and built into this Worker, never keys served by the broker. `none` proves nothing: records
+   * from the shared Worker and actions run on an operator's approval carry no agent signature.
+   */
+  const agentSignature = await verifyCallerIntent(record, (caller) =>
+    verificationKeys(PINNED_AGENT_KEYS, caller),
+  );
+  if (agentSignature.status === 'invalid')
+    return c.json({
+      valid: false,
+      reason: `agent signature: ${agentSignature.reason}`,
+      agentSignature,
+      attestation: result.attestation,
+    });
+  return c.json({ valid: true, agentSignature, attestation: result.attestation });
 });
 
 // ---------- GitHub webhooks (optional per repo; polling is the default) ----------

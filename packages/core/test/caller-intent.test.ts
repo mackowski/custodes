@@ -70,6 +70,38 @@ describe('agent signature in the audit record (ADR 0018, R1)', () => {
     });
   });
 
+  it('is invalid when unsigned record fields contradict what was signed', async () => {
+    const { priv, pinned } = await keyPair('pr-gate-20261109-a1b2c3d4');
+    const record = await signedRecord(priv, pinned.kid);
+    for (const forged of [
+      // Written long after the request: a real signature reused for a later record.
+      { ...record, ts: new Date(NOW + 60 * 60_000).toISOString() },
+      // A GitHub URL outside the repository the agent named.
+      { ...record, githubUrl: 'https://github.com/OWASP/CheatSheetSeries/pull/7' },
+    ])
+      expect(await verifyCallerIntent(forged, () => [pinned])).toEqual({
+        status: 'invalid',
+        reason: 'inconsistent',
+      });
+    const sandboxUrl = {
+      ...record,
+      githubUrl: 'https://github.com/mackowski/custodes-sandbox/pull/7',
+    };
+    expect((await verifyCallerIntent(sandboxUrl, () => [pinned])).status).toBe('valid');
+  });
+
+  it('is invalid for an agent id the signing Worker does not host', async () => {
+    const { priv, pinned } = await keyPair('pr-gate-20261109-a1b2c3d4');
+    const record = await signedRecord(priv, pinned.kid, {
+      ...request,
+      agentId: 'cheatsheet-review',
+    });
+    expect(await verifyCallerIntent(record, () => [pinned])).toEqual({
+      status: 'invalid',
+      reason: 'inconsistent',
+    });
+  });
+
   it("is invalid with another Worker's key, or a key that is not pinned", async () => {
     const mine = await keyPair('pr-gate-20261109-a1b2c3d4');
     const theirs = await keyPair('pr-gate-20261109-a1b2c3d4');

@@ -55,10 +55,12 @@ have each agent sign its own requests with a key only its Worker holds.
 - **Countersignature.** The broker keeps signing its audit record with its own `Keyring` key. The
   record now carries both signatures: the agent's (intent) and the broker's (execution under the
   policy). `/verify` and the CLI check both, and comment trailers are unchanged.
-- **Pinning.** Public keys live in `workers/github-broker/policy/agent-keys.json`. The file is
+- **Pinning.** Public keys live in `packages/schema/src/agent-keys.json`. The broker and the
+  gateway build it in, so `/verify` does not depend on the broker's word. The file is
   validated by a schema and changed only by a reviewed pull request. Rotating a key does not widen
   authority, so invariant 4 (ADR or issue for policy widening) does not apply to it. Up to two keys
-  per agent may be pinned during a rotation.
+  per agent may be pinned during a rotation. A rotated key moves to `retired`, which only `/verify`
+  reads; a compromised key is deleted instead.
 - **Rotation and loss, without the CLI.**
   - An Access-protected page `/admin/keys` shows each agent's active and pinned key fingerprints and
     has a Rotate button. Only approvers can use it, through a POST with the same CSRF guard as
@@ -127,8 +129,15 @@ have each agent sign its own requests with a key only its Worker holds.
   The gateway remains the only holder of `BrokerAdmin` (#104).
 - **Replay.** Signed requests carry a timestamp and a nonce. The broker refuses repeats within the
   window and anything outside it.
-- **Auditability.** Each audit record carries the agent's signature and the broker's. Neither party
-  can claim an action alone: the broker cannot forge the agent's intent, and the agent cannot
-  forge the broker's execution.
+- **Auditability.** A record from a per-agent Worker carries the agent's signature over the
+  canonical JSON of its request, and the broker's countersignature over the whole record. `/verify`
+  checks the agent signature against the keys committed in the repository (built into the gateway,
+  never served by the broker), rebuilds the request from the record and compares the hash, and checks
+  the unsigned fields for consistency (time, hosted agent id, GitHub URL inside the named repository).
+  So a broker cannot attach an agent's signature to an action the agent did not send. What the agent
+  signature does not cover is broker-asserted: the decision, the reason, and whether a signed request
+  was executed more than once. Records from the shared Worker and actions run on an operator's approval
+  have no agent signature (`none`), which proves nothing either way; signing approval requests is a
+  follow-up.
 - **Secrets.** Agent private keys are generated inside the agent's Worker and never written to a
   file, CI or the repository. Only public keys are committed.

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import raw from './agent-keys.json';
 
 /**
  * The agent Workers that call the broker (ADR 0018). Each one binds its own broker entrypoint and
@@ -10,6 +11,16 @@ export const CallerName = z.enum([
   'custodes-triage',
 ]);
 export type CallerName = z.infer<typeof CallerName>;
+
+/**
+ * Which agent ids each agent Worker may act as (ADR 0018). The broker admits only these on the
+ * Worker's entrypoint, and /verify refuses an agent signature for any other agent id.
+ */
+export const CALLER_AGENTS: Readonly<Record<CallerName, readonly string[]>> = {
+  'custodes-pr-gate': ['pr-gate'],
+  'custodes-cheatsheet-review': ['cheatsheet-review'],
+  'custodes-triage': ['triage', 'implementation-check', 'proposal-review'],
+};
 
 const P = (1n << 255n) - 19n;
 /**
@@ -68,7 +79,7 @@ export const PinnedAgentKey = z.object({
 export type PinnedAgentKey = z.infer<typeof PinnedAgentKey>;
 
 /**
- * `workers/github-broker/policy/agent-keys.json`. Changed only by a reviewed pull request. At most
+ * `packages/schema/src/agent-keys.json`. Changed only by a reviewed pull request. At most
  * two keys per caller: the current one and, during a rotation, the next one.
  */
 export const AgentKeys = z
@@ -77,16 +88,20 @@ export const AgentKeys = z
     callers: z.partialRecord(CallerName, z.array(PinnedAgentKey).max(2)),
     /**
      * Keys rotated out: never accepted for new requests, kept so `/verify` can still check the
-     * agent signatures in older audit records. Move a key here instead of deleting it.
+     * agent signatures in older audit records. A rotated key moves here; a compromised key is
+     * deleted instead, or it would keep vouching for forged records.
      */
     retired: z.partialRecord(CallerName, z.array(PinnedAgentKey)).default({}),
   })
   .refine(
-    (k) =>
-      Object.values(k.callers).every(
-        (keys) => new Set(keys.map((x) => x.kid)).size === keys.length,
-      ),
-    { message: 'duplicate kid for a caller', path: ['callers'] },
+    (k) => {
+      // Unique across active and retired: a repeated kid would make old records unverifiable.
+      const kids = [...Object.values(k.callers), ...Object.values(k.retired)]
+        .flat()
+        .map((x) => x.kid);
+      return new Set(kids).size === kids.length;
+    },
+    { message: 'duplicate kid', path: ['callers'] },
   );
 export type AgentKeys = z.infer<typeof AgentKeys>;
 
@@ -94,3 +109,9 @@ export type AgentKeys = z.infer<typeof AgentKeys>;
 export function verificationKeys(keys: AgentKeys, caller: CallerName): PinnedAgentKey[] {
   return [...(keys.callers[caller] ?? []), ...(keys.retired[caller] ?? [])];
 }
+
+/**
+ * The committed pinned keys, parsed once. The broker authenticates with them, and the gateway's
+ * /verify uses this build-time copy, never keys served by the broker (which R1 does not trust).
+ */
+export const PINNED_AGENT_KEYS: AgentKeys = AgentKeys.parse(raw);

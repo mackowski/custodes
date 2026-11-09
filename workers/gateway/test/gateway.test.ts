@@ -1,7 +1,13 @@
 import { env } from 'cloudflare:workers';
 import { describe, expect, it } from 'vitest';
 import worker from '../src/index.js';
-import type { ApprovalRequest } from '@custodes/schema';
+import type { ApprovalRequest, AuditRecord } from '@custodes/schema';
+import {
+  buildAuditRecord,
+  generateAgentKeyPair,
+  importPrivateKey,
+  signAuditRecord,
+} from '@custodes/core';
 import { adminWriteAllowed, agentWriteAllowed } from '../src/access.js';
 import { approvalPage, isApprover, PAGE_HEADERS, resultPage } from '../src/approval-page.js';
 import type { GatewayEnv } from '../src/env.js';
@@ -343,5 +349,94 @@ describe('approval links (ADR 0017 amendment)', () => {
       },
     } as unknown as ForwardableEmailMessage);
     expect(rejected).toContain('link');
+  });
+});
+
+describe('public /verify (ADR 0018, R1)', () => {
+  const ID = '9d7c1e9e-2b1a-4b6e-9a2e-1f7d1c2b3a44';
+
+  /** A broker double that serves one attestation and its key, on the admin binding's paths. */
+  async function brokerWith(mutate: (r: AuditRecord) => AuditRecord = (r) => r) {
+    const { publicJwk, privateJwk } = await generateAgentKeyPair();
+    const record = mutate(
+      await buildAuditRecord({
+        id: ID,
+        request: {
+          agentId: 'cheatsheet-review',
+          agentVersion: '0.1.0',
+          runId: ID,
+          triggeredBy: { kind: 'schedule' },
+          action: {
+            type: 'issue.comment',
+            repo: 'mackowski/custodes-sandbox',
+            issue: 1,
+            body: 'x',
+          },
+        },
+        decision: 'allowed',
+      }),
+    );
+    const att = await signAuditRecord(record, await importPrivateKey(privateJwk), 'broker-k1');
+    const keys = [
+      { keyId: 'broker-k1', agentId: 'cheatsheet-review', jwk: publicJwk, createdAt: record.ts },
+    ];
+    return {
+      fetch: (url: string) =>
+        Promise.resolve(
+          url.endsWith('/v1/keys')
+            ? Response.json(keys)
+            : url.endsWith(`/v1/attestations/${ID}`)
+              ? Response.json(att)
+              : new Response('not found', { status: 404 }),
+        ),
+    } as unknown as Fetcher;
+  }
+  const verify = async (broker: Fetcher, id = ID) =>
+    (
+      await worker.fetch(
+        new Request(`https://x/verify/${id}`),
+        { ...testEnv(), BROKER: broker },
+        ctx,
+      )
+    ).json<{
+      valid: boolean;
+      reason?: string;
+      agentSignature?: { status: string };
+    }>();
+
+  it('is valid for a broker-signed record with no agent signature, and says so', async () => {
+    expect(await verify(await brokerWith())).toMatchObject({
+      valid: true,
+      agentSignature: { status: 'none' },
+    });
+  });
+
+  it('is invalid when the stored row is a copy of another record (id mismatch)', async () => {
+    const other = '0b6b8a4e-6a9c-4f7e-8d2a-3c1b5e7f9a10';
+    const broker = await brokerWith((r) => ({ ...r, id: other }));
+    expect(await verify(broker)).toMatchObject({
+      valid: false,
+      reason: 'record id does not match',
+    });
+  });
+
+  it('is invalid when the record claims an agent signature by a key that is not committed', async () => {
+    const broker = await brokerWith((r) => ({
+      ...r,
+      callerSignature: {
+        caller: 'custodes-cheatsheet-review',
+        kid: 'cheatsheet-review-20261109-a1b2c3d4',
+        signature: 'A'.repeat(86),
+        timestamp: String(Date.parse(r.ts)),
+        nonce: ID,
+        method: 'POST',
+        path: '/v1/act',
+        bodySha256: '0'.repeat(64),
+      },
+    }));
+    expect(await verify(broker)).toMatchObject({
+      valid: false,
+      reason: 'agent signature: unknown_key',
+    });
   });
 });

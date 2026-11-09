@@ -1,12 +1,13 @@
-import type {
-  AuditDecision,
-  AuditRecord,
-  BrokerRequest,
-  CallerSignature,
-  PinnedAgentKey,
+import {
+  CALLER_AGENTS,
+  type AuditDecision,
+  type AuditRecord,
+  type BrokerRequest,
+  type CallerSignature,
+  type PinnedAgentKey,
 } from '@custodes/schema';
 import { canonicalJson, sha256Hex } from './canonical.js';
-import { verifyRecordedCallerSignature } from './request-signature.js';
+import { SIGNATURE_WINDOW_MS, verifyRecordedCallerSignature } from './request-signature.js';
 
 export interface AuditInput {
   request: BrokerRequest;
@@ -57,7 +58,10 @@ export function signedRequestOf(record: AuditRecord): BrokerRequest {
 export type CallerIntent =
   | { status: 'none' }
   | { status: 'valid'; caller: CallerSignature['caller']; kid: string }
-  | { status: 'invalid'; reason: 'unknown_key' | 'bad_signature' | 'body_mismatch' };
+  | {
+      status: 'invalid';
+      reason: 'unknown_key' | 'bad_signature' | 'body_mismatch' | 'inconsistent';
+    };
 
 /**
  * Checks the agent's own signature in an audit record (ADR 0018): that the pinned key of that
@@ -76,5 +80,17 @@ export async function verifyCallerIntent(
     return { status: 'invalid', reason: 'bad_signature' };
   if ((await sha256Hex(canonicalJson(signedRequestOf(record)))) !== sig.bodySha256)
     return { status: 'invalid', reason: 'body_mismatch' };
+  // Fields the agent did not sign, checked for consistency with what it did sign: the record is
+  // written right after the request is admitted, for an agent that Worker hosts, and a GitHub URL
+  // can only point into the repository the action named.
+  if (Math.abs(Date.parse(record.ts) - Number(sig.timestamp)) > SIGNATURE_WINDOW_MS)
+    return { status: 'invalid', reason: 'inconsistent' };
+  if (!CALLER_AGENTS[sig.caller].includes(record.agentId))
+    return { status: 'invalid', reason: 'inconsistent' };
+  if (
+    record.githubUrl !== undefined &&
+    !record.githubUrl.startsWith(`https://github.com/${record.action.repo}/`)
+  )
+    return { status: 'invalid', reason: 'inconsistent' };
   return { status: 'valid', caller: sig.caller, kid: sig.kid };
 }

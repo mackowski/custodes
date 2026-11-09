@@ -59,4 +59,14 @@ describe('agent-keys.json schema (ADR 0018)', () => {
         false,
       );
   });
+
+  it('refuses a kid that is both active and retired (old records would stop verifying)', () => {
+    expect(
+      AgentKeys.safeParse({
+        version: 1,
+        callers: { 'custodes-pr-gate': [key('pr-gate-20261109-a1b2c3d4')] },
+        retired: { 'custodes-pr-gate': [key('pr-gate-20261109-a1b2c3d4')] },
+      }).success,
+    ).toBe(false);
+  });
 });

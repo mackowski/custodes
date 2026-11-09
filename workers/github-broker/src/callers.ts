@@ -1,22 +1,18 @@
 import { SIGNATURE_WINDOW_MS, verifyRequestSignature } from '@custodes/core';
-import { AgentKeys, type CallerName, type Policy } from '@custodes/schema';
-import raw from '../policy/agent-keys.json';
+import {
+  type AgentKeys,
+  CALLER_AGENTS,
+  type CallerName,
+  PINNED_AGENT_KEYS,
+  type Policy,
+} from '@custodes/schema';
 import type { BrokerEnv } from './env.js';
 import { policy } from './policy.js';
 import { NonceStore } from './store.js';
 
-/** Parsed once per isolate; a malformed file fails the Worker fast. */
-export const agentKeys: AgentKeys = AgentKeys.parse(raw);
-
-/**
- * Which agent ids each agent Worker may act as (ADR 0018). Fixed in code, next to the entrypoint
- * that only that Worker binds, so neither a request field nor a config value can widen it.
- */
-export const CALLER_AGENTS: Readonly<Record<CallerName, readonly string[]>> = {
-  'custodes-pr-gate': ['pr-gate'],
-  'custodes-cheatsheet-review': ['cheatsheet-review'],
-  'custodes-triage': ['triage', 'implementation-check', 'proposal-review'],
-};
+/** The committed pinned keys (packages/schema/src/agent-keys.json); a malformed file fails fast. */
+export const agentKeys: AgentKeys = PINNED_AGENT_KEYS;
+export { CALLER_AGENTS };
 
 /** Broker entrypoint class name → the one agent Worker allowed to bind it. */
 export const CALLER_ENTRYPOINTS = {

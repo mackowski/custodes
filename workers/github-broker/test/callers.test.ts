@@ -168,6 +168,37 @@ describe('agent signature in the audit record (ADR 0018, R1)', () => {
     });
   });
 
+  it('refuses a nonce the audit log could not read back, before any side effect', async () => {
+    const body = canonicalJson(request);
+    // Valid hex shape (the signature check accepts it) but not an RFC 4122 UUID (the record needs one).
+    const nonce = '11111111-1111-1111-1111-111111111111';
+    const headers = await signRequest(
+      priv,
+      KID,
+      { method: 'POST', path: '/v1/act', body },
+      Date.now(),
+      nonce,
+    );
+    const res = await callerApp('custodes-pr-gate', keys).request(
+      '/v1/act',
+      { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body },
+      env,
+    );
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ reason: 'signature fields' });
+  });
+
+  it('refuses an encoded path even though the router would map it to /v1/act', async () => {
+    const body = canonicalJson(request);
+    const headers = await signRequest(priv, KID, { method: 'POST', path: '/v1/%61ct', body });
+    const res = await callerApp('custodes-pr-gate', keys).request(
+      '/v1/%61ct',
+      { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body },
+      env,
+    );
+    expect(res.status).toBe(404);
+  });
+
   it('refuses a signed body that is not the canonical JSON of the request', async () => {
     const res = await send(JSON.stringify(request, null, 2));
     expect(res.status).toBe(400);

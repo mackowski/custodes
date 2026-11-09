@@ -1,6 +1,0 @@
-{
-  "$comment": "Public keys of the agent Workers (ADR 0018), pinned per caller. Each Worker's keyholder Durable Object generates its own Ed25519 key; only the public half is committed here, by a reviewed pull request (the rotation workflow opens it). At most two keys per caller, during a rotation. Empty until the first agent moves to its own Worker.",
-  "version": 1,
-  "callers": {},
-  "retired": {}
-}

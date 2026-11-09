@@ -8,7 +8,7 @@ import {
   BrokerReadRequest,
   BrokerRequest,
   type CallerName,
-  type CallerSignature,
+  CallerSignature,
   type Policy,
 } from '@custodes/schema';
 import { act } from './act.js';
@@ -59,7 +59,7 @@ const CreateApproval = z.object({
 });
 
 /** The routes agents use, behind `admit`. Shared by the default and the per-Worker entrypoints. */
-function agentRoutes(app: App, admitAgent: Admit, entrypoint: string): App {
+function agentRoutes(app: App, admitAgent: Admit, entrypoint: string, signed: boolean): App {
   /**
    * Logs every refusal: a signed request from one Worker naming another Worker's agent is the
    * clearest sign of the compromise ADR 0018 is about (threat S1). Ids only.
@@ -92,7 +92,10 @@ function agentRoutes(app: App, admitAgent: Admit, entrypoint: string): App {
       );
     }
     const call = c.get('call');
-    if (call === undefined) return c.json(await act(c.env, parsed.data));
+    if (!signed) return c.json(await act(c.env, parsed.data));
+    // Fail closed if a later change ever lets a request past the middleware unverified.
+    if (call === undefined)
+      return c.json({ ok: false, code: 'unauthenticated', reason: 'missing' }, 401);
     // Signed: the body must be the canonical JSON of the request, so the audit record (which holds
     // the parsed request) lets /verify recompute what the agent signed (ADR 0018, R1).
     if ((await sha256Hex(canonicalJson(parsed.data))) !== call.bodySha256)
@@ -100,12 +103,11 @@ function agentRoutes(app: App, admitAgent: Admit, entrypoint: string): App {
         { ok: false, code: 'invalid', reason: 'body must be the canonical JSON of the request' },
         400,
       );
-    const callerSignature: CallerSignature = {
-      ...call,
-      method: 'POST',
-      path: '/v1/act',
-    };
-    return c.json(await act(c.env, parsed.data, new Date(), callerSignature));
+    // Parsed before any side effect: a record the audit log cannot read back would hide the action.
+    const callerSignature = CallerSignature.safeParse({ ...call, method: 'POST', path: '/v1/act' });
+    if (!callerSignature.success)
+      return c.json({ ok: false, code: 'invalid', reason: 'signature fields' }, 400);
+    return c.json(await act(c.env, parsed.data, new Date(), callerSignature.data));
   });
 
   /** GET-only, allow-listed GitHub reads for agents (ADR 0009). */
@@ -156,15 +158,21 @@ export function sharedAgentApp(p: Policy = policy): App {
     (id) =>
       isIsolated(id, p) ? `agent ${id} runs in its own Worker; use its broker entrypoint` : null,
     'default',
+    false,
   );
 }
 export const agentApp: App = sharedAgentApp();
 
 // ---------- Per-agent Workers (ADR 0018) ----------
+const SIGNED_PATHS = new Set(['/v1/act', '/v1/read', '/v1/state', '/v1/approvals']);
 /** The routes for one agent Worker: signature first, then only the agent ids it hosts. */
 export function callerApp(caller: CallerName, keys: AgentKeys = agentKeys): App {
   const app: App = new Hono();
   app.use('*', async (c, next) => {
+    // Only the literal paths: Hono would also route `/v1/%61ct` to `/v1/act`, and the audit record
+    // stores the literal path, so an encoded one would make an honest record look forged.
+    if (c.req.method !== 'POST' || !SIGNED_PATHS.has(new URL(c.req.url).pathname))
+      return c.json({ ok: false, code: 'invalid', reason: 'unknown route' }, 404);
     // The exact bytes sent are what was signed; Hono keeps them for the handlers' json().
     const body = await c.req.text();
     const auth = await authenticateCaller(c.env, caller, c.req.raw, body, keys);
@@ -177,6 +185,7 @@ export function callerApp(caller: CallerName, keys: AgentKeys = agentKeys): App 
     app,
     (id) => (hosted.includes(id) ? null : `agent ${id} is not in ${caller}`),
     caller,
+    true,
   );
 }
 
@@ -265,9 +274,6 @@ adminApp.get('/v1/attestations', async (c) => {
     return c.json({ error: 'bad agent id' }, 400);
   return c.json(await new AuditStore(c.env.AUDIT).list(agent, limit));
 });
-
-/** The agent Workers' pinned public keys (agent-keys.json), for checking agent signatures. */
-adminApp.get('/v1/agent-keys', (c) => c.json(agentKeys));
 
 /** Public keys (active and retired) for verification. Private halves never leave the Keyring. */
 adminApp.get('/v1/keys', async (c) => c.json(await keyring(c.env).publicKeys()));
