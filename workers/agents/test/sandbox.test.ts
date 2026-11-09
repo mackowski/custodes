@@ -156,6 +156,9 @@ describe('on-demand routes', () => {
 describe('Keyholder surface (ADR 0018, threat I1)', () => {
   it('exposes exactly the documented methods over RPC, none of which returns key material', async () => {
     const { Keyholder } = await import('@custodes/core/keyholder');
+    const { DurableObject } = await import('cloudflare:workers');
+    // Nothing between it and the runtime base class could add reachable members.
+    expect(Object.getPrototypeOf(Keyholder.prototype)).toBe(DurableObject.prototype);
     // A plain method's descriptor has `value`; a getter's (reachable over RPC) does not.
     for (const name of Object.getOwnPropertyNames(Keyholder.prototype))
       expect(
@@ -171,6 +174,8 @@ describe('Keyholder surface (ADR 0018, threat I1)', () => {
 describe('KeyAdmin surface (ADR 0018)', () => {
   it('offers the gateway public keys and Rotate only', async () => {
     const { KeyAdmin } = await import('@custodes/core/keyholder');
+    const { WorkerEntrypoint } = await import('cloudflare:workers');
+    expect(Object.getPrototypeOf(KeyAdmin.prototype)).toBe(WorkerEntrypoint.prototype);
     // Every own property of the prototype is reachable over RPC, getters included.
     for (const name of Object.getOwnPropertyNames(KeyAdmin.prototype)) {
       const d = Object.getOwnPropertyDescriptor(KeyAdmin.prototype, name) ?? {};

@@ -60,6 +60,18 @@ describe('agent-keys.json schema (ADR 0018)', () => {
       );
   });
 
+  it('refuses the same public key under two callers (one Worker could sign as the other)', () => {
+    expect(
+      AgentKeys.safeParse({
+        version: 1,
+        callers: {
+          'custodes-pr-gate': [key('pr-gate-20261109-a1b2c3d4')],
+          'custodes-triage': [key('triage-20261109-a1b2c3d4')],
+        },
+      }).success,
+    ).toBe(false);
+  });
+
   it('refuses a kid that is both active and retired (old records would stop verifying)', () => {
     expect(
       AgentKeys.safeParse({

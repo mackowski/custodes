@@ -102,6 +102,14 @@ export const AgentKeys = z
       return new Set(kids).size === kids.length;
     },
     { message: 'duplicate kid', path: ['callers'] },
+  )
+  .refine(
+    (k) => {
+      // One public key, one Worker: the same key under two callers lets one sign as the other.
+      const xs = [...Object.values(k.callers), ...Object.values(k.retired)].flat().map((x) => x.x);
+      return new Set(xs).size === xs.length;
+    },
+    { message: 'the same public key is pinned twice', path: ['callers'] },
   );
 export type AgentKeys = z.infer<typeof AgentKeys>;
 

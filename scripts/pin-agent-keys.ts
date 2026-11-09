@@ -51,8 +51,14 @@ const file = JSON.parse(readFileSync(path, 'utf8')) as KeysFile;
 const today = new Date().toISOString().slice(0, 10);
 const changes: string[] = [];
 
+const seenCallers = new Set<string>();
 for (const row of rows) {
   if (!CALLER.test(row.caller)) throw new Error('unexpected caller name in the gateway answer');
+  // One row per caller: a repeated row would let a second pass treat the first one's pins as
+  // "pinned before this run" and retire the old key in the same change.
+  if (seenCallers.has(row.caller))
+    throw new Error(`${row.caller} appears twice in the gateway answer`);
+  seenCallers.add(row.caller);
   if (!row.bound || row.error) continue;
   // As read from the file, before this run: what the repository already vouches for.
   const pinnedBefore = file.callers[row.caller] ?? [];
@@ -69,6 +75,17 @@ for (const row of rows) {
       throw new Error(
         `${row.caller}: pinned ${k.kid} differs from the held key; investigate, do not pin`,
       );
+    if (
+      !known &&
+      [...Object.values(file.callers), ...Object.values(file.retired)]
+        .flat()
+        .some((p) => p?.x === k.x)
+    )
+      throw new Error(
+        `${row.caller}: ${k.kid} has a public key already pinned for another kid; refusing`,
+      );
+    if (known && retired.some((p) => p.kid === k.kid))
+      console.error(`${row.caller}: ${k.kid} is held but retired; the broker refuses it (rotate)`);
     if (!known) {
       active.push({ kid: k.kid, x: k.x, addedAt: today });
       changes.push(`pin ${row.caller} ${k.state} ${k.kid} x=${k.x}`);

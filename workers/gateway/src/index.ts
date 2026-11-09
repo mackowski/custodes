@@ -259,7 +259,13 @@ admin.post('/agent-keys/:caller/rotate', async (c) => {
     next = await admin.rotate();
   } catch {
     // No error text: it comes from another Worker.
-    console.error(JSON.stringify({ event: 'admin.agent_keys.rotate_failed', caller: caller.data }));
+    console.error(
+      JSON.stringify({
+        event: 'admin.agent_keys.rotate_failed',
+        caller: caller.data,
+        by: actor.subject,
+      }),
+    );
     return c.json({ error: 'rotate failed' }, 502);
   }
   console.log(
