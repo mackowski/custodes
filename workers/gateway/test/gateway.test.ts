@@ -516,7 +516,12 @@ describe('agent Worker keys page (ADR 0018)', () => {
   it('escapes everything a Worker reports and hides its errors', async () => {
     const env = {
       KEYS_PR_GATE: admin([
-        { kid: '<script>x</script>', x: '"><img>', state: 'active', createdAt: '<b>' },
+        {
+          kid: '<ScRiPt>x</script >',
+          x: '"><IMG SRC=x onerror=1>',
+          state: 'active',
+          createdAt: '<b>',
+        },
       ]),
       KEYS_TRIAGE: {
         publicKeys: () => Promise.reject(new Error('<secret detail>')),
@@ -524,7 +529,10 @@ describe('agent Worker keys page (ADR 0018)', () => {
       },
     };
     const html = agentKeysPage(await listAgentKeys(env, pinned));
-    expect(html).not.toMatch(/<script>|<img>|<b>/);
+    // No tag from the Worker's data survives, in any case or with attributes; it is all escaped.
+    expect(html).not.toMatch(/<\s*\/?\s*(script|img|b)\b/i);
+    expect(html).toContain('&lt;ScRiPt&gt;');
+    expect(html).toContain('&lt;IMG SRC=x onerror=1&gt;');
     expect(html).not.toContain('secret detail');
   });
 
