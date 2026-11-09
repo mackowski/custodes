@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { PinnedAgentKey } from '@custodes/schema';
-import { KeyStore, newKid, type AcceptanceProbe, type KeyStorage } from '../src/key-store.js';
+import {
+  KeyStore,
+  newKid,
+  NEXT_KEY_PROBE_INTERVAL_MS,
+  type AcceptanceProbe,
+  type KeyStorage,
+} from '../src/key-store.js';
 import { verifyRequestSignature } from '../src/request-signature.js';
 import { signingBroker } from '../src/signed-broker.js';
 import { canonicalJson } from '../src/canonical.js';
@@ -33,8 +39,12 @@ const newStore = (storage: KeyStorage) => new KeyStore(storage, CALLER, () => NO
 /** A broker double for the activation probe that accepts exactly the pinned kids. */
 const acceptsOnly =
   (pinned: () => PinnedAgentKey[]): AcceptanceProbe =>
-  async (sign) =>
-    (await verifyRequestSignature(pinned(), new Headers(await sign(part)), part, NOW.getTime())).ok;
+  async (sign) => {
+    const headers = new Headers(await sign(part));
+    // The broker's clock is the signer's here: verify at the time the request was signed.
+    const at = Number(headers.get('x-custodes-timestamp'));
+    return (await verifyRequestSignature(pinned(), headers, part, at)).ok;
+  };
 
 describe('Keyholder key store (ADR 0018)', () => {
   it('creates a key on first use and signs requests the broker accepts with its public key', async () => {
@@ -85,7 +95,8 @@ describe('Keyholder key store (ADR 0018)', () => {
 
   it('rotates without downtime: switches to the next key only once the broker accepts it', async () => {
     const storage = memStorage();
-    const store = newStore(storage);
+    let t = NOW.getTime();
+    const store = new KeyStore(storage, CALLER, () => new Date(t));
     await store.signRequest(part);
     const [old] = await store.publicKeys();
     const next = await store.rotate();
@@ -96,8 +107,12 @@ describe('Keyholder key store (ADR 0018)', () => {
     expect(await store.activateNextIfAccepted(probe)).toBe(false);
     expect((await store.signRequest(part))['x-custodes-key-id']).toBe(old?.kid);
 
-    // Pinned next to the old one (the rotation PR): switches, old private key gone.
+    // Pinned next to the old one (the rotation PR), but probes are throttled: not offered again yet.
     pinned = [pinnedOf(old!), pinnedOf(next)];
+    t += 60_000;
+    expect(await store.activateNextIfAccepted(probe)).toBe(false);
+    // After the interval it is offered again and switches; the old private key is gone.
+    t += NEXT_KEY_PROBE_INTERVAL_MS;
     expect(await store.activateNextIfAccepted(probe)).toBe(true);
     expect(await store.publicKeys()).toEqual([{ ...next, state: 'active' }]);
     expect((await store.signRequest(part))['x-custodes-key-id']).toBe(next.kid);

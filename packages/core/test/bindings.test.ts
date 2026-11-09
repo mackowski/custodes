@@ -117,6 +117,18 @@ describe('bindings that carry approval authority', () => {
     }
   });
 
+  it('give a Worker with a Keyholder only a signed broker entrypoint (its key probe needs one)', () => {
+    for (const w of workers) {
+      const b = readWrangler(w);
+      if (!(b.durable_objects?.bindings ?? []).some((d) => d.class_name === 'Keyholder')) continue;
+      const toBroker = b.services?.filter((x) => x.service === BROKER) ?? [];
+      expect(toBroker.length, w).toBe(1);
+      expect(owner[toBroker[0]?.entrypoint ?? ''], `${w} must bind its own signed entrypoint`).toBe(
+        b.name,
+      );
+    }
+  });
+
   it('let no Worker reach an agent Worker directly (they share no binding)', () => {
     // The shared Worker counts too: binding it would reach the unmigrated agents without Access.
     const agentWorkers = new Set([...Object.values(owner), SHARED]);

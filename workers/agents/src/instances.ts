@@ -72,9 +72,13 @@ const UNBOUND: Readonly<Record<string, readonly string[]>> = { 'hello-agent': ['
  * (not agent routes, or malformed) are left to the SDK router, which answers 404 for them.
  */
 export function allowedAgentPath(pathname: string): boolean {
-  const m = /^\/agents\/([^/]+)\/([^/]+)/.exec(pathname);
-  if (!m) return true;
-  const [, cls = '', rawInstance = ''] = m;
+  // Split exactly as the Agents SDK router does (empty segments dropped), so `/agents//x/y` cannot
+  // reach a binding this check never looked at.
+  const parts = pathname.split('/').filter(Boolean);
+  if (parts[0] !== 'agents') return true;
+  // Fewer than class + instance: the SDK router does not route it either.
+  if (parts.length < 3) return true;
+  const [, cls = '', rawInstance = ''] = parts;
   // The SDK router would reach any Durable Object binding by its kebab-cased name, including a
   // Worker's Keyholder (ADR 0018): only agent classes are routable.
   if (!AGENT_CLASSES.has(cls)) return false;

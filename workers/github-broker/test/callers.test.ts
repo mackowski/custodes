@@ -4,6 +4,7 @@ import {
   canonicalJson,
   KeyStore,
   type KeyStorage,
+  NEXT_KEY_PROBE_INTERVAL_MS,
   signingBroker,
   signRequest,
   verifyCallerIntent,
@@ -276,7 +277,13 @@ describe('agent side to broker, end to end (ADR 0018)', () => {
   });
 
   it('rotates without downtime: old key works throughout, next key takes over once pinned', async () => {
-    const keyholder = new KeyStore(memStorage(), 'custodes-pr-gate');
+    // Real time for signatures; the probe throttle is passed by moving `skew` past its interval.
+    let skew = 0;
+    const keyholder = new KeyStore(
+      memStorage(),
+      'custodes-pr-gate',
+      () => new Date(Date.now() + skew),
+    );
     await keyholder.signRequest({ method: 'POST', path: '/x', body: '{}' });
     const [old] = await keyholder.publicKeys();
     let pinned = pin(old!);
@@ -299,7 +306,15 @@ describe('agent side to broker, end to end (ADR 0018)', () => {
     expect(await keyholder.activateNextIfAccepted(probe)).toBe(false); // next not pinned yet
     pinned = pin(old!, next); // the rotation PR pins both
     expect((await state(broker)).status).toBe(200);
-    expect(await keyholder.activateNextIfAccepted(probe)).toBe(true);
+    // Throttled right after the refused probe; offered again after the interval. The clock moves
+    // back afterwards so signatures stay inside the broker's window.
+    expect(await keyholder.activateNextIfAccepted(probe)).toBe(false);
+    skew = NEXT_KEY_PROBE_INTERVAL_MS + 1000;
+    const switched = keyholder.activateNextIfAccepted(async (sign) => {
+      skew = 0;
+      return probe(sign);
+    });
+    expect(await switched).toBe(true);
     expect((await state(broker)).status).toBe(200); // now signed with the next key
     pinned = pin(next); // the follow-up retires the old key
     expect((await state(broker)).status).toBe(200);

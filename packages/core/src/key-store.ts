@@ -9,8 +9,8 @@ import { signRequest, type SignedPart } from './request-signature.js';
  * method: callers get signatures and public keys, nothing else.
  *
  * Rotation keeps the agent working: `rotate()` creates a `next` key whose public half the operator
- * pins next to the active one; `activateNext()` (after the pin is merged) switches to it and deletes
- * the old private key. Only a lost key stops the agent, until a new one is pinned.
+ * pins next to the active one; `activateNextIfAccepted()` switches to it once the broker accepts it
+ * and deletes the old private key. Only a lost key stops the agent, until a new one is pinned.
  */
 
 interface StoredKey {
@@ -24,7 +24,12 @@ interface StoredKey {
 interface KeyState {
   active?: StoredKey;
   next?: StoredKey;
+  /** When the next key was last offered to the broker (ms): probes are throttled. */
+  nextProbedAt?: number;
 }
+
+/** How often a pending key is offered to the broker: each refusal is logged as `unknown_key`. */
+export const NEXT_KEY_PROBE_INTERVAL_MS = 10 * 60_000;
 
 export interface PublicKeyInfo {
   kid: string;
@@ -138,8 +143,15 @@ export class KeyStore {
    * removed from agent-keys.json, not only rotated out). Returns whether it switched.
    */
   async activateNextIfAccepted(probe: AcceptanceProbe): Promise<boolean> {
-    const { next } = await this.state();
+    const { next, nextProbedAt } = await this.state();
     if (!next) return false;
+    const now = this.now().getTime();
+    if (nextProbedAt !== undefined && now - nextProbedAt < NEXT_KEY_PROBE_INTERVAL_MS) return false;
+    await this.serialize(async () => {
+      const state = await this.state();
+      if (state.next?.kid === next.kid)
+        await this.storage.put(STATE_KEY, { ...state, nextProbedAt: now });
+    });
     if (!(await probe((part) => this.sign(next, part)))) return false;
     return this.serialize(async () => {
       const state = await this.state();

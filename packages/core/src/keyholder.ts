@@ -1,6 +1,6 @@
 import { DurableObject } from 'cloudflare:workers';
 import { KeyStore, type PublicKeyInfo } from './key-store.js';
-import { CallerName } from '@custodes/schema';
+import { CALLER_AGENTS, CallerName } from '@custodes/schema';
 import { canonicalJson } from './canonical.js';
 import type { SignedPart } from './request-signature.js';
 
@@ -18,12 +18,6 @@ export type { PublicKeyInfo } from './key-store.js';
  * can sign as it. No method returns the private key; the methods are exactly signRequest,
  * publicKeys, rotate and activateNextIfAccepted (pinned by a test).
  */
-/** Any agent the Worker hosts works for the probe: `/v1/state` only reads. */
-const AGENT_FOR_PROBE: Readonly<Record<CallerName, string>> = {
-  'custodes-pr-gate': 'pr-gate',
-  'custodes-cheatsheet-review': 'cheatsheet-review',
-  'custodes-triage': 'triage',
-};
 
 /** The Durable Object each agent Worker exports and binds as `KEYHOLDER`. */
 export class Keyholder extends DurableObject<KeyholderEnv> {
@@ -52,7 +46,7 @@ export class Keyholder extends DurableObject<KeyholderEnv> {
   activateNextIfAccepted(): Promise<boolean> {
     return this.keys.activateNextIfAccepted(async (sign) => {
       const body = canonicalJson({
-        agentId: AGENT_FOR_PROBE[CallerName.parse(this.env.CALLER_NAME)],
+        agentId: CALLER_AGENTS[CallerName.parse(this.env.CALLER_NAME)][0],
       });
       const headers = await sign({ method: 'POST', path: '/v1/state', body });
       const res = await this.env.BROKER.fetch('https://broker.internal/v1/state', {

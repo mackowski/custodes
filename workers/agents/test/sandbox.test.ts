@@ -122,9 +122,14 @@ describe('on-demand routes', () => {
     expect(allowedAgentPath(`/agents/keyholder/${OWASP_INSTANCE}`)).toBe(false);
     expect(allowedAgentPath('/agents/keyholder/default')).toBe(false);
     expect(allowedAgentPath(`/agents/not-an-agent/${OWASP_INSTANCE}`)).toBe(false);
+    // Empty segments are dropped by the SDK router, so they must not skip the check.
+    expect(allowedAgentPath('/agents//keyholder/default')).toBe(false);
+    expect(allowedAgentPath('/agents/keyholder//default')).toBe(false);
+    expect(allowedAgentPath('/agents//pr-gate-agent/evil')).toBe(false);
+    expect(allowedAgentPath(`/agents//pr-gate-agent/${SANDBOX_INSTANCE}`)).toBe(true);
   });
 
-  it('lists every Durable Object binding of this Worker as a routable agent class', async () => {
+  it('makes every agent class this Worker exports routable, and nothing else', async () => {
     const exported = Object.keys(await import('../src/index.js')).filter((k) =>
       k.endsWith('Agent'),
     );
