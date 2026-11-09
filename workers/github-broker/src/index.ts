@@ -104,10 +104,23 @@ function agentRoutes(app: App, admitAgent: Admit, entrypoint: string, signed: bo
         400,
       );
     // Parsed before any side effect: a record the audit log cannot read back would hide the action.
-    const callerSignature = CallerSignature.safeParse({ ...call, method: 'POST', path: '/v1/act' });
-    if (!callerSignature.success)
+    const { admittedAt, ...signedFields } = call;
+    const callerSignature = CallerSignature.safeParse({
+      ...signedFields,
+      method: 'POST',
+      path: '/v1/act',
+    });
+    if (!callerSignature.success) {
+      console.warn(
+        JSON.stringify({
+          event: 'broker.caller.refused',
+          caller: call.caller,
+          reason: 'signature_fields',
+        }),
+      );
       return c.json({ ok: false, code: 'invalid', reason: 'signature fields' }, 400);
-    return c.json(await act(c.env, parsed.data, new Date(), callerSignature.data));
+    }
+    return c.json(await act(c.env, parsed.data, new Date(admittedAt), callerSignature.data));
   });
 
   /** GET-only, allow-listed GitHub reads for agents (ADR 0009). */

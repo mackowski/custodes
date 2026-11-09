@@ -76,18 +76,34 @@ describe('agent signature in the audit record (ADR 0018, R1)', () => {
     for (const forged of [
       // Written long after the request: a real signature reused for a later record.
       { ...record, ts: new Date(NOW + 60 * 60_000).toISOString() },
-      // A GitHub URL outside the repository the agent named.
+      // A GitHub URL outside the repository or item the agent named, plain or through dot segments.
       { ...record, githubUrl: 'https://github.com/OWASP/CheatSheetSeries/pull/7' },
+      {
+        ...record,
+        githubUrl:
+          'https://github.com/mackowski/custodes-sandbox/../../OWASP/CheatSheetSeries/pull/7',
+      },
+      {
+        ...record,
+        githubUrl:
+          'https://github.com/mackowski/custodes-sandbox/%2e%2e/%2E%2E/OWASP/CheatSheetSeries/pull/7',
+      },
+      { ...record, githubUrl: 'https://github.com/mackowski/custodes-sandbox/pull/70' },
+      { ...record, githubUrl: 'https://github.com/mackowski/custodes-sandbox/pull/7/../8' },
     ])
       expect(await verifyCallerIntent(forged, () => [pinned])).toEqual({
         status: 'invalid',
         reason: 'inconsistent',
       });
-    const sandboxUrl = {
-      ...record,
-      githubUrl: 'https://github.com/mackowski/custodes-sandbox/pull/7',
-    };
-    expect((await verifyCallerIntent(sandboxUrl, () => [pinned])).status).toBe('valid');
+    // What GitHub returns for this action: the pull request, a comment on it, any case.
+    for (const githubUrl of [
+      'https://github.com/mackowski/custodes-sandbox/pull/7',
+      'https://github.com/mackowski/custodes-sandbox/pull/7#issuecomment-123',
+      'https://github.com/Mackowski/Custodes-Sandbox/pull/7#pullrequestreview-9',
+    ])
+      expect((await verifyCallerIntent({ ...record, githubUrl }, () => [pinned])).status).toBe(
+        'valid',
+      );
   });
 
   it('is invalid for an agent id the signing Worker does not host', async () => {

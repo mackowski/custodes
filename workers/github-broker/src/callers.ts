@@ -37,6 +37,8 @@ export interface VerifiedCall {
   timestamp: string;
   nonce: string;
   bodySha256: string;
+  /** When the request was admitted: the audit record's time, so it stays inside the window. */
+  admittedAt: number;
 }
 
 export type CallerAuth = { ok: true; call: VerifiedCall } | { ok: false; reason: string };
@@ -75,6 +77,7 @@ export async function authenticateCaller(
         timestamp: check.timestamp,
         nonce: check.nonce,
         bodySha256: check.bodySha256,
+        admittedAt: now,
       },
     };
   // Ids only. `unknown_key` after a lost or rotated key is what the operator needs to see.

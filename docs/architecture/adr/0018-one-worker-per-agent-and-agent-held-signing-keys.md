@@ -133,7 +133,8 @@ have each agent sign its own requests with a key only its Worker holds.
   canonical JSON of its request, and the broker's countersignature over the whole record. `/verify`
   checks the agent signature against the keys committed in the repository (built into the gateway,
   never served by the broker), rebuilds the request from the record and compares the hash, and checks
-  the unsigned fields for consistency (time, hosted agent id, GitHub URL inside the named repository).
+  the unsigned fields for consistency (time, hosted agent id, GitHub URL exactly the named issue or pull request; a repository rename makes new records
+  fail this check until updated).
   So a broker cannot attach an agent's signature to an action the agent did not send. What the agent
   signature does not cover is broker-asserted: the decision, the reason, and whether a signed request
   was executed more than once. Records from the shared Worker and actions run on an operator's approval

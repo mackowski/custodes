@@ -42,6 +42,24 @@ export async function buildAuditRecord(input: AuditInput): Promise<AuditRecord> 
   return record;
 }
 
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * True when `url` is the issue or pull request the action names, optionally with a comment or
+ * review anchor. Anchored and exact, so dot segments or encoded ones (`/../`, `%2e%2e`) cannot
+ * point somewhere else. Owner and repository compare case-insensitively, as GitHub's do.
+ */
+export function githubUrlMatches(url: string, action: AuditRecord['action']): boolean {
+  const number = 'issue' in action ? action.issue : action.pull;
+  const re = new RegExp(
+    `^https://github\\.com/(?:${escapeRe(action.repo)})/(?:issues|pull)/${number}` +
+      `(?:#(?:issuecomment|pullrequestreview|discussion_r)-\\d+)?$`,
+    'i',
+  );
+  // The `i` flag also covers the fixed parts; the number and anchors leave no room to move.
+  return re.test(url);
+}
+
 /** The request an agent sent, rebuilt from its audit record: the body it signed was its canonical JSON. */
 export function signedRequestOf(record: AuditRecord): BrokerRequest {
   return {
@@ -87,10 +105,7 @@ export async function verifyCallerIntent(
     return { status: 'invalid', reason: 'inconsistent' };
   if (!CALLER_AGENTS[sig.caller].includes(record.agentId))
     return { status: 'invalid', reason: 'inconsistent' };
-  if (
-    record.githubUrl !== undefined &&
-    !record.githubUrl.startsWith(`https://github.com/${record.action.repo}/`)
-  )
+  if (record.githubUrl !== undefined && !githubUrlMatches(record.githubUrl, record.action))
     return { status: 'invalid', reason: 'inconsistent' };
   return { status: 'valid', caller: sig.caller, kid: sig.kid };
 }
