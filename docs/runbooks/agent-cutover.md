@@ -5,10 +5,11 @@ ADR 0018, issue #103. Moves an agent's Durable Object classes, with their stored
 key. **After step 2 of the workflow there is no rollback**, so each gate below must pass. One agent at
 a time: finish its follow-up PR before the next cutover.
 
-| Agent (`agent` input) | Worker                       | Classes                 | Halt ids            | Queue                                |
-| --------------------- | ---------------------------- | ----------------------- | ------------------- | ------------------------------------ |
-| `pr-gate`             | `custodes-pr-gate`           | `PrGateAgent`           | `pr-gate`           | `custodes-inbound-pr-gate`           |
-| `cheatsheet-review`   | `custodes-cheatsheet-review` | `CheatsheetReviewAgent` | `cheatsheet-review` | `custodes-inbound-cheatsheet-review` |
+| Agent (`agent` input) | Worker                       | Classes                                                          | Halt ids                                            | Queue                                |
+| --------------------- | ---------------------------- | ---------------------------------------------------------------- | --------------------------------------------------- | ------------------------------------ |
+| `pr-gate`             | `custodes-pr-gate`           | `PrGateAgent`                                                    | `pr-gate`                                           | `custodes-inbound-pr-gate`           |
+| `cheatsheet-review`   | `custodes-cheatsheet-review` | `CheatsheetReviewAgent`                                          | `cheatsheet-review`                                 | `custodes-inbound-cheatsheet-review` |
+| `triage`              | `custodes-triage`            | `TriageAgent`, `ImplementationCheckAgent`, `ProposalReviewAgent` | `triage`, `implementation-check`, `proposal-review` | none (crons only)                    |
 
 The table mirrors `MOVES` in `scripts/agent-cutover-config.ts`, which the workflow and the deploy
 guard read.
@@ -33,6 +34,8 @@ and the transfer itself. All pass criteria must hold. If any fails, do not merge
 5. **Back up what cannot be rebuilt.**
    - pr-gate: `GET /agents/pr-gate-agent/owasp-cheatsheetseries/comparisons` (Clef vs Jev data, ADR 0015) saved to a file.
    - cheatsheet-review: nothing (each review is started again by the label).
+   - triage: nothing (assessments and specialist results are rebuilt by the next poll and prepare;
+     the next digest may repeat items once).
 
 ## Cutover
 

@@ -18,6 +18,11 @@ import { CRON_TRIAGE_DIGEST, CRON_TRIAGE_POLL, CRON_TRIAGE_PREPARE } from './cro
 
 export { CRON_TRIAGE_DIGEST, CRON_TRIAGE_POLL, CRON_TRIAGE_PREPARE } from './crons.js';
 
+/** False once triage has moved to `custodes-triage` and this Worker no longer binds it. */
+function hasTriage(env: AgentsEnv): boolean {
+  return (env as Partial<AgentsEnv>).TriageAgent !== undefined;
+}
+
 /** False once cheatsheet-review has moved to its own Worker and this one no longer binds it. */
 function hasCheatsheetReview(env: AgentsEnv): boolean {
   return (env as Partial<AgentsEnv>).CheatsheetReviewAgent !== undefined;
@@ -50,6 +55,8 @@ export default {
     // poll and prepare crons and sends its summary with the digest.
     const jobs = {
       triage: async () => {
+        // During the move to its own Worker (ADR 0018) this Worker loses the binding first.
+        if (!hasTriage(env)) return { ok: true, detail: 'runs in custodes-triage' };
         const triage = await getAgentByName(env.TriageAgent, TRIAGE_INSTANCE);
         return digest
           ? triage.sendDigest()

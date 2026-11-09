@@ -10,7 +10,7 @@ on:
         description: Which agent to move
         required: true
         type: choice
-        options: [pr-gate, cheatsheet-review]
+        options: [pr-gate, cheatsheet-review, triage]
       confirm:
         description: 'Type "move <agent>" (e.g. "move pr-gate"). The agent must be halted first.'
         required: true

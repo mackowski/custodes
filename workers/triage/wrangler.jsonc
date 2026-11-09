@@ -1,0 +1,61 @@
+{
+  "$schema": "../agents/node_modules/wrangler/config-schema.json",
+  // triage and its two read-only specialists in their own Worker (ADR 0018). Source lives in
+  // workers/agents; this Worker bundles only what src/triage-worker.ts imports and has only the
+  // bindings and secrets below. Deployed from workers/agents with `-c ../triage/wrangler.jsonc`.
+  //
+  // This is the steady state, after the move. The first deploys come from the cutover workflow
+  // (.github/workflows/agent-cutover.yml, docs/runbooks/agent-cutover.md), which derives the
+  // `expecting-transfer` phase from this file.
+  "name": "custodes-triage",
+  "main": "../agents/src/triage-worker.ts",
+  "compatibility_date": "2026-08-15",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "preview_urls": false,
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1,
+    "traces": { "enabled": true, "head_sampling_rate": 1 },
+  },
+  "vars": {
+    "ENVIRONMENT": "prod",
+    // Signs every broker call with this Worker's Keyholder key (ADR 0018).
+    "CALLER_NAME": "custodes-triage",
+    "AI_GATEWAY_ACCOUNT_ID": "5f62912564df344533c9563904c77662",
+    "AI_GATEWAY_ID": "custodes",
+    "EMAIL_FROM": "custodes@custodes.work",
+    "EMAIL_DOMAIN": "custodes.work",
+    // Recipient of digests. Must be a verified Email Routing destination (infra/terraform email module).
+    "OPERATOR_EMAIL": "jkb.mackowski@gmail.com",
+    "TRACE_PAYLOADS": "true",
+  },
+  // Secrets (set by CI on deploy): AI_GATEWAY_TOKEN
+  "durable_objects": {
+    "bindings": [
+      { "name": "TriageAgent", "class_name": "TriageAgent" },
+      { "name": "ImplementationCheckAgent", "class_name": "ImplementationCheckAgent" },
+      { "name": "ProposalReviewAgent", "class_name": "ProposalReviewAgent" },
+      { "name": "KEYHOLDER", "class_name": "Keyholder" },
+    ],
+  },
+  "exports": {
+    // Moved here from custodes-agents with their stored data (transfer, ADR 0018).
+    "TriageAgent": { "type": "durable-object", "storage": "sqlite" },
+    "ImplementationCheckAgent": { "type": "durable-object", "storage": "sqlite" },
+    "ProposalReviewAgent": { "type": "durable-object", "storage": "sqlite" },
+    "Keyholder": { "type": "durable-object", "storage": "sqlite" },
+  },
+  // Same schedule as before the move (see src/crons.ts): poll, prepare, digest.
+  "triggers": { "crons": ["17 */4 * * *", "30 5 * * *", "0 7 * * *"] },
+  // Its own broker entrypoint: requests must be signed by KEYHOLDER, for these three agents only.
+  "services": [
+    { "binding": "BROKER", "service": "custodes-github-broker", "entrypoint": "TriageBroker" },
+  ],
+  "send_email": [
+    {
+      "name": "EMAIL",
+      "allowed_destination_addresses": ["jkb.mackowski@gmail.com"],
+    },
+  ],
+}

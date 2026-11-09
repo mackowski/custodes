@@ -43,6 +43,15 @@ export const MOVES: Readonly<Record<string, Move>> = {
     agentIds: ['cheatsheet-review'],
     secrets: ['AI_GATEWAY_TOKEN'],
   },
+  triage: {
+    target: 'custodes-triage',
+    dir: 'workers/triage',
+    // Triage and its specialists move together: they call each other through Durable Object
+    // bindings, which stay inside one Worker.
+    classes: ['TriageAgent', 'ImplementationCheckAgent', 'ProposalReviewAgent'],
+    agentIds: ['triage', 'implementation-check', 'proposal-review'],
+    secrets: ['AI_GATEWAY_TOKEN'],
+  },
 };
 
 const SOURCE = 'custodes-agents';
