@@ -1,5 +1,5 @@
--- Nonces of agent-signed requests (ADR 0018). A nonce is accepted once; rows older than the
--- signature window are deleted on insert, so the table stays small.
+-- Nonces of agent-signed requests (ADR 0018). A nonce is accepted once; rows older than twice the
+-- signature window plus a minute are deleted on insert, so the table stays small.
 CREATE TABLE IF NOT EXISTS request_nonces (
   nonce    TEXT PRIMARY KEY,
   caller   TEXT NOT NULL,

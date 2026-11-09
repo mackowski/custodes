@@ -47,7 +47,7 @@ have each agent sign its own requests with a key only its Worker holds.
   asserts that each agent Worker's `wrangler.jsonc` binds only its own entrypoint.
 - **Agent signature.** One `keyholder` Durable Object per agent Worker generates an Ed25519 key pair
   and keeps the private key in its storage. It signs every broker call (`/v1/act`, `/v1/read`,
-  `/v1/state`, `/v1/approvals`) over the audience, the method, the path, a timestamp, a nonce and
+  `/v1/state`, `/v1/approvals`) over a version tag (`custodes-request-v1`), the audience, the method, the path, a timestamp, a nonce and
   the SHA-256 of the exact body bytes. The broker verifies the signature against the public keys
   pinned for that agent Worker and refuses a timestamp outside 5 minutes or a nonce it has seen
   (nonces kept in D1 for twice the window plus a minute). The schema refuses weak public keys

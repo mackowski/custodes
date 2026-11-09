@@ -21,7 +21,13 @@ regex = '''github_pat_[A-Za-z0-9_]{82}'''
 [[rules]]
 id = "ed25519-private-jwk"
 description = "Ed25519 private key as a JWK (the `d` member): agent keyholder or broker Keyring key material (ADR 0018)"
-regex = '''"d"\s*:\s*"[A-Za-z0-9_-]{43}"'''
+# JSON, JS/TS object literals and escaped JSON in env files: `"d": "…"`, `d: '…'`, `\"d\":\"…\"`.
+regex = '''\\?["']?\bd\\?["']?\s*:\s*\\?["'][A-Za-z0-9_-]{43}\\?["']'''
+
+[[rules]]
+id = "ed25519-private-pkcs8"
+description = "Ed25519 private key as base64 PKCS8 (fixed prefix of the 48-byte encoding)"
+regex = '''MC4CAQAwBQYDK2VwBCIEI[A-Za-z0-9+/]{22}'''
 
 [allowlist]
 description = "Public identifiers and test fixtures that look like secrets but are not"

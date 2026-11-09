@@ -54,6 +54,9 @@ describe('bindings that carry approval authority', () => {
   it('reads every Worker, with no per-environment overrides that this test would not see', () => {
     expect(workers).toEqual(expect.arrayContaining(['agents', 'gateway', 'github-broker']));
     for (const w of workers) expect(readWrangler(w).env, w).toBeUndefined();
+    // Names are what the binding checks below compare; two directories with one name would pass.
+    const names = workers.map((w) => readWrangler(w).name);
+    expect(new Set(names).size, names.join(',')).toBe(names.length);
     expect(auditDb?.database_id).toMatch(/^[0-9a-f-]{36}$/);
   });
 
@@ -115,13 +118,15 @@ describe('bindings that carry approval authority', () => {
   });
 
   it('let no Worker reach an agent Worker directly (they share no binding)', () => {
-    const agentWorkers = new Set(Object.values(owner));
+    // The shared Worker counts too: binding it would reach the unmigrated agents without Access.
+    const agentWorkers = new Set([...Object.values(owner), SHARED]);
     for (const w of workers) {
       const b = readWrangler(w);
-      for (const s of b.services ?? [])
-        expect(agentWorkers.has(s.service) && s.service !== b.name, `${w} binds ${s.service}`).toBe(
-          false,
-        );
+      for (const s of b.services ?? []) {
+        const allowed =
+          s.service === b.name || (s.service === SHARED && b.name === 'custodes-gateway');
+        expect(agentWorkers.has(s.service) && !allowed, `${w} binds ${s.service}`).toBe(false);
+      }
       for (const d of b.durable_objects?.bindings ?? [])
         expect(
           d.script_name !== undefined && agentWorkers.has(d.script_name),

@@ -169,8 +169,12 @@ describe('the shared default entrypoint during the transition', () => {
   it('refuses, on every route, an agent whose policy entry is marked isolated', async () => {
     const p = isolate('pr-gate', 'agents');
     expect(isIsolated('pr-gate', p)).toBe(true);
-    for (const [path, payload] of routes('pr-gate'))
-      expect((await post(p, path, payload)).status, path).toBe(403);
+    for (const [path, payload] of routes('pr-gate')) {
+      const res = await post(p, path, payload);
+      expect(res.status, path).toBe(403);
+      // The reason proves the isolation check refused it, not a later step that also answers 403.
+      expect(JSON.stringify(await res.json()), path).toMatch(/runs in its own Worker/);
+    }
     // Another agent is still served (state answers; the rest reach the normal pipeline).
     expect((await post(p, '/v1/state', { agentId: 'cheatsheet-review' })).status).toBe(200);
   });
@@ -178,8 +182,12 @@ describe('the shared default entrypoint during the transition', () => {
   it('refuses, on every route, a read-only agent whose reads entry is marked isolated', async () => {
     const p = isolate('triage', 'reads');
     expect(isIsolated('triage', p)).toBe(true);
-    for (const [path, payload] of routes('triage'))
-      expect((await post(p, path, payload)).status, path).toBe(403);
+    for (const [path, payload] of routes('triage')) {
+      const res = await post(p, path, payload);
+      expect(res.status, path).toBe(403);
+      // The reason proves the isolation check refused it, not a later step that also answers 403.
+      expect(JSON.stringify(await res.json()), path).toMatch(/runs in its own Worker/);
+    }
   });
 
   it('marks no agent isolated in the committed policy yet', () => {
