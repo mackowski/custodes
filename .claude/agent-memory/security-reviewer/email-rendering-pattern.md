@@ -16,6 +16,8 @@ Seen twice now:
 
 Second pattern: text the operator is meant to **paste into GitHub** (suggested comments) needs Markdown-aware sanitizing, not just `https?://` stripping: `[t](//host/x)`, `<a href=...>`, `<img src=...>`, reference-style `[t]: //host` all render as links/trackers on GitHub. Bare domains (`evil.example/x`) also get auto-linked by mail clients.
 
+Third pattern: the triage digest has two renderers (`triage/digest.ts` text, `triage/digest-html.ts` HTML, both in one mail; clients show the HTML). A warning added to one is easily missing from the other. Round 9 of #88 (2026-11-05): the "issue changed after this check" note for implementation-check was in the text card only, while proposal-review's `changedSinceReview` has an HTML badge. For any new digest note or flag, grep both files.
+
 **Why:** A phishing URL or fake digest line in the operator's inbox is the main impact channel for a read-only agent; the doc claims the control exists, so a gap is a silent one.
 
 **How to apply:** For any digest/notification renderer, list every interpolated value and its source; anything not from code constants or validated enums/numbers must pass the same sanitizer. Prefer sanitizing at validation time (one place) over at render time. For paste-ready Markdown, additionally strip `]\(...\)` destinations, HTML tags and `(^|\s)//\S+`.
