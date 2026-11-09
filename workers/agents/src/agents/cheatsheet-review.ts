@@ -639,7 +639,7 @@ export class CheatsheetReviewAgent extends CustodesAgent<AgentsEnv, CheatsheetRe
       manifest: this.manifest,
       trigger: this.trigger ?? null,
       state: this.state,
-      killSwitch: await this.killSwitch.state(this.manifest.id),
+      killSwitch: await this.haltState(),
       reviews: this.sql<ReviewRow>`SELECT * FROM reviews ORDER BY started_at DESC LIMIT 50`,
     });
   }

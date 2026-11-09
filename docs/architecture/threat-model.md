@@ -21,6 +21,10 @@
 | CI → Cloudflare               | reviewed `main`                | pull requests, dependencies, actions                                                   |
 | Agent → operator e-mail       | code-built links, escaping     | issue titles, model explanations and suggested comments shown in the digest            |
 
+Agents do not bind the kill-switch KV namespace: a KV binding can write, so agent code could clear
+its own halt flag. They read their state from the broker (`/v1/state`, fail closed); only the broker
+and the gateway bind the namespace (ADR 0018, T1).
+
 Note: agents deployed in one Worker share a trust domain. A compromised agent can request actions
 _as_ another agent id. The broker's policy limits the blast radius to the union of what the Worker's
 agents are allowed to do; high-risk agents should be deployed in their own Worker (ADR 0002).

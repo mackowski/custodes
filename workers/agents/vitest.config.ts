@@ -1,12 +1,26 @@
 import { cloudflareTest } from '@cloudflare/vitest-pool-workers';
 import { defineConfig } from 'vitest/config';
 
-/** Stub broker: every request is denied so no test can accidentally reach GitHub. */
+/**
+ * Stub broker: every action and read is denied so no test can accidentally reach GitHub. It answers
+ * `/v1/state` from the kill-switch namespace the tests write to, like the real broker.
+ */
 const brokerStub = {
   name: 'custodes-github-broker',
   modules: true,
   compatibilityDate: '2026-08-15',
-  script: `export default { fetch() { return Response.json({ ok: false, code: 'policy_denied', reason: 'stub broker' }); } }`,
+  kvNamespaces: { KILL_SWITCH: 'kill-switch' },
+  script: `export default { async fetch(req, env) {
+    if (new URL(req.url).pathname === '/v1/state') {
+      const { agentId } = await req.json();
+      for (const key of ['halt:*', 'halt:' + agentId]) {
+        const raw = await env.KILL_SWITCH.get(key);
+        if (raw !== null) return new Response(raw, { headers: { 'content-type': 'application/json' } });
+      }
+      return Response.json({ halted: false });
+    }
+    return Response.json({ ok: false, code: 'policy_denied', reason: 'stub broker' });
+  } }`,
 };
 
 export default defineConfig({
@@ -17,7 +31,9 @@ export default defineConfig({
       // The AI binding (Clef) is remote-only: tests never reach Workers AI, they inject a fake.
       remoteBindings: false,
       miniflare: {
-        kvNamespaces: ['KILL_SWITCH'],
+        // Test-only: the Worker itself no longer binds the kill switch (ADR 0018, T1). Tests write
+        // halt flags here and the stub broker above reads the same namespace.
+        kvNamespaces: { KILL_SWITCH: 'kill-switch' },
         bindings: {
           AI_GATEWAY_TOKEN: 'test',
           OPENROUTER_API_KEY: 'test',

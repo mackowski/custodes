@@ -295,7 +295,7 @@ export abstract class SpecialistAgent extends CustodesAgent<AgentsEnv, Specialis
     return Response.json({
       manifest: this.manifest,
       state: this.state,
-      killSwitch: await this.killSwitch.state(this.manifest.id),
+      killSwitch: await this.haltState(),
       queued: this.sql<{ n: number }>`SELECT COUNT(*) AS n FROM jobs`[0]?.n ?? 0,
       // Validated, sanitised results (the digest shows the same); operators only, through Access.
       recent: this.sql<{ issue: number; checked_at: string; result: string }>`SELECT issue,
