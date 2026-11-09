@@ -76,8 +76,8 @@ jobs:
         run: |
           want=custodes-agents
           [ "$PHASE" = final-only ] && want="$TARGET"
-          IFS=, read -ra classes <<< "$CLASSES"
-          for c in "${classes[@]}"; do
+          IFS=, read -ra class_list <<< "$CLASSES"
+          for c in "${class_list[@]}"; do
             owner="$(node --experimental-strip-types scripts/do-namespace-owner.ts "$c")"
             [ "$owner" = "$want" ] || { echo "$c belongs to '$owner', expected '$want' for $PHASE"; exit 1; }
           done
