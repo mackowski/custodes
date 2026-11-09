@@ -34,4 +34,12 @@ describe('KillSwitch', () => {
     await kv.put('halt:triage', '{"halted":"maybe"}');
     expect(await new KillSwitch(kv).isHalted('triage')).toBe(true);
   });
+  it('fails closed, as corrupt rather than as an error, on a value that is not JSON', async () => {
+    const kv = memKv();
+    await kv.put('halt:triage', 'not json');
+    expect(await new KillSwitch(kv).state('triage')).toEqual({
+      halted: true,
+      reason: 'corrupt kill-switch state',
+    });
+  });
 });

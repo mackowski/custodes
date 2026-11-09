@@ -64,7 +64,9 @@ const StateRequest = z.object({ agentId: AgentId });
 agentApp.post('/v1/state', async (c) => {
   const parsed = StateRequest.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
-  return c.json(await new KillSwitch(c.env.KILL_SWITCH).state(parsed.data.agentId));
+  // Only what the agent needs: who halted it (the operator's e-mail) stays out of agent reach.
+  const { halted, reason } = await new KillSwitch(c.env.KILL_SWITCH).state(parsed.data.agentId);
+  return c.json(reason === undefined ? { halted } : { halted, reason });
 });
 
 const CreateApproval = z.object({

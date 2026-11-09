@@ -29,7 +29,8 @@ describe('broker /v1/state (#103, threat T1: agents do not bind the kill switch)
 
   it("answers the agent's own halt flag", async () => {
     await kill().halt('pr-gate', 'wrong close', 'operator@example.com');
-    expect(await (await state({ agentId: 'pr-gate' })).json()).toMatchObject({
+    // Who halted it (the operator's e-mail) and when are not given to agents.
+    expect(await (await state({ agentId: 'pr-gate' })).json()).toEqual({
       halted: true,
       reason: 'wrong close',
     });
