@@ -70,15 +70,19 @@ export interface KeyAdminEnv extends KeyholderEnv {
  * key material and cannot activate a key: activation happens only once the broker accepts it.
  */
 export class KeyAdmin extends WorkerEntrypoint<KeyAdminEnv> {
-  private get keyholder(): DurableObjectStub<Keyholder> {
-    return this.env.KEYHOLDER.get(this.env.KEYHOLDER.idFromName('default'));
-  }
-
+  // No getters or helper methods on this class: Workers RPC exposes everything on the prototype,
+  // getters included, whatever TypeScript says about `private`. A `keyholder` getter here would hand
+  // the gateway the Keyholder stub, and with it signRequest (found in review on #106).
   publicKeys(): Promise<PublicKeyInfo[]> {
-    return this.keyholder.publicKeys();
+    return keyholderOf(this.env).publicKeys();
   }
 
   rotate(): Promise<PublicKeyInfo> {
-    return this.keyholder.rotate();
+    return keyholderOf(this.env).rotate();
   }
+}
+
+/** Module-level on purpose: not reachable over RPC (see KeyAdmin). */
+function keyholderOf(env: KeyAdminEnv): DurableObjectStub<Keyholder> {
+  return env.KEYHOLDER.get(env.KEYHOLDER.idFromName('default'));
 }

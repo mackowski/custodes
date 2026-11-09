@@ -54,28 +54,39 @@ const changes: string[] = [];
 for (const row of rows) {
   if (!CALLER.test(row.caller)) throw new Error('unexpected caller name in the gateway answer');
   if (!row.bound || row.error) continue;
-  const active = file.callers[row.caller] ?? [];
+  // As read from the file, before this run: what the repository already vouches for.
+  const pinnedBefore = file.callers[row.caller] ?? [];
   const retired = file.retired[row.caller] ?? [];
+  const active = [...pinnedBefore];
   for (const k of row.keys) {
     if (!KID.test(k.kid) || !X.test(k.x)) throw new Error(`malformed key for ${row.caller}`);
-    if (k.pin === 'pinned, different key')
+    if (k.state !== 'active' && k.state !== 'next')
+      throw new Error(`unexpected key state for ${row.caller}`);
+    // Checked here, not taken from the gateway's own label: a pinned kid with another key is an
+    // alarm, never a rotation.
+    const known = [...pinnedBefore, ...retired].find((p) => p.kid === k.kid);
+    if (known && known.x !== k.x)
       throw new Error(
         `${row.caller}: pinned ${k.kid} differs from the held key; investigate, do not pin`,
       );
-    if (k.pin === 'not pinned' && !active.some((p) => p.kid === k.kid)) {
+    if (!known) {
       active.push({ kid: k.kid, x: k.x, addedAt: today });
-      changes.push(`pin ${row.caller} ${k.state} ${k.kid}`);
+      changes.push(`pin ${row.caller} ${k.state} ${k.kid} x=${k.x}`);
     }
   }
+  // Retire pinned keys the Keyholder no longer holds, but only once its active key was already
+  // pinned before this run: a single answer can never both pin a new key and drop the old one.
   const held = new Set(row.keys.map((k) => k.kid));
   const activeHeld = row.keys.find((k) => k.state === 'active');
-  if (activeHeld && active.some((p) => p.kid === activeHeld.kid)) {
-    for (const p of active.filter((q) => !held.has(q.kid))) {
+  let keep = active;
+  if (activeHeld && pinnedBefore.some((p) => p.kid === activeHeld.kid)) {
+    const gone = active.filter((q) => !held.has(q.kid));
+    for (const p of gone) {
       retired.push(p);
       changes.push(`retire ${row.caller} ${p.kid}`);
     }
+    keep = active.filter((q) => held.has(q.kid));
   }
-  const keep = active.filter((p) => held.has(p.kid));
   if (keep.length > 2) throw new Error(`${row.caller}: more than two keys to pin`);
   file.callers[row.caller] = keep;
   if (retired.length) file.retired[row.caller] = retired;

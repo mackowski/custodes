@@ -15,6 +15,10 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The write token must not sit in .git/config where install scripts and tests can read it;
+          # only the push step gets it.
+          persist-credentials: false
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -33,13 +37,18 @@ jobs:
       - name: Update agent-keys.json
         id: pin
         run: |
+          # pipefail: a refusal from the script (e.g. a pinned kid whose key differs) must fail the run,
+          # not end green as "nothing to pin" behind tee.
+          set -o pipefail
           node --experimental-strip-types scripts/pin-agent-keys.ts "$RUNNER_TEMP/agent-keys.json" | tee "$RUNNER_TEMP/changes.txt"
-          if git diff --quiet; then echo "changed=false" >> "$GITHUB_OUTPUT"; else echo "changed=true" >> "$GITHUB_OUTPUT"; fi
+          if git diff --quiet -- packages/schema/src/agent-keys.json; then echo "changed=false" >> "$GITHUB_OUTPUT"; else echo "changed=true" >> "$GITHUB_OUTPUT"; fi
       - name: Check the result with the schema and the tests
         if: steps.pin.outputs.changed == 'true'
         run: pnpm --filter ./packages/schema --filter ./packages/core --filter ./workers/github-broker test
       - name: Push a branch and link the pull request
         if: steps.pin.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           branch="keys/pin-$(date -u +%Y%m%d)-${GITHUB_RUN_ID}"
           git config user.name 'github-actions[bot]'
@@ -47,14 +56,17 @@ jobs:
           git switch -c "$branch"
           git add packages/schema/src/agent-keys.json
           git commit -q -m "chore(keys): pin agent Worker keys (ADR 0018)" -m "$(cat "$RUNNER_TEMP/changes.txt")"
-          git push -q origin "$branch"
+          auth="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          echo "::add-mask::$auth"
+          git -c http.extraheader="AUTHORIZATION: basic $auth" push -q origin "$branch"
           {
             echo "### Agent keys to pin"
             echo '```'
             cat "$RUNNER_TEMP/changes.txt"
             echo '```'
-            echo "Compare each kid and fingerprint with /admin/agent-keys/page and the Worker's"
-            echo "keyholder.key.created log line before merging."
+            echo "Before merging, compare each pinned x with the keyholder.key.created log line of"
+            echo "that Worker (Workers Logs). The page comes from the same gateway as this run, so"
+            echo "comparing with it proves nothing."
             echo ""
             echo "[Open the pull request](https://github.com/${GITHUB_REPOSITORY}/compare/main...${branch}?expand=1)"
           } >> "$GITHUB_STEP_SUMMARY"

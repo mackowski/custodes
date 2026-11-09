@@ -14,7 +14,7 @@ import {
   verificationKeys,
   CallerName,
 } from '@custodes/schema';
-import { agentKeysPage, keyAdminOf, listAgentKeys } from './agent-keys.js';
+import { agentKeysPage, type HeldKey, keyAdminOf, listAgentKeys } from './agent-keys.js';
 import { adminWriteAllowed, agentWriteAllowed, crossSiteWrite, verifyAccessJwt } from './access.js';
 import {
   approvalPage,
@@ -254,7 +254,14 @@ admin.post('/agent-keys/:caller/rotate', async (c) => {
   if (!caller.success) return c.json({ error: 'unknown caller' }, 404);
   const admin = keyAdminOf(c.env, caller.data);
   if (!admin) return c.json({ error: 'that Worker is not reachable yet' }, 409);
-  const next = await admin.rotate();
+  let next: HeldKey;
+  try {
+    next = await admin.rotate();
+  } catch {
+    // No error text: it comes from another Worker.
+    console.error(JSON.stringify({ event: 'admin.agent_keys.rotate_failed', caller: caller.data }));
+    return c.json({ error: 'rotate failed' }, 502);
+  }
   console.log(
     JSON.stringify({
       event: 'admin.agent_keys.rotate',
