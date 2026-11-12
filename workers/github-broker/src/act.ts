@@ -87,12 +87,20 @@ export async function act(
     if (!approval) return deny('approval_invalid', 'approval not found');
     if (approval.agentId !== req.agentId)
       return deny('approval_invalid', 'approval belongs to another agent');
-    if (approval.actionHash !== actionHash)
-      return deny('approval_invalid', 'approval was for a different action');
+    // A bundle (ADR 0019) covers each of its actions; the token was bound to the whole bundle.
+    const covered = approval.bundle
+      ? (
+          await Promise.all(approval.bundle.actions.map((a) => sha256Hex(canonicalJson(a))))
+        ).includes(actionHash)
+      : approval.actionHash === actionHash;
+    if (!covered) return deny('approval_invalid', 'approval was for a different action');
     if (approval.status !== 'approved')
       return deny('approval_invalid', `approval status is ${approval.status}`);
     if (new Date(approval.expiresAt) < now) return deny('approval_invalid', 'approval expired');
-    if (!(await approvals.consume(req.approvalId, now)))
+    if (approval.bundle) {
+      // Consumed once by runBundle after its last action, not per action.
+      if (approval.consumedAt !== null) return deny('approval_invalid', 'approval already used');
+    } else if (!(await approvals.consume(req.approvalId, now)))
       return deny('approval_invalid', 'approval already used');
   }
 
@@ -117,6 +125,7 @@ export async function act(
         agentVersion: req.agentVersion,
         attestationId,
         verifyUrl: env.VERIFY_URL,
+        visibility: agentPolicy.trailer,
         ...(req.onBehalfOf !== undefined ? { onBehalfOf: req.onBehalfOf } : {}),
       }),
     );

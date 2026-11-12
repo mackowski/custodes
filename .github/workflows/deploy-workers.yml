@@ -65,6 +65,7 @@ jobs:
           PAT_PR_GATE: ${{ secrets.PAT_PR_GATE }}
           PAT_CHEATSHEET_REVIEW: ${{ secrets.PAT_CHEATSHEET_REVIEW }}
           PAT_READONLY: ${{ secrets.PAT_READONLY }}
+          PAT_TRIAGE_APPLY: ${{ secrets.PAT_TRIAGE_APPLY }}
         run: ./scripts/sync-agent-secrets.sh
       - name: Deploy broker
         uses: cloudflare/wrangler-action@953926a2e2182532811c01a25e53647d93bf07c0 # v4
@@ -95,6 +96,15 @@ jobs:
           AI_GATEWAY_TOKEN: ${{ secrets.AI_GATEWAY_TOKEN }}
           # Jev for pr-gate (ADR 0011: AI Gateway cannot forward the Decisions API yet).
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      - name: Deploy triage-apply
+        # Its own Worker from the start (ADR 0019): no model, no secrets, no Durable Object moved
+        # from custodes-agents. The broker refuses it until its key is pinned (agent-key-pin.yml).
+        uses: cloudflare/wrangler-action@953926a2e2182532811c01a25e53647d93bf07c0 # v4
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN_DEPLOY }}
+          accountId: 5f62912564df344533c9563904c77662
+          workingDirectory: workers/agents
+          command: deploy -c ../triage-apply/wrangler.jsonc
       - name: Deploy gateway
         uses: cloudflare/wrangler-action@953926a2e2182532811c01a25e53647d93bf07c0 # v4
         with:

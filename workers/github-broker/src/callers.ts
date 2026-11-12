@@ -19,6 +19,7 @@ export const CALLER_ENTRYPOINTS = {
   PrGateBroker: 'custodes-pr-gate',
   CheatsheetReviewBroker: 'custodes-cheatsheet-review',
   TriageBroker: 'custodes-triage',
+  TriageApplyBroker: 'custodes-triage-apply',
 } as const satisfies Record<string, CallerName>;
 
 /** An agent moved to its own Worker: the default entrypoint must refuse it. */

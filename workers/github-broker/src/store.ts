@@ -1,4 +1,4 @@
-import type { ApprovalRequest, Attestation, BrokerRequest } from '@custodes/schema';
+import type { ApprovalBundle, ApprovalRequest, Attestation, BrokerRequest } from '@custodes/schema';
 import {
   Attestation as AttestationSchema,
   BrokerRequest as BrokerRequestSchema,
@@ -111,8 +111,11 @@ export class ApprovalStore {
     actionHash: string,
     ttlSeconds: number,
     now = new Date(),
+    /** A bundle (ADR 0019): `req.action` is then its first action, `actionHash` the bundle's. */
+    bundle?: ApprovalBundle,
   ): Promise<ApprovalRequest> {
     const approval: ApprovalRequest = {
+      ...(bundle !== undefined ? { bundle } : {}),
       id: crypto.randomUUID(),
       agentId: req.agentId,
       runId: req.runId,

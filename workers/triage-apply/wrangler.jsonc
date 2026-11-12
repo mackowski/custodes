@@ -1,0 +1,42 @@
+// custodes-triage-apply (ADR 0019): triage-apply alone, in its own Worker from the start (ADR 0018).
+// It turns a triage proposal into one approval request; the broker applies it only after the
+// operator approves the e-mailed link. No model, no secrets, no cron, no queue, no e-mail.
+// Deployed by deploy-workers.yml; the broker refuses it until its key is pinned (agent-key-pin.yml).
+{
+  "$schema": "../agents/node_modules/wrangler/config-schema.json",
+  "name": "custodes-triage-apply",
+  "main": "../agents/src/triage-apply-worker.ts",
+  "compatibility_date": "2026-08-15",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "preview_urls": false,
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1,
+    "traces": { "enabled": true, "head_sampling_rate": 1 },
+  },
+  "vars": {
+    "ENVIRONMENT": "prod",
+    "CALLER_NAME": "custodes-triage-apply",
+    // No model calls, so nothing to record; kept explicit for the shared env type.
+    "TRACE_PAYLOADS": "false",
+  },
+  "durable_objects": {
+    "bindings": [
+      { "name": "TriageApplyAgent", "class_name": "TriageApplyAgent" },
+      { "name": "KEYHOLDER", "class_name": "Keyholder" },
+    ],
+  },
+  // A new Worker: classes are declared with `exports` from the first deploy (no migrations).
+  "exports": {
+    "TriageApplyAgent": { "type": "durable-object", "storage": "sqlite" },
+    "Keyholder": { "type": "durable-object", "storage": "sqlite" },
+  },
+  "services": [
+    {
+      "binding": "BROKER",
+      "service": "custodes-github-broker",
+      "entrypoint": "TriageApplyBroker",
+    },
+  ],
+}

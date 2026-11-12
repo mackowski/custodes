@@ -10,6 +10,8 @@ const label = z
   .max(50)
   .refine((l) => l !== '.' && l !== '..', 'not a label name');
 const body = z.string().min(1).max(60_000);
+/** A GitHub login: letters, digits and single dashes inside, at most 39 characters. */
+export const GitHubLogin = z.string().regex(/^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$/);
 /** A full commit SHA, so a review is pinned to the exact commit the agent read. */
 export const CommitSha = z.string().regex(/^[0-9a-f]{40}$/);
 /** A repository file path: no leading slash, no `.` or `..` segments. */
@@ -53,6 +55,15 @@ export const BrokerAction = z.discriminatedUnion('type', [
     type: z.literal('issue.label.remove'),
     ...issueRef,
     labels: z.array(label).min(1).max(10),
+  }),
+  /**
+   * Adds one assignee (ADR 0019). Existing assignees stay; triage-apply proposes it only for an
+   * unassigned issue, and the broker checks the login is the issue author or a commenter.
+   */
+  z.object({
+    type: z.literal('issue.assign'),
+    ...issueRef,
+    assignees: z.array(GitHubLogin).length(1),
   }),
   z.object({ type: z.literal('pr.comment'), ...pullRef, body }),
   z.object({

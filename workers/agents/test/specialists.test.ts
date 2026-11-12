@@ -103,7 +103,9 @@ const rawProposal = (over: Partial<RawProposalReview> = {}): RawProposalReview =
   evidence: [],
   addLabels: ['ACK_OBTAINED'],
   removeLabels: ['ACK_WAITING'],
-  assignTo: null,
+  authorIntent: 'unclear',
+  volunteers: [],
+  askAuthor: false,
   reviewPr: null,
   helpWanted: false,
   explanation: 'Not covered yet.',
@@ -275,13 +277,26 @@ describe('validateProposalReview', () => {
     expect(r.dropped).toEqual(['label "security-critical"', 'label "NEW_CS"']);
   });
 
-  it('assigns only someone from the thread', () => {
+  it('assigns the author who offered; a volunteer only after the author declined', () => {
+    const offered = validateProposalReview(rawProposal({ authorIntent: 'offered' }), proposalCtx);
+    expect(offered.assignTo).toBe('gqlwriter');
+    expect(offered.assignWhy).toBe('author offered');
+    // Unclear: a volunteer waits for the author.
     expect(
-      validateProposalReview(rawProposal({ assignTo: '@gqlwriter' }), proposalCtx).assignTo,
-    ).toBe('gqlwriter');
-    const r = validateProposalReview(rawProposal({ assignTo: 'attacker' }), proposalCtx);
-    expect(r.assignTo).toBeNull();
-    expect(r.dropped).toContain('assignee not in the thread');
+      validateProposalReview(rawProposal({ volunteers: ['maint1'] }), proposalCtx).assignTo,
+    ).toBeNull();
+    const declined = validateProposalReview(
+      rawProposal({ authorIntent: 'declined', volunteers: ['@maint1'] }),
+      proposalCtx,
+    );
+    expect(declined.assignTo).toBe('maint1');
+    expect(declined.assignWhy).toBe('author declined');
+    const stranger = validateProposalReview(
+      rawProposal({ authorIntent: 'declined', volunteers: ['attacker'] }),
+      proposalCtx,
+    );
+    expect(stranger.assignTo).toBeNull();
+    expect(stranger.dropped).toContain('volunteer not in the thread');
   });
 
   it('adds HELP_WANTED when nobody volunteered, never alongside an assignee', () => {
@@ -289,7 +304,7 @@ describe('validateProposalReview', () => {
       validateProposalReview(rawProposal({ helpWanted: true }), proposalCtx).addLabels,
     ).toEqual(['ACK_OBTAINED', 'HELP_WANTED']);
     const r = validateProposalReview(
-      rawProposal({ helpWanted: true, assignTo: 'maint1' }),
+      rawProposal({ helpWanted: true, authorIntent: 'offered' }),
       proposalCtx,
     );
     expect(r.helpWanted).toBe(false);
@@ -435,7 +450,7 @@ describe('reviewProposal', () => {
             },
           ]),
       },
-      JSON.stringify(rawProposal({ assignTo: 'gqlwriter', addLabels: ['ACK_OBTAINED'] })),
+      JSON.stringify(rawProposal({ authorIntent: 'offered', addLabels: ['ACK_OBTAINED'] })),
     );
     const r = await reviewProposal(repo, 1710, deps);
     expect(r?.assignTo).toBe('gqlwriter');
@@ -631,7 +646,7 @@ describe('stored reviews are reconciled with the issue as it is now', () => {
     validateProposalReview(
       rawProposal({
         addLabels: ['ACK_OBTAINED', 'NEW_CS'],
-        assignTo: 'gqlwriter',
+        authorIntent: 'offered',
         helpWanted: false,
       }),
       proposalCtx,
@@ -709,7 +724,7 @@ describe('proposal review with linked pull requests', () => {
 
   it('recommends reviewing an open linked PR and then assigns nobody', () => {
     const r = validateProposalReview(
-      rawProposal({ reviewPr: 1721, assignTo: 'gqlwriter', helpWanted: true }),
+      rawProposal({ reviewPr: 1721, authorIntent: 'offered', helpWanted: true }),
       ctx,
     );
     expect(r.reviewPr).toBe(1721);
@@ -724,12 +739,11 @@ describe('proposal review with linked pull requests', () => {
     const merged = validateProposalReview(rawProposal({ reviewPr: 1700 }), ctx);
     expect(merged.reviewPr).toBeNull();
     expect(merged.dropped).toContain('PR #1700');
-    const taken = validateProposalReview(rawProposal({ assignTo: 'gqlwriter' }), {
+    const taken = validateProposalReview(rawProposal({ authorIntent: 'offered' }), {
       ...ctx,
       assignees: ['maint1'],
     });
     expect(taken.assignTo).toBeNull();
-    expect(taken.dropped).toContain('assignee (already assigned)');
   });
 
   it('reads the timeline and tells the model about assignees and linked PRs', () => {

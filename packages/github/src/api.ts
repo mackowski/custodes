@@ -62,6 +62,14 @@ export class GitHubRest {
       );
     }
   }
+  /** GitHub answers 201 even when it cannot assign someone; the caller checks the result. */
+  addAssignees(repo: string, issue: number, assignees: string[]) {
+    return this.call<{ assignees?: { login?: string }[] }>(
+      'POST',
+      `/repos/${repo}/issues/${issue}/assignees`,
+      { assignees },
+    );
+  }
   createPullReview(repo: string, pull: number, event: string, body: string) {
     return this.call<{ html_url: string }>('POST', `/repos/${repo}/pulls/${pull}/reviews`, {
       event,
@@ -115,6 +123,19 @@ export async function executeAction(
     case 'issue.label.remove':
       await api.removeLabels(action.repo, action.issue, action.labels);
       return {};
+    case 'issue.assign': {
+      const r = await api.addAssignees(action.repo, action.issue, action.assignees);
+      const now = new Set((r.assignees ?? []).map((a) => a.login?.toLowerCase()));
+      // A login that cannot be assigned (no access, blocked) is silently left out by GitHub.
+      const missing = action.assignees.filter((l) => !now.has(l.toLowerCase()));
+      if (missing.length)
+        throw new GitHubApiError(
+          422,
+          `/repos/${action.repo}/issues/${action.issue}/assignees`,
+          'GitHub did not assign the requested login',
+        );
+      return {};
+    }
     case 'pr.review': {
       const r = await api.createPullReview(
         action.repo,

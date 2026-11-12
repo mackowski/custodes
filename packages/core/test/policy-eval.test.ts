@@ -16,6 +16,7 @@ const policy: Policy = {
       requiresApprovalOn: { 'mackowski/custodes-sandbox': ['issue.comment'] },
       rateLimitPerHour: 60,
       isolated: false,
+      trailer: 'visible',
     },
   },
 };
@@ -156,6 +157,7 @@ describe('evaluatePolicy for read-only agents', () => {
           requiresApprovalOn: {},
           rateLimitPerHour: 60,
           isolated: false,
+          trailer: 'visible',
         },
       },
     };
@@ -331,9 +333,26 @@ describe('evaluatePolicy for cheatsheet-review (real broker policy)', () => {
     }
   });
 
-  it('grants no agent issue.label.add: the review trigger is a label only the operator adds', () => {
-    for (const [id, a] of Object.entries(real.agents))
-      expect(a.actions.includes('issue.label.add'), id).toBe(false);
+  it('lets no agent add the review trigger: a label only the operator adds', () => {
+    // triage-apply (ADR 0019) may add labels, but never this one: its PAT is the operator's
+    // account, so its label would pass cheatsheet-review's "who added it" check.
+    for (const [id, a] of Object.entries(real.agents)) {
+      if (!a.actions.includes('issue.label.add')) continue;
+      expect(id).toBe('triage-apply');
+      expect(a.labels, id).not.toContain('custodes_cheatsheet_review');
+      expect(
+        evaluatePolicy(real, {
+          ...base,
+          agentId: id,
+          action: {
+            type: 'issue.label.add',
+            repo: 'mackowski/custodes-sandbox',
+            issue: 1,
+            labels: ['custodes_cheatsheet_review'],
+          },
+        }).allow,
+      ).toBe(false);
+    }
   });
   it('does not let other agents post inline reviews', () => {
     for (const agentId of ['pr-gate', 'triage']) {

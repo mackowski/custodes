@@ -385,8 +385,10 @@ describe('the shared default entrypoint during the transition', () => {
     }
   });
 
-  it('marks no agent isolated in the committed policy yet', () => {
+  it('marks no moved agent isolated yet; triage-apply is isolated from the start (ADR 0019)', () => {
+    // triage-apply never ran in the shared Worker, so it has no transition to wait for.
+    const bornIsolated = new Set(['triage-apply']);
     for (const id of [...Object.keys(policy.agents), ...Object.keys(policy.reads)])
-      expect(isIsolated(id), id).toBe(false);
+      expect(isIsolated(id), id).toBe(bornIsolated.has(id));
   });
 });

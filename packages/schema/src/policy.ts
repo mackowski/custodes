@@ -34,6 +34,18 @@ export const AgentPolicy = z
      * unsigned path: a widening that needs a linked ADR or issue (invariant 4).
      */
     isolated: z.boolean().default(false),
+    /**
+     * How long this agent's approval requests stay open; the broker default is 24 h. Longer is a
+     * widening (invariant 4): triage-apply's 168 h follows ADR 0019 (a daily digest read weekly).
+     */
+    approvalTtlHours: z.number().int().min(1).max(336).optional(),
+    /** Pending approval requests at once; the broker default is 20 (ADR 0019 for triage-apply). */
+    maxPendingApprovals: z.number().int().min(1).max(200).optional(),
+    /**
+     * `hidden`: comments carry only the HTML-comment trailer (agent and attestation id, read by
+     * /verify and parseTrailers) and no visible footer. Operator decision for triage-apply (#108).
+     */
+    trailer: z.enum(['visible', 'hidden']).default('visible'),
   })
   .refine(
     (a) =>

@@ -1,3 +1,4 @@
+import { TRIAGE_APPLY_MANIFEST } from '../src/agents/triage-apply.js';
 import { env } from 'cloudflare:workers';
 import { describe, expect, it } from 'vitest';
 import worker from '../src/index.js';
@@ -46,8 +47,16 @@ describe('instances', () => {
       expect(PR_GATE_MANIFEST.repos).toContain(repo);
       expect(policy.agents['pr-gate'].repos).toContain(repo);
       for (const [id, r] of Object.entries(policy.reads))
-        if (id !== 'cheatsheet-review') expect(r.repos).toContain(repo);
+        if (id !== 'cheatsheet-review' && id !== 'triage-apply') expect(r.repos).toContain(repo);
     }
+  });
+
+  it('runs triage-apply on the sandbox only until its evals and end-to-end run pass (ADR 0019)', () => {
+    const sandbox = ['mackowski/custodes-sandbox'];
+    expect(TRIAGE_APPLY_MANIFEST.repos).toEqual(sandbox);
+    expect(policy.agents['triage-apply'].repos).toEqual(sandbox);
+    expect(policy.reads['triage-apply'].repos).toEqual(sandbox);
+    expect(policy.agents['triage-apply'].mode).toBe('hitl');
   });
 
   it('runs cheatsheet-review on the sandbox and OWASP, approving every OWASP post (ADR 0017)', () => {

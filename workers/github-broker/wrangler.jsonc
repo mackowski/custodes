@@ -40,6 +40,14 @@
       "store_id": "92c5c38062fc4da98fad1fe4f5a8bda1",
       "secret_name": "github-pat-cheatsheet-review",
     },
+    // triage-apply (ADR 0019): fine-grained, Issues: read & write on the sandbox (OWASP later), on
+    // account mackowski with the Triage role there; the policy allows assign, labels and comments,
+    // each only after the operator approves the bundle.
+    {
+      "binding": "PAT_TRIAGE_APPLY",
+      "store_id": "92c5c38062fc4da98fad1fe4f5a8bda1",
+      "secret_name": "github-pat-triage-apply",
+    },
     // Read-only PAT (public repositories only, no permissions) for agent reads via /v1/read.
     {
       "binding": "PAT_READONLY",

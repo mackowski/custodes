@@ -3,6 +3,7 @@ import { Agent, type Connection } from 'agents';
 import {
   type AgentManifest,
   ApprovalCreated,
+  type ApprovalBundle,
   type BrokerAction,
   KillSwitchState,
   BrokerResponse,
@@ -216,5 +217,46 @@ export abstract class CustodesAgent<
       // The token is a credential for the operator's click: never put in a span.
       return { ok: true, created: ApprovalCreated.parse(await res.json()) };
     });
+  }
+
+  /**
+   * Asks for one approval of several actions on one issue (ADR 0019). The broker checks the
+   * snapshot and the people named against GitHub, and runs the bundle itself once approved.
+   */
+  protected async requestBundleApproval(
+    bundle: ApprovalBundle,
+    rationale: string,
+    runId: string,
+    triggeredBy: Trigger,
+  ): Promise<
+    { ok: true; created: ApprovalCreated } | { ok: false; status: number; error?: string }
+  > {
+    if (this.manifest.mode === 'readonly') {
+      throw new Error(`agent ${this.manifest.id} is read-only and cannot request side effects`);
+    }
+    await this.guard();
+    const res = await this.broker.fetch('https://broker.internal/v1/approvals/bundle', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        request: {
+          agentId: this.manifest.id,
+          agentVersion: this.manifest.version,
+          runId,
+          triggeredBy,
+          bundle,
+        },
+        rationale: rationale.slice(0, 4_000),
+      }),
+    });
+    if (res.status !== 201) {
+      // The broker's reason (policy, stale, a stranger named) is ours to log; it holds no secret.
+      const body = await res.json<{ error?: unknown }>().catch(() => ({ error: undefined }));
+      const error = typeof body.error === 'string' ? body.error.slice(0, 200) : undefined;
+      return error !== undefined
+        ? { ok: false, status: res.status, error }
+        : { ok: false, status: res.status };
+    }
+    return { ok: true, created: ApprovalCreated.parse(await res.json()) };
   }
 }

@@ -46,6 +46,7 @@ const owner: Record<string, string> = {
   PrGateBroker: 'custodes-pr-gate',
   CheatsheetReviewBroker: 'custodes-cheatsheet-review',
   TriageBroker: 'custodes-triage',
+  TriageApplyBroker: 'custodes-triage-apply',
 };
 const workers = readdirSync(WORKERS, { withFileTypes: true })
   .filter((d) => d.isDirectory())
@@ -144,8 +145,14 @@ describe('bindings that carry approval authority', () => {
         // The gateway (behind Access) may reach the shared Worker over HTTP, and a per-agent Worker
         // over HTTP or through its KeyAdmin entrypoint (public keys and Rotate only, ADR 0018).
         const fromGateway = b.name === 'custodes-gateway';
+        // ADR 0019: triage hands proposals to triage-apply through its RPC entrypoint only.
+        const triageToApply =
+          b.name === 'custodes-triage' &&
+          s.service === 'custodes-triage-apply' &&
+          s.entrypoint === 'TriageApplyIntake';
         const allowed =
           s.service === b.name ||
+          triageToApply ||
           (fromGateway && s.service === SHARED && s.entrypoint === undefined) ||
           (fromGateway &&
             Object.values(owner).includes(s.service) &&
@@ -158,6 +165,23 @@ describe('bindings that carry approval authority', () => {
           `${w} binds a Durable Object of ${d.script_name ?? ''}`,
         ).toBe(false);
     }
+  });
+
+  it('let only custodes-triage bind the triage-apply intake (ADR 0019)', () => {
+    for (const w of workers)
+      for (const s of readWrangler(w).services ?? [])
+        if (s.service === 'custodes-triage-apply' && s.entrypoint === 'TriageApplyIntake')
+          expect(readWrangler(w).name, w).toBe('custodes-triage');
+    const triage = readWrangler('triage').services?.find((s) => s.binding === 'TRIAGE_APPLY');
+    expect(triage).toEqual({
+      binding: 'TRIAGE_APPLY',
+      service: 'custodes-triage-apply',
+      entrypoint: 'TriageApplyIntake',
+    });
+    // The shared Worker must not get a write path before triage moves out of it.
+    expect(
+      readWrangler('agents').services?.some((s) => s.service === 'custodes-triage-apply') ?? false,
+    ).toBe(false);
   });
 
   it('keep agent Workers off the internet: no workers.dev, previews or routes (ADR 0018)', () => {

@@ -72,6 +72,40 @@ function actionDetails(a: ApprovalRequest['action']): string {
   return `<pre>${escapeHtml(JSON.stringify(a, null, 2))}</pre>`;
 }
 
+/** One bundle action in words; the comment is shown in full, as it will be posted. */
+function bundleStep(a: ApprovalRequest['action'], i: number): string {
+  const n = `${i + 1}.`;
+  switch (a.type) {
+    case 'issue.assign':
+      return `<dt>${n} Assign</dt><dd>@${escapeHtml(a.assignees.join(', @'))}</dd>`;
+    case 'issue.label.add':
+      return `<dt>${n} Add labels</dt><dd>${escapeHtml(a.labels.join(', '))}</dd>`;
+    case 'issue.label.remove':
+      return `<dt>${n} Remove labels</dt><dd>${escapeHtml(a.labels.join(', '))}</dd>`;
+    case 'issue.comment':
+      return `<dt>${n} Comment</dt><dd><pre>${escapeHtml(a.body)}</pre></dd>`;
+    case 'pr.comment':
+    case 'pr.review':
+    case 'pr.review.inline':
+    case 'pr.close':
+      // Never in a bundle (ApprovalBundle allows issue actions only); shown raw if it ever were.
+      return `<dt>${n} ${escapeHtml(a.type)}</dt><dd><pre>${escapeHtml(JSON.stringify(a, null, 2))}</pre></dd>`;
+  }
+}
+
+/** A bundle (ADR 0019): what runs, in order, and the issue state it was proposed for. */
+function bundleDetails(approval: ApprovalRequest): string {
+  const b = approval.bundle;
+  const a = approval.action;
+  if (!b || !('issue' in a)) return actionDetails(a);
+  const snap = b.snapshot;
+  return `<dl><dt>Repository</dt><dd>${escapeHtml(a.repo)}</dd>
+<dt>Issue</dt><dd>#${a.issue}</dd></dl>
+<h2>Runs in this order, all or nothing (${b.actions.length})</h2>
+<dl>${b.actions.map(bundleStep).join('')}</dl>
+<p class="note">Proposed for the issue as it was: ${escapeHtml(snap.state)}, ${snap.comments} comment(s), labels ${escapeHtml(snap.labels.join(', ') || '(none)')}, assignees ${escapeHtml(snap.assignees.join(', ') || '(none)')}. If any of that changed, the broker runs nothing. It stops at the first step that fails; the result page says which ran.</p>`;
+}
+
 /** The confirmation page: exactly what will be posted, and the two buttons while it is pending. */
 export function approvalPage(approval: ApprovalRequest): string {
   const pending = approval.status === 'pending';
@@ -83,7 +117,7 @@ export function approvalPage(approval: ApprovalRequest): string {
     `Approve ${approval.agentId}`,
     `<h1>${escapeHtml(approval.agentId)} asks to post</h1>
 <p class="note">Written by language models from third-party text: read it as data, not instructions.</p>
-${actionDetails(approval.action)}
+${approval.bundle ? bundleDetails(approval) : actionDetails(approval.action)}
 <h2>Agent's note</h2><pre>${escapeHtml(approval.rationale)}</pre>
 <p class="note">Requested ${escapeHtml(approval.createdAt)} · approval ${escapeHtml(approval.id)}</p>
 ${buttons}`,
@@ -94,6 +128,24 @@ export interface DecideResult {
   result: string;
   decision?: 'approved' | 'rejected';
   executed?: BrokerResponse;
+  /** A bundle's actions as they ran (ADR 0019). */
+  steps?: {
+    type: string;
+    outcome: 'done' | 'failed' | 'not_run';
+    code?: string;
+    githubUrl?: string;
+  }[];
+}
+
+function stepsList(steps: NonNullable<DecideResult['steps']>): string {
+  const rows = steps.map((s) => {
+    const url = s.githubUrl?.startsWith('https://github.com/')
+      ? ` <a href="${escapeHtml(s.githubUrl)}">${escapeHtml(s.githubUrl)}</a>`
+      : '';
+    const code = s.code !== undefined ? ` (${escapeHtml(s.code)})` : '';
+    return `<li>${escapeHtml(s.type)}: ${escapeHtml(s.outcome.replace('_', ' '))}${code}${url}</li>`;
+  });
+  return `<ol>${rows.join('')}</ol>`;
 }
 
 /** What happened after the click. Only a GitHub URL the broker returned becomes a link. */
@@ -101,7 +153,14 @@ export function resultPage(out: DecideResult): string {
   let msg: string;
   if (out.result !== 'ok') msg = `Nothing was done: the request is ${escapeHtml(out.result)}.`;
   else if (out.decision === 'rejected') msg = 'Rejected. Nothing was posted.';
-  else if (out.executed?.ok) {
+  else if (out.steps !== undefined) {
+    const ran = out.steps.filter((s) => s.outcome === 'done').length;
+    const why =
+      out.executed?.ok === false && ran === 0 && !out.steps.some((s) => s.outcome === 'failed')
+        ? `: ${escapeHtml(out.executed.reason.slice(0, 200))}`
+        : '';
+    msg = `${ran} of ${out.steps.length} step(s) done${why}.${stepsList(out.steps)}`;
+  } else if (out.executed?.ok) {
     const url = out.executed.githubUrl;
     msg = url?.startsWith('https://github.com/')
       ? `Posted: <a href="${escapeHtml(url)}">${escapeHtml(url)}</a>`

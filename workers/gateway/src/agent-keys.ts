@@ -26,6 +26,7 @@ export const KEY_ADMIN_BINDINGS: Readonly<Record<CallerName, string>> = {
   'custodes-pr-gate': 'KEYS_PR_GATE',
   'custodes-cheatsheet-review': 'KEYS_CHEATSHEET_REVIEW',
   'custodes-triage': 'KEYS_TRIAGE',
+  'custodes-triage-apply': 'KEYS_TRIAGE_APPLY',
 };
 
 export type PinState = 'pinned' | 'retired' | 'not pinned' | 'pinned, different key';

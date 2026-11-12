@@ -29,6 +29,8 @@
     // Recipient of digests. Must be a verified Email Routing destination (infra/terraform email module).
     "OPERATOR_EMAIL": "jkb.mackowski@gmail.com",
     "TRACE_PAYLOADS": "true",
+    // The gateway's approval-link page; triage puts triage-apply's tokens after it (ADR 0019).
+    "APPROVAL_LINK_BASE": "https://custodes.work/admin/approvals/link",
   },
   // Secrets (set by CI on deploy): AI_GATEWAY_TOKEN
   "durable_objects": {
@@ -51,6 +53,12 @@
   // Its own broker entrypoint: requests must be signed by KEYHOLDER, for these three agents only.
   "services": [
     { "binding": "BROKER", "service": "custodes-github-broker", "entrypoint": "TriageBroker" },
+    // triage-apply's RPC (ADR 0019): proposal in, approval link token out. Only this Worker binds it.
+    {
+      "binding": "TRIAGE_APPLY",
+      "service": "custodes-triage-apply",
+      "entrypoint": "TriageApplyIntake",
+    },
   ],
   "send_email": [
     {

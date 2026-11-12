@@ -7,12 +7,18 @@ import {
   type AgentKeys,
   BrokerReadRequest,
   BrokerRequest,
+  BundleApprovalAsk,
   type CallerName,
   CallerSignature,
   type Policy,
 } from '@custodes/schema';
 import { act } from './act.js';
-import { approvalByToken, createApproval, decideApproval } from './approvals.js';
+import {
+  approvalByToken,
+  createApproval,
+  createBundleApproval,
+  decideApproval,
+} from './approvals.js';
 import {
   agentKeys,
   authenticateCaller,
@@ -158,6 +164,18 @@ function agentRoutes(app: App, admitAgent: Admit, entrypoint: string, signed: bo
       ? c.json({ approval: out.approval, token: out.token }, 201)
       : c.json({ error: out.error }, out.status);
   });
+
+  /** One approval for several actions on one issue (ADR 0019); same answer as above. */
+  app.post('/v1/approvals/bundle', async (c) => {
+    const parsed = BundleApprovalAsk.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
+    const no = admit(parsed.data.request.agentId);
+    if (no !== null) return c.json({ error: no }, 403);
+    const out = await createBundleApproval(c.env, parsed.data);
+    return out.ok
+      ? c.json({ approval: out.approval, token: out.token }, 201)
+      : c.json({ error: out.error }, out.status);
+  });
   return app;
 }
 
@@ -177,7 +195,13 @@ export function sharedAgentApp(p: Policy = policy): App {
 export const agentApp: App = sharedAgentApp();
 
 // ---------- Per-agent Workers (ADR 0018) ----------
-const SIGNED_PATHS = new Set(['/v1/act', '/v1/read', '/v1/state', '/v1/approvals']);
+const SIGNED_PATHS = new Set([
+  '/v1/act',
+  '/v1/read',
+  '/v1/state',
+  '/v1/approvals',
+  '/v1/approvals/bundle',
+]);
 /** The routes for one agent Worker: signature first, then only the agent ids it hosts. */
 export function callerApp(caller: CallerName, keys: AgentKeys = agentKeys): App {
   const app: App = new Hono();
@@ -206,6 +230,7 @@ const callerApps = {
   'custodes-pr-gate': callerApp('custodes-pr-gate'),
   'custodes-cheatsheet-review': callerApp('custodes-cheatsheet-review'),
   'custodes-triage': callerApp('custodes-triage'),
+  'custodes-triage-apply': callerApp('custodes-triage-apply'),
 } satisfies Record<CallerName, App>;
 
 /** Bound only by `custodes-pr-gate` (checked by packages/core/test/bindings.test.ts). */
@@ -224,6 +249,13 @@ export class CheatsheetReviewBroker extends WorkerEntrypoint {
 export class TriageBroker extends WorkerEntrypoint {
   override fetch(request: Request): Response | Promise<Response> {
     return callerApps[CALLER_ENTRYPOINTS.TriageBroker].fetch(request, this.env, this.ctx);
+  }
+}
+
+/** Bound only by `custodes-triage-apply` (ADR 0019). */
+export class TriageApplyBroker extends WorkerEntrypoint {
+  override fetch(request: Request): Response | Promise<Response> {
+    return callerApps[CALLER_ENTRYPOINTS.TriageApplyBroker].fetch(request, this.env, this.ctx);
   }
 }
 

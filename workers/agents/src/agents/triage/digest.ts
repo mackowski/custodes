@@ -22,11 +22,21 @@ export interface Digest {
   html: string;
 }
 
+/**
+ * triage-apply's answer for one proposal (ADR 0019): the approval link, or why there is none. The
+ * URL is built by triage from a token whose format was checked; never from model or issue text.
+ */
+export type ApplyLink = { url: string; expiresAt: string; actions: string[] } | { reason: string };
+
 export interface DigestInput {
   repo: string;
   items: DigestItem[];
   implementation: SpecialistItem<ImplementationCheck>[];
   proposals: SpecialistItem<ProposalReview>[];
+  /** One-click approval links per issue (absent until triage-apply is bound). */
+  applyLinks?: ReadonlyMap<number, ApplyLink>;
+  /** Proposals over the link limit for this digest or the pending-approval limit. */
+  withoutLink?: number;
   /** Triage results left out because the issue is already accepted (ACK_OBTAINED). */
   omittedAck: number;
   /** Items left out because the issue was closed after it was assessed. */
@@ -218,7 +228,11 @@ export function proposalActions(r: ProposalReview): string[] {
   }
   if (r.addLabels.length) out.push(`add label ${r.addLabels.join(', ')}`);
   if (r.removeLabels.length) out.push(`remove label ${r.removeLabels.join(', ')}`);
-  if (r.assignTo) out.push(`assign @${r.assignTo} (offered to do it)`);
+  if (r.assignTo) out.push(`assign @${r.assignTo} (${r.assignWhy ?? 'offered to do it'})`);
+  else if (r.askedAuthorAt && r.recheckAt)
+    out.push(
+      `wait for the author until ${r.recheckAt.slice(0, 16).replace('T', ' ')} UTC (asked ${r.askedAuthorAt.slice(0, 10)})`,
+    );
   else if (r.assignees.length)
     out.push(`already assigned to ${r.assignees.map((a) => `@${a}`).join(', ')}`);
   else if (r.helpWanted) out.push('do not assign; nobody offered to do it');
@@ -227,10 +241,21 @@ export function proposalActions(r: ProposalReview): string[] {
   return out;
 }
 
+/** The one-click line for a proposal, when triage-apply answered for it. */
+export function applyLine(a: ApplyLink | undefined): string[] {
+  if (!a) return [];
+  return 'url' in a
+    ? [
+        `  apply in one click (${a.actions.join(', ')}; expires ${a.expiresAt.slice(0, 10)}): ${a.url}`,
+      ]
+    : [`  no one-click link: ${inert(a.reason, 160)}`];
+}
+
 function proposalItem(
   it: SpecialistItem<ProposalReview>,
   triage: DigestItem | undefined,
   repo: string,
+  apply?: ApplyLink,
 ): string[] {
   const r = it.result;
   const actions = proposalActions(r);
@@ -239,6 +264,7 @@ function proposalItem(
     `  ${issueUrl(repo, it.issue)}`,
     `  proposal review: ${VERDICT[r.verdict]}   makes sense: ${r.makesSense ? 'yes' : 'no'}   confidence: ${pct(r.confidence)}`,
     `  recommended: ${r.injectionDetected ? INJECTED : actions.join('; ') || '(no change)'}`,
+    ...applyLine(apply),
     ...(r.priorDecision
       ? [
           `  follows a maintainer decision in #${r.priorDecision.issue} (${issueUrl(repo, r.priorDecision.issue)}), referenced by ${r.priorDecision.via ?? 'unknown'}: ${r.priorDecision.summary}`,
@@ -342,10 +368,17 @@ export function renderDigest(input: DigestInput): Omit<Digest, 'html'> {
       'Accepted issues that look implemented',
       close.flatMap((i) => implementationItem(i, repo, now)),
     ),
-    ...section(
-      'Community proposals: recommended actions',
-      plan.proposals.flatMap((p) => proposalItem(p, plan.triageFor(p.issue), repo)),
-    ),
+    ...section('Community proposals: recommended actions', [
+      ...plan.proposals.flatMap((p) =>
+        proposalItem(p, plan.triageFor(p.issue), repo, input.applyLinks?.get(p.issue)),
+      ),
+      ...(input.withoutLink
+        ? [
+            `${input.withoutLink} more proposal(s) without a one-click link (limit reached); apply them by hand.`,
+            '',
+          ]
+        : []),
+    ]),
     ...section('Community proposals waiting on the author (nothing to do)', [
       ...plan.waitingProposals.map(
         (p) => `- #${p.issue} ${inert(p.result.title, 100)}: ${proposalWaitReason(p.result)}`,

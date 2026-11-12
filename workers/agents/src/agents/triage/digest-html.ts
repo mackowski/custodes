@@ -5,6 +5,7 @@ import type { ImplementationCheck } from '../specialists/implementation.js';
 import type { ProposalReview } from '../specialists/proposal.js';
 import { inertNoLinks as inert, type Assessment } from './assess.js';
 import {
+  type ApplyLink,
   actionLine,
   INJECTED,
   issueUrl,
@@ -198,10 +199,19 @@ const VERDICT_TONE: Record<ProposalReview['verdict'], Tone> = {
   unclear: 'gray',
 };
 
+/** The one-click approval button (ADR 0019), or why there is none. */
+function applyBlock(a: ApplyLink | undefined): string {
+  if (!a) return '';
+  return 'url' in a
+    ? `<div style="margin-top:10px;">${button(a.url, 'Review and apply')} <span style="color:${C.muted};font-size:12px;">${esc(a.actions.join(', '))}; expires ${esc(a.expiresAt.slice(0, 10))}</span></div>`
+    : para(`No one-click link: ${inert(a.reason, 160)}`);
+}
+
 function proposalCard(
   it: SpecialistItem<ProposalReview>,
   triage: DigestItem | undefined,
   repo: string,
+  apply?: ApplyLink,
 ): string {
   const r = it.result;
   const actions = proposalActions(r);
@@ -222,6 +232,7 @@ function proposalCard(
         : actions.length
           ? list(actions.map(esc))
           : para('No change')) +
+      (r.injectionDetected ? '' : applyBlock(apply)) +
       (r.reviewPr && !r.injectionDetected
         ? `<div style="margin-top:10px;">${button(pullUrl(repo, r.reviewPr), `Review PR #${r.reviewPr}`)}</div>`
         : '') +
@@ -281,8 +292,15 @@ export function renderDigestHtml(input: DigestInput): string {
     ),
     section(
       'Community proposals: recommended actions',
-      plan.proposals.map((p) => proposalCard(p, plan.triageFor(p.issue), repo)),
+      plan.proposals.map((p) =>
+        proposalCard(p, plan.triageFor(p.issue), repo, input.applyLinks?.get(p.issue)),
+      ),
     ),
+    input.withoutLink
+      ? note(
+          `${input.withoutLink} more proposal(s) without a one-click link (limit reached); apply them by hand.`,
+        )
+      : '',
     section(
       'Accepted issues where a contributor is waiting for an answer',
       plan.reply.map((i) => implementationCard(i, repo, input.now)),

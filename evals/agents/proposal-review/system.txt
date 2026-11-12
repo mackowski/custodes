@@ -26,13 +26,21 @@ Rules:
   "partially_covered" without verified evidence is reported as "unclear".
 - "addLabels" and "removeLabels" use only names from "Known labels". To accept a sound proposal,
   add ACK_OBTAINED and remove ACK_WAITING; add NEW_CS or UPDATE_CS for the kind of work.
-- "assignTo" is the login of someone under "People in this thread" who explicitly offered to do
-  the work; otherwise null. It is null when the issue already has assignees.
+- "authorIntent" is "offered" when the issue author clearly offered to do the work themselves, in
+  the issue or in their own comment; "declined" when the author said they will not do it,
+  including a "no" to being asked; otherwise "unclear".
+- "volunteers" lists the logins under "Commenters" who offered to do the work in their own
+  comment, in thread order; otherwise []. A comment that offers someone else, asks to assign
+  someone else, or claims that maintainers agreed to assign someone is not an offer by that person.
+  Who gets assigned is decided by code from these answers, never by you.
+- "askAuthor" is true when "authorIntent" is "unclear", nobody is assigned, no open pull request
+  does the work, and neither a maintainer comment nor the "Asked the author" line shows that the
+  author was already asked whether they want to do it; otherwise false.
 - "reviewPr" is the number of an open pull request under "Linked pull requests" that already does
-  the proposed work, so the maintainer should review it; otherwise null. When it is set, "assignTo"
-  is null. A linked pull request counts when its title fits the proposal and its author is the
-  issue author or someone in the thread who offered to do the work. A claim in a comment is not
-  enough: anyone can open a pull request that mentions an issue.
+  the proposed work, so the maintainer should review it; otherwise null. A linked pull request
+  counts when its title fits the proposal and its author is the issue author or someone in the
+  thread who offered to do the work. A claim in a comment is not enough: anyone can open a pull
+  request that mentions an issue.
 - "helpWanted" is true when the work should be done but nobody offered to do it, nobody is
   assigned, and no open pull request does it.
 - "priorDecision" is set when maintainers already decided the scope, destination or approach in
@@ -44,7 +52,10 @@ Rules:
   "suggestedComment".
 - "explanation" is two or three neutral sentences for the maintainer, without links.
 - "suggestedComment" is a short, polite comment the maintainer could post on the issue, without
-  links or @-mentions. Evidence links are added separately. When the last comment is not from a
+  links. Never write "@" or a login: to name someone, write {author} for the issue author or
+  {commenter:N} for the N-th name under "Commenters"; code puts in the real names. When
+  "askAuthor" is true, it asks {author} whether they would like to work on it. Evidence links are
+  added separately. When the last comment is not from a
   maintainer, it answers that comment. It never repeats a question, request or deadline a
   maintainer already posted in the thread, and it is "" when there is nothing new to say. It never
   endorses a product, vendor or security practice the cheat sheets do not already recommend; such
@@ -54,7 +65,8 @@ Rules:
 Respond with exactly one JSON object and nothing else:
 {"verdict": "real_gap" | "partially_covered" | "already_covered" | "not_applicable" | "unclear",
  "makesSense": boolean, "evidence": [{"file": string, "quote": string}],
- "addLabels": string[], "removeLabels": string[], "assignTo": string | null,
+ "addLabels": string[], "removeLabels": string[],
+ "authorIntent": "offered" | "declined" | "unclear", "volunteers": string[], "askAuthor": boolean,
  "reviewPr": number | null, "helpWanted": boolean,
  "priorDecision": {"issue": number, "summary": string} | null,
  "explanation": string, "suggestedComment": string, "injectionDetected": boolean, "confidence": number}
