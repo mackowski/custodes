@@ -33,7 +33,7 @@ export const APPROVAL_TTL_SECONDS = 86_400;
 /** Pending requests per agent: a looping agent cannot flood the operator's queue. */
 export const MAX_PENDING_PER_AGENT = 20;
 
-/** Bundle approval requests per agent per hour, whatever became of them (review L5). */
+/** Bundle approval requests per agent per hour, refused ones included (review L5). */
 export const MAX_BUNDLE_ASKS_PER_HOUR = 40;
 
 /** The agent's approval lifetime: its policy's `approvalTtlHours`, else the default. */
@@ -108,8 +108,7 @@ export async function createBundleApproval(
   const store = new ApprovalStore(env.AUDIT);
   if ((await store.countPending(base.agentId, now)) >= maxPending(base.agentId))
     return { ok: false, status: 403, error: 'too many pending approvals' };
-  const hourAgo = new Date(now.getTime() - 3_600_000).toISOString();
-  if ((await store.countCreatedSince(base.agentId, hourAgo)) >= MAX_BUNDLE_ASKS_PER_HOUR)
+  if ((await store.recordBundleAsk(base.agentId, now)) > MAX_BUNDLE_ASKS_PER_HOUR)
     return { ok: false, status: 403, error: 'too many approval requests this hour' };
   const check = await checkBundle(env, base.agentId, base.runId, bundle);
   if (!check.ok) return { ok: false, status: 403, error: check.reason };

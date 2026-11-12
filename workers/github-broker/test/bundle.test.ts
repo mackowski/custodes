@@ -204,29 +204,26 @@ describe('createBundleApproval', () => {
       });
   });
 
-  it('caps bundle requests per hour even when each supersedes the last (review L5)', async () => {
+  it('caps bundle requests per hour, refused ones included (review L5)', async () => {
     const n = nextIssue();
     const issue = { commenters: [] };
-    fakeGithub(issue, n);
-    const store = new ApprovalStore(env.AUDIT);
-    // Its own hour, 30 days before the other tests' NOW, so these rows never count for them.
-    const later = new Date(NOW.getTime() - 30 * 86_400_000);
-    const req = {
-      agentId: 'triage-apply',
-      agentVersion: '0.1.0',
-      runId,
-      triggeredBy: { kind: 'cli' as const },
-      action: { type: 'issue.comment' as const, repo: REPO, issue: n, body: 'x' },
-    };
-    for (let i = 0; i < MAX_BUNDLE_ASKS_PER_HOUR; i++) {
-      const a = await store.create(req, 'x', 'h', 3600, later);
-      await store.decide(a.id, 'rejected', 'superseded', later); // not pending any more
-    }
-    expect(await createBundleApproval(testEnv, ask(n, FULL(n), snapshotOf(issue)), later)).toEqual({
+    const gh = fakeGithub(issue, n);
+    // Its own hour, 30 days before the other tests' NOW, so these asks never count for them.
+    const then = new Date(NOW.getTime() - 30 * 86_400_000);
+    const wrong = { ...snapshotOf(issue), comments: 99 }; // refused as stale after the reads
+    for (let i = 0; i < MAX_BUNDLE_ASKS_PER_HOUR; i++)
+      expect(await createBundleApproval(testEnv, ask(n, FULL(n), wrong), then)).toMatchObject({
+        ok: false,
+        error: 'stale: the issue changed since the proposal',
+      });
+    const readsBefore = gh.calls.length + gh.spy.mock.calls.length;
+    expect(await createBundleApproval(testEnv, ask(n, FULL(n), snapshotOf(issue)), then)).toEqual({
       ok: false,
       status: 403,
       error: 'too many approval requests this hour',
     });
+    // Refused before any GitHub read.
+    expect(gh.calls.length + gh.spy.mock.calls.length).toBe(readsBefore);
   });
 
   it('never gives a bundle-only agent a one-action approval (review M1)', async () => {

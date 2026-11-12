@@ -233,11 +233,23 @@ export class ApprovalStore {
     return n;
   }
 
-  /** Approval requests one agent created since `sinceIso`, in any status. */
-  async countCreatedSince(agentId: string, sinceIso: string): Promise<number> {
+  /**
+   * Records one bundle ask (ADR 0019) and returns how many this agent made in the hour up to `now`,
+   * this one included. Called before any read, so refused asks count too.
+   */
+  async recordBundleAsk(agentId: string, now: Date): Promise<number> {
+    const dayAgo = new Date(now.getTime() - 86_400_000).toISOString();
+    const hourAgo = new Date(now.getTime() - 3_600_000).toISOString();
+    await this.db.prepare('DELETE FROM bundle_asks WHERE at < ?1').bind(dayAgo).run();
+    await this.db
+      .prepare('INSERT INTO bundle_asks (agent_id, at) VALUES (?1, ?2)')
+      .bind(agentId, now.toISOString())
+      .run();
     const row = await this.db
-      .prepare(`SELECT COUNT(*) AS n FROM approvals WHERE agent_id = ?1 AND created_at >= ?2`)
-      .bind(agentId, sinceIso)
+      .prepare(
+        'SELECT COUNT(*) AS n FROM bundle_asks WHERE agent_id = ?1 AND at >= ?2 AND at <= ?3',
+      )
+      .bind(agentId, hourAgo, now.toISOString())
       .first<{ n: number }>();
     return row?.n ?? 0;
   }

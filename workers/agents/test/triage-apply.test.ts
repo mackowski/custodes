@@ -283,6 +283,16 @@ describe('sanitizeComment and HTML character references (review M2)', () => {
   });
 });
 
+describe('sanitizeComment never rebuilds a link (review N2)', () => {
+  it('leaves no live link after deleting characters', () => {
+    for (const t of ['[click]&(http:evil.com)', ']<b>(http:evil.com)', 'see http:evil.com/x']) {
+      const out = sanitizeComment(t);
+      expect(out, t).not.toMatch(/\]\(/);
+      expect(out, t).not.toMatch(/https?:/i);
+    }
+  });
+});
+
 describe('askedAuthor', () => {
   const trailer =
     '@author, would you like to work on this?\n\n<!--\nCustodes-Agent: triage-apply@0.1.0\nCustodes-Attestation: x\n-->';
