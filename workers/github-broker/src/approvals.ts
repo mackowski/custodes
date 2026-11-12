@@ -262,7 +262,8 @@ export function commentProblem(body: string, repo: string): string | null {
     return 'comment contains an HTML character reference';
   if (body.includes('<!--') || body.includes('-->'))
     return 'comment contains an HTML comment marker';
-  if (/github\.com/i.test(body)) return 'comment contains a GitHub URL';
+  // Anywhere in the text, on purpose: a substring check, not a URL match.
+  if (body.toLowerCase().includes('github.com')) return 'comment contains a GitHub URL';
   for (const m of body.matchAll(/([A-Za-z0-9-]+\/[A-Za-z0-9._-]+)#\d+/g))
     if (m[1]?.toLowerCase() !== repo.toLowerCase()) return 'comment references another repository';
   return null;
