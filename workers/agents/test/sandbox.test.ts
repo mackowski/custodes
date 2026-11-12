@@ -157,6 +157,8 @@ describe('on-demand routes', () => {
       const out = await res.json<{ ok: boolean; detail: string }>();
       expect(out.ok).toBe(false);
       expect(out.detail).not.toMatch(/^list pulls failed/); // stopped before any read
+      // The halt set above, not a fail-closed "kill-switch state unavailable".
+      expect(out.detail).toMatch(/is halted: test$/);
     } finally {
       await testKillSwitch().resume('pr-gate');
     }

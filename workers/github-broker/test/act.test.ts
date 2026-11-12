@@ -95,11 +95,13 @@ describe('broker act()', () => {
   it('denies when halted', async () => {
     const ks = new KillSwitch(env.KILL_SWITCH);
     await ks.halt('pr-gate', 'test', 'tester');
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
     const res = await act(testEnv, {
       ...base,
       action: { type: 'pr.close', repo: 'OWASP/CheatSheetSeries', pull: 1, body: 'x' },
     });
     expect(res).toMatchObject({ ok: false, code: 'halted' });
+    expect(fetchSpy).not.toHaveBeenCalled(); // nothing reached GitHub
     await ks.resume('pr-gate');
   });
 

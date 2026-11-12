@@ -65,8 +65,10 @@ Worker on its own port in a second terminal:
 pnpm dev:agents            # http://localhost:8788
 curl localhost:8788/registry
 curl localhost:8788/agents/pr-gate-agent/custodes-sandbox/report
-curl -X POST localhost:8788/agents/pr-gate-agent/custodes-sandbox/run
 ```
+
+`POST .../run` is left out on purpose: it runs pr-gate for real, and with a local `PAT_PR_GATE` it
+can comment on and close pull requests in the sandbox repository.
 
 Deployment needs a Cloudflare account with a domain for e-mail and Access; see
 `infra/terraform/README.md` and the runbooks in `docs/runbooks/`.

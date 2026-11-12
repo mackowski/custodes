@@ -19,6 +19,8 @@ stops every agent: their status shows `kill-switch state unavailable` and the lo
 
 Do not roll the agents Worker back to a version from before #106 (agents without the kill-switch KV): older versions bind the
 kill-switch namespace and could write it again. If such a rollback happens, deploy `main` right after.
+Rolling the broker back to a version from before #106 fails too: those versions bind the
+`github-pat-hello` secret, which Terraform deletes on apply.
 
 Afterwards: check `custodes audit list --agent <agent>` for what happened before the halt and
 open an incident if anything reached GitHub or e-mail.

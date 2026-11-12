@@ -6,5 +6,9 @@
   "workers_dev": true,
   "vars": { "SCRIPT": "source" },
   "durable_objects": { "bindings": [{ "name": "PROBE", "class_name": "Probe" }] },
-  "exports": { "Probe": { "type": "durable-object", "storage": "sqlite" } },
+  "exports": {
+    "Probe": { "type": "durable-object", "storage": "sqlite" },
+    // Like HelloAgent in #106: code gone, class deleted with its data, in the same deploy.
+    "Gone": { "type": "durable-object", "state": "deleted" },
+  },
 }

@@ -32,8 +32,9 @@ $W deploy -c $T/source.jsonc
 curl "$SRC/set?v=hello-a&alarmIn=900000"
 curl "$SRC/set?name=b&v=hello-b&alarmIn=900000"
 curl "$SRC/" ; curl "$SRC/?name=b"          # note both "id" values
+curl "$SRC/gone"                            # a class to delete in B, like HelloAgent
 
-# B. The switch PR #106 makes: migrations -> exports.
+# B. The switch PR #106 makes: migrations -> exports, and `Gone` deleted in the same deploy.
 $W deploy -c $T/source-exports.jsonc
 curl "$SRC/" ; curl "$SRC/?name=b"          # same ids, values, alarms?
 $OWNER                                      # expect: custodes-transfer-test-source
@@ -63,7 +64,8 @@ curl "$TGT/" ; curl "$TGT/?name=b"          # "alarmFiredAt" set on both
 Do not mark #106 ready, or run the cutover, unless all hold:
 
 1. Every deploy in A–C succeeds.
-2. After B, both objects keep their `id`, `value` and pending `alarm`.
+2. After B, both objects keep their `id`, `value` and pending `alarm`, and the deploy that drops
+   `Gone`'s code and marks it `deleted` succeeds (it is what removes `HelloAgent` in #106).
 3. After C, on the target: same `id`s, `value`s `hello-a` / `hello-b`, alarms still set.
 4. After C, the source answers `{"bound": false}`.
 5. After D, whatever Cloudflare did with the source, the target's data is unchanged. Note the

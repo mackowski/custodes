@@ -46,6 +46,25 @@ describe('evaluatePolicy', () => {
     };
     expect(evaluatePolicy(policy, req)).toEqual({ allow: true, needsApproval: true });
   });
+  it('asks for an approval on every action of a hitl agent (invariant 3)', () => {
+    // No agent in policy.json is hitl today; new agents start hitl until their evals pass.
+    const hitl: Policy = {
+      ...policy,
+      agents: {
+        triage: {
+          ...policy.agents['triage']!,
+          mode: 'hitl',
+          requiresApproval: [],
+          requiresApprovalOn: {},
+        },
+      },
+    };
+    const req: BrokerRequest = {
+      ...base,
+      action: { type: 'issue.comment', repo: 'OWASP/CheatSheetSeries', issue: 1, body: 'x' },
+    };
+    expect(evaluatePolicy(hitl, req)).toEqual({ allow: true, needsApproval: true });
+  });
   it('denies other repos, other actions and unknown agents', () => {
     expect(
       evaluatePolicy(policy, {
