@@ -14,6 +14,9 @@ jobs:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # The read-only Access service token lives in this environment (main only); without it the
+    # secrets are empty and Access answers with a login redirect.
+    environment: sandbox-e2e
     permissions:
       contents: read
     outputs:
@@ -34,10 +37,20 @@ jobs:
           CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
           CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
         run: |
-          curl --fail --silent --show-error \
+          for v in CF_ACCESS_CLIENT_ID CF_ACCESS_CLIENT_SECRET; do
+            if [ -z "${!v}" ]; then echo "::error::$v is not set in the sandbox-e2e environment"; exit 1; fi
+          done
+          # Access answers an unauthenticated request with a 302 to its login page, which --fail
+          # alone accepts: require a 200 JSON answer.
+          code=$(curl --silent --show-error --max-redirs 0 -o "$RUNNER_TEMP/agent-keys.json" \
+            -w '%{http_code} %{content_type}' \
             -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
             -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
-            https://custodes.work/admin/agent-keys > "$RUNNER_TEMP/agent-keys.json"
+            https://custodes.work/admin/agent-keys)
+          case "$code" in
+            "200 application/json"*) ;;
+            *) echo "::error::/admin/agent-keys answered '$code', not JSON (Access token refused?)"; exit 1 ;;
+          esac
       - run: pnpm install --frozen-lockfile
       - name: Update agent-keys.json
         id: pin
