@@ -233,6 +233,15 @@ export class ApprovalStore {
     return n;
   }
 
+  /** Approval requests one agent created since `sinceIso`, in any status. */
+  async countCreatedSince(agentId: string, sinceIso: string): Promise<number> {
+    const row = await this.db
+      .prepare(`SELECT COUNT(*) AS n FROM approvals WHERE agent_id = ?1 AND created_at >= ?2`)
+      .bind(agentId, sinceIso)
+      .first<{ n: number }>();
+    return row?.n ?? 0;
+  }
+
   /** Pending, unexpired approval requests of one agent. */
   async countPending(agentId: string, now = new Date()): Promise<number> {
     const row = await this.db

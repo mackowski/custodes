@@ -121,6 +121,9 @@ export function sanitizeComment(s: string): string {
               .replace(/@/g, ''),
           ),
         )
+          // Last: deletions above can rebuild a reference (`&&amp;#64;`, `&<b>#64;`), so no `&`
+          // survives at all (review N1).
+          .replace(/&/g, '')
           .replace(/[ \t]+/g, ' ')
           .trimEnd(),
       )

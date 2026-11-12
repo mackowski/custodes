@@ -1,5 +1,6 @@
 import {
   canonicalJson,
+  commentsDigest,
   evaluatePolicy,
   KillSwitch,
   parseApprovalToken,
@@ -31,6 +32,9 @@ import { ApprovalStore } from './store.js';
 export const APPROVAL_TTL_SECONDS = 86_400;
 /** Pending requests per agent: a looping agent cannot flood the operator's queue. */
 export const MAX_PENDING_PER_AGENT = 20;
+
+/** Bundle approval requests per agent per hour, whatever became of them (review L5). */
+export const MAX_BUNDLE_ASKS_PER_HOUR = 40;
 
 /** The agent's approval lifetime: its policy's `approvalTtlHours`, else the default. */
 export function approvalTtlSeconds(agentId: string): number {
@@ -99,10 +103,14 @@ export async function createBundleApproval(
   const first = bundle.actions[0];
   if (!first) return { ok: false, status: 403, error: 'empty bundle' };
   // Before the reads: a looping agent must not spend the shared read token on refused requests.
-  if (
-    (await new ApprovalStore(env.AUDIT).countPending(base.agentId, now)) >= maxPending(base.agentId)
-  )
+  // Pending alone is not enough: a newer bundle for the same issue supersedes the older one, so a
+  // loop on one issue always sees one pending; the hourly count of requests closes that.
+  const store = new ApprovalStore(env.AUDIT);
+  if ((await store.countPending(base.agentId, now)) >= maxPending(base.agentId))
     return { ok: false, status: 403, error: 'too many pending approvals' };
+  const hourAgo = new Date(now.getTime() - 3_600_000).toISOString();
+  if ((await store.countCreatedSince(base.agentId, hourAgo)) >= MAX_BUNDLE_ASKS_PER_HOUR)
+    return { ok: false, status: 403, error: 'too many approval requests this hour' };
   const check = await checkBundle(env, base.agentId, base.runId, bundle);
   if (!check.ok) return { ok: false, status: 403, error: check.reason };
   return storeApproval(env, { ...base, action: first }, ask.rationale, bundle, now);
@@ -196,7 +204,7 @@ export async function readIssueThread(
   if (typeof data.updated_at !== 'string') return { ok: false, reason: 'unexpected issue shape' };
   const updatedAt = data.updated_at;
   const people = [author];
-  const versions: [unknown, unknown][] = [];
+  const all: unknown[] = [];
   let count = 0;
   for (let page = 1; page <= MAX_COMMENT_PAGES; page++) {
     const c = await read(
@@ -205,12 +213,10 @@ export async function readIssueThread(
       fetchImpl,
     );
     if (!c.ok) return { ok: false, reason: `comments read failed: ${c.code}` };
-    const list = Array.isArray(c.data)
-      ? (c.data as { id?: unknown; updated_at?: unknown; user?: { login?: unknown } | null }[])
-      : [];
+    const list = Array.isArray(c.data) ? (c.data as { user?: { login?: unknown } | null }[]) : [];
     count += list.length;
+    all.push(...list);
     for (const item of list) {
-      versions.push([item.id ?? null, item.updated_at ?? null]);
       const who = login(item.user?.login);
       if (who !== null && !people.some((p) => p.toLowerCase() === who.toLowerCase()))
         people.push(who);
@@ -227,15 +233,10 @@ export async function readIssueThread(
       assignees,
       comments,
       updatedAt,
-      commentsDigest: await commentsDigest(versions),
+      commentsDigest: await commentsDigest(all),
     },
     people,
   };
-}
-
-/** The snapshot's comment fingerprint; triage-apply computes the same from its own read. */
-export async function commentsDigest(versions: [unknown, unknown][]): Promise<string> {
-  return sha256Hex(canonicalJson(versions));
 }
 
 /**

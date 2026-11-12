@@ -45,17 +45,6 @@ export const ProposeResult = z.discriminatedUnion('ok', [
 ]);
 export type ProposeResult = z.infer<typeof ProposeResult>;
 
-/**
- * Each comment's `[id, updated_at]`, in thread order, exactly as the broker builds them; their
- * sha256 is the snapshot's `commentsDigest` (an edit or a delete-and-add changes it).
- */
-export function commentVersions(comments: IssueComment[]): [unknown, unknown][] {
-  return comments.map((c) => {
-    const v = c as { id?: unknown; updated_at?: unknown };
-    return [v.id ?? null, v.updated_at ?? null];
-  });
-}
-
 const lower = (s: string) => s.toLowerCase();
 
 /** The snapshot the broker compares against: sorted names, the comment count GitHub reports. */
@@ -101,7 +90,7 @@ export function buildBundle(
   input: ProposalInput,
   issue: PublicIssue,
   comments: IssueComment[],
-  /** sha256 of canonicalJson(commentVersions(comments)); computed by the caller (async). */
+  /** `commentsDigest(comments)` from @custodes/core, computed by the caller (async). */
   commentsDigest: string,
 ): { ok: true; bundle: ApprovalBundle; dropped: string[] } | { ok: false; reason: string } {
   if (issue.pull_request !== undefined) return { ok: false, reason: 'not an issue' };

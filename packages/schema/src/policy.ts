@@ -49,6 +49,7 @@ export const AgentPolicy = z
     /**
      * Only bundle approvals (ADR 0019): the plain one-action approval route refuses this agent, so
      * every request goes through the bundle checks (snapshot, thread people, issues only).
+     * `true` → `false` is a widening (invariant 4).
      */
     bundleOnly: z.boolean().default(false),
   })

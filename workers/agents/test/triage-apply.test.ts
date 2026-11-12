@@ -266,7 +266,16 @@ describe('triage-apply helpers', () => {
 
 describe('sanitizeComment and HTML character references (review M2)', () => {
   it('removes references that would render as @, so no mention can hide in one', () => {
-    for (const t of ['hi &#64;victim', 'hi &#x40;victim', 'hi &commat;victim', 'hi &#64victim']) {
+    for (const t of [
+      'hi &#64;victim',
+      'hi &#x40;victim',
+      'hi &commat;victim',
+      'hi &#64victim',
+      // Rebuilt by later deletions (review N1).
+      'hi &&amp;#64;victim',
+      'hi &<b>#64;victim',
+      'hi &<x>commat;victim',
+    ]) {
       const out = sanitizeComment(t);
       expect(out, t).not.toMatch(/&#|&[a-z]+;|@/i);
       expect(mentionsIn(out), t).toEqual([]);
