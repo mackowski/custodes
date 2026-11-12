@@ -62,6 +62,10 @@ export async function createApproval(
   now = new Date(),
 ): Promise<CreateApprovalResult> {
   if (!policy.agents[req.agentId]) return { ok: false, status: 404, error: 'unknown agent' };
+  // ADR 0019: a bundle-only agent never gets a one-action approval, which would skip the snapshot
+  // and the thread-people checks.
+  if (policy.agents[req.agentId]?.bundleOnly)
+    return { ok: false, status: 403, error: 'this agent asks for bundle approvals only' };
   // Only for an action the policy allows and that really needs an approval: an agent cannot park
   // arbitrary requests in the operator's queue.
   const decision = evaluatePolicy(policy, req);
@@ -94,6 +98,11 @@ export async function createBundleApproval(
     return { ok: false, status: 403, error: 'agent is halted' };
   const first = bundle.actions[0];
   if (!first) return { ok: false, status: 403, error: 'empty bundle' };
+  // Before the reads: a looping agent must not spend the shared read token on refused requests.
+  if (
+    (await new ApprovalStore(env.AUDIT).countPending(base.agentId, now)) >= maxPending(base.agentId)
+  )
+    return { ok: false, status: 403, error: 'too many pending approvals' };
   const check = await checkBundle(env, base.agentId, base.runId, bundle);
   if (!check.ok) return { ok: false, status: 403, error: check.reason };
   return storeApproval(env, { ...base, action: first }, ask.rationale, bundle, now);
@@ -168,6 +177,7 @@ export async function readIssueThread(
     labels?: ({ name?: unknown } | string)[];
     assignees?: { login?: unknown }[] | null;
     pull_request?: unknown;
+    updated_at?: unknown;
   };
   if (data.pull_request !== undefined) return { ok: false, reason: 'not an issue' };
   const login = (v: unknown) =>
@@ -183,7 +193,10 @@ export async function readIssueThread(
     .map((a) => login(a.login))
     .filter((a): a is string => a !== null)
     .sort();
+  if (typeof data.updated_at !== 'string') return { ok: false, reason: 'unexpected issue shape' };
+  const updatedAt = data.updated_at;
   const people = [author];
+  const versions: [unknown, unknown][] = [];
   let count = 0;
   for (let page = 1; page <= MAX_COMMENT_PAGES; page++) {
     const c = await read(
@@ -192,9 +205,12 @@ export async function readIssueThread(
       fetchImpl,
     );
     if (!c.ok) return { ok: false, reason: `comments read failed: ${c.code}` };
-    const list = Array.isArray(c.data) ? (c.data as { user?: { login?: unknown } | null }[]) : [];
+    const list = Array.isArray(c.data)
+      ? (c.data as { id?: unknown; updated_at?: unknown; user?: { login?: unknown } | null }[])
+      : [];
     count += list.length;
     for (const item of list) {
+      versions.push([item.id ?? null, item.updated_at ?? null]);
       const who = login(item.user?.login);
       if (who !== null && !people.some((p) => p.toLowerCase() === who.toLowerCase()))
         people.push(who);
@@ -205,18 +221,31 @@ export async function readIssueThread(
   const comments = typeof data.comments === 'number' ? data.comments : count;
   return {
     ok: true,
-    snapshot: { state: data.state, labels, assignees, comments },
+    snapshot: {
+      state: data.state,
+      labels,
+      assignees,
+      comments,
+      updatedAt,
+      commentsDigest: await commentsDigest(versions),
+    },
     people,
   };
 }
 
+/** The snapshot's comment fingerprint; triage-apply computes the same from its own read. */
+export async function commentsDigest(versions: [unknown, unknown][]): Promise<string> {
+  return sha256Hex(canonicalJson(versions));
+}
+
 /**
- * Logins a comment would notify: `@name` not preceded by a word character, `` ` `` or `/` (so
- * e-mail addresses and paths do not count). Over-reporting only makes the check stricter.
+ * Logins a comment may notify: `@name` not preceded by a letter or digit (so e-mail addresses do
+ * not count). Over-reporting only makes the check stricter.
  */
 export function mentionsIn(body: string): string[] {
   const out = new Set<string>();
-  for (const m of body.matchAll(/(?<![A-Za-z0-9_`/])@([A-Za-z0-9-]{1,39})/g))
+  // GitHub finds mentions in rendered text, so `_@x_`, `` `a`@x `` and `/@x` count too.
+  for (const m of body.matchAll(/(?<![A-Za-z0-9])@([A-Za-z0-9-]{1,39})/g))
     if (m[1] !== undefined) out.add(m[1]);
   return [...out];
 }
@@ -237,6 +266,9 @@ export async function checkBundle(
     return { ok: false, reason: 'stale: the issue changed since the proposal' };
   const inThread = (l: string) => thread.people.some((p) => p.toLowerCase() === l.toLowerCase());
   for (const a of bundle.actions) {
+    // A character reference renders as `@` (`&#64;x`, `&commat;x`) where no check can see it.
+    if (a.type === 'issue.comment' && /&(#|[A-Za-z][A-Za-z0-9]*;)/.test(a.body))
+      return { ok: false, reason: 'comment contains an HTML character reference' };
     const named =
       a.type === 'issue.assign'
         ? a.assignees

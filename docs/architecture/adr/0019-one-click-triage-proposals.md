@@ -89,8 +89,10 @@ comment.
   OWASP needs a policy PR after the evals pass.
 - Posted comments look like the operator's own. This is an accepted risk, owned by the operator:
   readers cannot tell that a model drafted the text, and OWASP asks contributors to disclose AI use.
-- Our own agents read an approved triage-apply comment as a maintainer comment (it is posted from
-  the operator's account). The operator approved the exact text, so that is what it is.
+- pr-gate and cheatsheet-review skip comments with an agent trailer (`AGENT_TRAILER` matches the
+  hidden one too), so an approved triage-apply comment never counts as a maintainer's agreement
+  for them. proposal-review counts only a triage-apply comment by the posting account that names
+  the author as our question (it starts the 2 days).
 
 ## Security considerations
 
@@ -100,7 +102,15 @@ comment.
   check would accept it.
 - **Untrusted input:** proposals are built from model output over issue text. Logins come only from
   GitHub-set fields, and the broker checks assignees and mentions against the thread twice (when
-  asked and when run). The snapshot makes a click on a stale view a no-op.
+  asked and when run). It counts every `@` not after a letter or digit as a mention, and refuses
+  HTML character references (`&#64;` renders as `@`). The snapshot (state, labels, assignees,
+  comment count, the issue's `updated_at` and a digest of every comment's id and `updated_at`)
+  makes a click on a stale or edited view a no-op.
+- **Bundle only:** the policy flag `bundleOnly` makes the broker refuse triage-apply's one-action
+  approvals, so no request skips those checks.
+- **Model-read intent:** "the author declined" comes from the model's reading and can be faked by
+  an injection. The digest and the approval page say so, and an eval case covers it. Only the
+  2-day silence is measured by code.
 - **Trust boundary:** triage can only ask triage-apply to ask for an approval. The operator's click
   on a page that shows the exact actions is still the only thing that writes. The RPC binding is
   pinned by a binding test.

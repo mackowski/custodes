@@ -42,7 +42,15 @@ const askFor = (agentId: string) => ({
     triggeredBy: { kind: 'cli', ref: 'x' },
     bundle: {
       actions: [{ type: 'issue.comment', repo: REPO, issue: 900, body: 'hello' }],
-      snapshot: { state: 'open', labels: [], assignees: [], comments: 0 },
+      snapshot: {
+        state: 'open',
+        labels: [],
+        assignees: [],
+        comments: 0,
+        updatedAt: '2026-11-10T10:00:00Z',
+        commentsDigest:
+          '4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945' /* sha256('[]'): no comments */,
+      },
     },
   },
   rationale: 'r',
@@ -115,6 +123,7 @@ describe('/v1/approvals/bundle on the custodes-triage-apply entrypoint', () => {
           labels: [],
           assignees: [],
           comments: 0,
+          updated_at: '2026-11-10T10:00:00Z',
         }),
       );
     });

@@ -112,7 +112,15 @@ export function sanitizeComment(s: string): string {
       .split(/\r?\n/)
       .map((l) =>
         // Deletions first (they can join characters, e.g. `/@/` -> `//`), link removal last.
-        stripLinks(stripMarkup(l.replace(INVISIBLE, ' ').replace(/@/g, '')))
+        stripLinks(
+          stripMarkup(
+            l
+              .replace(INVISIBLE, ' ')
+              // A character reference renders as `@` (`&#64;`, `&commat;`): drop them all.
+              .replace(/&(?:#[0-9]*|#x[0-9a-f]*|[a-z][a-z0-9]*);?/gi, '')
+              .replace(/@/g, ''),
+          ),
+        )
           .replace(/[ \t]+/g, ' ')
           .trimEnd(),
       )

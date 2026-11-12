@@ -33,6 +33,7 @@
 | ---------------------------------------- | --------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
 | `issue.comment`, `pr.comment`            | `POST /repos/{r}/issues/{n}/comments`                                                   | Issues: read & write (PR comments use the issues endpoint)              |
 | `issue.label.add` / `issue.label.remove` | `POST/DELETE /repos/{r}/issues/{n}/labels`                                              | Issues: read & write                                                    |
+| `issue.assign` (ADR 0019)                | `POST /repos/{r}/issues/{n}/assignees` (fails if GitHub leaves the login out)           | Issues: read & write (the account needs Triage on the repository)       |
 | `pr.review`                              | `POST /repos/{r}/pulls/{n}/reviews`                                                     | Pull requests: read & write                                             |
 | `pr.close`                               | `POST …/issues/{n}/comments`, then `PATCH /repos/{r}/pulls/{n}`                         | Pull requests: read & write (covers the PR comment too)                 |
 | `pr.review.inline`                       | `POST /repos/{r}/pulls/{n}/reviews` with `commit_id` and `comments[]` (never `APPROVE`) | Pull requests: read & write (classic `public_repo` for OWASP, ADR 0017) |

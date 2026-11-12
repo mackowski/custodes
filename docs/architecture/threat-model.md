@@ -83,10 +83,19 @@ agents are allowed to do; high-risk agents should be deployed in their own Worke
    poll, 10 per day, 5 per hour in the broker), every close is signed, listed in the daily summary
    and reversible, and the kill switch stops the agent. Owners, members, collaborators and
    dependabot are never gated.
+5. Someone steers triage-apply (ADR 0019, `docs/agents/triage-apply.md`) into assigning or pinging
+   a stranger, or into posting on a changed thread, from the operator's account. The model only
+   reports intent; code picks the assignee from the author and commenters. Logins come from
+   placeholders filled from GitHub. HTML character references are stripped and refused by the
+   broker. The broker re-checks people and an issue snapshot (including edits) when the approval
+   is asked and when the operator clicks. Every bundle needs that click.
 
 ## Accepted risks
 
 - PATs are long-lived by nature; mitigated by minimal scopes, expiry, and rotation runbook. Owner: operator.
+- triage-apply comments carry no visible disclaimer or mention of Custodes (only a hidden trailer),
+  so readers cannot tell a model drafted them; the operator approves each one (#108, ADR 0019).
+  Owner: operator.
 - `PAT_PR_GATE` is a classic `public_repo` PAT on the operator's account, because the OWASP
   organisation does not allow a fine-grained one (ADR 0011 amendment). A leak would expose the
   operator's write access to every public repository they can reach. Mitigated by: broker-only

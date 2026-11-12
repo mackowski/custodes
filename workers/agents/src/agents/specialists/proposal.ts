@@ -27,6 +27,7 @@ import {
   type LinkedPull,
 } from './implementation.js';
 import { linkedIssueNumbers } from '../pr-gate/rules.js';
+import { instanceForRepo } from '../../instances.js';
 import { loadCheatSheets, type SpecialistDeps } from './run.js';
 import { buildSelectMessage, RawSelection, SELECT_PROMPT, validateSelection } from './select.js';
 
@@ -516,7 +517,7 @@ export async function reviewProposal(
     deps,
   );
   const referenced = await readReferencedIssues(repo, issue, comments, deps);
-  const asked = askedAuthor(issue, comments);
+  const asked = askedAuthor(issue, comments, instanceForRepo(repo)?.applyActor);
   const text = await deps.assess(
     PROPOSAL_PROMPT,
     buildProposalMessage(repo, issue, comments, labels, files, {

@@ -14,7 +14,8 @@ import { PendingResults, type SpecialistJob } from './specialists/agent.js';
 import { ImplementationCheck } from './specialists/implementation.js';
 import { ProposalReview } from './specialists/proposal.js';
 import { Assessment } from './triage/assess.js';
-import type { ProposeResult } from './triage-apply/bundle.js';
+import { ProposeResult } from './triage-apply/bundle.js';
+import { assignWhyText } from './triage/digest.js';
 import {
   type ApplyLink,
   renderDigest,
@@ -547,15 +548,19 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
       }
       let out: ProposeResult;
       try {
-        out = await svc.propose(this.name, {
+        const raw: unknown = await svc.propose(this.name, {
           repo: this.repo,
           issue: p.issue,
           addLabels: r.addLabels,
           removeLabels: r.removeLabels,
           assignee: r.assignTo,
           comment,
-          reason: `proposal review: ${r.verdict}${r.assignWhy ? `; assign because the ${r.assignWhy}` : ''}`,
+          reason: `proposal review: ${r.verdict}${r.assignWhy ? `; assign: ${assignWhyText(r.assignWhy)}` : ''}`,
         });
+        const parsed = ProposeResult.safeParse(raw);
+        out = parsed.success
+          ? parsed.data
+          : { ok: false, reason: 'malformed answer from triage-apply' };
       } catch (err) {
         out = { ok: false, reason: `triage-apply unreachable (${describeError(err)})` };
       }

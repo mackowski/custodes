@@ -31,11 +31,13 @@ describe('instances', () => {
       repo: 'OWASP/CheatSheetSeries',
       sandbox: false,
       reviewTrigger: { label: 'custodes_cheatsheet_review', actor: 'mackowski' },
+      applyActor: 'mackowski',
     });
     expect(instanceOf(SANDBOX_INSTANCE)).toEqual({
       repo: 'mackowski/custodes-sandbox',
       sandbox: true,
       reviewTrigger: { label: 'custodes_cheatsheet_review', actor: 'mackowski' },
+      applyActor: 'mackowski',
     });
     for (const bad of ['default', 'test', '__proto__', 'constructor', 'toString', ''])
       expect(() => instanceOf(bad)).toThrow(UnknownInstanceError);

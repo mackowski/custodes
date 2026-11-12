@@ -46,6 +46,11 @@ export const AgentPolicy = z
      * /verify and parseTrailers) and no visible footer. Operator decision for triage-apply (#108).
      */
     trailer: z.enum(['visible', 'hidden']).default('visible'),
+    /**
+     * Only bundle approvals (ADR 0019): the plain one-action approval route refuses this agent, so
+     * every request goes through the bundle checks (snapshot, thread people, issues only).
+     */
+    bundleOnly: z.boolean().default(false),
   })
   .refine(
     (a) =>

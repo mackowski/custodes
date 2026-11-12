@@ -4,7 +4,13 @@ import { describeError } from './triage/errors.js';
 import { BrokerGitHubReader, type IssueComment } from './triage/github.js';
 import { INSTANCES } from '../instances.js';
 import type { AgentsEnv } from '../env.js';
-import { buildBundle, ProposalInput, type ProposeResult } from './triage-apply/bundle.js';
+import { canonicalJson, sha256Hex } from '@custodes/core';
+import {
+  buildBundle,
+  commentVersions,
+  ProposalInput,
+  type ProposeResult,
+} from './triage-apply/bundle.js';
 
 export const TRIAGE_APPLY_MANIFEST: AgentManifest = {
   id: 'triage-apply',
@@ -48,7 +54,8 @@ export class TriageApplyAgent extends CustodesAgent<AgentsEnv> {
         comments.push(...batch);
         if (batch.length < 100) break;
       }
-      const built = buildBundle(input, issue, comments);
+      const digest = await sha256Hex(canonicalJson(commentVersions(comments)));
+      const built = buildBundle(input, issue, comments, digest);
       if (!built.ok) return built;
       const asked = await this.requestBundleApproval(built.bundle, input.reason, runId, {
         kind: 'schedule',

@@ -105,7 +105,7 @@ describe('triage applyLinks', () => {
       removeLabels: [],
       assignee: 'author',
       comment: 'Thanks @author',
-      reason: 'proposal review: real_gap; assign because the author offered',
+      reason: 'proposal review: real_gap; assign: the model reads the author as offering to do it',
     });
   });
 
@@ -151,7 +151,8 @@ describe('triage applyLinks', () => {
       `short.1.${'A'.repeat(43)}`,
     ]) {
       const { out } = await run([{ issue: 7, result: review() }], () => ok(bad));
-      expect(out.links.get(7), bad).toEqual({ reason: 'malformed link token' });
+      // Parsed on receipt (ProposeResult): a bad token fails the whole answer.
+      expect(out.links.get(7), bad).toEqual({ reason: 'malformed answer from triage-apply' });
     }
   });
 

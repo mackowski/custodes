@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { env } from 'cloudflare:workers';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { canonicalJson, KillSwitch, sha256Hex } from '@custodes/core';
@@ -10,6 +11,7 @@ import {
 import { act } from '../src/act.js';
 import {
   approvalByToken,
+  createApproval,
   createBundleApproval,
   decideApproval,
   mentionsIn,
@@ -70,13 +72,18 @@ function fakeGithub(issue: FakeIssue = {}, number = 1) {
           labels: (issue.labels ?? []).map((name) => ({ name })),
           assignees: (issue.assignees ?? []).map((login) => ({ login })),
           comments: (issue.commenters ?? []).length,
+          updated_at: UPDATED,
           ...(issue.pull ? { pull_request: {} } : {}),
         }),
       );
     }
     if (method === 'GET' && path === `${base}/comments`) {
       const page = Number(url.searchParams.get('page'));
-      const all = (issue.commenters ?? []).map((login) => ({ user: { login } }));
+      const all = (issue.commenters ?? []).map((login, i) => ({
+        id: i + 1,
+        updated_at: UPDATED,
+        user: { login },
+      }));
       return Promise.resolve(Response.json(all.slice((page - 1) * 100, page * 100)));
     }
     calls.push({ method, path, body });
@@ -102,11 +109,19 @@ function fakeGithub(issue: FakeIssue = {}, number = 1) {
   return { calls, spy, writes: () => calls.filter((c) => c.method !== 'GET') };
 }
 
+const UPDATED = '2026-11-10T10:00:00Z';
+/** The broker's commentsDigest for the fake's comments (ids 1..n, all at UPDATED). */
+const digestOf = (commenters: string[]) =>
+  createHash('sha256')
+    .update(canonicalJson(commenters.map((_c, i) => [i + 1, UPDATED])))
+    .digest('hex');
 const snapshotOf = (i: FakeIssue = {}): IssueSnapshot => ({
   state: i.state ?? 'open',
   labels: [...(i.labels ?? [])].sort(),
   assignees: [...(i.assignees ?? [])].sort(),
   comments: (i.commenters ?? []).length,
+  updatedAt: UPDATED,
+  commentsDigest: digestOf(i.commenters ?? []),
 });
 
 const FULL = (n: number): BrokerAction[] => [
@@ -157,6 +172,57 @@ const decide = (id: string, now = NOW) =>
   decideApproval(testEnv, id, 'approved', 'op@example.org', now);
 
 describe('createBundleApproval', () => {
+  it('refuses a comment with an HTML character reference (it renders as @)', async () => {
+    const n = nextIssue();
+    const issue = { commenters: [] };
+    fakeGithub(issue, n);
+    for (const body of ['hi &#64;victim', 'hi &#x40;victim', 'hi &commat;victim', 'a &amp; b']) {
+      const actions: BrokerAction[] = [{ type: 'issue.comment', repo: REPO, issue: n, body }];
+      expect(
+        await createBundleApproval(testEnv, ask(n, actions, snapshotOf(issue)), NOW),
+        body,
+      ).toEqual({
+        ok: false,
+        status: 403,
+        error: 'comment contains an HTML character reference',
+      });
+    }
+  });
+
+  it('refuses as stale when a comment was edited or the issue updated, with the same count', async () => {
+    const n = nextIssue();
+    const issue = { commenters: ['bob'] };
+    fakeGithub(issue, n);
+    const edited = { ...snapshotOf(issue), commentsDigest: digestOf(['bob', 'x']) };
+    const touched = { ...snapshotOf(issue), updatedAt: '2026-11-11T10:00:00Z' };
+    for (const snap of [edited, touched])
+      expect(await createBundleApproval(testEnv, ask(n, FULL(n), snap), NOW)).toEqual({
+        ok: false,
+        status: 403,
+        error: 'stale: the issue changed since the proposal',
+      });
+  });
+
+  it('never gives a bundle-only agent a one-action approval (review M1)', async () => {
+    const out = await createApproval(
+      testEnv,
+      {
+        agentId: 'triage-apply',
+        agentVersion: '0.1.0',
+        runId,
+        triggeredBy: { kind: 'cli', ref: 'm1' },
+        action: { type: 'issue.assign', repo: REPO, issue: 1, assignees: ['anyone'] },
+      },
+      'x',
+      NOW,
+    );
+    expect(out).toEqual({
+      ok: false,
+      status: 403,
+      error: 'this agent asks for bundle approvals only',
+    });
+  });
+
   it('stores one approval for the whole bundle, with a 168 h ttl on approval and token', async () => {
     const c = await created();
     expect(c.approval.bundle?.actions.map((a) => a.type)).toEqual([
@@ -586,11 +652,15 @@ describe('mentionsIn', () => {
     expect(mentionsIn('hi @alice and @Bob-1, again @alice.')).toEqual(['alice', 'Bob-1']);
     expect(mentionsIn('(@carol)')).toEqual(['carol']);
   });
-  it('does not count e-mail addresses, paths, backticked names or word-prefixed @', () => {
+  it('does not count e-mail addresses or @ inside a word', () => {
     expect(mentionsIn('mail me at a@example.org')).toEqual([]);
-    expect(mentionsIn('see node_modules/@scope/pkg and /@x')).toEqual([]);
-    expect(mentionsIn('use `@decorator` here')).toEqual([]);
-    expect(mentionsIn('foo_@bar')).toEqual([]);
+    expect(mentionsIn('word9@bar')).toEqual([]);
+  });
+  it('counts forms GitHub mentions in rendered text: after code, emphasis, a slash or `_`', () => {
+    // Over-reporting only refuses more; under-reporting would ping a stranger (review M2).
+    expect(mentionsIn('see /@x')).toEqual(['x']);
+    expect(mentionsIn('use `@decorator` here')).toEqual(['decorator']);
+    expect(mentionsIn('run `a`@b and _@c_ and foo_@d')).toEqual(['b', 'c', 'd']);
   });
   it('over-reports rather than under-reports odd forms', () => {
     expect(mentionsIn('@a-')).toEqual(['a-']);

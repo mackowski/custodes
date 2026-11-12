@@ -17,6 +17,7 @@ const policy: Policy = {
       rateLimitPerHour: 60,
       isolated: false,
       trailer: 'visible',
+      bundleOnly: false,
     },
   },
 };
@@ -158,6 +159,7 @@ describe('evaluatePolicy for read-only agents', () => {
           rateLimitPerHour: 60,
           isolated: false,
           trailer: 'visible',
+          bundleOnly: false,
         },
       },
     };
@@ -339,7 +341,11 @@ describe('evaluatePolicy for cheatsheet-review (real broker policy)', () => {
     for (const [id, a] of Object.entries(real.agents)) {
       if (!a.actions.includes('issue.label.add')) continue;
       expect(id).toBe('triage-apply');
-      expect(a.labels, id).not.toContain('custodes_cheatsheet_review');
+      // GitHub label names are case-insensitive.
+      expect(
+        (a.labels ?? []).map((l) => l.toLowerCase()),
+        id,
+      ).not.toContain('custodes_cheatsheet_review');
       expect(
         evaluatePolicy(real, {
           ...base,

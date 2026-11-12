@@ -7,6 +7,7 @@ import { z } from 'zod';
 import {
   type ApprovalBundle,
   type BrokerAction,
+  BrokerActionType,
   GitHubLogin,
   type IssueSnapshot,
 } from '@custodes/schema';
@@ -27,22 +28,42 @@ export const ProposalInput = z.object({
 });
 export type ProposalInput = z.infer<typeof ProposalInput>;
 
-export type ProposeResult =
-  | {
-      ok: true;
-      token: string;
-      expiresAt: string;
-      actions: BrokerAction['type'][];
-      dropped: string[];
-    }
-  | { ok: false; reason: string; dropped?: string[] };
+/** triage-apply's answer; triage parses it on receipt (an RPC peer is still another component). */
+export const ProposeResult = z.discriminatedUnion('ok', [
+  z.object({
+    ok: z.literal(true),
+    token: z.string().regex(/^[0-9a-f-]{36}\.\d{1,12}\.[A-Za-z0-9_-]{20,100}$/),
+    expiresAt: z.iso.datetime(),
+    actions: z.array(BrokerActionType).min(1).max(4),
+    dropped: z.array(z.string().max(100)).max(10),
+  }),
+  z.object({
+    ok: z.literal(false),
+    reason: z.string().max(300),
+    dropped: z.array(z.string().max(100)).max(10).optional(),
+  }),
+]);
+export type ProposeResult = z.infer<typeof ProposeResult>;
+
+/**
+ * Each comment's `[id, updated_at]`, in thread order, exactly as the broker builds them; their
+ * sha256 is the snapshot's `commentsDigest` (an edit or a delete-and-add changes it).
+ */
+export function commentVersions(comments: IssueComment[]): [unknown, unknown][] {
+  return comments.map((c) => {
+    const v = c as { id?: unknown; updated_at?: unknown };
+    return [v.id ?? null, v.updated_at ?? null];
+  });
+}
 
 const lower = (s: string) => s.toLowerCase();
 
 /** The snapshot the broker compares against: sorted names, the comment count GitHub reports. */
-export function snapshotOf(issue: PublicIssue): IssueSnapshot | null {
+export function snapshotOf(issue: PublicIssue, commentsDigest: string): IssueSnapshot | null {
   if (issue.state !== 'open' && issue.state !== 'closed') return null;
   return {
+    updatedAt: issue.updated_at,
+    commentsDigest,
     state: issue.state,
     labels: issueLabels(issue)
       .filter((l) => l.length > 0)
@@ -64,10 +85,10 @@ export function threadPeople(issue: PublicIssue, comments: IssueComment[]): stri
   return out;
 }
 
-/** Same rule as the broker's `mentionsIn`: `@name` not after a word character, `` ` `` or `/`. */
+/** Same rule as the broker's `mentionsIn`: `@name` not after a letter or digit. */
 export function mentionsIn(body: string): string[] {
   const out = new Set<string>();
-  for (const m of body.matchAll(/(?<![A-Za-z0-9_`/])@([A-Za-z0-9-]{1,39})/g))
+  for (const m of body.matchAll(/(?<![A-Za-z0-9])@([A-Za-z0-9-]{1,39})/g))
     if (m[1] !== undefined) out.add(m[1]);
   return [...out];
 }
@@ -80,12 +101,14 @@ export function buildBundle(
   input: ProposalInput,
   issue: PublicIssue,
   comments: IssueComment[],
+  /** sha256 of canonicalJson(commentVersions(comments)); computed by the caller (async). */
+  commentsDigest: string,
 ): { ok: true; bundle: ApprovalBundle; dropped: string[] } | { ok: false; reason: string } {
   if (issue.pull_request !== undefined) return { ok: false, reason: 'not an issue' };
   if (issue.number !== input.issue) return { ok: false, reason: 'wrong issue' };
   if (issue.state !== 'open') return { ok: false, reason: 'issue is not open' };
   if (comments.length < issue.comments) return { ok: false, reason: 'thread longer than was read' };
-  const snapshot = snapshotOf(issue);
+  const snapshot = snapshotOf(issue, commentsDigest);
   if (snapshot === null) return { ok: false, reason: 'unexpected issue shape' };
   const people = threadPeople(issue, comments);
   const inThread = (l: string) => people.some((p) => lower(p) === lower(l));
@@ -107,7 +130,9 @@ export function buildBundle(
   );
   if (remove.length) actions.push({ type: 'issue.label.remove', ...target, labels: remove });
   const body = input.comment.trim();
-  if (body) {
+  if (body && /&(#|[A-Za-z][A-Za-z0-9]*;)/.test(body))
+    dropped.push('comment (HTML character reference)');
+  else if (body) {
     const stranger = mentionsIn(body).find((l) => !inThread(l));
     if (stranger !== undefined) dropped.push('comment (names someone outside the thread)');
     else actions.push({ type: 'issue.comment', ...target, body });

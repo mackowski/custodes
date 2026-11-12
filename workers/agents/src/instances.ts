@@ -15,6 +15,16 @@ export interface RepoInstance {
    * agent never runs for this repository. The broker policy must list the repository too.
    */
   reviewTrigger?: { label: string; actor: string };
+  /**
+   * The GitHub account triage-apply's PAT posts as (ADR 0019): only its comments can be "our
+   * question to the author" that starts the 2-day wait.
+   */
+  applyActor?: string;
+}
+
+/** The instance serving `repo`, if any. */
+export function instanceForRepo(repo: string): RepoInstance | undefined {
+  return Object.values(INSTANCES).find((i) => i.repo === repo);
 }
 
 export const OWASP_INSTANCE = 'owasp-cheatsheetseries';
@@ -25,11 +35,13 @@ export const INSTANCES: Readonly<Record<string, RepoInstance>> = {
     repo: 'OWASP/CheatSheetSeries',
     sandbox: false,
     reviewTrigger: { label: 'custodes_cheatsheet_review', actor: 'mackowski' },
+    applyActor: 'mackowski',
   },
   [SANDBOX_INSTANCE]: {
     repo: 'mackowski/custodes-sandbox',
     sandbox: true,
     reviewTrigger: { label: 'custodes_cheatsheet_review', actor: 'mackowski' },
+    applyActor: 'mackowski',
   },
 };
 

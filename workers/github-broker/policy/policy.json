@@ -60,7 +60,8 @@
       "approvalTtlHours": 168,
       "maxPendingApprovals": 50,
       "trailer": "hidden",
-      "$comment_labels": "The OWASP labels from #108 except custodes_cheatsheet_review: that label starts a cheatsheet-review run, and this PAT belongs to the operator's account, so adding it would look like the operator's trigger (ADR 0019)."
+      "$comment_labels": "The OWASP labels from #108 except custodes_cheatsheet_review: that label starts a cheatsheet-review run, and this PAT belongs to the operator's account, so adding it would look like the operator's trigger (ADR 0019).",
+      "bundleOnly": true
     }
   },
   "reads": {

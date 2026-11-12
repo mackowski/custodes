@@ -25,17 +25,33 @@ export interface AskedAuthor {
   replied: boolean;
 }
 
-/** Our latest question to the author, from the comments read, or null if we never asked. */
-export function askedAuthor(issue: PublicIssue, comments: IssueComment[]): AskedAuthor | null {
+/**
+ * Our latest question to the author, from the comments read, or null if we never asked. It counts
+ * only when posted by `actor` (the account triage-apply posts as), with a maintainer association
+ * and the hidden trailer, and only when it names the author: any other triage-apply comment, or a
+ * pasted trailer, does not start the 2 days.
+ */
+export function askedAuthor(
+  issue: PublicIssue,
+  comments: IssueComment[],
+  actor: string | undefined,
+): AskedAuthor | null {
   const author = issue.user?.login.toLowerCase();
+  // GitHub-set, but checked anyway: it goes into a RegExp.
+  if (author === undefined || actor === undefined || !/^[a-z0-9-]{1,39}$/.test(author)) return null;
+  const namesAuthor = new RegExp(`(?<![A-Za-z0-9])@${author}(?![A-Za-z0-9-])`, 'i');
   let at: string | null = null;
-  for (const c of comments)
+  for (const c of comments) {
+    const body = c.body ?? '';
     if (
+      c.user?.login.toLowerCase() === actor.toLowerCase() &&
       MAINTAINER_ASSOCIATIONS.has(c.author_association ?? '') &&
-      (c.body ?? '').includes(OUR_TRAILER) &&
+      body.includes(OUR_TRAILER) &&
+      namesAuthor.test(body) &&
       (at === null || c.created_at > at)
     )
       at = c.created_at;
+  }
   if (at === null) return null;
   const asked = at;
   const replied = comments.some(

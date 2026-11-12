@@ -8,15 +8,16 @@ import {
   fillPlaceholders,
   type AssignmentInput,
 } from '../src/agents/specialists/assignment.js';
+import { sanitizeComment } from '../src/agents/specialists/evidence.js';
 import {
   type RawProposalReview,
   validateProposalReview,
 } from '../src/agents/specialists/proposal.js';
 import {
-  buildBundle,
+  buildBundle as buildBundleWith,
   mentionsIn,
   ProposalInput,
-  snapshotOf,
+  snapshotOf as snapshotOfWith,
   threadPeople,
 } from '../src/agents/triage-apply/bundle.js';
 import type { IssueComment, PublicIssue } from '../src/agents/triage/github.js';
@@ -26,6 +27,11 @@ import { TriageApplyIntake } from '../src/triage-apply-worker.js';
 import type { AgentsEnv } from '../src/env.js';
 
 const REPO = 'mackowski/custodes-sandbox';
+/** A fixed comments fingerprint: the digest itself is computed by the caller (and tested apart). */
+const DIGEST = 'a'.repeat(64);
+const buildBundle = (...a: [ProposalInput, PublicIssue, IssueComment[]]) =>
+  buildBundleWith(...a, DIGEST);
+const snapshotOf = (i: PublicIssue) => snapshotOfWith(i, DIGEST);
 const NOW = new Date('2026-11-12T10:00:00Z');
 
 const issue = (over: Partial<PublicIssue> = {}): PublicIssue => ({
@@ -83,6 +89,8 @@ describe('buildBundle', () => {
       labels: ['ACK_WAITING'],
       assignees: [],
       comments: 1,
+      updatedAt: '2026-11-10T10:00:00Z',
+      commentsDigest: DIGEST,
     });
     expect(r.dropped).toEqual([]);
   });
@@ -147,13 +155,28 @@ describe('buildBundle', () => {
     expect(r.bundle.actions.map((a) => a.type)).toEqual(['issue.label.add']);
   });
 
-  it('keeps a comment that names the author or a commenter, and ignores e-mails and code', () => {
+  it('keeps a comment that names the author or a commenter, and ignores e-mails', () => {
     const r = buildBundle(
-      input({ comment: 'Hi @bob, mail a@example.org, run `@x`, see /@y' }),
+      input({ comment: 'Hi @bob, mail a@example.org' }),
       issue({ comments: 1 }),
       [comment('Bob')],
     );
     expect(r.ok && r.bundle.actions.map((a) => a.type)).toEqual(['issue.comment']);
+  });
+
+  it('counts mentions GitHub renders after code, emphasis or a slash, and refuses entities', () => {
+    for (const body of ['run `x`@y', '_@y_', 'see /@y', 'hi &#64;y', 'hi &commat;y']) {
+      const r = buildBundle(
+        input({ comment: body, addLabels: ['NEW_CS'] }),
+        issue({ comments: 1 }),
+        [comment('Bob')],
+      );
+      if (!r.ok) throw new Error(r.reason);
+      expect(
+        r.bundle.actions.map((a) => a.type),
+        body,
+      ).toEqual(['issue.label.add']);
+    }
   });
 
   it('refuses a pull request, a wrong number, a closed issue and an unexpected state', () => {
@@ -209,7 +232,13 @@ describe('triage-apply helpers', () => {
           comments: 4,
         }),
       ),
-    ).toEqual({ state: 'open', labels: ['a', 'b'], assignees: ['amy', 'zed'], comments: 4 });
+    ).toMatchObject({
+      state: 'open',
+      labels: ['a', 'b'],
+      assignees: ['amy', 'zed'],
+      comments: 4,
+      commentsDigest: DIGEST,
+    });
     expect(snapshotOf(issue({ state: 'merged' }))).toBeNull();
   });
 
@@ -220,7 +249,8 @@ describe('triage-apply helpers', () => {
   });
 
   it('mentionsIn agrees with the broker rule', () => {
-    expect(mentionsIn('@a and (@b) but not x@c, `@d`, /@e or w@f')).toEqual(['a', 'b']);
+    // GitHub mentions in rendered text: after code, emphasis or a slash too; never inside a word.
+    expect(mentionsIn('@a and (@b) but not x@c, `@d`, /@e or w@f')).toEqual(['a', 'b', 'd', 'e']);
   });
 
   it('ProposalInput rejects a bad repo, too many labels, a bad login and a long comment', () => {
@@ -234,9 +264,21 @@ describe('triage-apply helpers', () => {
   });
 });
 
+describe('sanitizeComment and HTML character references (review M2)', () => {
+  it('removes references that would render as @, so no mention can hide in one', () => {
+    for (const t of ['hi &#64;victim', 'hi &#x40;victim', 'hi &commat;victim', 'hi &#64victim']) {
+      const out = sanitizeComment(t);
+      expect(out, t).not.toMatch(/&#|&[a-z]+;|@/i);
+      expect(mentionsIn(out), t).toEqual([]);
+    }
+  });
+});
+
 describe('askedAuthor', () => {
   const trailer =
-    'Question?\n\n<!--\nCustodes-Agent: triage-apply@0.1.0\nCustodes-Attestation: x\n-->';
+    '@author, would you like to work on this?\n\n<!--\nCustodes-Agent: triage-apply@0.1.0\nCustodes-Attestation: x\n-->';
+  /** triage-apply posts as `maint` in these tests (instances.ts applyActor). */
+  const asked = (i: PublicIssue, cs: IssueComment[]) => askedAuthor(i, cs, 'maint');
   const ours = (over: Partial<IssueComment> = {}) =>
     comment('maint', {
       body: trailer,
@@ -246,11 +288,11 @@ describe('askedAuthor', () => {
     });
 
   it('is null when nobody asked', () => {
-    expect(askedAuthor(issue(), [comment('bob')])).toBeNull();
+    expect(asked(issue(), [comment('bob')])).toBeNull();
   });
 
   it.each(['OWNER', 'MEMBER', 'COLLABORATOR'])('counts a comment by a %s with the trailer', (a) => {
-    expect(askedAuthor(issue(), [ours({ author_association: a })])).toEqual({
+    expect(asked(issue(), [ours({ author_association: a })])).toEqual({
       at: '2026-11-03T10:00:00Z',
       replied: false,
     });
@@ -260,36 +302,44 @@ describe('askedAuthor', () => {
     'ignores the trailer pasted by someone with association %s',
     (a) => {
       expect(
-        askedAuthor(issue(), [
+        asked(issue(), [
           ours(a === undefined ? { author_association: undefined } : { author_association: a }),
         ]),
       ).toBeNull();
     },
   );
 
-  it('ignores a maintainer comment without the trailer or with another agent trailer', () => {
-    expect(askedAuthor(issue(), [ours({ body: 'would you like to?' })])).toBeNull();
+  it('counts only the account triage-apply posts as, and only a comment naming the author', () => {
+    // review L1: another maintainer pasting the trailer, or a "thanks" comment, starts nothing.
+    expect(asked(issue(), [ours({ user: { login: 'other-maint' } })])).toBeNull();
     expect(
-      askedAuthor(issue(), [ours({ body: '<!--\nCustodes-Agent: triage@0.2.0\n-->' })]),
+      asked(issue(), [ours({ body: 'Thanks!\n<!--\nCustodes-Agent: triage-apply@0.1.0\n-->' })]),
     ).toBeNull();
-    expect(askedAuthor(issue(), [ours({ body: null })])).toBeNull();
+    expect(asked(issue(), [ours({ body: trailer.replace('@author', '@authorx') })])).toBeNull();
+    expect(askedAuthor(issue(), [ours()], undefined)).toBeNull();
+  });
+
+  it('ignores a maintainer comment without the trailer or with another agent trailer', () => {
+    expect(asked(issue(), [ours({ body: 'would you like to?' })])).toBeNull();
+    expect(asked(issue(), [ours({ body: '<!--\nCustodes-Agent: triage@0.2.0\n-->' })])).toBeNull();
+    expect(asked(issue(), [ours({ body: null })])).toBeNull();
   });
 
   it('uses the latest question and notes a later reply by the author (any letter case)', () => {
-    const r = askedAuthor(issue(), [
+    const r = asked(issue(), [
       ours({ created_at: '2026-11-03T10:00:00Z' }),
       ours({ created_at: '2026-11-05T10:00:00Z' }),
       comment('AUTHOR', { created_at: '2026-11-04T10:00:00Z' }),
     ]);
     expect(r).toEqual({ at: '2026-11-05T10:00:00Z', replied: false });
     expect(
-      askedAuthor(issue(), [ours(), comment('AUTHOR', { created_at: '2026-11-04T10:00:00Z' })]),
+      asked(issue(), [ours(), comment('AUTHOR', { created_at: '2026-11-04T10:00:00Z' })]),
     ).toEqual({ at: '2026-11-03T10:00:00Z', replied: true });
   });
 
   it('does not count another commenter replying, or the author writing before the question', () => {
     expect(
-      askedAuthor(issue(), [
+      asked(issue(), [
         comment('author', { created_at: '2026-11-02T10:00:00Z' }),
         ours(),
         comment('bob', { created_at: '2026-11-04T10:00:00Z' }),
@@ -640,7 +690,9 @@ describe('digest apply block', () => {
   });
 
   it('names the assignment reason and the wait in the recommended actions', () => {
-    expect(digest({}).text).toContain('assign @author (author offered)');
+    expect(digest({}).text).toContain(
+      'assign @author (the model reads the author as offering to do it)',
+    );
     const waiting = {
       ...review,
       assignTo: null,

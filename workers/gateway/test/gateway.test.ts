@@ -590,7 +590,14 @@ describe('bundle approval page (ADR 0019)', () => {
           body: 'Thanks @alice <script>alert(1)</script> [x](https://evil.example.com)',
         },
       ],
-      snapshot: { state: 'open', labels: ['python'], assignees: [], comments: 3 },
+      snapshot: {
+        state: 'open',
+        labels: ['python'],
+        assignees: [],
+        comments: 3,
+        updatedAt: '2026-11-10T10:00:00Z',
+        commentsDigest: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      },
     },
   };
 
@@ -617,7 +624,10 @@ describe('bundle approval page (ADR 0019)', () => {
     expect(html).toContain('labels python');
     expect(html).toContain('assignees (none)');
     expect(html).toContain('the broker runs nothing');
-    expect(html).toContain('all or nothing (4)');
+    expect(html).toContain('Runs in this order (4)');
+    // Not "all or nothing": a step that already ran stays done (review Info).
+    expect(html).toContain('steps already done stay done');
+    expect(html).toContain('invisible attestation trailer');
   });
 
   it('escapes hostile label names, logins in the snapshot and shows no buttons once decided', () => {
@@ -625,7 +635,14 @@ describe('bundle approval page (ADR 0019)', () => {
       ...approval,
       bundle: {
         ...approval.bundle!,
-        snapshot: { state: 'open', labels: ['<i>x</i>'], assignees: [], comments: 0 },
+        snapshot: {
+          state: 'open',
+          labels: ['<i>x</i>'],
+          assignees: [],
+          comments: 0,
+          updatedAt: '2026-11-10T10:00:00Z',
+          commentsDigest: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        },
       },
     };
     const html = approvalPage(hostile);

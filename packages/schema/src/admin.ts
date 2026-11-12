@@ -22,6 +22,13 @@ export const IssueSnapshot = z.object({
   /** Sorted. */
   assignees: z.array(GitHubLogin).max(10),
   comments: z.number().int().min(0).max(100_000),
+  /** The issue's `updated_at`: catches title and body edits. */
+  updatedAt: z.iso.datetime({ offset: true }),
+  /**
+   * sha256 of the canonical JSON of every comment's `[id, updated_at]`, in thread order: catches an
+   * edited comment, and one deleted while another was added.
+   */
+  commentsDigest: z.string().regex(/^[0-9a-f]{64}$/),
 });
 export type IssueSnapshot = z.infer<typeof IssueSnapshot>;
 

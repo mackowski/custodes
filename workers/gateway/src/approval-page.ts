@@ -106,9 +106,9 @@ function bundleDetails(approval: ApprovalRequest): string {
   const snap = b.snapshot;
   return `<dl><dt>Repository</dt><dd>${escapeHtml(a.repo)}</dd>
 <dt>Issue</dt><dd>#${a.issue}</dd></dl>
-<h2>Runs in this order, all or nothing (${b.actions.length})</h2>
+<h2>Runs in this order (${b.actions.length})</h2>
 <dl>${b.actions.map(bundleStep).join('')}</dl>
-<p class="note">Proposed for the issue as it was: ${escapeHtml(snap.state)}, ${snap.comments} comment(s), labels ${escapeHtml(snap.labels.join(', ') || '(none)')}, assignees ${escapeHtml(snap.assignees.join(', ') || '(none)')}. If any of that changed, the broker runs nothing. It stops at the first step that fails; the result page says which ran.</p>`;
+<p class="note">Proposed for the issue as it was: ${escapeHtml(snap.state)}, ${snap.comments} comment(s), labels ${escapeHtml(snap.labels.join(', ') || '(none)')}, assignees ${escapeHtml(snap.assignees.join(', ') || '(none)')}. If any of that changed (or the issue or a comment was edited), the broker runs nothing. It stops at the first step that fails; steps already done stay done, and the result page says which ran. A comment gets an invisible attestation trailer (an HTML comment) and nothing visible.</p>`;
 }
 
 /** The confirmation page: exactly what will be posted, and the two buttons while it is pending. */

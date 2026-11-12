@@ -214,6 +214,21 @@ export function proposalWaiting(r: ProposalReview, now: Date): boolean {
   );
 }
 
+/**
+ * Why an assignee was proposed, worded so the operator checks it: intent is the model's reading
+ * of the thread (an injection can fake it); only the 2-day silence is measured by code.
+ */
+export function assignWhyText(why: NonNullable<ProposalReview['assignWhy']>): string {
+  switch (why) {
+    case 'author offered':
+      return 'the model reads the author as offering to do it';
+    case 'author declined':
+      return 'the model reads the author as declining; the first other volunteer';
+    case 'author silent 2 days':
+      return 'no reply from the author 2 days after our question; the first volunteer';
+  }
+}
+
 export function proposalActions(r: ProposalReview): string[] {
   const out: string[] = [];
   if (r.thread && !r.thread.lastByMaintainer)
@@ -228,7 +243,10 @@ export function proposalActions(r: ProposalReview): string[] {
   }
   if (r.addLabels.length) out.push(`add label ${r.addLabels.join(', ')}`);
   if (r.removeLabels.length) out.push(`remove label ${r.removeLabels.join(', ')}`);
-  if (r.assignTo) out.push(`assign @${r.assignTo} (${r.assignWhy ?? 'offered to do it'})`);
+  if (r.assignTo)
+    out.push(
+      `assign @${r.assignTo} (${r.assignWhy ? assignWhyText(r.assignWhy) : 'offered to do it'})`,
+    );
   else if (r.askedAuthorAt && r.recheckAt)
     out.push(
       `wait for the author until ${r.recheckAt.slice(0, 16).replace('T', ' ')} UTC (asked ${r.askedAuthorAt.slice(0, 10)})`,

@@ -2,7 +2,14 @@ import { describe, expect, it } from 'vitest';
 import { AgentPolicy, ApprovalBundle, BrokerAction, GitHubLogin } from '../src/index.js';
 
 const repo = 'o/r';
-const snapshot = { state: 'open' as const, labels: [], assignees: [], comments: 0 };
+const snapshot = {
+  state: 'open' as const,
+  labels: [],
+  assignees: [],
+  comments: 0,
+  updatedAt: '2026-11-10T10:00:00Z',
+  commentsDigest: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+};
 const assign = { type: 'issue.assign' as const, repo, issue: 5, assignees: ['alice'] };
 const add = { type: 'issue.label.add' as const, repo, issue: 5, labels: ['docker'] };
 const remove = { type: 'issue.label.remove' as const, repo, issue: 5, labels: ['python'] };
