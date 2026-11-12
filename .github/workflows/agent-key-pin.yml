@@ -4,13 +4,52 @@ name: Agent key pin
 # runs the tests on it and pushes a branch. It does not open the pull request (Actions may not
 # create PRs in this repository): the summary links to it, and the operator reviews and merges.
 #
-# Two jobs: dependencies and tests run in `prepare`, which can only read; `push` holds the write
-# token, installs nothing and only commits the one file `prepare` produced.
+# Three jobs, each holding one credential at most: `fetch` holds the Access service token and runs
+# only curl; `prepare` installs dependencies and runs the tests with no secret, only reading; `push`
+# holds the write token, installs nothing and only commits the one file `prepare` produced.
 on:
   workflow_dispatch:
 permissions: read-all
 jobs:
+  # Only this job holds the Access service token: no checkout, no dependencies, nothing else runs
+  # here (a token in a job that installs packages can be read from the runner's memory). It hands
+  # the answer to `prepare` as an artifact. Claude review of #109.
+  fetch:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # The Access service token lives in this environment (main only).
+    environment: sandbox-e2e
+    permissions: {}
+    steps:
+      - name: Read the held keys
+        env:
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+        run: |
+          for v in CF_ACCESS_CLIENT_ID CF_ACCESS_CLIENT_SECRET; do
+            if [ -z "${!v}" ]; then echo "::error::$v is not set in the sandbox-e2e environment"; exit 1; fi
+          done
+          mkdir -p "$RUNNER_TEMP/keys"
+          # Access answers an unauthenticated request with a 302 to its login page, which --fail
+          # alone accepts: require a 200 JSON answer.
+          code=$(curl --silent --show-error --max-redirs 0 -o "$RUNNER_TEMP/keys/agent-keys.json" \
+            -w '%{http_code} %{content_type}' \
+            -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
+            -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
+            https://custodes.work/admin/agent-keys)
+          case "$code" in
+            "200 application/json"*) ;;
+            *) echo "::error::/admin/agent-keys answered '$code', not JSON (Access token refused?)"; exit 1 ;;
+          esac
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: held-keys
+          path: ${{ runner.temp }}/keys/agent-keys.json
+          retention-days: 1
+
   prepare:
+    needs: fetch
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -27,17 +66,10 @@ jobs:
         with:
           node-version-file: .node-version
           cache: pnpm
-      # Before `pnpm install`: an install script could write $GITHUB_ENV or $GITHUB_PATH and take over
-      # the step that holds the Access service token (Claude review of #106).
-      - name: Read the held keys
-        env:
-          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
-          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
-        run: |
-          curl --fail --silent --show-error \
-            -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
-            -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
-            https://custodes.work/admin/agent-keys > "$RUNNER_TEMP/agent-keys.json"
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: held-keys
+          path: ${{ runner.temp }}
       - run: pnpm install --frozen-lockfile
       - name: Update agent-keys.json
         id: pin
