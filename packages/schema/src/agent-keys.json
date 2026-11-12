@@ -1,6 +1,14 @@
 {
   "$comment": "Public keys of the agent Workers (ADR 0018), pinned per caller. Each Worker's keyholder Durable Object generates its own Ed25519 key; only the public half is committed here, by a reviewed pull request (the rotation workflow opens it). At most two active keys per caller, during a rotation. A rotated-out key moves to `retired` (kept for verifying old audit records); a compromised key is deleted, never retired. The broker authenticates with `callers`; the gateway's /verify reads this file at build time, never from the broker. Empty until the first agent moves to its own Worker.",
   "version": 1,
-  "callers": {},
+  "callers": {
+    "custodes-triage-apply": [
+      {
+        "kid": "triage-apply-20261112-00d86409",
+        "x": "Cv77Rpx1TadPVf1tGCgNTfiKHF6auNliXI0d5xErJXQ",
+        "addedAt": "2026-11-12"
+      }
+    ]
+  },
   "retired": {}
 }
