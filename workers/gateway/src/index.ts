@@ -304,10 +304,23 @@ app.all('/agents/*', async (c) => {
   const headers = new Headers(c.req.raw.headers);
   headers.set('x-custodes-actor', actor.subject);
   headers.set('x-custodes-actor-via', actor.via);
-  return c.env.AGENTS.fetch(
+  return agentWorker(c.env, url.pathname).fetch(
     new Request(url, { method: c.req.method, headers, body: c.req.raw.body }),
   );
 });
+
+/** Agent classes that moved to `custodes-triage` (ADR 0018); the rest still run in custodes-agents. */
+const TRIAGE_CLASSES = new Set([
+  'triage-agent',
+  'implementation-check-agent',
+  'proposal-review-agent',
+]);
+
+/** The Worker that runs the class in `/agents/<class>/...`. */
+export function agentWorker(env: { AGENTS: Fetcher; TRIAGE: Fetcher }, path: string): Fetcher {
+  const cls = path.split('/').filter(Boolean)[1] ?? '';
+  return TRIAGE_CLASSES.has(cls) ? env.TRIAGE : env.AGENTS;
+}
 
 async function proxy(fetcher: Fetcher, path: string, init?: RequestInit): Promise<Response> {
   const res = await fetcher.fetch(`https://broker.internal${path}`, init);

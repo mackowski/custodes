@@ -46,6 +46,8 @@ jobs:
           # Every class that has a planned move (scripts/agent-cutover-config.ts).
           classes="$(node --experimental-strip-types scripts/agent-cutover-config.ts classes)"
           node --experimental-strip-types scripts/do-namespace-owner.ts "$classes" --guard workers/agents custodes-agents
+          # Moved agents: their own Worker must still own its classes (ADR 0018).
+          node --experimental-strip-types scripts/do-namespace-owner.ts TriageAgent,ImplementationCheckAgent,ProposalReviewAgent --guard workers/triage custodes-triage
       - name: Model smoke test (the real triage request through AI Gateway)
         # Fails the deploy if the model rejects a request parameter, the BYOK key or gateway token is
         # bad, or the answer no longer parses. Costs a fraction of a cent.
@@ -96,6 +98,18 @@ jobs:
           AI_GATEWAY_TOKEN: ${{ secrets.AI_GATEWAY_TOKEN }}
           # Jev for pr-gate (ADR 0011: AI Gateway cannot forward the Decisions API yet).
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      - name: Deploy triage
+        # triage and its specialists, in their own Worker since the 2026-11-12 cutover (ADR 0018).
+        uses: cloudflare/wrangler-action@953926a2e2182532811c01a25e53647d93bf07c0 # v4
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN_DEPLOY }}
+          accountId: 5f62912564df344533c9563904c77662
+          workingDirectory: workers/agents
+          command: deploy -c ../triage/wrangler.jsonc
+          secrets: |
+            AI_GATEWAY_TOKEN
+        env:
+          AI_GATEWAY_TOKEN: ${{ secrets.AI_GATEWAY_TOKEN }}
       - name: Deploy triage-apply
         # Its own Worker from the start (ADR 0019): no model, no secrets, no Durable Object moved
         # from custodes-agents. The broker refuses it until its key is pinned (agent-key-pin.yml).

@@ -34,6 +34,13 @@ export default defineConfig({
         // Test-only: the Worker itself no longer binds the kill switch (#103, threat T1). Tests write
         // halt flags here and the stub broker above reads the same namespace.
         kvNamespaces: { KILL_SWITCH: 'kill-switch' },
+        // Test-only: triage and its specialists run in custodes-triage since the cutover; the
+        // tests still load them from this Worker's code (src/index.ts exports the classes).
+        durableObjects: {
+          TriageAgent: { className: 'TriageAgent', useSQLite: true },
+          ImplementationCheckAgent: { className: 'ImplementationCheckAgent', useSQLite: true },
+          ProposalReviewAgent: { className: 'ProposalReviewAgent', useSQLite: true },
+        },
         bindings: {
           AI_GATEWAY_TOKEN: 'test',
           OPENROUTER_API_KEY: 'test',

@@ -1,5 +1,8 @@
 import type { CustodesEnv } from '@custodes/core/agent';
 import type { TriageApplyAgent } from './agents/triage-apply.js';
+import type { TriageAgent } from './agents/triage.js';
+import type { ImplementationCheckAgent } from './agents/implementation-check.js';
+import type { ProposalReviewAgent } from './agents/proposal-review.js';
 import type { TriageApplyIntake } from './triage-apply-worker.js';
 
 /** Generated bindings (wrangler types) plus the secrets set by CI on deploy. */
@@ -16,5 +19,12 @@ export interface AgentsEnv extends Cloudflare.Env, CustodesEnv {
    * entrypoint in custodes-triage. Absent anywhere else; code checks before use.
    */
   TriageApplyAgent?: DurableObjectNamespace<TriageApplyAgent>;
+  /**
+   * Bound in custodes-triage (workers/triage/wrangler.jsonc) since the 2026-11-12 cutover, no
+   * longer in the shared Worker, whose code checks before use (`hasTriage` in index.ts).
+   */
+  TriageAgent: DurableObjectNamespace<TriageAgent>;
+  ImplementationCheckAgent: DurableObjectNamespace<ImplementationCheckAgent>;
+  ProposalReviewAgent: DurableObjectNamespace<ProposalReviewAgent>;
   TRIAGE_APPLY?: Service<TriageApplyIntake>;
 }
