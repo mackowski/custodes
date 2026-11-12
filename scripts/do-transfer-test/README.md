@@ -84,4 +84,6 @@ $W delete --name custodes-transfer-test-source
 ```
 
 If a delete refuses because of the Durable Object namespace, first deploy that Worker with
-`"Probe": { "type": "durable-object", "state": "deleted" }` in `exports` and no binding.
+`"Probe": { "type": "durable-object", "state": "deleted" }` in `exports`, no binding, and code
+that no longer exports `Probe` (Cloudflare refuses a tombstone for a class the code still exports:
+`tombstone_delete_class_still_in_code`).
