@@ -112,7 +112,7 @@ export function approvalPage(approval: ApprovalRequest): string {
   const buttons = pending
     ? `<form method="post"><button class="approve" name="decision" value="approve">Approve and post</button><button name="decision" value="reject">Reject</button></form>
 <p class="note">Approving posts exactly what is shown above, once. Expires ${escapeHtml(approval.expiresAt)}.</p>`
-    : `<p><strong>This request is ${escapeHtml(approval.status)}${approval.decidedBy === 'superseded' ? ': a newer review of the same pull request replaced it' : ''}.</strong> Nothing more to do here.</p>`;
+    : `<p><strong>This request is ${escapeHtml(approval.status)}${approval.decidedBy === 'superseded' ? ': a newer request for the same pull request or issue replaced it' : ''}.</strong> Nothing more to do here.</p>`;
   return layout(
     `Approve ${approval.agentId}`,
     `<h1>${escapeHtml(approval.agentId)} asks to post</h1>

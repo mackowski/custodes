@@ -24,6 +24,14 @@
     // cannot decide approvals (ADR 0017 amendment).
     { "binding": "BROKER", "service": "custodes-github-broker", "entrypoint": "BrokerAdmin" },
     { "binding": "AGENTS", "service": "custodes-agents" },
+    // triage-apply's public keys and Rotate for /admin/agent-keys (ADR 0018, ADR 0019). It is a new
+    // Worker deployed before the gateway, so the binding exists from the first deploy; the other
+    // agents' KEYS_* bindings come with their cutovers.
+    {
+      "binding": "KEYS_TRIAGE_APPLY",
+      "service": "custodes-triage-apply",
+      "entrypoint": "KeyAdmin",
+    },
   ],
   "queues": { "producers": [{ "binding": "INBOUND", "queue": "custodes-inbound" }] },
 }

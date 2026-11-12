@@ -547,3 +547,170 @@ describe('agent Worker keys page (ADR 0018)', () => {
     }
   });
 });
+
+describe('bundle approval page (ADR 0019)', () => {
+  const approval: ApprovalRequest = {
+    id: '9d7c1e9e-2b1a-4b6e-9a2e-1f7d1c2b3a44',
+    agentId: 'triage-apply',
+    runId: '9d7c1e9e-2b1a-4b6e-9a2e-1f7d1c2b3a45',
+    action: {
+      type: 'issue.assign',
+      repo: 'mackowski/custodes-sandbox',
+      issue: 12,
+      assignees: ['alice'],
+    },
+    rationale: '"><b>bold</b>',
+    createdAt: '2026-11-12T10:00:00.000Z',
+    expiresAt: '2026-11-19T10:00:00.000Z',
+    status: 'pending',
+    bundle: {
+      actions: [
+        {
+          type: 'issue.assign',
+          repo: 'mackowski/custodes-sandbox',
+          issue: 12,
+          assignees: ['alice'],
+        },
+        {
+          type: 'issue.label.add',
+          repo: 'mackowski/custodes-sandbox',
+          issue: 12,
+          labels: ['docker', 'WEBSITE'],
+        },
+        {
+          type: 'issue.label.remove',
+          repo: 'mackowski/custodes-sandbox',
+          issue: 12,
+          labels: ['python'],
+        },
+        {
+          type: 'issue.comment',
+          repo: 'mackowski/custodes-sandbox',
+          issue: 12,
+          body: 'Thanks @alice <script>alert(1)</script> [x](https://evil.example.com)',
+        },
+      ],
+      snapshot: { state: 'open', labels: ['python'], assignees: [], comments: 3 },
+    },
+  };
+
+  it('lists each step in order with the comment escaped, and POST-only buttons', () => {
+    const html = approvalPage(approval);
+    const order = ['1. Assign', '2. Add labels', '3. Remove labels', '4. Comment'].map((s) =>
+      html.indexOf(s),
+    );
+    expect(order.every((i) => i >= 0)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+    expect(html).toContain('@alice');
+    expect(html).toContain('docker, WEBSITE');
+    expect(html).toContain('#12');
+    expect(html).toContain('&lt;script&gt;alert(1)&lt;/script&gt;');
+    expect(html).not.toContain('<script>');
+    expect(html).not.toContain('<b>bold');
+    expect(html).not.toMatch(/<a\s/);
+    expect(html).toContain('<form method="post">');
+  });
+
+  it('says what the issue looked like and that a change means nothing runs', () => {
+    const html = approvalPage(approval);
+    expect(html).toContain('Proposed for the issue as it was: open, 3 comment(s)');
+    expect(html).toContain('labels python');
+    expect(html).toContain('assignees (none)');
+    expect(html).toContain('the broker runs nothing');
+    expect(html).toContain('all or nothing (4)');
+  });
+
+  it('escapes hostile label names, logins in the snapshot and shows no buttons once decided', () => {
+    const hostile: ApprovalRequest = {
+      ...approval,
+      bundle: {
+        ...approval.bundle!,
+        snapshot: { state: 'open', labels: ['<i>x</i>'], assignees: [], comments: 0 },
+      },
+    };
+    const html = approvalPage(hostile);
+    expect(html).not.toContain('<i>x</i>');
+    expect(html).toContain('&lt;i&gt;x&lt;/i&gt;');
+    expect(approvalPage({ ...approval, status: 'approved' })).not.toContain('<form');
+  });
+
+  it('shows invisible characters in the comment as visible markers', () => {
+    const b = approval.bundle!;
+    const html = approvalPage({
+      ...approval,
+      bundle: {
+        ...b,
+        actions: [
+          { type: 'issue.comment', repo: 'mackowski/custodes-sandbox', issue: 12, body: 'a‮b' },
+        ],
+      },
+      action: { type: 'issue.comment', repo: 'mackowski/custodes-sandbox', issue: 12, body: 'a' },
+    });
+    expect(html).toContain('⟨U+202E⟩');
+  });
+});
+
+describe('bundle result page', () => {
+  const steps = [
+    { type: 'issue.assign', outcome: 'done' as const },
+    { type: 'issue.label.add', outcome: 'failed' as const, code: 'github_error' },
+    { type: 'issue.comment', outcome: 'not_run' as const },
+  ];
+  const failed = { ok: false as const, code: 'github_error' as const, reason: 'x' };
+
+  it('counts the steps done and lists each outcome', () => {
+    const html = resultPage({ result: 'ok', decision: 'approved', executed: failed, steps });
+    expect(html).toContain('1 of 3 step(s) done');
+    expect(html).toContain('issue.assign: done');
+    expect(html).toContain('issue.label.add: failed (github_error)');
+    expect(html).toContain('issue.comment: not run');
+  });
+
+  it('links only to github.com URLs and escapes everything else', () => {
+    const html = resultPage({
+      result: 'ok',
+      decision: 'approved',
+      steps: [
+        { type: 'issue.comment', outcome: 'done', githubUrl: 'https://github.com/o/r/issues/1#c' },
+        { type: '<b>x</b>', outcome: 'done', githubUrl: 'https://evil.example.com/x' },
+        { type: 'issue.assign', outcome: 'failed', code: '<script>' },
+      ],
+    });
+    expect(html).toContain('<a href="https://github.com/o/r/issues/1#c">');
+    expect(html).not.toContain('evil.example.com');
+    expect(html).not.toContain('<b>x</b>');
+    expect(html).not.toContain('<script>');
+    expect((html.match(/<a /g) ?? []).length).toBe(1);
+  });
+
+  it('gives the broker reason when nothing ran (stale issue), truncated and escaped', () => {
+    const html = resultPage({
+      result: 'ok',
+      decision: 'approved',
+      executed: {
+        ok: false,
+        code: 'approval_invalid',
+        reason: `stale <b>${'x'.repeat(500)}`,
+      },
+      steps: [{ type: 'issue.assign', outcome: 'not_run' }],
+    });
+    expect(html).toContain('0 of 1 step(s) done: stale &lt;b&gt;');
+    expect(html).not.toContain('<b>');
+    expect(html).not.toContain('x'.repeat(201));
+  });
+
+  it('still says nothing was posted on rejection and for a non-ok result', () => {
+    expect(resultPage({ result: 'ok', decision: 'rejected' })).toContain('Nothing was posted');
+    expect(resultPage({ result: 'not_pending' })).toContain('not_pending');
+  });
+});
+
+describe('KEY_ADMIN_BINDINGS', () => {
+  it('has a keys binding for the triage-apply caller and one per caller', async () => {
+    const { KEY_ADMIN_BINDINGS } = await import('../src/agent-keys.js');
+    const { CallerName } = await import('@custodes/schema');
+    expect(KEY_ADMIN_BINDINGS['custodes-triage-apply']).toBe('KEYS_TRIAGE_APPLY');
+    expect(Object.keys(KEY_ADMIN_BINDINGS).sort()).toEqual([...CallerName.options].sort());
+    expect(new Set(Object.values(KEY_ADMIN_BINDINGS)).size).toBe(CallerName.options.length);
+  });
+});

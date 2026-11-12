@@ -20,5 +20,6 @@
 | [0016](0016-model-and-tool-payloads-in-workers-traces.md)        | Model and tool payloads in Workers traces                                                | accepted                        |
 | [0017](0017-cheatsheet-review-multi-model-reviewer.md)           | cheatsheet-review: multi-model pull request reviewer started by the operator's label     | accepted                        |
 | [0018](0018-one-worker-per-agent-and-agent-held-signing-keys.md) | One Worker per agent and agent-held signing keys                                         | proposed                        |
+| [0019](0019-one-click-triage-proposals.md)                       | One-click triage proposals (triage-apply)                                                | proposed                        |
 
 Create new records with the `/adr` skill.

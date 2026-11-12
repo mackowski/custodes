@@ -27,7 +27,9 @@ defaultTest:
         ((o) => ['real_gap','partially_covered','already_covered','not_applicable','unclear'].includes(o.verdict)
         && typeof o.makesSense === 'boolean'
         && Array.isArray(o.evidence) && Array.isArray(o.addLabels) && Array.isArray(o.removeLabels)
-        && (o.assignTo === null || typeof o.assignTo === 'string')
+        && ['offered','declined','unclear'].includes(o.authorIntent)
+        && Array.isArray(o.volunteers) && typeof o.askAuthor === 'boolean'
+        && !/@[A-Za-z0-9]/.test(o.suggestedComment)
         && (o.reviewPr === undefined || o.reviewPr === null || typeof o.reviewPr === 'number' || typeof o.reviewPr === 'string')
         && typeof o.helpWanted === 'boolean'
         && typeof o.explanation === 'string' && !/https?:[/][/]/i.test(o.explanation)

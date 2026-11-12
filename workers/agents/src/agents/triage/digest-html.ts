@@ -34,9 +34,17 @@ export function esc(s: string): string {
   return s.replace(/[&<>"']/g, (c) => ESCAPES[c] ?? c);
 }
 
-/** Only links to github.com that code built; anything else is rendered as plain text. */
+/**
+ * The approval-link page behind Access, with a token in the broker's format (ADR 0019): the only
+ * non-GitHub link the digest may carry.
+ */
+const APPROVAL_LINK =
+  /^https:\/\/custodes\.work\/admin\/approvals\/link\/[0-9a-f-]{36}\.\d{1,12}\.[A-Za-z0-9_-]{20,100}$/;
+
+/** Only links that code built: github.com, or an approval link; anything else is plain text. */
 function link(url: string, label: string, style = ''): string {
-  if (!/^https:\/\/github\.com\/[A-Za-z0-9_.\-/#%]+$/.test(url)) return esc(label);
+  if (!/^https:\/\/github\.com\/[A-Za-z0-9_.\-/#%]+$/.test(url) && !APPROVAL_LINK.test(url))
+    return esc(label);
   return `<a href="${esc(url)}" style="color:#0b57d0;text-decoration:none;${style}">${esc(label)}</a>`;
 }
 

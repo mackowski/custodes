@@ -262,3 +262,35 @@ describe('buildReadPath pulls', () => {
     );
   });
 });
+
+describe('executeAction issue.assign', () => {
+  const action = { type: 'issue.assign' as const, repo: 'o/r', issue: 3, assignees: ['Alice'] };
+  const run = (res: Response) => {
+    const fetchMock = vi.fn(() => Promise.resolve(res));
+    return {
+      fetchMock,
+      p: executeAction(new GitHubRest(id, fetchMock), action, (b) => b),
+    };
+  };
+
+  it('posts to /assignees and succeeds when the login is in the answer (case-insensitive)', async () => {
+    const { fetchMock, p } = run(
+      Response.json({ assignees: [{ login: 'alice' }] }, { status: 201 }),
+    );
+    await expect(p).resolves.toEqual({});
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe('https://api.github.com/repos/o/r/issues/3/assignees');
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(init.body as string)).toEqual({ assignees: ['Alice'] });
+  });
+
+  it('throws GitHubApiError when GitHub silently left the login out', async () => {
+    const { p } = run(Response.json({ assignees: [{ login: 'bob' }] }, { status: 201 }));
+    await expect(p).rejects.toMatchObject({ name: 'GitHubApiError', status: 422 });
+  });
+
+  it('throws when the answer has no assignees at all', async () => {
+    const { p } = run(Response.json({}, { status: 201 }));
+    await expect(p).rejects.toThrow(/did not assign/);
+  });
+});
