@@ -1,0 +1,14 @@
+{
+  "name": "custodes-transfer-test-source",
+  "main": "worker.js",
+  "compatibility_date": "2026-08-15",
+  "workers_dev": true,
+  "vars": { "SCRIPT": "source" },
+  "exports": {
+    "Probe": {
+      "type": "durable-object",
+      "state": "transferred",
+      "transferred_to": "custodes-transfer-test-target",
+    },
+  },
+}

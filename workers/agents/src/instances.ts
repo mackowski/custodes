@@ -15,6 +15,16 @@ export interface RepoInstance {
    * agent never runs for this repository. The broker policy must list the repository too.
    */
   reviewTrigger?: { label: string; actor: string };
+  /**
+   * The GitHub account triage-apply's PAT posts as (ADR 0019): only its comments can be "our
+   * question to the author" that starts the 2-day wait.
+   */
+  applyActor?: string;
+}
+
+/** The instance serving `repo`, if any. */
+export function instanceForRepo(repo: string): RepoInstance | undefined {
+  return Object.values(INSTANCES).find((i) => i.repo === repo);
 }
 
 export const OWASP_INSTANCE = 'owasp-cheatsheetseries';
@@ -25,11 +35,13 @@ export const INSTANCES: Readonly<Record<string, RepoInstance>> = {
     repo: 'OWASP/CheatSheetSeries',
     sandbox: false,
     reviewTrigger: { label: 'custodes_cheatsheet_review', actor: 'mackowski' },
+    applyActor: 'mackowski',
   },
   [SANDBOX_INSTANCE]: {
     repo: 'mackowski/custodes-sandbox',
     sandbox: true,
     reviewTrigger: { label: 'custodes_cheatsheet_review', actor: 'mackowski' },
+    applyActor: 'mackowski',
   },
 };
 
@@ -54,24 +66,35 @@ export function unknownInstance(): Response {
   return Response.json({ error: 'unknown instance' }, { status: 404 });
 }
 
-/** The hello smoke-test agent is not bound to a repository and keeps its single `default` instance. */
-const UNBOUND: Readonly<Record<string, readonly string[]>> = { 'hello-agent': ['default'] };
+/** The agent classes the gateway may route to, as the Agents SDK names them (kebab-case). */
+export const AGENT_CLASSES: ReadonlySet<string> = new Set([
+  'triage-agent',
+  'implementation-check-agent',
+  'proposal-review-agent',
+  'pr-gate-agent',
+  'cheatsheet-review-agent',
+]);
 
 /**
  * True when an `/agents/<class>/<instance>/...` path names an instance that may exist. Other paths
  * (not agent routes, or malformed) are left to the SDK router, which answers 404 for them.
  */
 export function allowedAgentPath(pathname: string): boolean {
-  const m = /^\/agents\/([^/]+)\/([^/]+)/.exec(pathname);
-  if (!m) return true;
-  const [, cls = '', rawInstance = ''] = m;
+  // Split exactly as the Agents SDK router does (empty segments dropped), so `/agents//x/y` cannot
+  // reach a binding this check never looked at.
+  const parts = pathname.split('/').filter(Boolean);
+  if (parts[0] !== 'agents') return true;
+  // Fewer than class + instance: the SDK router does not route it either.
+  if (parts.length < 3) return true;
+  const [, cls = '', rawInstance = ''] = parts;
+  // The SDK router would reach any Durable Object binding by its kebab-cased name, including a
+  // Worker's Keyholder (ADR 0018): only agent classes are routable.
+  if (!AGENT_CLASSES.has(cls)) return false;
   let instance: string;
   try {
     instance = decodeURIComponent(rawInstance);
   } catch {
     return false;
   }
-  const unbound = Object.hasOwn(UNBOUND, cls) ? UNBOUND[cls] : undefined;
-  if (unbound) return unbound.includes(instance);
   return Object.hasOwn(INSTANCES, instance);
 }

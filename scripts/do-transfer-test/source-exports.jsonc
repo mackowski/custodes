@@ -1,0 +1,14 @@
+{
+  // The one-way switch PR #106 makes in custodes-agents: migrations replaced by exports.
+  "name": "custodes-transfer-test-source",
+  "main": "worker.js",
+  "compatibility_date": "2026-08-15",
+  "workers_dev": true,
+  "vars": { "SCRIPT": "source" },
+  "durable_objects": { "bindings": [{ "name": "PROBE", "class_name": "Probe" }] },
+  "exports": {
+    "Probe": { "type": "durable-object", "storage": "sqlite" },
+    // Like HelloAgent in #106: code gone, class deleted with its data, in the same deploy.
+    "Gone": { "type": "durable-object", "state": "deleted" },
+  },
+}

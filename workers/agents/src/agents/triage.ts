@@ -14,7 +14,14 @@ import { PendingResults, type SpecialistJob } from './specialists/agent.js';
 import { ImplementationCheck } from './specialists/implementation.js';
 import { ProposalReview } from './specialists/proposal.js';
 import { Assessment } from './triage/assess.js';
-import { renderDigest, type DigestItem, type SpecialistItem } from './triage/digest.js';
+import { ProposeResult } from './triage-apply/bundle.js';
+import { assignWhyText } from './triage/digest.js';
+import {
+  type ApplyLink,
+  renderDigest,
+  type DigestItem,
+  type SpecialistItem,
+} from './triage/digest.js';
 import { renderDigestHtml } from './triage/digest-html.js';
 import { describeError } from './triage/errors.js';
 import {
@@ -30,6 +37,11 @@ import {
 import { triageRequest } from './triage/model.js';
 import { BrokerGitHubReader, type PublicIssue } from './triage/github.js';
 import { runTriage, type TriageStore } from './triage/run.js';
+
+/** One-click links per digest; the rest are listed as "without a link" (ADR 0019). */
+const MAX_APPLY_LINKS = 20;
+/** `<approvalId>.<exp>.<hmac>`, as ApprovalCreated in @custodes/schema. */
+const APPROVAL_TOKEN = /^[0-9a-f-]{36}\.\d{1,12}\.[A-Za-z0-9_-]{20,100}$/;
 
 export const TRIAGE_MANIFEST: AgentManifest = {
   id: 'triage',
@@ -272,7 +284,7 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
       gatewayId: this.env.AI_GATEWAY_ID,
       gatewayToken: this.env.AI_GATEWAY_TOKEN,
     });
-    const reader = new BrokerGitHubReader(this.env.BROKER, this.manifest.id, runId);
+    const reader = new BrokerGitHubReader(this.broker, this.manifest.id, runId);
     try {
       const result = await runTriage(this.repo, since, {
         reader,
@@ -394,7 +406,7 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
     // The issues as they are now, so the digest never repeats advice a maintainer already acted on.
     const state = { complete: true };
     const current = await currentSince(
-      new BrokerGitHubReader(this.env.BROKER, this.manifest.id, crypto.randomUUID()),
+      new BrokerGitHubReader(this.broker, this.manifest.id, crypto.randomUUID()),
       this.repo,
       // When we saw each issue open (currentSince subtracts slack for a change during a poll). Not
       // the issue's own updated_at: a dormant accepted issue would push the window back years.
@@ -459,11 +471,14 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
     }
 
     const now = new Date();
+    const apply = await this.applyLinks(proposals);
     const digestInput = {
       repo: this.repo,
       items,
       implementation,
       proposals,
+      applyLinks: apply.links,
+      withoutLink: apply.withoutLink,
       omittedAck,
       omittedClosed,
       errors,
@@ -509,6 +524,59 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
     };
   }
 
+  /**
+   * One-click approval links for the digest's proposals (ADR 0019): triage-apply checks each one
+   * against the issue and asks the broker for one approval. Absent until this Worker binds
+   * TRIAGE_APPLY (custodes-triage only); flagged or stale proposals never get a link.
+   */
+  private async applyLinks(
+    proposals: SpecialistItem<ProposalReview>[],
+  ): Promise<{ links: Map<number, ApplyLink>; withoutLink: number }> {
+    const links = new Map<number, ApplyLink>();
+    let withoutLink = 0;
+    const svc = this.env.TRIAGE_APPLY;
+    const base = this.env.APPROVAL_LINK_BASE;
+    if (svc === undefined || !base) return { links, withoutLink };
+    for (const p of proposals) {
+      const r = p.result;
+      if (r.injectionDetected || r.changedSinceReview) continue;
+      const comment = r.suggestedComment.trim();
+      if (!r.assignTo && !r.addLabels.length && !r.removeLabels.length && !comment) continue;
+      if (links.size >= MAX_APPLY_LINKS) {
+        withoutLink++;
+        continue;
+      }
+      let out: ProposeResult;
+      try {
+        const raw: unknown = await svc.propose(this.name, {
+          repo: this.repo,
+          issue: p.issue,
+          addLabels: r.addLabels,
+          removeLabels: r.removeLabels,
+          assignee: r.assignTo,
+          comment,
+          reason: `proposal review: ${r.verdict}${r.assignWhy ? `; assign: ${assignWhyText(r.assignWhy)}` : ''}`,
+        });
+        const parsed = ProposeResult.safeParse(raw);
+        out = parsed.success
+          ? parsed.data
+          : { ok: false, reason: 'malformed answer from triage-apply' };
+      } catch (err) {
+        out = { ok: false, reason: `triage-apply unreachable (${describeError(err)})` };
+      }
+      // The token goes into a URL: only the broker's own format is accepted.
+      if (out.ok && APPROVAL_TOKEN.test(out.token))
+        links.set(p.issue, {
+          url: `${base}/${out.token}`,
+          expiresAt: out.expiresAt,
+          actions: out.actions,
+        });
+      else if (!out.ok && out.reason.includes('too many pending approvals')) withoutLink++;
+      else links.set(p.issue, { reason: out.ok ? 'malformed link token' : out.reason });
+    }
+    return { links, withoutLink };
+  }
+
   /** Status for operators, reachable only through the Access-protected gateway. */
   override async onRequest(request: Request): Promise<Response> {
     let sandbox: boolean;
@@ -536,7 +604,7 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
     return Response.json({
       manifest: this.manifest,
       state: this.state,
-      killSwitch: await this.killSwitch.state(this.manifest.id),
+      killSwitch: await this.haltState(),
       recent: recent.map((r) => ({
         issue: r.issue,
         title: inertText(r.title, 200),

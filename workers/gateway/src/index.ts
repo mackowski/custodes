@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { importPublicKey, KillSwitch, verifyAttestation } from '@custodes/core';
+import { importPublicKey, KillSwitch, verifyAttestation, verifyCallerIntent } from '@custodes/core';
 import { verifyGitHubWebhookSignature } from '@custodes/github';
 import {
   AgentId,
@@ -10,7 +10,11 @@ import {
   type AdminActor,
   type InboundEvent,
   type PublicKeyEntry,
+  PINNED_AGENT_KEYS,
+  verificationKeys,
+  CallerName,
 } from '@custodes/schema';
+import { agentKeysPage, type HeldKey, keyAdminOf, listAgentKeys } from './agent-keys.js';
 import { adminWriteAllowed, agentWriteAllowed, crossSiteWrite, verifyAccessJwt } from './access.js';
 import {
   approvalPage,
@@ -45,7 +49,32 @@ app.get('/verify/:id', async (c) => {
   const key = keys.find((k) => k.keyId === att.keyId);
   if (!key) return c.json({ valid: false, reason: 'unknown key' });
   const result = await verifyAttestation(att, await importPublicKey(key.jwk));
-  return c.json({ valid: result.valid, reason: result.reason, attestation: result.attestation });
+  if (!result.valid || !result.attestation)
+    return c.json({ valid: false, reason: result.reason, attestation: result.attestation });
+  const record = result.attestation.record;
+  // A row copied under another id (for example the one in a comment trailer) is not that record.
+  if (record.id !== id)
+    return c.json({
+      valid: false,
+      reason: 'record id does not match',
+      attestation: result.attestation,
+    });
+  /*
+   * The agent's own signature (ADR 0018, R1), checked against the keys committed in the repository
+   * and built into this Worker, never keys served by the broker. `none` proves nothing: records
+   * from the shared Worker and actions run on an operator's approval carry no agent signature.
+   */
+  const agentSignature = await verifyCallerIntent(record, (caller) =>
+    verificationKeys(PINNED_AGENT_KEYS, caller),
+  );
+  if (agentSignature.status === 'invalid')
+    return c.json({
+      valid: false,
+      reason: `agent signature: ${agentSignature.reason}`,
+      agentSignature,
+      attestation: result.attestation,
+    });
+  return c.json({ valid: true, agentSignature, attestation: result.attestation });
 });
 
 // ---------- GitHub webhooks (optional per repo; polling is the default) ----------
@@ -212,6 +241,45 @@ admin.get('/audit', (c) => {
 admin.get('/audit/:id', (c) =>
   proxy(c.env.BROKER, `/v1/attestations/${encodeURIComponent(c.req.param('id'))}`),
 );
+// Agent Worker keys (ADR 0018): public keys and pin state; Rotate for approvers only.
+admin.get('/agent-keys', async (c) => c.json(await listAgentKeys(c.env)));
+admin.get('/agent-keys/page', async (c) =>
+  c.body(agentKeysPage(await listAgentKeys(c.env)), 200, PAGE_HEADERS),
+);
+admin.post('/agent-keys/:caller/rotate', async (c) => {
+  const actor = c.get('actor');
+  if (!isApprover(actor, c.env.APPROVER_EMAILS))
+    return c.json({ error: 'only an approver may rotate keys' }, 403);
+  const caller = CallerName.safeParse(c.req.param('caller'));
+  if (!caller.success) return c.json({ error: 'unknown caller' }, 404);
+  const admin = keyAdminOf(c.env, caller.data);
+  if (!admin) return c.json({ error: 'that Worker is not reachable yet' }, 409);
+  let next: HeldKey;
+  try {
+    next = await admin.rotate();
+  } catch {
+    // No error text: it comes from another Worker.
+    console.error(
+      JSON.stringify({
+        event: 'admin.agent_keys.rotate_failed',
+        caller: caller.data,
+        by: actor.subject,
+      }),
+    );
+    return c.json({ error: 'rotate failed' }, 502);
+  }
+  console.log(
+    JSON.stringify({
+      event: 'admin.agent_keys.rotate',
+      caller: caller.data,
+      kid: next.kid,
+      by: actor.subject,
+    }),
+  );
+  // Back to the page: it now shows the pending key to pin.
+  return c.redirect('/admin/agent-keys/page', 303);
+});
+
 admin.get('/keys', (c) => proxy(c.env.BROKER, '/v1/keys'));
 admin.post('/keys/:agent/rotate', (c) => {
   const agent = c.req.param('agent');

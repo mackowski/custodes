@@ -1,0 +1,72 @@
+{
+  "$schema": "../agents/node_modules/wrangler/config-schema.json",
+  // cheatsheet-review in its own Worker (ADR 0018). Source lives in workers/agents; this Worker
+  // bundles only what src/cheatsheet-review-worker.ts imports and has only the bindings and secrets
+  // below. Deployed from workers/agents with `-c ../cheatsheet-review/wrangler.jsonc`.
+  //
+  // This is the steady state, after the move. The first deploys come from the cutover workflow
+  // (.github/workflows/agent-cutover.yml, docs/runbooks/agent-cutover.md), which derives the
+  // `expecting-transfer` phase from this file.
+  "name": "custodes-cheatsheet-review",
+  "main": "../agents/src/cheatsheet-review-worker.ts",
+  "compatibility_date": "2026-08-15",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "preview_urls": false,
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1,
+    "traces": { "enabled": true, "head_sampling_rate": 1 },
+  },
+  "vars": {
+    "ENVIRONMENT": "prod",
+    // Signs every broker call with this Worker's Keyholder key (ADR 0018).
+    "CALLER_NAME": "custodes-cheatsheet-review",
+    "AI_GATEWAY_ACCOUNT_ID": "5f62912564df344533c9563904c77662",
+    "AI_GATEWAY_ID": "custodes",
+    "EMAIL_FROM": "custodes@custodes.work",
+    "EMAIL_DOMAIN": "custodes.work",
+    "OPERATOR_EMAIL": "jkb.mackowski@gmail.com",
+    "TRACE_PAYLOADS": "true",
+    // Approval links in e-mails (ADR 0017 amendment): the gateway page behind Cloudflare Access.
+    "APPROVAL_LINK_BASE": "https://custodes.work/admin/approvals/link",
+  },
+  // Secrets (set by CI on deploy): AI_GATEWAY_TOKEN
+  "durable_objects": {
+    "bindings": [
+      { "name": "CheatsheetReviewAgent", "class_name": "CheatsheetReviewAgent" },
+      { "name": "KEYHOLDER", "class_name": "Keyholder" },
+    ],
+  },
+  "exports": {
+    // Moved here from custodes-agents with its stored data (transfer, ADR 0018).
+    "CheatsheetReviewAgent": { "type": "durable-object", "storage": "sqlite" },
+    "Keyholder": { "type": "durable-object", "storage": "sqlite" },
+  },
+  // Workers AI for the DeepSeek reviewers (ADR 0017); every call names the "custodes" AI Gateway.
+  "ai": { "binding": "AI", "remote": true },
+  // Its own broker entrypoint: requests must be signed by KEYHOLDER, for cheatsheet-review only.
+  "services": [
+    {
+      "binding": "BROKER",
+      "service": "custodes-github-broker",
+      "entrypoint": "CheatsheetReviewBroker",
+    },
+  ],
+  "queues": {
+    "consumers": [
+      {
+        "queue": "custodes-inbound-cheatsheet-review",
+        "max_batch_size": 10,
+        "max_retries": 3,
+        "dead_letter_queue": "custodes-inbound-cheatsheet-review-dlq",
+      },
+    ],
+  },
+  "send_email": [
+    {
+      "name": "EMAIL",
+      "allowed_destination_addresses": ["jkb.mackowski@gmail.com"],
+    },
+  ],
+}

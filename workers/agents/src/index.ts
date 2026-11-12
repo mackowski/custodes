@@ -7,18 +7,30 @@ import type { AgentsEnv } from './env.js';
 import { allowedAgentPath, unknownInstance } from './instances.js';
 import { REGISTRY } from './registry.js';
 
-export { HelloAgent } from './agents/hello.js';
 export { TriageAgent } from './agents/triage.js';
 export { ImplementationCheckAgent } from './agents/implementation-check.js';
 export { ProposalReviewAgent } from './agents/proposal-review.js';
 export { PrGateAgent } from './agents/pr-gate.js';
 export { CheatsheetReviewAgent } from './agents/cheatsheet-review.js';
 
-/** Must match wrangler.jsonc triggers.crons. */
-export const CRON_TRIAGE_POLL = '17 */4 * * *';
-/** Daily, before the digest: fresh poll plus specialist reviews of everything the digest will show. */
-export const CRON_TRIAGE_PREPARE = '30 5 * * *';
-export const CRON_TRIAGE_DIGEST = '0 7 * * *';
+import { CRON_TRIAGE_DIGEST, CRON_TRIAGE_POLL, CRON_TRIAGE_PREPARE } from './crons.js';
+
+export { CRON_TRIAGE_DIGEST, CRON_TRIAGE_POLL, CRON_TRIAGE_PREPARE } from './crons.js';
+
+/** False once triage has moved to `custodes-triage` and this Worker no longer binds it. */
+function hasTriage(env: AgentsEnv): boolean {
+  return (env as Partial<AgentsEnv>).TriageAgent !== undefined;
+}
+
+/** False once cheatsheet-review has moved to its own Worker and this one no longer binds it. */
+function hasCheatsheetReview(env: AgentsEnv): boolean {
+  return (env as Partial<AgentsEnv>).CheatsheetReviewAgent !== undefined;
+}
+
+/** False once pr-gate has moved to `custodes-pr-gate` and this Worker no longer binds it. */
+function hasPrGate(env: AgentsEnv): boolean {
+  return (env as Partial<AgentsEnv>).PrGateAgent !== undefined;
+}
 
 export default {
   async fetch(request: Request, env: AgentsEnv, _ctx: ExecutionContext): Promise<Response> {
@@ -42,12 +54,16 @@ export default {
     // poll and prepare crons and sends its summary with the digest.
     const jobs = {
       triage: async () => {
+        // During the move to its own Worker (ADR 0018) this Worker loses the binding first.
+        if (!hasTriage(env)) return { ok: true, detail: 'runs in custodes-triage' };
         const triage = await getAgentByName(env.TriageAgent, TRIAGE_INSTANCE);
         return digest
           ? triage.sendDigest()
           : triage.poll({ prepare: controller.cron === CRON_TRIAGE_PREPARE });
       },
       'pr-gate': async () => {
+        // During the move to its own Worker (ADR 0018) this Worker loses the binding first.
+        if (!hasPrGate(env)) return { ok: true, detail: 'runs in custodes-pr-gate' };
         const gate = await getAgentByName(env.PrGateAgent, PR_GATE_INSTANCE);
         return digest ? gate.sendSummary() : gate.poll();
       },
@@ -94,6 +110,25 @@ export default {
         continue;
       }
       try {
+        if (r.agent === 'cheatsheet-review' && !hasCheatsheetReview(env)) {
+          console.log(
+            JSON.stringify({
+              ...ids,
+              outcome: 'ignored',
+              why: 'runs in custodes-cheatsheet-review',
+            }),
+          );
+          msg.ack();
+          continue;
+        }
+        if (r.agent === 'pr-gate' && !hasPrGate(env)) {
+          // Its own Worker consumes its own queue; an event still arriving here is dropped.
+          console.log(
+            JSON.stringify({ ...ids, outcome: 'ignored', why: 'runs in custodes-pr-gate' }),
+          );
+          msg.ack();
+          continue;
+        }
         const wake =
           r.agent === 'pr-gate'
             ? await (await getAgentByName(env.PrGateAgent, r.instance)).notify(r.updatedAt)

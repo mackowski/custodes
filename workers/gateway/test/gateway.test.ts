@@ -1,7 +1,19 @@
 import { env } from 'cloudflare:workers';
 import { describe, expect, it } from 'vitest';
 import worker from '../src/index.js';
-import type { ApprovalRequest } from '@custodes/schema';
+import { AgentKeys, type ApprovalRequest, type AuditRecord } from '@custodes/schema';
+import {
+  agentKeysPage,
+  listAgentKeys,
+  type HeldKey,
+  type KeyAdminLike,
+} from '../src/agent-keys.js';
+import {
+  buildAuditRecord,
+  generateAgentKeyPair,
+  importPrivateKey,
+  signAuditRecord,
+} from '@custodes/core';
 import { adminWriteAllowed, agentWriteAllowed } from '../src/access.js';
 import { approvalPage, isApprover, PAGE_HEADERS, resultPage } from '../src/approval-page.js';
 import type { GatewayEnv } from '../src/env.js';
@@ -343,5 +355,379 @@ describe('approval links (ADR 0017 amendment)', () => {
       },
     } as unknown as ForwardableEmailMessage);
     expect(rejected).toContain('link');
+  });
+});
+
+describe('public /verify (ADR 0018, R1)', () => {
+  const ID = '9d7c1e9e-2b1a-4b6e-9a2e-1f7d1c2b3a44';
+
+  /** A broker double that serves one attestation and its key, on the admin binding's paths. */
+  async function brokerWith(mutate: (r: AuditRecord) => AuditRecord = (r) => r) {
+    const { publicJwk, privateJwk } = await generateAgentKeyPair();
+    const record = mutate(
+      await buildAuditRecord({
+        id: ID,
+        request: {
+          agentId: 'cheatsheet-review',
+          agentVersion: '0.1.0',
+          runId: ID,
+          triggeredBy: { kind: 'schedule' },
+          action: {
+            type: 'issue.comment',
+            repo: 'mackowski/custodes-sandbox',
+            issue: 1,
+            body: 'x',
+          },
+        },
+        decision: 'allowed',
+      }),
+    );
+    const att = await signAuditRecord(record, await importPrivateKey(privateJwk), 'broker-k1');
+    const keys = [
+      { keyId: 'broker-k1', agentId: 'cheatsheet-review', jwk: publicJwk, createdAt: record.ts },
+    ];
+    return {
+      fetch: (url: string) =>
+        Promise.resolve(
+          url.endsWith('/v1/keys')
+            ? Response.json(keys)
+            : url.endsWith(`/v1/attestations/${ID}`)
+              ? Response.json(att)
+              : new Response('not found', { status: 404 }),
+        ),
+    } as unknown as Fetcher;
+  }
+  const verify = async (broker: Fetcher, id = ID) =>
+    (
+      await worker.fetch(
+        new Request(`https://x/verify/${id}`),
+        { ...testEnv(), BROKER: broker },
+        ctx,
+      )
+    ).json<{
+      valid: boolean;
+      reason?: string;
+      agentSignature?: { status: string };
+    }>();
+
+  it('is valid for a broker-signed record with no agent signature, and says so', async () => {
+    expect(await verify(await brokerWith())).toMatchObject({
+      valid: true,
+      agentSignature: { status: 'none' },
+    });
+  });
+
+  it('is invalid when the stored row is a copy of another record (id mismatch)', async () => {
+    const other = '0b6b8a4e-6a9c-4f7e-8d2a-3c1b5e7f9a10';
+    const broker = await brokerWith((r) => ({ ...r, id: other }));
+    expect(await verify(broker)).toMatchObject({
+      valid: false,
+      reason: 'record id does not match',
+    });
+  });
+
+  it('is invalid when the record claims an agent signature by a key that is not committed', async () => {
+    const broker = await brokerWith((r) => ({
+      ...r,
+      callerSignature: {
+        caller: 'custodes-cheatsheet-review',
+        kid: 'cheatsheet-review-20261109-a1b2c3d4',
+        signature: 'A'.repeat(86),
+        timestamp: String(Date.parse(r.ts)),
+        nonce: ID,
+        method: 'POST',
+        path: '/v1/act',
+        bodySha256: '0'.repeat(64),
+      },
+    }));
+    expect(await verify(broker)).toMatchObject({
+      valid: false,
+      reason: 'agent signature: unknown_key',
+    });
+  });
+});
+
+describe('agent Worker keys page (ADR 0018)', () => {
+  const RFC1 = '11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo';
+  const RFC2 = 'PUAXw-hDiVqStwqnTRt-vJyYLM8uxJaMwM1V8Sr0Zgw';
+  const pinned = AgentKeys.parse({
+    version: 1,
+    callers: {
+      'custodes-pr-gate': [{ kid: 'pr-gate-20261109-aaaaaaaa', x: RFC1, addedAt: '2026-11-09' }],
+    },
+    retired: {},
+  });
+  const admin = (keys: HeldKey[]): KeyAdminLike => ({
+    publicKeys: () => Promise.resolve(keys),
+    rotate: () => Promise.reject(new Error('not in this test')),
+  });
+
+  it('shows each held key with its pin state, and Workers not bound yet', async () => {
+    const env = {
+      KEYS_PR_GATE: admin([
+        {
+          kid: 'pr-gate-20261109-aaaaaaaa',
+          x: RFC1,
+          state: 'active',
+          createdAt: '2026-11-09T00:00:00Z',
+        },
+        {
+          kid: 'pr-gate-20261110-bbbbbbbb',
+          x: RFC2,
+          state: 'next',
+          createdAt: '2026-11-10T00:00:00Z',
+        },
+      ]),
+    };
+    const rows = await listAgentKeys(env, pinned);
+    const gate = rows.find((r) => r.caller === 'custodes-pr-gate');
+    expect(gate?.keys.map((k) => [k.state, k.pin])).toEqual([
+      ['active', 'pinned'],
+      ['next', 'not pinned'],
+    ]);
+    expect(gate?.keys[0]?.fingerprint).toMatch(/^[0-9a-f]{16}$/);
+    expect(rows.find((r) => r.caller === 'custodes-triage')).toMatchObject({ bound: false });
+    const html = agentKeysPage(rows);
+    expect(html).toContain('pr-gate-20261110-bbbbbbbb');
+    expect(html).not.toContain('<form method="post" action="/admin/agent-keys/custodes-pr-gate'); // next pending
+  });
+
+  it('flags a pinned kid whose key differs, and pinned keys the Keyholder no longer holds', async () => {
+    const env = {
+      KEYS_PR_GATE: admin([
+        {
+          kid: 'pr-gate-20261109-aaaaaaaa',
+          x: RFC2,
+          state: 'active',
+          createdAt: '2026-11-09T00:00:00Z',
+        },
+      ]),
+    };
+    const [gate] = (await listAgentKeys(env, pinned)).filter(
+      (r) => r.caller === 'custodes-pr-gate',
+    );
+    expect(gate?.keys[0]?.pin).toBe('pinned, different key');
+    const moved = await listAgentKeys({ KEYS_PR_GATE: admin([]) }, pinned);
+    expect(moved.find((r) => r.caller === 'custodes-pr-gate')?.pinnedNotHeld).toEqual([
+      'pr-gate-20261109-aaaaaaaa',
+    ]);
+  });
+
+  it('escapes everything a Worker reports and hides its errors', async () => {
+    const env = {
+      KEYS_PR_GATE: admin([
+        {
+          kid: '<ScRiPt>x</script >',
+          x: '"><IMG SRC=x onerror=1>',
+          state: 'active',
+          createdAt: '<b>',
+        },
+      ]),
+      KEYS_TRIAGE: {
+        publicKeys: () => Promise.reject(new Error('<secret detail>')),
+        rotate: () => Promise.reject(new Error('no')),
+      },
+    };
+    const html = agentKeysPage(await listAgentKeys(env, pinned));
+    // No tag from the Worker's data survives, in any case or with attributes; it is all escaped.
+    expect(html).not.toMatch(/<\s*\/?\s*(script|img|b)\b/i);
+    expect(html).toContain('&lt;ScRiPt&gt;');
+    expect(html).toContain('&lt;IMG SRC=x onerror=1&gt;');
+    expect(html).not.toContain('secret detail');
+  });
+
+  it('needs Access for the page and for Rotate', async () => {
+    for (const [path, method] of [
+      ['/admin/agent-keys', 'GET'],
+      ['/admin/agent-keys/page', 'GET'],
+      ['/admin/agent-keys/custodes-pr-gate/rotate', 'POST'],
+    ] as const) {
+      const res = await worker.fetch(new Request(`https://x${path}`, { method }), testEnv(), ctx);
+      expect(res.status, path).toBe(401);
+    }
+  });
+});
+
+describe('bundle approval page (ADR 0019)', () => {
+  const approval: ApprovalRequest = {
+    id: '9d7c1e9e-2b1a-4b6e-9a2e-1f7d1c2b3a44',
+    agentId: 'triage-apply',
+    runId: '9d7c1e9e-2b1a-4b6e-9a2e-1f7d1c2b3a45',
+    action: {
+      type: 'issue.assign',
+      repo: 'mackowski/custodes-sandbox',
+      issue: 12,
+      assignees: ['alice'],
+    },
+    rationale: '"><b>bold</b>',
+    createdAt: '2026-11-12T10:00:00.000Z',
+    expiresAt: '2026-11-19T10:00:00.000Z',
+    status: 'pending',
+    bundle: {
+      actions: [
+        {
+          type: 'issue.assign',
+          repo: 'mackowski/custodes-sandbox',
+          issue: 12,
+          assignees: ['alice'],
+        },
+        {
+          type: 'issue.label.add',
+          repo: 'mackowski/custodes-sandbox',
+          issue: 12,
+          labels: ['docker', 'WEBSITE'],
+        },
+        {
+          type: 'issue.label.remove',
+          repo: 'mackowski/custodes-sandbox',
+          issue: 12,
+          labels: ['python'],
+        },
+        {
+          type: 'issue.comment',
+          repo: 'mackowski/custodes-sandbox',
+          issue: 12,
+          body: 'Thanks @alice <script>alert(1)</script> [x](https://evil.example.com)',
+        },
+      ],
+      snapshot: {
+        state: 'open',
+        labels: ['python'],
+        assignees: [],
+        comments: 3,
+        updatedAt: '2026-11-10T10:00:00Z',
+        commentsDigest: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      },
+    },
+  };
+
+  it('lists each step in order with the comment escaped, and POST-only buttons', () => {
+    const html = approvalPage(approval);
+    const order = ['1. Assign', '2. Add labels', '3. Remove labels', '4. Comment'].map((s) =>
+      html.indexOf(s),
+    );
+    expect(order.every((i) => i >= 0)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+    expect(html).toContain('@alice');
+    expect(html).toContain('docker, WEBSITE');
+    expect(html).toContain('#12');
+    expect(html).toContain('&lt;script&gt;alert(1)&lt;/script&gt;');
+    expect(html).not.toContain('<script>');
+    expect(html).not.toContain('<b>bold');
+    expect(html).not.toMatch(/<a\s/);
+    expect(html).toContain('<form method="post">');
+  });
+
+  it('says what the issue looked like and that a change means nothing runs', () => {
+    const html = approvalPage(approval);
+    expect(html).toContain('Proposed for the issue as it was: open, 3 comment(s)');
+    expect(html).toContain('labels python');
+    expect(html).toContain('assignees (none)');
+    expect(html).toContain('the broker runs nothing');
+    expect(html).toContain('Runs in this order (4)');
+    // Not "all or nothing": a step that already ran stays done (review Info).
+    expect(html).toContain('steps already done stay done');
+    expect(html).toContain('invisible attestation trailer');
+  });
+
+  it('escapes hostile label names, logins in the snapshot and shows no buttons once decided', () => {
+    const hostile: ApprovalRequest = {
+      ...approval,
+      bundle: {
+        ...approval.bundle!,
+        snapshot: {
+          state: 'open',
+          labels: ['<i>x</i>'],
+          assignees: [],
+          comments: 0,
+          updatedAt: '2026-11-10T10:00:00Z',
+          commentsDigest: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        },
+      },
+    };
+    const html = approvalPage(hostile);
+    expect(html).not.toContain('<i>x</i>');
+    expect(html).toContain('&lt;i&gt;x&lt;/i&gt;');
+    expect(approvalPage({ ...approval, status: 'approved' })).not.toContain('<form');
+  });
+
+  it('shows invisible characters in the comment as visible markers', () => {
+    const b = approval.bundle!;
+    const html = approvalPage({
+      ...approval,
+      bundle: {
+        ...b,
+        actions: [
+          { type: 'issue.comment', repo: 'mackowski/custodes-sandbox', issue: 12, body: 'a‮b' },
+        ],
+      },
+      action: { type: 'issue.comment', repo: 'mackowski/custodes-sandbox', issue: 12, body: 'a' },
+    });
+    expect(html).toContain('⟨U+202E⟩');
+  });
+});
+
+describe('bundle result page', () => {
+  const steps = [
+    { type: 'issue.assign', outcome: 'done' as const },
+    { type: 'issue.label.add', outcome: 'failed' as const, code: 'github_error' },
+    { type: 'issue.comment', outcome: 'not_run' as const },
+  ];
+  const failed = { ok: false as const, code: 'github_error' as const, reason: 'x' };
+
+  it('counts the steps done and lists each outcome', () => {
+    const html = resultPage({ result: 'ok', decision: 'approved', executed: failed, steps });
+    expect(html).toContain('1 of 3 step(s) done');
+    expect(html).toContain('issue.assign: done');
+    expect(html).toContain('issue.label.add: failed (github_error)');
+    expect(html).toContain('issue.comment: not run');
+  });
+
+  it('links only to github.com URLs and escapes everything else', () => {
+    const html = resultPage({
+      result: 'ok',
+      decision: 'approved',
+      steps: [
+        { type: 'issue.comment', outcome: 'done', githubUrl: 'https://github.com/o/r/issues/1#c' },
+        { type: '<b>x</b>', outcome: 'done', githubUrl: 'https://evil.example.com/x' },
+        { type: 'issue.assign', outcome: 'failed', code: '<script>' },
+      ],
+    });
+    expect(html).toContain('<a href="https://github.com/o/r/issues/1#c">');
+    expect(html).not.toContain('evil.example.com');
+    expect(html).not.toContain('<b>x</b>');
+    expect(html).not.toContain('<script>');
+    expect((html.match(/<a /g) ?? []).length).toBe(1);
+  });
+
+  it('gives the broker reason when nothing ran (stale issue), truncated and escaped', () => {
+    const html = resultPage({
+      result: 'ok',
+      decision: 'approved',
+      executed: {
+        ok: false,
+        code: 'approval_invalid',
+        reason: `stale <b>${'x'.repeat(500)}`,
+      },
+      steps: [{ type: 'issue.assign', outcome: 'not_run' }],
+    });
+    expect(html).toContain('0 of 1 step(s) done: stale &lt;b&gt;');
+    expect(html).not.toContain('<b>');
+    expect(html).not.toContain('x'.repeat(201));
+  });
+
+  it('still says nothing was posted on rejection and for a non-ok result', () => {
+    expect(resultPage({ result: 'ok', decision: 'rejected' })).toContain('Nothing was posted');
+    expect(resultPage({ result: 'not_pending' })).toContain('not_pending');
+  });
+});
+
+describe('KEY_ADMIN_BINDINGS', () => {
+  it('has a keys binding for the triage-apply caller and one per caller', async () => {
+    const { KEY_ADMIN_BINDINGS } = await import('../src/agent-keys.js');
+    const { CallerName } = await import('@custodes/schema');
+    expect(KEY_ADMIN_BINDINGS['custodes-triage-apply']).toBe('KEYS_TRIAGE_APPLY');
+    expect(Object.keys(KEY_ADMIN_BINDINGS).sort()).toEqual([...CallerName.options].sort());
+    expect(new Set(Object.values(KEY_ADMIN_BINDINGS)).size).toBe(CallerName.options.length);
   });
 });

@@ -104,6 +104,14 @@ export abstract class SpecialistAgent extends CustodesAgent<AgentsEnv, Specialis
   /** Runs one job. Returns a validated result, or null when the issue no longer needs one. */
   protected abstract run(repo: string, issue: number, deps: SpecialistDeps): Promise<unknown>;
 
+  /**
+   * When a stored result asks to be reviewed again without any change to the issue (ADR 0019: the
+   * end of the author's 2 days). The job is queued with that time as its "not before".
+   */
+  protected recheckAt(_result: unknown): string | null {
+    return null;
+  }
+
   /** True when a stored result still answers this job, so no model call is needed. */
   protected abstract isFresh(
     stored: { issueUpdatedAt: string; checkedAt: string },
@@ -158,6 +166,9 @@ export abstract class SpecialistAgent extends CustodesAgent<AgentsEnv, Specialis
         VALUES (${job.issue}, ${job.issueUpdatedAt}, ${now.toISOString()}, 0)
         ON CONFLICT(issue) DO UPDATE SET
           attempts = CASE WHEN issue_updated_at = excluded.issue_updated_at THEN attempts ELSE 0 END,
+          -- A newer issue version runs now, not at a recheck time or retry delay set for the old one.
+          enqueued_at = CASE WHEN issue_updated_at = excluded.issue_updated_at THEN enqueued_at
+            ELSE MIN(enqueued_at, excluded.enqueued_at) END,
           issue_updated_at = excluded.issue_updated_at`;
       queued++;
     }
@@ -215,6 +226,12 @@ export abstract class SpecialistAgent extends CustodesAgent<AgentsEnv, Specialis
           ON CONFLICT(issue) DO UPDATE SET issue_updated_at = excluded.issue_updated_at,
             result = excluded.result, checked_at = excluded.checked_at, reported_at = NULL`;
       this.sql`DELETE FROM jobs WHERE issue = ${job.issue}`;
+      const recheck = result === null ? null : this.recheckAt(result);
+      // Bounded: a recheck is at least a minute ahead and at most 30 days, whatever the result says.
+      const at = recheck === null ? NaN : Date.parse(recheck);
+      if (!Number.isNaN(at) && at > now.getTime() + 60_000 && at < now.getTime() + 30 * 86_400_000)
+        this.sql`INSERT INTO jobs (issue, issue_updated_at, enqueued_at, attempts)
+          VALUES (${job.issue}, ${job.issue_updated_at}, ${new Date(at).toISOString()}, 0)`;
       console.log(
         JSON.stringify({
           event: `${this.manifest.id}.job`,
@@ -222,6 +239,7 @@ export abstract class SpecialistAgent extends CustodesAgent<AgentsEnv, Specialis
           issue: job.issue,
           ok: true,
           skipped: result === null,
+          ...(Number.isNaN(at) ? {} : { recheckAt: new Date(at).toISOString() }),
         }),
       );
     } catch (err) {
@@ -295,7 +313,7 @@ export abstract class SpecialistAgent extends CustodesAgent<AgentsEnv, Specialis
     return Response.json({
       manifest: this.manifest,
       state: this.state,
-      killSwitch: await this.killSwitch.state(this.manifest.id),
+      killSwitch: await this.haltState(),
       queued: this.sql<{ n: number }>`SELECT COUNT(*) AS n FROM jobs`[0]?.n ?? 0,
       // Validated, sanitised results (the digest shows the same); operators only, through Access.
       recent: this.sql<{ issue: number; checked_at: string; result: string }>`SELECT issue,
@@ -319,7 +337,7 @@ export abstract class SpecialistAgent extends CustodesAgent<AgentsEnv, Specialis
     });
     const meta = (issue: number) => ({ agentId: this.manifest.id, runId, issue: String(issue) });
     return {
-      reader: new BrokerGitHubReader(this.env.BROKER, this.manifest.id, runId, turn),
+      reader: new BrokerGitHubReader(this.broker, this.manifest.id, runId, turn),
       select: async (system, user, issue) => {
         await this.guard();
         return AnthropicGateway.text(

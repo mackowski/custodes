@@ -5,9 +5,11 @@
  *   token (`cf-aig-authorization`).
  * - Every request carries `cf-aig-metadata` (agentId, runId) for attribution and spend limits.
  * - Guardrails / DLP are configured on the gateway itself (see infra/terraform/modules/ai-gateway).
- * - The stored key is found, not configured: the gateway looks for alias `default`, and when it
- *   answers that there is none but exactly one other alias exists, that alias is used (and
- *   remembered per isolate). With several aliases the call fails rather than guess between keys.
+ * - The stored key is found, not configured: the first call names alias `default` explicitly, and
+ *   when the gateway answers that there is none but exactly one other alias exists, that alias is
+ *   used (and remembered per isolate). With several aliases the call fails rather than guess
+ *   between keys. The alias is always named: since 2026-11 a call without one gets 2044 ("provider
+ *   credentials are required"), which does not list the configured aliases.
  * - Inside a turn, each call is a `chat` span (ADR 0016).
  */
 import { chat, type Turn } from '@custodes/core';
@@ -75,12 +77,19 @@ export class ModelOutputError extends Error {
   }
 }
 
-/** Extracts the provider error class from an error body without keeping any message text. */
+/**
+ * Extracts the error class from an error body without keeping any message text: the provider's
+ * `error.type`, or `aig_<code>` for AI Gateway's own errors (e.g. `aig_2044`, no BYOK key named).
+ */
 export function errorTypeOf(body: string): string | undefined {
   try {
-    const parsed: unknown = JSON.parse(body);
-    const t = (parsed as { error?: { type?: unknown } }).error?.type;
-    return typeof t === 'string' && /^[a-z_]{1,60}$/.test(t) ? t : undefined;
+    const parsed = JSON.parse(body) as { error?: { type?: unknown }; internalCode?: unknown };
+    const t = parsed.error?.type;
+    if (typeof t === 'string' && /^[a-z_]{1,60}$/.test(t)) return t;
+    const code = parsed.internalCode;
+    return Number.isInteger(code) && (code as number) > 0 && (code as number) < 1e6
+      ? `aig_${String(code)}`
+      : undefined;
   } catch {
     return undefined;
   }
@@ -88,6 +97,8 @@ export function errorTypeOf(body: string): string | undefined {
 
 /** AI Gateway's error for a BYOK alias the provider does not have. */
 const BYOK_ALIAS_MISSING = 2040;
+/** The alias named until another one is discovered. */
+const DEFAULT_BYOK_ALIAS = 'default';
 const BYOK_ALIAS = /^[A-Za-z0-9_-]{1,64}$/;
 const ALIASES_PREFIX = 'Configured aliases: ';
 
@@ -161,13 +172,13 @@ export class AnthropicGateway {
           parts: [{ type: 'text', content: clipPayload(m.content) }],
         })),
       );
-      const send = (alias: string | undefined) =>
+      const send = (alias: string) =>
         this.fetchImpl(this.url, {
           method: 'POST',
-          headers: alias !== undefined ? { ...headers, 'cf-aig-byok-alias': alias } : headers,
+          headers: { ...headers, 'cf-aig-byok-alias': alias },
           body: JSON.stringify(body),
         });
-      const known = discoveredAliases.get(this.url);
+      const known = discoveredAliases.get(this.url) ?? DEFAULT_BYOK_ALIAS;
       let res = await send(known);
       if (!res.ok) {
         let text = await res.text();

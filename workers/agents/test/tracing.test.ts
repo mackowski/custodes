@@ -1,4 +1,5 @@
 import { env } from 'cloudflare:workers';
+import { withHaltState } from './helpers/halt-state.js';
 import { runInDurableObject } from 'cloudflare:test';
 import { getAgentByName } from 'agents';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -428,7 +429,7 @@ async function inPrGate<T>(
     const i = agent as unknown as Internals;
     const original = i.env;
     const originalTracer = i.tracer;
-    i.env = withEnv(original, { BROKER: broker, AI: ai, ...envExtra });
+    i.env = withEnv(original, { BROKER: withHaltState(broker), AI: ai, ...envExtra });
     i.tracer = tracer;
     try {
       return await fn(agent, i);

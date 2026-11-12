@@ -64,9 +64,11 @@ Worker on its own port in a second terminal:
 ```bash
 pnpm dev:agents            # http://localhost:8788
 curl localhost:8788/registry
-curl -X POST localhost:8788/agents/hello-agent/default/run
-curl localhost:8788/agents/hello-agent/default
+curl localhost:8788/agents/pr-gate-agent/custodes-sandbox/report
 ```
+
+`POST .../run` is left out on purpose: it runs pr-gate for real, and with a local `PAT_PR_GATE` it
+can comment on and close pull requests in the sandbox repository.
 
 Deployment needs a Cloudflare account with a domain for e-mail and Access; see
 `infra/terraform/README.md` and the runbooks in `docs/runbooks/`.
@@ -81,8 +83,10 @@ No secrets are ever stored in files. CI reads them from GitHub Environment secre
 
 ## Status
 
-Scaffold. The `hello` agent exercises the full pipeline; the first real agents (issue triage, PR
-review) are built with the `/new-agent` skill.
+Agents in use on OWASP CheatSheetSeries: triage (with its implementation-check and proposal-review
+specialists), pr-gate and cheatsheet-review (see `docs/agents/`). triage-apply (ADR 0019) turns
+triage proposals into one-click approval links, on the sandbox first. New agents are built with the
+`/new-agent` skill.
 
 ## Security
 

@@ -75,7 +75,8 @@ export function verifyEvidence(
 function stripLinks(s: string): string {
   return (
     s
-      .replace(/https?:\/\/\S*/gi, '[link removed]')
+      // With or without slashes: `http:evil.com` is a live link on an https page too.
+      .replace(/https?:\S*/gi, '[link removed]')
       .replace(/www\.\S*/gi, '[link removed]')
       // Protocol-relative `//host` (and any leftover `//`).
       .replace(/\/\/\S*/g, '[link removed]')
@@ -112,7 +113,19 @@ export function sanitizeComment(s: string): string {
       .split(/\r?\n/)
       .map((l) =>
         // Deletions first (they can join characters, e.g. `/@/` -> `//`), link removal last.
-        stripLinks(stripMarkup(l.replace(INVISIBLE, ' ').replace(/@/g, '')))
+        stripLinks(
+          stripMarkup(
+            l
+              .replace(INVISIBLE, ' ')
+              // A character reference renders as `@` (`&#64;`, `&commat;`): drop them all.
+              .replace(/&(?:#[0-9]*|#x[0-9a-f]*|[a-z][a-z0-9]*);?/gi, '')
+              .replace(/@/g, ''),
+          ),
+        )
+          // Last: deletions above can rebuild a reference (`&&amp;#64;`, `&<b>#64;`), so no `&`
+          // survives (review N1). A space, not nothing: deleting it could join `[x]&(url)` into a
+          // link (review N2).
+          .replace(/&/g, ' ')
           .replace(/[ \t]+/g, ' ')
           .trimEnd(),
       )

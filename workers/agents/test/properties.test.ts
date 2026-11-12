@@ -139,10 +139,16 @@ describe('validateProposalReview() properties', () => {
         fc.record({
           addLabels: fc.array(name, { maxLength: 6 }),
           removeLabels: fc.array(name, { maxLength: 6 }),
-          assignTo: fc.option(
-            fc.oneof(fc.constantFrom('gqlwriter', '@gqlwriter', 'attacker'), hostile),
-            { nil: null },
+          authorIntent: fc.constantFrom(
+            'offered' as const,
+            'declined' as const,
+            'unclear' as const,
           ),
+          volunteers: fc.array(
+            fc.oneof(fc.constantFrom('gqlwriter', '@maint1', 'maint1', 'attacker'), hostile),
+            { maxLength: 4 },
+          ),
+          askAuthor: fc.boolean(),
           reviewPr: fc.option(fc.constantFrom(5, 6, 99), { nil: null }),
           helpWanted: fc.boolean(),
           explanation: hostile,
@@ -185,6 +191,10 @@ describe('validateProposalReview() properties', () => {
           expect(out.explanation).not.toMatch(LIVE_LINK);
           expect(out.suggestedComment).not.toMatch(LIVE_LINK);
           expect(out.dropped.join(' ')).not.toMatch(LIVE_LINK);
+          // Every @mention was put in by code, for someone in the thread (ADR 0019).
+          for (const m of out.suggestedComment.matchAll(/@([A-Za-z0-9-]+)/g))
+            expect(['gqlwriter', 'maint1']).toContain(m[1]);
+          for (const m of out.mentions) expect(['gqlwriter', 'maint1']).toContain(m);
         },
       ),
       { numRuns: 1000 },
@@ -215,7 +225,9 @@ describe('renderDigestHtml() properties', () => {
             evidence: [],
             addLabels: [],
             removeLabels: [],
-            assignTo: null,
+            authorIntent: 'unclear',
+            volunteers: [],
+            askAuthor: false,
             reviewPr: null,
             helpWanted: false,
             explanation: summary,

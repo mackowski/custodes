@@ -17,6 +17,8 @@ export interface SpecialistDeps {
   select(system: string, user: string, issue: number): Promise<string>;
   /** Reasoning model: the assessment itself. Returns raw text. */
   assess(system: string, user: string, issue: number): Promise<string>;
+  /** The clock for time-based rules (the author's 2 days); tests inject it. */
+  now?: () => Date;
 }
 
 export async function loadCheatSheets(

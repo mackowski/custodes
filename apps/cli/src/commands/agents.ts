@@ -128,7 +128,7 @@ export function agentsCommand(): Command {
   return cmd;
 }
 
-/** `hello` → `hello-agent`, matching the Agents SDK kebab-case class routing. */
+/** `pr-gate` → `pr-gate-agent`, matching the Agents SDK kebab-case class routing. */
 export function toKebab(agentId: string): string {
   return agentId.endsWith('-agent') ? agentId : `${agentId}-agent`;
 }

@@ -86,6 +86,7 @@ export interface BenchModel {
 export const MODELS = {
   opus: { id: 'claude-opus-5-5', transport: 'anthropic', price: [4, 20] },
   sonnet: { id: 'claude-sonnet-5-5', transport: 'anthropic', price: [2, 10] },
+  /** Deprecated by Cloudflare on 2026-11-20; kept only so recorded benchmark results stay reproducible. */
   deepseekPro: {
     id: '@cf/deepseek-ai/deepseek-v4-pro-0813',
     transport: 'workers-ai',

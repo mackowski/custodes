@@ -93,7 +93,8 @@ export default class AnthropicGatewayProvider {
         },
         body,
       });
-    const known = discovered;
+    // Always name an alias: since 2026-11 a call without one gets 2044, which lists no aliases.
+    const known = discovered ?? 'default';
     let res = await send(known);
     if (!res.ok) {
       let text = await res.text();

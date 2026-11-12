@@ -21,7 +21,7 @@ lists only registered manifests.
    `await this.guard()`, gather inputs (read-only GitHub calls go through the broker's future read
    endpoints or the public API without a token), wrap them with `untrusted()`, call the model via
    `AnthropicGateway`, `parseStructured()` the result, then `this.act()` per proposed action.
-   Follow `hello.ts` for the shape.
+   Follow `pr-gate.ts` (a write agent) or `triage.ts` (read-only) for the shape.
 2. **Export + registry**: add `export { <Pascal>Agent }` in `workers/agents/src/index.ts` and the
    manifest to `REGISTRY` in `src/registry.ts`.
 3. **wrangler**: add the Durable Object binding in every env block of `workers/agents/wrangler.jsonc`

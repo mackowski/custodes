@@ -5,6 +5,7 @@ import type { ImplementationCheck } from '../specialists/implementation.js';
 import type { ProposalReview } from '../specialists/proposal.js';
 import { inertNoLinks as inert, type Assessment } from './assess.js';
 import {
+  type ApplyLink,
   actionLine,
   INJECTED,
   issueUrl,
@@ -33,9 +34,17 @@ export function esc(s: string): string {
   return s.replace(/[&<>"']/g, (c) => ESCAPES[c] ?? c);
 }
 
-/** Only links to github.com that code built; anything else is rendered as plain text. */
+/**
+ * The approval-link page behind Access, with a token in the broker's format (ADR 0019): the only
+ * non-GitHub link the digest may carry.
+ */
+const APPROVAL_LINK =
+  /^https:\/\/custodes\.work\/admin\/approvals\/link\/[0-9a-f-]{36}\.\d{1,12}\.[A-Za-z0-9_-]{20,100}$/;
+
+/** Only links that code built: github.com, or an approval link; anything else is plain text. */
 function link(url: string, label: string, style = ''): string {
-  if (!/^https:\/\/github\.com\/[A-Za-z0-9_.\-/#%]+$/.test(url)) return esc(label);
+  if (!/^https:\/\/github\.com\/[A-Za-z0-9_.\-/#%]+$/.test(url) && !APPROVAL_LINK.test(url))
+    return esc(label);
   return `<a href="${esc(url)}" style="color:#0b57d0;text-decoration:none;${style}">${esc(label)}</a>`;
 }
 
@@ -198,10 +207,19 @@ const VERDICT_TONE: Record<ProposalReview['verdict'], Tone> = {
   unclear: 'gray',
 };
 
+/** The one-click approval button (ADR 0019), or why there is none. */
+function applyBlock(a: ApplyLink | undefined): string {
+  if (!a) return '';
+  return 'url' in a
+    ? `<div style="margin-top:10px;">${button(a.url, 'Review and apply')} <span style="color:${C.muted};font-size:12px;">${esc(a.actions.join(', '))}; expires ${esc(a.expiresAt.slice(0, 10))}</span></div>`
+    : para(`No one-click link: ${inert(a.reason, 160)}`);
+}
+
 function proposalCard(
   it: SpecialistItem<ProposalReview>,
   triage: DigestItem | undefined,
   repo: string,
+  apply?: ApplyLink,
 ): string {
   const r = it.result;
   const actions = proposalActions(r);
@@ -222,6 +240,7 @@ function proposalCard(
         : actions.length
           ? list(actions.map(esc))
           : para('No change')) +
+      (r.injectionDetected ? '' : applyBlock(apply)) +
       (r.reviewPr && !r.injectionDetected
         ? `<div style="margin-top:10px;">${button(pullUrl(repo, r.reviewPr), `Review PR #${r.reviewPr}`)}</div>`
         : '') +
@@ -281,8 +300,15 @@ export function renderDigestHtml(input: DigestInput): string {
     ),
     section(
       'Community proposals: recommended actions',
-      plan.proposals.map((p) => proposalCard(p, plan.triageFor(p.issue), repo)),
+      plan.proposals.map((p) =>
+        proposalCard(p, plan.triageFor(p.issue), repo, input.applyLinks?.get(p.issue)),
+      ),
     ),
+    input.withoutLink
+      ? note(
+          `${input.withoutLink} more proposal(s) without a one-click link (limit reached); apply them by hand.`,
+        )
+      : '',
     section(
       'Accepted issues where a contributor is waiting for an answer',
       plan.reply.map((i) => implementationCard(i, repo, input.now)),

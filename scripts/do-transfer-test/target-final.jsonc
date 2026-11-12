@@ -1,0 +1,9 @@
+{
+  "name": "custodes-transfer-test-target",
+  "main": "worker.js",
+  "compatibility_date": "2026-08-15",
+  "workers_dev": true,
+  "vars": { "SCRIPT": "target" },
+  "durable_objects": { "bindings": [{ "name": "PROBE", "class_name": "Probe" }] },
+  "exports": { "Probe": { "type": "durable-object", "storage": "sqlite" } },
+}

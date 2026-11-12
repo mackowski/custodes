@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   AnthropicGateway,
   byokAliasesOf,
+  errorTypeOf,
   GatewayError,
   ModelOutputError,
   type MessagesRequest,
@@ -164,6 +165,21 @@ const aliasMissing = (asked: string, aliases: string[]) =>
     },
     { status: 400 },
   );
+/** AI Gateway's answer to a BYOK-only call that names no alias (seen 2026-11-12). */
+const credentialsRequired = () =>
+  Response.json(
+    {
+      success: false,
+      result: [],
+      messages: [],
+      error: [{ code: 2044, message: 'x' }],
+      name: 'AiGatewayError',
+      httpCode: 400,
+      internalCode: 2044,
+      message: 'Customer-provided provider credentials are required for this request',
+    },
+    { status: 400 },
+  );
 const answer = () =>
   Response.json({
     id: 'm',
@@ -212,11 +228,32 @@ describe('AnthropicGateway BYOK alias discovery', () => {
   const gateway = (gatewayId: string, fetchImpl: typeof fetch) =>
     new AnthropicGateway({ accountId: 'acc', gatewayId, gatewayToken: 'tok', fetchImpl });
 
-  it('sends no alias while the default key works', async () => {
+  it('names alias default explicitly while the default key works', async () => {
     const fetchImpl = vi.fn((_u: RequestInfo | URL, _i?: RequestInit) => Promise.resolve(answer()));
     await gateway('g-default', fetchImpl).messages(request);
     expect(fetchImpl).toHaveBeenCalledTimes(1);
-    expect(aliasOf(fetchImpl.mock.calls[0]?.[1])).toBeUndefined();
+    expect(aliasOf(fetchImpl.mock.calls[0]?.[1])).toBe('default');
+  });
+
+  it('never sends a call without an alias (AI Gateway answers 2044 without the alias list)', async () => {
+    const fetchImpl = vi.fn((_u: RequestInfo | URL, i?: RequestInit) =>
+      Promise.resolve(
+        aliasOf(i) === undefined
+          ? credentialsRequired()
+          : aliasOf(i) === 'cf-custodes-2'
+            ? answer()
+            : aliasMissing(aliasOf(i) ?? 'default', ['cf-custodes-2']),
+      ),
+    );
+    expect(AnthropicGateway.text(await gateway('g-2044', fetchImpl).messages(request))).toBe('ok');
+    expect(fetchImpl.mock.calls.map((c) => aliasOf(c[1]))).toEqual(['default', 'cf-custodes-2']);
+    // The retry is the normal production path: it must keep the stored-key-only headers too.
+    for (const [, init] of fetchImpl.mock.calls) {
+      const h = init?.headers as Record<string, string>;
+      expect(h['cf-aig-no-wholesale']).toBe('true');
+      expect(h['cf-aig-authorization']).toBe('Bearer tok');
+      expect(h['x-api-key']).toBeUndefined();
+    }
   });
 
   it('uses the only configured alias, and remembers it for later calls', async () => {
@@ -229,7 +266,7 @@ describe('AnthropicGateway BYOK alias discovery', () => {
     expect(AnthropicGateway.text(await gw.messages(request))).toBe('ok');
     await gw.messages(request);
     expect(fetchImpl.mock.calls.map((c) => aliasOf(c[1]))).toEqual([
-      undefined,
+      'default',
       'cf-custodes-2',
       'cf-custodes-2',
     ]);
@@ -247,7 +284,7 @@ describe('AnthropicGateway BYOK alias discovery', () => {
     current = 'new';
     await gw.messages(request);
     expect(fetchImpl.mock.calls.map((c) => aliasOf(c[1]))).toEqual([
-      undefined,
+      'default',
       'old',
       'old',
       'new',
@@ -264,6 +301,33 @@ describe('AnthropicGateway BYOK alias discovery', () => {
     expect(err).toBeInstanceOf(GatewayError);
     expect((err as GatewayError).errorType).toBe('byok_alias_missing');
     expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it('names AI Gateway errors by code, without their message', async () => {
+    const fetchImpl = vi.fn((_u: RequestInfo | URL, _i?: RequestInit) =>
+      Promise.resolve(credentialsRequired()),
+    );
+    const err = await gateway('g-aig', fetchImpl)
+      .messages(request)
+      .catch((e: unknown) => e);
+    expect((err as GatewayError).errorType).toBe('aig_2044');
+    expect(errorTypeOf('{"internalCode":"2044; drop"}')).toBeUndefined();
+  });
+
+  it('accepts only a small positive integer gateway code, and prefers the provider type', () => {
+    for (const body of [
+      '{"internalCode":2044.5}',
+      '{"internalCode":0}',
+      '{"internalCode":-1}',
+      '{"internalCode":1e6}',
+      '{"internalCode":1e21}',
+      'null',
+      '2044',
+    ])
+      expect(errorTypeOf(body), body).toBeUndefined();
+    expect(errorTypeOf('{"error":{"type":"overloaded_error"},"internalCode":2044}')).toBe(
+      'overloaded_error',
+    );
   });
 
   it('does not retry other errors', async () => {

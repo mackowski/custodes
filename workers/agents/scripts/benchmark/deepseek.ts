@@ -21,6 +21,8 @@ const cfToken = env['CF_WORKERS_AI_EVAL_TOKEN'];
 if (!token || !cfToken)
   throw new Error('AI_GATEWAY_TOKEN and CF_WORKERS_AI_EVAL_TOKEN must be set');
 
+// The deepseekPro variants use a model Cloudflare deprecates on 2026-11-20; their recorded outputs
+// stay valid, but re-running them will fail after that date.
 export const VARIANTS = [
   {
     key: 'deepseekPro-low',

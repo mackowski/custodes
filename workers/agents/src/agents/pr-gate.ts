@@ -347,7 +347,7 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
       this.setState({ ...this.state, day, closesToday: 0, evaluationsToday: 0 });
       this.sql`DELETE FROM evaluations WHERE day <> ${day}`;
     }
-    const reader = new BrokerGitHubReader(this.env.BROKER, this.manifest.id, runId);
+    const reader = new BrokerGitHubReader(this.broker, this.manifest.id, runId);
     // Open ACK_OBTAINED issues, read at most once per poll and only if a close needs the check.
     // The promise is cached, so a failed read is not repeated for every PR in this poll.
     let approved: Promise<{ issues: PublicIssue[]; truncated: boolean }> | undefined;
@@ -754,7 +754,7 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
       WHERE human_verdict IS NULL`;
     if (pending.length === 0) return;
     const wanted = new Set(pending.map((r) => r.pr));
-    const reader = new BrokerGitHubReader(this.env.BROKER, this.manifest.id, crypto.randomUUID());
+    const reader = new BrokerGitHubReader(this.broker, this.manifest.id, crypto.randomUUID());
     for (const pr of await reader.listRecentlyClosedPulls(this.repo)) {
       if (!wanted.has(pr.number)) continue;
       const ours =
@@ -939,7 +939,7 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
       manifest: this.manifest,
       enforcing: this.enforcing,
       state: this.state,
-      killSwitch: await this.killSwitch.state(this.manifest.id),
+      killSwitch: await this.haltState(),
       recent: this.sql<{ pr: number; outcome: string; detail: string; decided_at: string }>`
         SELECT pr, outcome, detail, decided_at FROM decisions ORDER BY decided_at DESC LIMIT 30`,
     });

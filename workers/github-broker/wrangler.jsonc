@@ -27,11 +27,6 @@
   // One GitHub PAT per agent, pushed into Secrets Store by CI from the GitHub secret PAT_<AGENT>.
   // Binding names must match policy/policy.json tokenBinding.
   "secrets_store_secrets": [
-    {
-      "binding": "PAT_HELLO",
-      "store_id": "92c5c38062fc4da98fad1fe4f5a8bda1",
-      "secret_name": "github-pat-hello",
-    },
     // pr-gate: fine-grained, OWASP/CheatSheetSeries only, Pull requests: read & write (ADR 0011).
     {
       "binding": "PAT_PR_GATE",
@@ -44,6 +39,14 @@
       "binding": "PAT_CHEATSHEET_REVIEW",
       "store_id": "92c5c38062fc4da98fad1fe4f5a8bda1",
       "secret_name": "github-pat-cheatsheet-review",
+    },
+    // triage-apply (ADR 0019): fine-grained, Issues: read & write on the sandbox (OWASP later), on
+    // account mackowski with the Triage role there; the policy allows assign, labels and comments,
+    // each only after the operator approves the bundle.
+    {
+      "binding": "PAT_TRIAGE_APPLY",
+      "store_id": "92c5c38062fc4da98fad1fe4f5a8bda1",
+      "secret_name": "github-pat-triage-apply",
     },
     // Read-only PAT (public repositories only, no permissions) for agent reads via /v1/read.
     {

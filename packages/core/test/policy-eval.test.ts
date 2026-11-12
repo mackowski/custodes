@@ -15,6 +15,9 @@ const policy: Policy = {
       requiresApproval: ['issue.label.add'],
       requiresApprovalOn: { 'mackowski/custodes-sandbox': ['issue.comment'] },
       rateLimitPerHour: 60,
+      isolated: false,
+      trailer: 'visible',
+      bundleOnly: false,
     },
   },
 };
@@ -44,6 +47,25 @@ describe('evaluatePolicy', () => {
       },
     };
     expect(evaluatePolicy(policy, req)).toEqual({ allow: true, needsApproval: true });
+  });
+  it('asks for an approval on every action of a hitl agent (invariant 3)', () => {
+    // No agent in policy.json is hitl today; new agents start hitl until their evals pass.
+    const hitl: Policy = {
+      ...policy,
+      agents: {
+        triage: {
+          ...policy.agents['triage']!,
+          mode: 'hitl',
+          requiresApproval: [],
+          requiresApprovalOn: {},
+        },
+      },
+    };
+    const req: BrokerRequest = {
+      ...base,
+      action: { type: 'issue.comment', repo: 'OWASP/CheatSheetSeries', issue: 1, body: 'x' },
+    };
+    expect(evaluatePolicy(hitl, req)).toEqual({ allow: true, needsApproval: true });
   });
   it('denies other repos, other actions and unknown agents', () => {
     expect(
@@ -135,6 +157,9 @@ describe('evaluatePolicy for read-only agents', () => {
           requiresApproval: [],
           requiresApprovalOn: {},
           rateLimitPerHour: 60,
+          isolated: false,
+          trailer: 'visible',
+          bundleOnly: false,
         },
       },
     };
@@ -200,7 +225,7 @@ describe('evaluatePolicy for pr-gate (real broker policy)', () => {
     expect(
       evaluatePolicy(real, {
         ...base,
-        agentId: 'hello',
+        agentId: 'cheatsheet-review',
         action: { type: 'pr.close', repo: 'OWASP/CheatSheetSeries', pull: 7, body: 'x' },
       }),
     ).toMatchObject({ allow: false, code: 'policy_denied' });
@@ -310,12 +335,33 @@ describe('evaluatePolicy for cheatsheet-review (real broker policy)', () => {
     }
   });
 
-  it('grants no agent issue.label.add: the review trigger is a label only the operator adds', () => {
-    for (const [id, a] of Object.entries(real.agents))
-      expect(a.actions.includes('issue.label.add'), id).toBe(false);
+  it('lets no agent add the review trigger: a label only the operator adds', () => {
+    // triage-apply (ADR 0019) may add labels, but never this one: its PAT is the operator's
+    // account, so its label would pass cheatsheet-review's "who added it" check.
+    for (const [id, a] of Object.entries(real.agents)) {
+      if (!a.actions.includes('issue.label.add')) continue;
+      expect(id).toBe('triage-apply');
+      // GitHub label names are case-insensitive.
+      expect(
+        (a.labels ?? []).map((l) => l.toLowerCase()),
+        id,
+      ).not.toContain('custodes_cheatsheet_review');
+      expect(
+        evaluatePolicy(real, {
+          ...base,
+          agentId: id,
+          action: {
+            type: 'issue.label.add',
+            repo: 'mackowski/custodes-sandbox',
+            issue: 1,
+            labels: ['custodes_cheatsheet_review'],
+          },
+        }).allow,
+      ).toBe(false);
+    }
   });
   it('does not let other agents post inline reviews', () => {
-    for (const agentId of ['pr-gate', 'hello', 'triage']) {
+    for (const agentId of ['pr-gate', 'triage']) {
       expect(evaluatePolicy(real, { ...base, agentId, action: review })).toMatchObject({
         allow: false,
       });

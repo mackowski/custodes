@@ -29,6 +29,8 @@ export function summariseAction(req: ApprovalRequest): string {
       return `add labels [${a.labels.join(', ')}] to ${a.repo}#${a.issue}`;
     case 'issue.label.remove':
       return `remove labels [${a.labels.join(', ')}] from ${a.repo}#${a.issue}`;
+    case 'issue.assign':
+      return `assign ${a.assignees.join(', ')} to ${a.repo}#${a.issue}`;
     case 'pr.review':
       return `${a.event} review on ${a.repo}#${a.pull}`;
     case 'pr.review.inline':

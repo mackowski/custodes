@@ -1,4 +1,4 @@
-import type { ApprovalRequest, Attestation, BrokerRequest } from '@custodes/schema';
+import type { ApprovalBundle, ApprovalRequest, Attestation, BrokerRequest } from '@custodes/schema';
 import {
   Attestation as AttestationSchema,
   BrokerRequest as BrokerRequestSchema,
@@ -111,8 +111,11 @@ export class ApprovalStore {
     actionHash: string,
     ttlSeconds: number,
     now = new Date(),
+    /** A bundle (ADR 0019): `req.action` is then its first action, `actionHash` the bundle's. */
+    bundle?: ApprovalBundle,
   ): Promise<ApprovalRequest> {
     const approval: ApprovalRequest = {
+      ...(bundle !== undefined ? { bundle } : {}),
       id: crypto.randomUUID(),
       agentId: req.agentId,
       runId: req.runId,
@@ -230,6 +233,27 @@ export class ApprovalStore {
     return n;
   }
 
+  /**
+   * Records one bundle ask (ADR 0019) and returns how many this agent made in the hour up to `now`,
+   * this one included. Called before any read, so refused asks count too.
+   */
+  async recordBundleAsk(agentId: string, now: Date): Promise<number> {
+    const dayAgo = new Date(now.getTime() - 86_400_000).toISOString();
+    const hourAgo = new Date(now.getTime() - 3_600_000).toISOString();
+    await this.db.prepare('DELETE FROM bundle_asks WHERE at < ?1').bind(dayAgo).run();
+    await this.db
+      .prepare('INSERT INTO bundle_asks (agent_id, at) VALUES (?1, ?2)')
+      .bind(agentId, now.toISOString())
+      .run();
+    const row = await this.db
+      .prepare(
+        'SELECT COUNT(*) AS n FROM bundle_asks WHERE agent_id = ?1 AND at >= ?2 AND at <= ?3',
+      )
+      .bind(agentId, hourAgo, now.toISOString())
+      .first<{ n: number }>();
+    return row?.n ?? 0;
+  }
+
   /** Pending, unexpired approval requests of one agent. */
   async countPending(agentId: string, now = new Date()): Promise<number> {
     const row = await this.db
@@ -267,4 +291,27 @@ function toApproval(
     actionHash: row.action_hash,
     consumedAt: row.consumed_at,
   };
+}
+
+/** Nonces of agent-signed requests (ADR 0018): each is accepted once. */
+export class NonceStore {
+  constructor(private readonly db: D1Database) {}
+
+  /**
+   * Records `nonce` for `caller`; false when it was already used. Rows older than `retentionMs`
+   * are removed first: by then the request would be refused as stale anyway.
+   */
+  async claim(nonce: string, caller: string, now: number, retentionMs = 600_000): Promise<boolean> {
+    await this.db
+      .prepare('DELETE FROM request_nonces WHERE seen_at < ?1')
+      .bind(now - retentionMs)
+      .run();
+    const res = await this.db
+      .prepare(
+        'INSERT INTO request_nonces (nonce, caller, seen_at) VALUES (?1, ?2, ?3) ON CONFLICT (nonce) DO NOTHING',
+      )
+      .bind(nonce, caller, now)
+      .run();
+    return res.meta.changes === 1;
+  }
 }

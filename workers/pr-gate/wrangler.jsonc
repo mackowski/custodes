@@ -1,0 +1,72 @@
+{
+  "$schema": "../agents/node_modules/wrangler/config-schema.json",
+  // pr-gate in its own Worker (ADR 0018). Source lives in workers/agents; this Worker bundles only
+  // what src/pr-gate-worker.ts imports and has only the bindings and secrets below. Deployed from
+  // workers/agents with `-c ../pr-gate/wrangler.jsonc` (the pinned wrangler of that package).
+  //
+  // This is the steady state, after the move. The first deploys come from the cutover workflow
+  // (.github/workflows/agent-cutover.yml, docs/runbooks/agent-cutover.md), which derives the
+  // `expecting-transfer` phase from this file.
+  "name": "custodes-pr-gate",
+  "main": "../agents/src/pr-gate-worker.ts",
+  "compatibility_date": "2026-08-15",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "preview_urls": false,
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1,
+    "traces": { "enabled": true, "head_sampling_rate": 1 },
+  },
+  "vars": {
+    "ENVIRONMENT": "prod",
+    // Signs every broker call with this Worker's Keyholder key (ADR 0018).
+    "CALLER_NAME": "custodes-pr-gate",
+    "AI_GATEWAY_ACCOUNT_ID": "5f62912564df344533c9563904c77662",
+    "AI_GATEWAY_ID": "custodes",
+    "EMAIL_FROM": "custodes@custodes.work",
+    "EMAIL_DOMAIN": "custodes.work",
+    "OPERATOR_EMAIL": "jkb.mackowski@gmail.com",
+    // pr-gate closes pull requests while this is "true" (ADR 0011); "false" only reports.
+    "PR_GATE_ENFORCE": "true",
+    "JEV_TRANSPORT": "direct",
+    "JEV_GATEWAY_PATH": "api/alpha/decisions",
+    "TRACE_PAYLOADS": "true",
+  },
+  // Secrets (set by CI on deploy): AI_GATEWAY_TOKEN, OPENROUTER_API_KEY
+  "durable_objects": {
+    "bindings": [
+      { "name": "PrGateAgent", "class_name": "PrGateAgent" },
+      { "name": "KEYHOLDER", "class_name": "Keyholder" },
+    ],
+  },
+  "exports": {
+    // Moved here from custodes-agents with its stored data (transfer, ADR 0018).
+    "PrGateAgent": { "type": "durable-object", "storage": "sqlite" },
+    "Keyholder": { "type": "durable-object", "storage": "sqlite" },
+  },
+  // Same schedule as before the move (see src/crons.ts).
+  "triggers": { "crons": ["17 */4 * * *", "30 5 * * *", "0 7 * * *"] },
+  // Workers AI for Clef (shadow, ADR 0015); every call names the "custodes" AI Gateway.
+  "ai": { "binding": "AI", "remote": true },
+  // Its own broker entrypoint: requests must be signed by KEYHOLDER, for pr-gate only.
+  "services": [
+    { "binding": "BROKER", "service": "custodes-github-broker", "entrypoint": "PrGateBroker" },
+  ],
+  "queues": {
+    "consumers": [
+      {
+        "queue": "custodes-inbound-pr-gate",
+        "max_batch_size": 10,
+        "max_retries": 3,
+        "dead_letter_queue": "custodes-inbound-pr-gate-dlq",
+      },
+    ],
+  },
+  "send_email": [
+    {
+      "name": "EMAIL",
+      "allowed_destination_addresses": ["jkb.mackowski@gmail.com"],
+    },
+  ],
+}

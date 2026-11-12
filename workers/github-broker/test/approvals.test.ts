@@ -10,7 +10,7 @@ import {
 } from '../src/approvals.js';
 import type { BrokerEnv } from '../src/env.js';
 import broker, { BrokerAdmin } from '../src/index.js';
-import { AuditStore } from '../src/store.js';
+import { ApprovalStore, AuditStore } from '../src/store.js';
 
 const base: Omit<BrokerRequest, 'action'> = {
   agentId: 'cheatsheet-review',
@@ -36,7 +36,6 @@ let testEnv: BrokerEnv;
 beforeAll(() => {
   testEnv = {
     ...env,
-    PAT_HELLO: { get: () => Promise.resolve('unused') },
     PAT_PR_GATE: { get: () => Promise.resolve('unused') },
     PAT_CHEATSHEET_REVIEW: { get: () => Promise.resolve('review-token') },
   };
@@ -301,30 +300,50 @@ describe('what the page shows (review L2)', () => {
 });
 
 describe('approval requests are bounded (review L4)', () => {
-  const hello = (n: number): BrokerRequest => ({
+  /** An inline review on OWASP pull n: needs an approval (requiresApprovalOn), one per pull. */
+  const review = (n: number): BrokerRequest => ({
     ...base,
-    agentId: 'hello',
-    action: { type: 'issue.comment', repo: 'OWASP/CheatSheetSeries', issue: n, body: 'x' },
+    agentId: 'cheatsheet-review',
+    action: {
+      type: 'pr.review.inline',
+      repo: 'OWASP/CheatSheetSeries',
+      pull: 1000 + n,
+      commitId: '0123456789abcdef0123456789abcdef01234567',
+      event: 'COMMENT',
+      body: 'x',
+      comments: [],
+    },
   });
 
   it('are refused while the agent is halted', async () => {
     const ks = new KillSwitch(env.KILL_SWITCH);
-    await ks.halt('hello', 'test', 'test');
+    await ks.halt('cheatsheet-review', 'test', 'test');
     try {
-      expect(await createApproval(testEnv, hello(1), 'r')).toMatchObject({
+      expect(await createApproval(testEnv, review(1), 'r')).toMatchObject({
         ok: false,
         error: 'agent is halted',
       });
     } finally {
-      await ks.resume('hello');
+      await ks.resume('cheatsheet-review');
     }
   });
 
   it('stop at the pending cap per agent', async () => {
     let last: Awaited<ReturnType<typeof createApproval>> | undefined;
-    for (let n = 1; n <= MAX_PENDING_PER_AGENT + 1; n++)
-      last = await createApproval(testEnv, hello(n), 'r');
-    expect(last).toMatchObject({ ok: false, error: 'too many pending approvals' });
+    const made: string[] = [];
+    try {
+      for (let n = 1; n <= MAX_PENDING_PER_AGENT + 1; n++) {
+        last = await createApproval(testEnv, review(n), 'r');
+        if (last.ok) made.push(last.approval.id);
+      }
+      expect(last).toMatchObject({ ok: false, error: 'too many pending approvals' });
+    } finally {
+      // The queue is shared with the other cheatsheet-review tests in this file: empty it again.
+      const store = new ApprovalStore(env.AUDIT);
+      for (const p of await store.listPending(1000))
+        if (p.agentId === 'cheatsheet-review') await store.decide(p.id, 'rejected', 'test cleanup');
+    }
+    expect(made.length).toBeGreaterThan(0);
   });
 });
 
