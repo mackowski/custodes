@@ -254,16 +254,17 @@ export function mentionsIn(body: string): string[] {
  * Why a bundle comment cannot be posted, or null (ADR 0019). Mirrors triage-apply's `buildBundle`:
  * - a character reference renders as `@` (`&#64;x`) where the mention check cannot see it;
  * - `<!--` or `-->` would hide text (or a fake trailer) on GitHub that the page shows;
- * - a reference to another repository (`owner/repo#N`, a github.com URL) puts a cross-reference
- *   in someone else's timeline under the operator's name.
+ * - a reference to another repository (`owner/repo#N`) or any link puts a cross-reference in
+ *   someone else's timeline under the operator's name.
  */
 export function commentProblem(body: string, repo: string): string | null {
   if (/&(#|[A-Za-z][A-Za-z0-9]*;)/.test(body))
     return 'comment contains an HTML character reference';
   if (body.includes('<!--') || body.includes('-->'))
     return 'comment contains an HTML comment marker';
-  // Anywhere in the text, on purpose: a substring check, not a URL match.
-  if (body.toLowerCase().includes('github.com')) return 'comment contains a GitHub URL';
+  // No links at all (model text is link-free after sanitizeComment): a URL to another issue or
+  // pull request would create a cross-reference under the operator's name.
+  if (/https?:|www\./i.test(body)) return 'comment contains a link';
   for (const m of body.matchAll(/([A-Za-z0-9-]+\/[A-Za-z0-9._-]+)#\d+/g))
     if (m[1]?.toLowerCase() !== repo.toLowerCase()) return 'comment references another repository';
   return null;

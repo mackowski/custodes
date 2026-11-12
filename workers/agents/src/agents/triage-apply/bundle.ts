@@ -78,8 +78,7 @@ export function threadPeople(issue: PublicIssue, comments: IssueComment[]): stri
 export function commentProblem(body: string, repo: string): string | null {
   if (/&(#|[A-Za-z][A-Za-z0-9]*;)/.test(body)) return 'HTML character reference';
   if (body.includes('<!--') || body.includes('-->')) return 'HTML comment marker';
-  // Anywhere in the text, on purpose: a substring check, not a URL match.
-  if (body.toLowerCase().includes('github.com')) return 'GitHub URL';
+  if (/https?:|www\./i.test(body)) return 'link';
   for (const m of body.matchAll(/([A-Za-z0-9-]+\/[A-Za-z0-9._-]+)#\d+/g))
     if (m[1]?.toLowerCase() !== repo.toLowerCase()) return 'reference to another repository';
   return null;

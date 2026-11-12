@@ -269,7 +269,7 @@ describe('buildBundle drops comments that hide text or reach other repositories'
     const cases: [string, string][] = [
       ['hidden <!-- rest', 'HTML comment marker'],
       ['see OWASP/CheatSheetSeries#1', 'reference to another repository'],
-      ['see https://github.com/a/b/pull/1', 'GitHub URL'],
+      ['see https://github.com/a/b/pull/1', 'link'],
     ];
     for (const [body, why] of cases) {
       const r = buildBundle(input({ comment: body, addLabels: ['NEW_CS'] }), issue(), []);

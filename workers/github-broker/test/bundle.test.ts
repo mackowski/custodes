@@ -186,9 +186,8 @@ describe('createBundleApproval', () => {
     expect(commentProblem('see OWASP/CheatSheetSeries#1', repo)).toBe(
       'comment references another repository',
     );
-    expect(commentProblem('see github.com/a/b/issues/1', repo)).toBe(
-      'comment contains a GitHub URL',
-    );
+    for (const link of ['see https://github.com/a/b/issues/1', 'http:evil.com', 'www.example.org'])
+      expect(commentProblem(link, repo), link).toBe('comment contains a link');
   });
 
   it('refuses a comment with an HTML character reference (it renders as @)', async () => {
