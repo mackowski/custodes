@@ -72,6 +72,11 @@ function actionDetails(a: ApprovalRequest['action']): string {
   return `<pre>${escapeHtml(JSON.stringify(a, null, 2))}</pre>`;
 }
 
+/** Text shown exactly as it will be posted: escaped, in a <pre> block, never rendered. */
+function preformatted(text: string): string {
+  return ['<pre>', escapeHtml(text), '</pre>'].join('');
+}
+
 /** One bundle action in words; the comment is shown in full, as it will be posted. */
 function bundleStep(a: ApprovalRequest['action'], i: number): string {
   const n = `${i + 1}.`;
@@ -83,7 +88,7 @@ function bundleStep(a: ApprovalRequest['action'], i: number): string {
     case 'issue.label.remove':
       return `<dt>${n} Remove labels</dt><dd>${escapeHtml(a.labels.join(', '))}</dd>`;
     case 'issue.comment':
-      return `<dt>${n} Comment</dt><dd><pre>${escapeHtml(a.body)}</pre></dd>`;
+      return [`<dt>${n} Comment</dt><dd>`, preformatted(a.body), '</dd>'].join('');
     case 'pr.comment':
     case 'pr.review':
     case 'pr.review.inline':
