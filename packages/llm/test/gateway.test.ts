@@ -247,6 +247,13 @@ describe('AnthropicGateway BYOK alias discovery', () => {
     );
     expect(AnthropicGateway.text(await gateway('g-2044', fetchImpl).messages(request))).toBe('ok');
     expect(fetchImpl.mock.calls.map((c) => aliasOf(c[1]))).toEqual(['default', 'cf-custodes-2']);
+    // The retry is the normal production path: it must keep the stored-key-only headers too.
+    for (const [, init] of fetchImpl.mock.calls) {
+      const h = init?.headers as Record<string, string>;
+      expect(h['cf-aig-no-wholesale']).toBe('true');
+      expect(h['cf-aig-authorization']).toBe('Bearer tok');
+      expect(h['x-api-key']).toBeUndefined();
+    }
   });
 
   it('uses the only configured alias, and remembers it for later calls', async () => {
@@ -305,6 +312,22 @@ describe('AnthropicGateway BYOK alias discovery', () => {
       .catch((e: unknown) => e);
     expect((err as GatewayError).errorType).toBe('aig_2044');
     expect(errorTypeOf('{"internalCode":"2044; drop"}')).toBeUndefined();
+  });
+
+  it('accepts only a small positive integer gateway code, and prefers the provider type', () => {
+    for (const body of [
+      '{"internalCode":2044.5}',
+      '{"internalCode":0}',
+      '{"internalCode":-1}',
+      '{"internalCode":1e6}',
+      '{"internalCode":1e21}',
+      'null',
+      '2044',
+    ])
+      expect(errorTypeOf(body), body).toBeUndefined();
+    expect(errorTypeOf('{"error":{"type":"overloaded_error"},"internalCode":2044}')).toBe(
+      'overloaded_error',
+    );
   });
 
   it('does not retry other errors', async () => {
