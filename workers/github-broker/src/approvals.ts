@@ -250,6 +250,24 @@ export function mentionsIn(body: string): string[] {
   return [...out];
 }
 
+/**
+ * Why a bundle comment cannot be posted, or null (ADR 0019). Mirrors triage-apply's `buildBundle`:
+ * - a character reference renders as `@` (`&#64;x`) where the mention check cannot see it;
+ * - `<!--` or `-->` would hide text (or a fake trailer) on GitHub that the page shows;
+ * - a reference to another repository (`owner/repo#N`, a github.com URL) puts a cross-reference
+ *   in someone else's timeline under the operator's name.
+ */
+export function commentProblem(body: string, repo: string): string | null {
+  if (/&(#|[A-Za-z][A-Za-z0-9]*;)/.test(body))
+    return 'comment contains an HTML character reference';
+  if (body.includes('<!--') || body.includes('-->'))
+    return 'comment contains an HTML comment marker';
+  if (/github\.com/i.test(body)) return 'comment contains a GitHub URL';
+  for (const m of body.matchAll(/([A-Za-z0-9-]+\/[A-Za-z0-9._-]+)#\d+/g))
+    if (m[1]?.toLowerCase() !== repo.toLowerCase()) return 'comment references another repository';
+  return null;
+}
+
 /** The bundle against the issue now: same snapshot, and only thread people assigned or named. */
 export async function checkBundle(
   env: BrokerEnv,
@@ -266,9 +284,10 @@ export async function checkBundle(
     return { ok: false, reason: 'stale: the issue changed since the proposal' };
   const inThread = (l: string) => thread.people.some((p) => p.toLowerCase() === l.toLowerCase());
   for (const a of bundle.actions) {
-    // A character reference renders as `@` (`&#64;x`, `&commat;x`) where no check can see it.
-    if (a.type === 'issue.comment' && /&(#|[A-Za-z][A-Za-z0-9]*;)/.test(a.body))
-      return { ok: false, reason: 'comment contains an HTML character reference' };
+    if (a.type === 'issue.comment') {
+      const bad = commentProblem(a.body, a.repo);
+      if (bad !== null) return { ok: false, reason: bad };
+    }
     const named =
       a.type === 'issue.assign'
         ? a.assignees

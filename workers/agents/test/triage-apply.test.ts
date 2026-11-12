@@ -264,6 +264,22 @@ describe('triage-apply helpers', () => {
   });
 });
 
+describe('buildBundle drops comments that hide text or reach other repositories', () => {
+  it('keeps the rest of the bundle', () => {
+    const cases: [string, string][] = [
+      ['hidden <!-- rest', 'HTML comment marker'],
+      ['see OWASP/CheatSheetSeries#1', 'reference to another repository'],
+      ['see https://github.com/a/b/pull/1', 'GitHub URL'],
+    ];
+    for (const [body, why] of cases) {
+      const r = buildBundle(input({ comment: body, addLabels: ['NEW_CS'] }), issue(), []);
+      if (!r.ok) throw new Error(r.reason);
+      expect(r.dropped, body).toEqual([`comment (${why})`]);
+      expect(r.bundle.actions.map((a) => a.type)).toEqual(['issue.label.add']);
+    }
+  });
+});
+
 describe('sanitizeComment and HTML character references (review M2)', () => {
   it('removes references that would render as @, so no mention can hide in one', () => {
     for (const t of [

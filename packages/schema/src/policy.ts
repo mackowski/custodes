@@ -59,6 +59,12 @@ export const AgentPolicy = z
       !a.actions.some((t) => t === 'issue.label.add' || t === 'issue.label.remove'),
     { message: 'a label action needs a labels allow-list', path: ['labels'] },
   )
+  .refine((a) => a.trailer === 'visible' || (a.mode === 'hitl' && a.bundleOnly), {
+    // A hidden trailer makes model-drafted text look like the operator's own words: only behind
+    // an approval of the exact bundle (ADR 0019, Claude review of #106).
+    message: 'trailer "hidden" needs mode "hitl" and bundleOnly',
+    path: ['trailer'],
+  })
   .refine(
     (a) =>
       Object.values(a.requiresApprovalOn).every((list) => list.every((t) => a.actions.includes(t))),

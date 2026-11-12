@@ -11,6 +11,7 @@ import {
 import { act } from '../src/act.js';
 import {
   approvalByToken,
+  commentProblem,
   createApproval,
   createBundleApproval,
   MAX_BUNDLE_ASKS_PER_HOUR,
@@ -173,6 +174,23 @@ const decide = (id: string, now = NOW) =>
   decideApproval(testEnv, id, 'approved', 'op@example.org', now);
 
 describe('createBundleApproval', () => {
+  it('refuses comments that hide text or reach other repositories (Claude review of #106)', () => {
+    const repo = 'mackowski/custodes-sandbox';
+    expect(
+      commentProblem('Thanks @bob, see #12 and mackowski/custodes-sandbox#3.', repo),
+    ).toBeNull();
+    expect(commentProblem('hidden <!-- rest', repo)).toBe(
+      'comment contains an HTML comment marker',
+    );
+    expect(commentProblem('x --> y', repo)).toBe('comment contains an HTML comment marker');
+    expect(commentProblem('see OWASP/CheatSheetSeries#1', repo)).toBe(
+      'comment references another repository',
+    );
+    expect(commentProblem('see github.com/a/b/issues/1', repo)).toBe(
+      'comment contains a GitHub URL',
+    );
+  });
+
   it('refuses a comment with an HTML character reference (it renders as @)', async () => {
     const n = nextIssue();
     const issue = { commenters: [] };

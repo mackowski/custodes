@@ -74,6 +74,16 @@ export function threadPeople(issue: PublicIssue, comments: IssueComment[]): stri
   return out;
 }
 
+/** Same rules as the broker's `commentProblem` (it checks again): see there for why. */
+export function commentProblem(body: string, repo: string): string | null {
+  if (/&(#|[A-Za-z][A-Za-z0-9]*;)/.test(body)) return 'HTML character reference';
+  if (body.includes('<!--') || body.includes('-->')) return 'HTML comment marker';
+  if (/github\.com/i.test(body)) return 'GitHub URL';
+  for (const m of body.matchAll(/([A-Za-z0-9-]+\/[A-Za-z0-9._-]+)#\d+/g))
+    if (m[1]?.toLowerCase() !== repo.toLowerCase()) return 'reference to another repository';
+  return null;
+}
+
 /** Same rule as the broker's `mentionsIn`: `@name` not after a letter or digit. */
 export function mentionsIn(body: string): string[] {
   const out = new Set<string>();
@@ -119,8 +129,8 @@ export function buildBundle(
   );
   if (remove.length) actions.push({ type: 'issue.label.remove', ...target, labels: remove });
   const body = input.comment.trim();
-  if (body && /&(#|[A-Za-z][A-Za-z0-9]*;)/.test(body))
-    dropped.push('comment (HTML character reference)');
+  const problem = body ? commentProblem(body, input.repo) : null;
+  if (problem !== null) dropped.push(`comment (${problem})`);
   else if (body) {
     const stranger = mentionsIn(body).find((l) => !inThread(l));
     if (stranger !== undefined) dropped.push('comment (names someone outside the thread)');

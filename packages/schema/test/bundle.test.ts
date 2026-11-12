@@ -94,6 +94,7 @@ describe('AgentPolicy approval fields', () => {
       approvalTtlHours: 168,
       maxPendingApprovals: 50,
       trailer: 'hidden',
+      bundleOnly: true,
     });
     expect(p.trailer).toBe('hidden');
   });
@@ -106,5 +107,25 @@ describe('AgentPolicy approval fields', () => {
     { trailer: 'none' },
   ])('rejects %j', (extra) => {
     expect(AgentPolicy.safeParse({ ...base, ...extra }).success).toBe(false);
+  });
+});
+
+describe('policy: a hidden trailer only behind a bundle approval (Claude review of #106)', () => {
+  const agent = {
+    tokenBinding: 'PAT_X',
+    mode: 'hitl',
+    repos: ['mackowski/custodes-sandbox'],
+    actions: ['issue.comment'],
+  };
+  it('refuses trailer hidden without hitl and bundleOnly', () => {
+    expect(AgentPolicy.safeParse({ ...agent, trailer: 'hidden', bundleOnly: true }).success).toBe(
+      true,
+    );
+    expect(AgentPolicy.safeParse({ ...agent, trailer: 'hidden' }).success).toBe(false);
+    expect(
+      AgentPolicy.safeParse({ ...agent, mode: 'hotl', trailer: 'hidden', bundleOnly: true })
+        .success,
+    ).toBe(false);
+    expect(AgentPolicy.safeParse(agent).success).toBe(true);
   });
 });

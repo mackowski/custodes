@@ -27,7 +27,8 @@ jobs:
         with:
           node-version-file: .node-version
           cache: pnpm
-      - run: pnpm install --frozen-lockfile
+      # Before `pnpm install`: an install script could write $GITHUB_ENV or $GITHUB_PATH and take over
+      # the step that holds the Access service token (Claude review of #106).
       - name: Read the held keys
         env:
           CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
@@ -37,6 +38,7 @@ jobs:
             -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
             -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
             https://custodes.work/admin/agent-keys > "$RUNNER_TEMP/agent-keys.json"
+      - run: pnpm install --frozen-lockfile
       - name: Update agent-keys.json
         id: pin
         run: |
