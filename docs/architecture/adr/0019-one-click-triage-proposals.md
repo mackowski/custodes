@@ -2,8 +2,8 @@
 
 - Status: proposed
 - Date: 2026-11-12
-- Deciders: Jakub Maćkowski (round 1, 2026-11-09); round 2 answered by Claude on the operator's
-  instruction, 2026-11-12, to be confirmed before #106 is marked ready
+- Deciders: Jakub Maćkowski (round 1, 2026-11-09; round 2 answered by Claude on the operator's
+  instruction and confirmed by the operator, 2026-11-12)
 
 ## Context
 
