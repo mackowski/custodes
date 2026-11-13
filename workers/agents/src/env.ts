@@ -21,7 +21,10 @@ export interface AgentsEnv extends Cloudflare.Env, CustodesEnv {
   TriageApplyAgent?: DurableObjectNamespace<TriageApplyAgent>;
   /**
    * Bound in custodes-triage (workers/triage/wrangler.jsonc) since the 2026-11-12 cutover, no
-   * longer in the shared Worker, whose code checks before use (`hasTriage` in index.ts).
+   * longer in the shared Worker, whose code checks before use (`hasTriage` in index.ts). Required
+   * here only to keep the triage code and its tests simple: shared-Worker code that uses them
+   * without that check compiles but fails at runtime (an outage, never a bypass). They become
+   * optional or move to a `TriageEnv` in the clean-up PR (docs/runbooks/agent-cutover.md).
    */
   TriageAgent: DurableObjectNamespace<TriageAgent>;
   ImplementationCheckAgent: DurableObjectNamespace<ImplementationCheckAgent>;

@@ -46,8 +46,13 @@ jobs:
           # Every class that has a planned move (scripts/agent-cutover-config.ts).
           classes="$(node --experimental-strip-types scripts/agent-cutover-config.ts classes)"
           node --experimental-strip-types scripts/do-namespace-owner.ts "$classes" --guard workers/agents custodes-agents
-          # Moved agents: their own Worker must still own its classes (ADR 0018).
-          node --experimental-strip-types scripts/do-namespace-owner.ts TriageAgent,ImplementationCheckAgent,ProposalReviewAgent --guard workers/triage custodes-triage
+          # Moved agents (their classes `transferred` in custodes-agents): their own Worker must
+          # still own them (ADR 0018). The list comes from scripts/agent-moves.json.
+          moved="$(node --experimental-strip-types scripts/agent-cutover-config.ts moved)"
+          while read -r cls dir worker; do
+            [ -n "$cls" ] || continue
+            node --experimental-strip-types scripts/do-namespace-owner.ts "$cls" --guard "$dir" "$worker" || exit 1
+          done <<<"$moved"
       - name: Model smoke test (the real triage request through AI Gateway)
         # Fails the deploy if the model rejects a request parameter, the BYOK key or gateway token is
         # bad, or the answer no longer parses. Costs a fraction of a cent.

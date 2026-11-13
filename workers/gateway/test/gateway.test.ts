@@ -1,6 +1,6 @@
 import { env } from 'cloudflare:workers';
 import { describe, expect, it } from 'vitest';
-import worker from '../src/index.js';
+import worker, { agentWorker } from '../src/index.js';
 import { AgentKeys, type ApprovalRequest, type AuditRecord } from '@custodes/schema';
 import {
   agentKeysPage,
@@ -199,6 +199,54 @@ describe('cross-site writes to Access-protected routes', () => {
   it('leaves the CLI (no Sec-Fetch headers) and same-origin requests to the Access check', async () => {
     expect((await post('/agents/pr-gate-agent/custodes-sandbox/run')).status).toBe(401);
     expect((await post('/admin/agents/pr-gate/resume', 'same-origin')).status).toBe(401);
+  });
+});
+
+describe('agentWorker: which Worker serves /agents/<class>/... (ADR 0018, triage cutover)', () => {
+  const TRIAGE = { which: 'triage' } as unknown as Fetcher;
+  const AGENTS = { which: 'agents' } as unknown as Fetcher;
+  const to = (path: string) => agentWorker({ AGENTS, TRIAGE }, path);
+
+  it('sends triage and its two specialists to custodes-triage', () => {
+    for (const cls of ['triage-agent', 'implementation-check-agent', 'proposal-review-agent'])
+      expect(to(`/agents/${cls}/custodes-sandbox/report`), cls).toBe(TRIAGE);
+  });
+
+  it('splits the path like the Agents SDK router, so empty segments do not change the target', () => {
+    expect(to('/agents//triage-agent/custodes-sandbox')).toBe(TRIAGE);
+    expect(to('//agents/triage-agent//x')).toBe(TRIAGE);
+  });
+
+  it('leaves every other class, odd spelling and the Keyholder with custodes-agents', () => {
+    for (const path of [
+      '/agents/pr-gate-agent/custodes-sandbox/run',
+      '/agents/cheatsheet-review-agent/custodes-sandbox',
+      '/agents/triage%2Dagent/x',
+      '/agents/Triage-Agent/x',
+      '/agents/keyholder/default',
+      '/agents/',
+      '/agents',
+      '/',
+    ])
+      expect(to(path), path).toBe(AGENTS);
+  });
+
+  it('still refuses a service-token POST that is not run, digest or summary, whichever Worker it targets', () => {
+    // The Access check and agentWriteAllowed run before the routing; see also access.test above.
+    expect(
+      agentWriteAllowed(
+        { subject: 'service:abc.access', via: 'access-service-token' },
+        'POST',
+        '/agents/triage-agent/custodes-sandbox/verdict',
+      ),
+    ).toBe(false);
+    expect(
+      agentWriteAllowed(
+        { subject: 'service:abc.access', via: 'access-service-token' },
+        'POST',
+        '/agents/triage-agent/custodes-sandbox/digest',
+      ),
+    ).toBe(true);
   });
 });
 
