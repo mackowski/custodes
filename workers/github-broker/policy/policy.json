@@ -29,8 +29,8 @@
       "$comment": "ADR 0019 (#108): applies one triage proposal per issue (assign, labels, comment) only after the operator approves the bundle through the e-mailed link. hitl: every action needs that approval. Own Worker and key (ADR 0018). Comments carry only the hidden trailer (operator decision, #108). Approvals live 7 days, 50 pending at most: the digest is daily and read in batches.",
       "tokenBinding": "PAT_TRIAGE_APPLY",
       "mode": "hitl",
-      "repos": ["mackowski/custodes-sandbox"],
-      "$comment_repos": "Sandbox first (ADR 0007, ADR 0012); OWASP/CheatSheetSeries is added by a later policy PR after the evals and the sandbox end-to-end run pass (#108).",
+      "repos": ["mackowski/custodes-sandbox", "OWASP/CheatSheetSeries"],
+      "$comment_repos": "Sandbox first (ADR 0007, ADR 0012); OWASP/CheatSheetSeries added 2026-11-13 after the evals (44/44, #106) and the sandbox end-to-end run passed (#108 comment). Still hitl: every bundle waits for the operator's approval.",
       "actions": ["issue.assign", "issue.label.add", "issue.label.remove", "issue.comment"],
       "requiresApproval": [],
       "requiresApprovalOn": {},
@@ -115,7 +115,7 @@
     "triage-apply": {
       "$comment": "ADR 0019: the issue and its comments, to check a proposal against the thread before asking for an approval (the broker reads them again before running it).",
       "tokenBinding": "PAT_READONLY",
-      "repos": ["mackowski/custodes-sandbox"],
+      "repos": ["mackowski/custodes-sandbox", "OWASP/CheatSheetSeries"],
       "resources": ["issue", "comments"],
       "isolated": true
     }

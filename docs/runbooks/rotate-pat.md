@@ -17,10 +17,9 @@ from the GitHub token page into a GitHub Environment secret, and CI writes it in
    (the policy lists OWASP and the sandbox; there is no fine-grained PAT for the OWASP
    organisation). Note `custodes-cheatsheet-review`. Store it as `PAT_CHEATSHEET_REVIEW`.
 
-   **`triage-apply`** (ADR 0019): while the policy lists only the sandbox, a fine-grained token
-   on `mackowski/custodes-sandbox` with Issues: read & write. Note `custodes-triage-apply`. Store
-   it as `PAT_TRIAGE_APPLY`. When OWASP is added, it becomes a classic `public_repo` token as for
-   `pr-gate` (OWASP allows no fine-grained PAT); say so in that policy PR.
+   **`triage-apply`** (ADR 0019): a classic `public_repo` token exactly as for `pr-gate` (the policy
+   lists OWASP and the sandbox, and OWASP allows no fine-grained PAT). Note `custodes-triage-apply`.
+   Store it as `PAT_TRIAGE_APPLY`.
 
 2. In the repository → Settings → Environments → `prod` → add or update the secret
    `PAT_<AGENT>` (upper-case, dashes become underscores: `PAT_PR_GATE`, `PAT_CHEATSHEET_REVIEW`).

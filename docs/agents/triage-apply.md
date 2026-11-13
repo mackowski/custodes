@@ -1,8 +1,8 @@
 # triage-apply
 
 - Version: 0.1.0 · Mode: **hitl** (every action waits for the operator's approval of the bundle)
-- Repositories: mackowski/custodes-sandbox. OWASP/CheatSheetSeries is added by a policy PR after the
-  evals and a sandbox end-to-end run pass.
+- Repositories: mackowski/custodes-sandbox and, since 2026-11-13, OWASP/CheatSheetSeries (after the
+  evals and the sandbox end-to-end run passed; #108). Every bundle still waits for the operator.
 - Worker: `custodes-triage-apply` (`workers/triage-apply/wrangler.jsonc`), with its own Keyholder key
   and broker entrypoint `TriageApplyBroker` (ADR 0018). It has no model, cron, queue or e-mail.
 - Class: `workers/agents/src/agents/triage-apply.ts` · Logic: `workers/agents/src/agents/triage-apply/bundle.ts`
@@ -37,11 +37,14 @@ One bundle per issue, in this order:
 3. `issue.label.remove`: labels the issue has.
 4. `issue.comment`: the suggested comment, as shown, with only the hidden trailer.
 
-## PAT scopes (fine-grained)
+## PAT scopes (classic, `public_repo`)
 
-`PAT_TRIAGE_APPLY` on account `mackowski`, which has the Triage role on the repository. The token is
-fine-grained, with Issues: read & write on the sandbox (OWASP added when the policy is). No
-contents, no pull requests, no push.
+`PAT_TRIAGE_APPLY` on account `mackowski`, which has the Triage role on OWASP/CheatSheetSeries and
+owns the sandbox. OWASP allows no fine-grained token, so it is a classic token with **only
+`public_repo`**, like pr-gate's (ADR 0011 amendment). That scope reaches every public repository
+the account can write to; the broker policy limits it to `issue.assign`, `issue.label.add/remove`
+and `issue.comment` on these two repositories, each behind the operator's approval. Expiry 90 days
+or less (`docs/runbooks/rotate-pat.md`).
 
 ## Schedule / triggers
 

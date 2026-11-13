@@ -102,6 +102,10 @@ agents are allowed to do; high-risk agents should be deployed in their own Worke
   access, `public_repo` scope only, expiry of 90 days or less, and the broker policy limiting the
   agent to `pr.close` on one repository. Owner: operator. Revisit with a Triage-role bot account or
   a GitHub App.
+- `PAT_TRIAGE_APPLY` is also a classic `public_repo` PAT on the operator's account, for the same
+  reason, since triage-apply reaches OWASP (2026-11-13, ADR 0019). Same exposure if leaked; the
+  policy limits it to issue assign, labels and comments on two repositories, each behind a bundle
+  approval (`hitl`, `bundleOnly`). Owner: operator. Same revisit.
 - `PAT_CHEATSHEET_REVIEW` (ADR 0017) is a second classic `public_repo` PAT on the operator's account
   (OWASP and the sandbox), with the same exposure as `PAT_PR_GATE` if leaked. The broker limits the
   agent to `pr.review.inline` (never `APPROVE`; every OWASP review approved by the operator on its
