@@ -45,9 +45,11 @@ by the operator or by CI after review, never from a session (CLAUDE.md invariant
 
 ## OWASP
 
-When the evals and the sandbox run pass, open a policy PR that adds `OWASP/CheatSheetSeries` to
-`agents.triage-apply.repos` and `reads.triage-apply.repos`, and to the PAT's repositories. Link it
-to ADR 0019; it is a widening (invariant 4).
+Done 2026-11-13 (#113). The policy PR adds `OWASP/CheatSheetSeries` to `agents.triage-apply.repos`
+and `reads.triage-apply.repos` and is linked to ADR 0019 (a widening, invariant 4). Before merging it,
+replace `PAT_TRIAGE_APPLY` in the `prod` environment with a **classic `public_repo`** token (OWASP
+allows no fine-grained one), then revoke the fine-grained token. Otherwise OWASP bundles fail at
+their first step after approval, and the approval is used up.
 
 ## Turn it off
 

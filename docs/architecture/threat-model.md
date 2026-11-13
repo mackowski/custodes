@@ -103,7 +103,8 @@ agents are allowed to do; high-risk agents should be deployed in their own Worke
   agent to `pr.close` on one repository. Owner: operator. Revisit with a Triage-role bot account or
   a GitHub App.
 - `PAT_TRIAGE_APPLY` is also a classic `public_repo` PAT on the operator's account, for the same
-  reason, since triage-apply reaches OWASP (2026-11-13, ADR 0019). Same exposure if leaked; the
+  reason, since triage-apply reaches OWASP (2026-11-13, ADR 0019). The account is an admin of
+  OWASP/CheatSheetSeries, so a leak exposes push, maintain and settings there. The
   policy limits it to issue assign, labels and comments on two repositories, each behind a bundle
   approval (`hitl`, `bundleOnly`). Owner: operator. Same revisit.
 - `PAT_CHEATSHEET_REVIEW` (ADR 0017) is a second classic `public_repo` PAT on the operator's account
@@ -111,11 +112,12 @@ agents are allowed to do; high-risk agents should be deployed in their own Worke
   agent to `pr.review.inline` (never `APPROVE`; every OWASP review approved by the operator on its
   link) and removing its one trigger label. Owner: operator. Revisit with the same bot account or
   GitHub App.
-- Either classic PAT, if leaked, can push a branch to `mackowski/custodes` and open a pull request.
+- Any of the three classic PATs (pr-gate, cheatsheet-review, triage-apply), if leaked, can push a
+  branch to `mackowski/custodes` and open a pull request.
   One touching `infra/terraform/**` runs `terraform plan` in the `ci` environment, which has no
   reviewers and holds the same Cloudflare credentials as prod; branch-controlled Terraform can run
-  code with them. Two classic PATs (since OWASP was added to cheatsheet-review) make this more
-  likely. Owner: operator. Follow-up: a read-only Cloudflare token for the plan job.
+  code with them. Three classic PATs (since OWASP was added to cheatsheet-review, then to
+  triage-apply) make this more likely. Owner: operator. Follow-up: a read-only Cloudflare token for the plan job.
 - Agents in one Worker share a trust domain: the broker trusts the `agentId` a caller in the agents
   Worker sends. Owner: operator. Revisited on 2026-10-15 when pr-gate gained `pr.close` (ADR 0011):
   every agent in the Worker is first-party code reviewed in this repository, readonly agents run no

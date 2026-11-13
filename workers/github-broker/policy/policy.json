@@ -46,7 +46,6 @@
         "HELP_WANTED",
         "INTERNAL",
         "javascript",
-        "jules",
         "MIGRATION",
         "NEW_CS",
         "python",
@@ -60,7 +59,7 @@
       "approvalTtlHours": 168,
       "maxPendingApprovals": 50,
       "trailer": "hidden",
-      "$comment_labels": "The OWASP labels from #108 except custodes_cheatsheet_review: that label starts a cheatsheet-review run, and this PAT belongs to the operator's account, so adding it would look like the operator's trigger (ADR 0019).",
+      "$comment_labels": "The OWASP labels from #108 except the automation triggers (AUTOMATION_TRIGGER_LABELS in packages/schema): custodes_cheatsheet_review starts a cheatsheet-review run and jules starts Google Jules, which pushes a branch and opens a PR as the operator. This PAT is the operator's account, so its label would count as the operator's trigger (ADR 0019; security review of #113).",
       "bundleOnly": true
     }
   },

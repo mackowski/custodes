@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { CheatSheetFile } from '@custodes/schema';
+import { AUTOMATION_TRIGGER_LABELS, CheatSheetFile } from '@custodes/schema';
 import { clip, parseStructured, untrusted, UNTRUSTED_DATA_RULES } from '@custodes/llm';
 import { inertNoLinks, inertNoLinksWords } from '../triage/assess.js';
 import { issueLabels, type IssueComment, type PublicIssue } from '../triage/github.js';
@@ -225,7 +225,11 @@ export interface ReferencedIssue {
 
 /** Distinct, valid logins of the author and commenters, author first. */
 export function threadPeople(issue: PublicIssue, comments: IssueComment[]): string[] {
-  const all = [issue.user?.login, ...comments.map((c) => c.user?.login)];
+  // Bot commenters are never people to assign or name (ADR 0019; security review of #113).
+  const all = [
+    issue.user?.login,
+    ...comments.filter((c) => c.user?.type !== 'Bot').map((c) => c.user?.login),
+  ];
   return [...new Set(all.map(safeLogin).filter((l) => l !== 'unknown'))];
 }
 
@@ -346,7 +350,9 @@ export function validateProposalReview(
     }
     return out;
   };
-  const addLabels = pick(raw.addLabels, (l) => !current.has(l));
+  // Never propose a label that starts automation from the operator's account (ADR 0019).
+  const trigger = new Set(AUTOMATION_TRIGGER_LABELS.map((l) => l.toLowerCase()));
+  const addLabels = pick(raw.addLabels, (l) => !current.has(l) && !trigger.has(l));
   const removeLabels = pick(raw.removeLabels, (l) => current.has(l));
   let reviewPr: number | null = null;
   if (raw.reviewPr !== null) {

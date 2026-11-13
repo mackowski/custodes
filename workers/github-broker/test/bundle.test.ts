@@ -50,6 +50,8 @@ interface FakeIssue {
   failWrites?: Record<string, number>;
   /** Do not echo the assignee back (GitHub silently skipped it). */
   dropAssignee?: boolean;
+  /** Logins GitHub reports as `type: "Bot"`. */
+  bots?: string[];
 }
 interface Call {
   method: string;
@@ -70,7 +72,10 @@ function fakeGithub(issue: FakeIssue = {}, number = 1) {
       return Promise.resolve(
         Response.json({
           state: issue.state ?? 'open',
-          user: { login: issue.author ?? 'author' },
+          user: {
+            login: issue.author ?? 'author',
+            ...(issue.bots?.includes(issue.author ?? 'author') ? { type: 'Bot' } : {}),
+          },
           labels: (issue.labels ?? []).map((name) => ({ name })),
           assignees: (issue.assignees ?? []).map((login) => ({ login })),
           comments: (issue.commenters ?? []).length,
@@ -84,7 +89,7 @@ function fakeGithub(issue: FakeIssue = {}, number = 1) {
       const all = (issue.commenters ?? []).map((login, i) => ({
         id: i + 1,
         updated_at: UPDATED,
-        user: { login },
+        user: { login, ...(issue.bots?.includes(login) ? { type: 'Bot' } : {}) },
       }));
       return Promise.resolve(Response.json(all.slice((page - 1) * 100, page * 100)));
     }
@@ -708,6 +713,28 @@ describe('mentionsIn', () => {
   });
 });
 
+describe('decideApproval and the hourly rate limit (review of #113)', () => {
+  it('leaves a bundle pending when its steps would pass the limit, instead of stopping half-way', async () => {
+    const c = await created();
+    // Its own hour, 20 days before NOW, so these rows never count for the other tests.
+    const then = new Date(NOW.getTime() - 20 * 86_400_000);
+    const ts = new Date(then.getTime() - 60_000).toISOString();
+    for (let i = 0; i < 28; i++)
+      await env.AUDIT.prepare(
+        `INSERT INTO audit (id, ts, agent_id, agent_version, run_id, decision, action_type, repo, action_hash, key_id, record_json, signature)
+         VALUES (?1, ?2, 'triage-apply', '0.1.0', ?3, 'allowed', 'issue.comment', ?4, 'h', 'k', '{}', 's')`,
+      )
+        .bind(crypto.randomUUID(), ts, runId, REPO)
+        .run();
+    // 28 used + 4 steps > 30/h.
+    expect(await decideApproval(testEnv, c.approval.id, 'approved', 'op', then)).toEqual({
+      result: 'rate_limited',
+    });
+    expect((await new ApprovalStore(env.AUDIT).get(c.approval.id))?.status).toBe('pending');
+    expect(c.gh.writes()).toEqual([]);
+  });
+});
+
 describe('readIssueThread', () => {
   const read = (n: number) => readIssueThread(testEnv, 'triage-apply', runId, REPO, n);
 
@@ -716,6 +743,11 @@ describe('readIssueThread', () => {
     const t = await read(7);
     expect(t).toMatchObject({ ok: true, people: ['Author', 'bob', 'carol'] });
     if (t.ok) expect(t.snapshot.comments).toBe(4);
+  });
+
+  it('leaves bot accounts out: they are never people to assign or name (review of #113)', async () => {
+    fakeGithub({ author: 'Copilot', commenters: ['Copilot', 'bob'], bots: ['Copilot'] }, 12);
+    expect(await read(12)).toMatchObject({ ok: true, people: ['bob'] });
   });
 
   it('pages through the comments 100 at a time', async () => {

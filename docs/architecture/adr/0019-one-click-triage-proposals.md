@@ -1,6 +1,6 @@
 # 0019. One-click triage proposals (triage-apply)
 
-- Status: proposed
+- Status: accepted (amended 2026-11-13)
 - Date: 2026-11-12
 - Deciders: Jakub Maćkowski (round 1, 2026-11-09; round 2 answered by Claude on the operator's
   instruction and confirmed by the operator, 2026-11-12)
@@ -46,7 +46,7 @@ widening, and this ADR is its link (invariant 4):
 - mode `hitl`, so every action needs the approval;
 - the sandbox only, until the evals and a sandbox end-to-end run pass;
 - 30 actions per hour;
-- 19 labels: the OWASP labels except `custodes_cheatsheet_review`;
+- 18 labels: the OWASP labels except the automation triggers `custodes_cheatsheet_review` and `jules`;
 - approvals live 168 h, with at most 50 pending (the broker default is 24 h and 20);
 - `trailer: "hidden"`: comments carry only the HTML-comment trailer, no visible footer.
 
@@ -96,7 +96,8 @@ comment.
 
 ## Security considerations
 
-- **Authority:** the triage-apply PAT (Triage role, no push) can assign, label and comment. The
+- **Authority:** the triage-apply PAT (a classic `public_repo` token on an account that is admin on
+  OWASP/CheatSheetSeries) could do far more if leaked; the policy lets it only assign, label and comment. The
   policy grants it only behind the per-bundle approval. It can never add the cheatsheet-review
   trigger label: that PAT is the operator's account, so cheatsheet-review's "who added the label"
   check would accept it.
@@ -118,3 +119,18 @@ comment.
   trailer, so `/verify` still works. The approval record keeps the whole bundle.
 - **Kill switch:** `halt:triage-apply` stops new approvals and their execution (the broker checks
   it in both places).
+
+## Amendment, 2026-11-13: OWASP
+
+- **OWASP/CheatSheetSeries added** (#113). The condition was met: the evals passed 44/44 on #106,
+  and the first sandbox end-to-end run passed (#108). Mode stays `hitl` with `bundleOnly`.
+- **Classic token.** `PAT_TRIAGE_APPLY` becomes a classic `public_repo` token, because OWASP allows
+  no fine-grained token. The account is admin on OWASP, so a leak exposes push, maintain and
+  settings there. This is an accepted risk in the threat model, as for pr-gate's token.
+- **Automation triggers.** The label allow-list drops `jules` as well: on OWASP that label starts
+  Google Jules, which then pushes a branch and opens a PR as the operator.
+  - `AUTOMATION_TRIGGER_LABELS` (packages/schema) lists such labels.
+  - proposal-review never proposes them, and a policy test forbids them for any labelling agent.
+- **Rate limit before the click.** A bundle that would pass the agent's hourly limit on its
+  repository stays pending (`rate_limited`) instead of stopping half-way.
+- **Bots excluded.** Bot accounts are never thread people, so they are never assigned or named.

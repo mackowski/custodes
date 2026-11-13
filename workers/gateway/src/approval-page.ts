@@ -156,7 +156,10 @@ function stepsList(steps: NonNullable<DecideResult['steps']>): string {
 /** What happened after the click. Only a GitHub URL the broker returned becomes a link. */
 export function resultPage(out: DecideResult): string {
   let msg: string;
-  if (out.result !== 'ok') msg = `Nothing was done: the request is ${escapeHtml(out.result)}.`;
+  if (out.result === 'rate_limited')
+    msg =
+      "Nothing was done: these steps would pass the agent's hourly limit on this repository and stop half-way. The request is still pending: open the link again later.";
+  else if (out.result !== 'ok') msg = `Nothing was done: the request is ${escapeHtml(out.result)}.`;
   else if (out.decision === 'rejected') msg = 'Rejected. Nothing was posted.';
   else if (out.steps !== undefined) {
     const ran = out.steps.filter((s) => s.outcome === 'done').length;

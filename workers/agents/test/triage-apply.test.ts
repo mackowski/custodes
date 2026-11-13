@@ -309,6 +309,47 @@ describe('sanitizeComment never rebuilds a link (review N2)', () => {
   });
 });
 
+describe('automation trigger labels (review of #113)', () => {
+  it('are never proposed: jules and the cheatsheet-review trigger are dropped', () => {
+    const r = validateProposalReview(
+      {
+        verdict: 'real_gap',
+        makesSense: true,
+        evidence: [],
+        addLabels: ['ACK_OBTAINED', 'jules', 'Custodes_Cheatsheet_Review'],
+        removeLabels: [],
+        authorIntent: 'unclear',
+        volunteers: [],
+        askAuthor: false,
+        reviewPr: null,
+        helpWanted: false,
+        priorDecision: null,
+        explanation: 'x',
+        suggestedComment: '',
+        injectionDetected: false,
+        confidence: 0.5,
+      },
+      {
+        repo: REPO,
+        title: 't',
+        labels: ['ACK_OBTAINED', 'jules', 'custodes_cheatsheet_review'],
+        current: [],
+        people: ['author'],
+        files: new Map(),
+      },
+    );
+    expect(r.addLabels).toEqual(['ACK_OBTAINED']);
+  });
+
+  it('a bot commenter is not a thread person, so it cannot be assigned or named', () => {
+    const people = threadPeople(issue(), [
+      { user: { login: 'Copilot', type: 'Bot' }, body: 'x', created_at: '2026-11-01T00:00:00Z' },
+      comment('bob'),
+    ]);
+    expect(people.map((p) => p.toLowerCase())).not.toContain('copilot');
+  });
+});
+
 describe('askedAuthor', () => {
   const trailer =
     '@author, would you like to work on this?\n\n<!--\nCustodes-Agent: triage-apply@0.1.0\nCustodes-Attestation: x\n-->';
