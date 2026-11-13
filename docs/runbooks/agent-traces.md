@@ -1,7 +1,10 @@
 # Agent traces (ADR 0016)
 
-`custodes-agents` records Workers traces with model and tool payloads while `TRACE_PAYLOADS` is
-`"true"`. Owner of every step below: the operator.
+Every agent Worker records Workers traces with model and tool payloads while its `TRACE_PAYLOADS`
+is `"true"`: `custodes-agents` (`workers/agents/wrangler.jsonc`), `custodes-triage`
+(`workers/triage/wrangler.jsonc`), `custodes-pr-gate` (`workers/pr-gate/wrangler.jsonc`) and, after
+its cutover, `custodes-cheatsheet-review`. `custodes-triage-apply` calls no model and records no
+payloads. Owner of every step below: the operator.
 
 ## After the first deploy with traces, and after any tracing change
 
@@ -22,10 +25,10 @@ in their consoles and GitHub secrets (the same way as `rotate-pat.md`), and open
 
 ## Stopping traces or payloads
 
-- **At once:** Cloudflare dashboard → Workers → `custodes-agents` → Settings → Observability →
-  turn off traces.
+- **At once:** Cloudflare dashboard → Workers → each agent Worker above → Settings →
+  Observability → turn off traces.
 - **Before the next deploy:** a PR that sets `observability.traces.enabled` to `false` (or
-  `TRACE_PAYLOADS` to `"false"` to keep metadata only) in `workers/agents/wrangler.jsonc`.
+  `TRACE_PAYLOADS` to `"false"` to keep metadata only) in each of those wrangler files.
   Without it, the next deploy turns traces on again.
 
 ## Reading traces

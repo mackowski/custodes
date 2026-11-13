@@ -217,6 +217,51 @@ describe('queue consumer', () => {
     expect(msg.retry).not.toHaveBeenCalled();
   });
 
+  it('after the pr-gate cutover (no PrGateAgent binding) drops its events and still routes cheatsheet-review', async () => {
+    const shared = { ...testEnv, PrGateAgent: undefined } as unknown as AgentsEnv;
+    const logs: string[] = [];
+    const spy = vi.spyOn(console, 'log').mockImplementation((m: unknown) => {
+      logs.push(String(m));
+    });
+    try {
+      const opened = message(event({ repo: 'mackowski/custodes-sandbox' }));
+      await worker.queue(
+        { queue: 'custodes-inbound', messages: [opened] } as unknown as MessageBatch,
+        shared,
+      );
+      expect(opened.ack).toHaveBeenCalledOnce();
+      expect(opened.retry).not.toHaveBeenCalled();
+      expect(logs.some((l) => l.includes('runs in custodes-pr-gate'))).toBe(true);
+
+      const labeled = message(
+        event(
+          {
+            repo: 'mackowski/custodes-sandbox',
+            payload: {
+              action: 'labeled',
+              repository: { full_name: 'mackowski/custodes-sandbox' },
+              sender: { login: 'mackowski' },
+              pull_request: { number: 12 },
+              label: { name: 'custodes_cheatsheet_review' },
+            },
+          },
+          'labeled',
+        ),
+      );
+      logs.length = 0;
+      await worker.queue(
+        { queue: 'custodes-inbound', messages: [labeled] } as unknown as MessageBatch,
+        shared,
+      );
+      expect(labeled.ack).toHaveBeenCalledOnce();
+      // Dispatched to cheatsheet-review, not ignored as a moved agent's event.
+      expect(logs.some((l) => l.includes('runs in custodes-'))).toBe(false);
+      expect(logs.some((l) => l.includes('"queue.dispatch"'))).toBe(true);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it('acks ignored and malformed events without retrying', async () => {
     for (const body of [event({ repo: 'attacker/repo' }), event({}, 'edited'), { bogus: true }]) {
       const msg = await run(body);

@@ -66,6 +66,54 @@ describe('gateway', () => {
     );
     expect(res.status).toBe(202);
   });
+  it('also queues pull request events, and only those, for pr-gate in its own Worker', async () => {
+    const key = await crypto.subtle.importKey(
+      'raw',
+      new TextEncoder().encode(testEnv().GITHUB_WEBHOOK_SECRET),
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['sign'],
+    );
+    const deliver = async (event: string, payload: object) => {
+      const body = JSON.stringify(payload);
+      const sig = Array.from(
+        new Uint8Array(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(body))),
+        (b) => b.toString(16).padStart(2, '0'),
+      ).join('');
+      const shared: unknown[] = [];
+      const prGate: unknown[] = [];
+      const queue = (into: unknown[]) =>
+        ({
+          send: (m: unknown) => {
+            into.push(m);
+            return Promise.resolve();
+          },
+        }) as unknown as Queue;
+      const res = await worker.fetch(
+        new Request('https://x/webhooks/github', {
+          method: 'POST',
+          body,
+          headers: { 'x-hub-signature-256': `sha256=${sig}`, 'x-github-event': event },
+        }),
+        { ...testEnv(), INBOUND: queue(shared), INBOUND_PR_GATE: queue(prGate) },
+        ctx,
+      );
+      expect(res.status).toBe(202);
+      return { shared: shared.length, prGate: prGate.length };
+    };
+    const repo = { repository: { full_name: 'a/b' }, sender: { login: 'x' } };
+    expect(
+      await deliver('pull_request', {
+        ...repo,
+        action: 'opened',
+        pull_request: { number: 7, updated_at: '2026-10-26T10:00:00Z' },
+      }),
+    ).toEqual({ shared: 1, prGate: 1 });
+    expect(await deliver('issues', { ...repo, action: 'opened', issue: { number: 1 } })).toEqual({
+      shared: 1,
+      prGate: 0,
+    });
+  });
   it('queues only the fields consumers use, never PR bodies', async () => {
     const body = JSON.stringify({
       action: 'opened',
@@ -202,10 +250,11 @@ describe('cross-site writes to Access-protected routes', () => {
   });
 });
 
-describe('agentWorker: which Worker serves /agents/<class>/... (ADR 0018, triage cutover)', () => {
+describe('agentWorker: which Worker serves /agents/<class>/... (ADR 0018, cutovers)', () => {
   const TRIAGE = { which: 'triage' } as unknown as Fetcher;
   const AGENTS = { which: 'agents' } as unknown as Fetcher;
-  const to = (path: string) => agentWorker({ AGENTS, TRIAGE }, path);
+  const PR_GATE = { which: 'pr-gate' } as unknown as Fetcher;
+  const to = (path: string) => agentWorker({ AGENTS, TRIAGE, PR_GATE }, path);
 
   it('sends triage and its two specialists to custodes-triage', () => {
     for (const cls of ['triage-agent', 'implementation-check-agent', 'proposal-review-agent'])
@@ -217,9 +266,14 @@ describe('agentWorker: which Worker serves /agents/<class>/... (ADR 0018, triage
     expect(to('//agents/triage-agent//x')).toBe(TRIAGE);
   });
 
+  it('sends pr-gate to custodes-pr-gate (its cutover)', () => {
+    expect(to('/agents/pr-gate-agent/custodes-sandbox/run')).toBe(PR_GATE);
+    expect(to('/agents//pr-gate-agent/owasp-cheatsheetseries/comparisons')).toBe(PR_GATE);
+  });
+
   it('leaves every other class, odd spelling and the Keyholder with custodes-agents', () => {
     for (const path of [
-      '/agents/pr-gate-agent/custodes-sandbox/run',
+      '/agents/pr-gate%2Dagent/x',
       '/agents/cheatsheet-review-agent/custodes-sandbox',
       '/agents/triage%2Dagent/x',
       '/agents/Triage-Agent/x',

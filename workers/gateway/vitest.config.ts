@@ -32,6 +32,7 @@ export default defineConfig({
           stubWorker('custodes-agents'),
           stubWorker('custodes-triage-apply'),
           stubWorker('custodes-triage'),
+          stubWorker('custodes-pr-gate'),
         ],
       },
     }),

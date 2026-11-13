@@ -9,7 +9,9 @@
       "repos": ["OWASP/CheatSheetSeries", "mackowski/custodes-sandbox"],
       "actions": ["pr.close"],
       "requiresApproval": [],
-      "rateLimitPerHour": 5
+      "rateLimitPerHour": 5,
+      "isolated": true,
+      "$comment_isolated": "ADR 0018: moved to custodes-pr-gate (cutover); the shared entrypoint refuses it."
     },
     "cheatsheet-review": {
       "$comment": "ADR 0017: multi-model review of a pull request when the operator adds the trigger label; posts one review with inline suggestions (never APPROVE) and removes the label. hotl because every run is started by the operator (the agent re-checks who added the label in the timeline). OWASP added 2026-10-30 after the evals and the sandbox end-to-end runs passed; every OWASP review is posted only after the operator approves it (requiresApprovalOn).",
@@ -94,7 +96,8 @@
     "pr-gate": {
       "tokenBinding": "PAT_READONLY",
       "repos": ["OWASP/CheatSheetSeries", "mackowski/custodes-sandbox"],
-      "resources": ["pulls", "pull_files", "issue", "issues", "comments"]
+      "resources": ["pulls", "pull_files", "issue", "issues", "comments"],
+      "isolated": true
     },
     "cheatsheet-review": {
       "tokenBinding": "PAT_READONLY",

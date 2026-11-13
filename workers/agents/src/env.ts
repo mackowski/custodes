@@ -3,6 +3,7 @@ import type { TriageApplyAgent } from './agents/triage-apply.js';
 import type { TriageAgent } from './agents/triage.js';
 import type { ImplementationCheckAgent } from './agents/implementation-check.js';
 import type { ProposalReviewAgent } from './agents/proposal-review.js';
+import type { PrGateAgent } from './agents/pr-gate.js';
 import type { TriageApplyIntake } from './triage-apply-worker.js';
 
 /** Generated bindings (wrangler types) plus the secrets set by CI on deploy. */
@@ -29,5 +30,7 @@ export interface AgentsEnv extends Cloudflare.Env, CustodesEnv {
   TriageAgent: DurableObjectNamespace<TriageAgent>;
   ImplementationCheckAgent: DurableObjectNamespace<ImplementationCheckAgent>;
   ProposalReviewAgent: DurableObjectNamespace<ProposalReviewAgent>;
+  /** Bound in custodes-pr-gate since its cutover; the shared Worker checks first (`hasPrGate`). */
+  PrGateAgent: DurableObjectNamespace<PrGateAgent>;
   TRIAGE_APPLY?: Service<TriageApplyIntake>;
 }

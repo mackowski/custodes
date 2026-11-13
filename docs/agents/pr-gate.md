@@ -116,13 +116,13 @@ shows the e-mail without sending it.
 ## Turning closes off
 
 pr-gate closes from its first deploy. To pause closing without stopping the agent, set
-`PR_GATE_ENFORCE` to `"false"` in `workers/agents/wrangler.jsonc` in a reviewed PR: it keeps
+`PR_GATE_ENFORCE` to `"false"` in `workers/pr-gate/wrangler.jsonc` in a reviewed PR: it keeps
 evaluating and the summary lists "would close". To stop it entirely, use the kill switch.
 
 ## How to halt
 
 `custodes agents halt pr-gate --reason "..."`. For a softer stop, set `PR_GATE_ENFORCE` to
-`"false"` in a reviewed PR: the agent keeps evaluating and only reports.
+`"false"` in `workers/pr-gate/wrangler.jsonc` in a reviewed PR: the agent keeps evaluating and only reports.
 
 ## Jev transport
 

@@ -96,25 +96,59 @@ jobs:
           workingDirectory: workers/agents
           command: deploy
           # Worker secrets are pushed on every deploy from the prod environment; nothing is set by hand.
+          # Only what the agents left here (cheatsheet-review) use: no OPENROUTER_API_KEY since
+          # pr-gate moved (security review of #114).
           secrets: |
             AI_GATEWAY_TOKEN
-            OPENROUTER_API_KEY
         env:
+          AI_GATEWAY_TOKEN: ${{ secrets.AI_GATEWAY_TOKEN }}
+      - name: Drop secrets custodes-agents no longer needs
+        # Deploys never delete Worker secrets. pr-gate's OpenRouter key stays out of the shared
+        # Worker, which reads untrusted pull request diffs for cheatsheet-review.
+        working-directory: workers/agents
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN_DEPLOY }}
+          CLOUDFLARE_ACCOUNT_ID: 5f62912564df344533c9563904c77662
+        run: |
+          # Listed first, outside the `if`: a failed list must fail the step (bash -e), not read as
+          # "no secret".
+          secrets="$(pnpm exec wrangler secret list)"
+          if grep -q '"name": *"OPENROUTER_API_KEY"' <<<"$secrets"; then
+            pnpm exec wrangler secret delete OPENROUTER_API_KEY
+          fi
+      - name: Deploy triage
+        # triage and its specialists, in their own Worker since the 2026-11-12 cutover (ADR 0018).
+        # Not wrangler-action `secrets:`: it ignores `-c` and writes the secrets to custodes-agents
+        # (security review of #114). `wrangler secret put -c` targets this Worker; Worker secrets
+        # are kept across deploys, so a rotated GitHub secret reaches it on the next deploy.
+        working-directory: workers/agents
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN_DEPLOY }}
+          CLOUDFLARE_ACCOUNT_ID: 5f62912564df344533c9563904c77662
+          AI_GATEWAY_TOKEN: ${{ secrets.AI_GATEWAY_TOKEN }}
+        run: |
+          # A missing GitHub secret must fail here, not overwrite the working key with "".
+          : "${AI_GATEWAY_TOKEN:?AI_GATEWAY_TOKEN is not set}"
+          pnpm exec wrangler deploy -c ../triage/wrangler.jsonc
+          printf '%s' "$AI_GATEWAY_TOKEN" | pnpm exec wrangler secret put AI_GATEWAY_TOKEN -c ../triage/wrangler.jsonc
+      - name: Deploy pr-gate
+        # pr-gate, in its own Worker since its cutover (ADR 0018). Secrets as for triage above.
+        working-directory: workers/agents
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN_DEPLOY }}
+          CLOUDFLARE_ACCOUNT_ID: 5f62912564df344533c9563904c77662
           AI_GATEWAY_TOKEN: ${{ secrets.AI_GATEWAY_TOKEN }}
           # Jev for pr-gate (ADR 0011: AI Gateway cannot forward the Decisions API yet).
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-      - name: Deploy triage
-        # triage and its specialists, in their own Worker since the 2026-11-12 cutover (ADR 0018).
-        uses: cloudflare/wrangler-action@953926a2e2182532811c01a25e53647d93bf07c0 # v4
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN_DEPLOY }}
-          accountId: 5f62912564df344533c9563904c77662
-          workingDirectory: workers/agents
-          command: deploy -c ../triage/wrangler.jsonc
-          secrets: |
-            AI_GATEWAY_TOKEN
-        env:
-          AI_GATEWAY_TOKEN: ${{ secrets.AI_GATEWAY_TOKEN }}
+        run: |
+          # A missing GitHub secret must fail here, not overwrite the working key with "".
+          for name in AI_GATEWAY_TOKEN OPENROUTER_API_KEY; do
+            [ -n "${!name}" ] || { echo "::error::$name is not set"; exit 1; }
+          done
+          pnpm exec wrangler deploy -c ../pr-gate/wrangler.jsonc
+          for name in AI_GATEWAY_TOKEN OPENROUTER_API_KEY; do
+            printf '%s' "${!name}" | pnpm exec wrangler secret put "$name" -c ../pr-gate/wrangler.jsonc
+          done
       - name: Deploy triage-apply
         # Its own Worker from the start (ADR 0019): no model, no secrets, no Durable Object moved
         # from custodes-agents. The broker refuses it until its key is pinned (agent-key-pin.yml).

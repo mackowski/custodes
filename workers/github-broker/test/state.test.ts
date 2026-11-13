@@ -1,11 +1,19 @@
 import { env } from 'cloudflare:workers';
 import { afterEach, describe, expect, it } from 'vitest';
 import { KillSwitch } from '@custodes/core';
-import { agentApp } from '../src/index.js';
+import { sharedAgentApp } from '../src/index.js';
+import { policy } from '../src/policy.js';
 
 const kill = () => new KillSwitch(env.KILL_SWITCH);
+// /v1/state itself, on the shared entrypoint, for two agents that run there. pr-gate has its own
+// Worker now (isolated); this copy of the policy keeps it on the shared app for the test only.
+const app = sharedAgentApp({
+  ...policy,
+  agents: { ...policy.agents, 'pr-gate': { ...policy.agents['pr-gate']!, isolated: false } },
+  reads: { ...policy.reads, 'pr-gate': { ...policy.reads['pr-gate']!, isolated: false } },
+});
 const state = (body: unknown) =>
-  agentApp.request(
+  app.request(
     '/v1/state',
     {
       method: 'POST',
@@ -35,7 +43,6 @@ describe('broker /v1/state (#103, threat T1: agents do not bind the kill switch)
       reason: 'wrong close',
     });
     // Another agent is not affected by it.
-    // (cheatsheet-review: triage is isolated since its cutover, so the shared app refuses it.)
     expect(await (await state({ agentId: 'cheatsheet-review' })).json()).toEqual({
       halted: false,
     });
