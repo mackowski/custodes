@@ -142,11 +142,13 @@ app.post('/webhooks/github', async (c) => {
   // Every agent runs in its own Worker and consumes its own queue (ADR 0018); both read only pull
   // request events, so only those go there.
   if (msg.event === 'pull_request') {
-    // cheatsheet-review has no poll fallback: a failure here must make GitHub see an error, so the
-    // delivery shows as failed and can be redelivered.
-    await c.env.INBOUND_CHEATSHEET_REVIEW.send(msg, { contentType: 'json' });
     // pr-gate catches up on its next poll.
     await bestEffortSend(c.env.INBOUND_PR_GATE, 'pr-gate', msg);
+    // cheatsheet-review acts only on its trigger label, and has no poll fallback: a failure here
+    // must make GitHub see an error, so that one delivery shows as failed and can be redelivered.
+    // Other actions never reach it (security review of #116, L1).
+    if (msg.payload.action === 'labeled')
+      await c.env.INBOUND_CHEATSHEET_REVIEW.send(msg, { contentType: 'json' });
   }
   // The shared Worker acts on none of these since the cutovers; the clean-up PR removes the queue.
   await bestEffortSend(c.env.INBOUND, 'shared', msg);

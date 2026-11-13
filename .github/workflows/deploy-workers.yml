@@ -107,7 +107,8 @@ jobs:
         run: |
           # Listed first, outside the `if`: a failed list must fail the step (bash -e), not read as
           # "no secret".
-          secrets="$(pnpm exec wrangler secret list)"
+          # JSON explicitly: the grep below depends on it (security review of #116).
+          secrets="$(pnpm exec wrangler secret list --format json)"
           for name in OPENROUTER_API_KEY AI_GATEWAY_TOKEN; do
             if grep -q "\"name\": *\"$name\"" <<<"$secrets"; then
               pnpm exec wrangler secret delete "$name"

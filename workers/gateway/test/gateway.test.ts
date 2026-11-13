@@ -117,12 +117,18 @@ describe('gateway', () => {
       label: { name: 'custodes_cheatsheet_review' },
     };
 
-    it('sends pull request events, and only those, to pr-gate and cheatsheet-review', async () => {
+    it('sends pull request events to pr-gate, and only labeled ones to cheatsheet-review', async () => {
       expect(await deliver('pull_request', pr)).toEqual({
         status: 202,
         shared: 1,
         prGate: 1,
         review: 1,
+      });
+      expect(await deliver('pull_request', { ...pr, action: 'opened' })).toEqual({
+        status: 202,
+        shared: 1,
+        prGate: 1,
+        review: 0,
       });
       expect(await deliver('issues', { ...repo, action: 'opened', issue: { number: 1 } })).toEqual({
         status: 202,
@@ -132,9 +138,18 @@ describe('gateway', () => {
       });
     });
 
+    it("leaves other pull request deliveries alone when cheatsheet-review's queue is down", async () => {
+      expect(await deliver('pull_request', { ...pr, action: 'opened' }, ['review'])).toMatchObject({
+        status: 202,
+        prGate: 1,
+      });
+    });
+
     it("fails the delivery when cheatsheet-review's queue fails: it has no poll to catch up", async () => {
       const r = await deliver('pull_request', pr, ['review']);
       expect(r.status).toBe(500);
+      // pr-gate was sent first and still got it.
+      expect(r.prGate).toBe(1);
     });
 
     it('still accepts the delivery when only the pr-gate or the shared queue fails', async () => {

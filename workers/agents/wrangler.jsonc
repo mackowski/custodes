@@ -13,6 +13,10 @@
     "head_sampling_rate": 1,
     "traces": { "enabled": true, "head_sampling_rate": 1 },
   },
+  // NO EFFECT HERE since the cutovers (ADR 0018): no agent runs in this Worker. Each agent reads these
+  // from its own wrangler file (workers/<agent>/wrangler.jsonc): change TRACE_PAYLOADS, e-mail or
+  // AI Gateway settings there. Kept only so the generated Env type still has them; the clean-up PR
+  // removes them (docs/runbooks/agent-cutover.md).
   "vars": {
     "ENVIRONMENT": "prod",
     "AI_GATEWAY_ACCOUNT_ID": "5f62912564df344533c9563904c77662",
@@ -21,9 +25,7 @@
     "EMAIL_DOMAIN": "custodes.work",
     // Recipient of digests. Must be a verified Email Routing destination (infra/terraform email module).
     "OPERATOR_EMAIL": "jkb.mackowski@gmail.com",
-    // NO EFFECT HERE since pr-gate's cutover: pr-gate reads PR_GATE_ENFORCE and JEV_* from
-    // workers/pr-gate/wrangler.jsonc. Kept only so the generated Env type still has them; the
-    // clean-up PR removes them (docs/runbooks/agent-cutover.md).
+    // pr-gate reads PR_GATE_ENFORCE and JEV_* from workers/pr-gate/wrangler.jsonc.
     "PR_GATE_ENFORCE": "true",
     "JEV_TRANSPORT": "direct",
     "JEV_GATEWAY_PATH": "api/alpha/decisions",

@@ -130,8 +130,9 @@ Cloudflare supports for zero-downtime transfers. Once the agent runs fine, a lat
   allowed before removing it).
 - after the last cutover (cheatsheet-review), what custodes-agents keeps only for the generated
   types: the shared crons, the `custodes-inbound` queue (consumer here, `INBOUND` producer in the
-  gateway), the `AI` binding, the pr-gate vars, and the `hasTriage`/`hasPrGate`/`hasCheatsheetReview`
-  branches. Then decide whether the Worker stays at all (the gateway's `AGENTS` binding still serves
+  gateway), the `AI` and `send_email` bindings, the unsigned default `BROKER` binding, every var, and
+  the `hasTriage`/`hasPrGate`/`hasCheatsheetReview` branches. The gateway can then answer 404 for an
+  unknown `/agents/<class>` instead of falling back to `AGENTS`. Then decide whether the Worker stays at all (the gateway's `AGENTS` binding still serves
   `/registry`).
 
 ## If something is wrong after the move
