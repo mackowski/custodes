@@ -39,8 +39,7 @@
   "durable_objects": {
     "bindings": [
       // triage and its specialists moved to custodes-triage on 2026-11-12 (ADR 0018, cutover).
-      // hotl: closes community PRs that break CONTRIBUTING.md (broker policy pr-gate).
-      { "name": "PrGateAgent", "class_name": "PrGateAgent" },
+      // pr-gate moved to custodes-pr-gate (ADR 0018, cutover; see scripts/agent-moves.json).
       // hotl: multi-model review when the operator labels a PR (ADR 0017, broker policy cheatsheet-review).
       { "name": "CheatsheetReviewAgent", "class_name": "CheatsheetReviewAgent" },
     ],
@@ -68,7 +67,11 @@
       "state": "transferred",
       "transferred_to": "custodes-triage",
     },
-    "PrGateAgent": { "type": "durable-object", "storage": "sqlite" },
+    "PrGateAgent": {
+      "type": "durable-object",
+      "state": "transferred",
+      "transferred_to": "custodes-pr-gate",
+    },
     "CheatsheetReviewAgent": { "type": "durable-object", "storage": "sqlite" },
   },
   // Must match CRON_TRIAGE_POLL / CRON_TRIAGE_PREPARE / CRON_TRIAGE_DIGEST in src/index.ts (UTC).

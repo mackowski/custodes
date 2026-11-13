@@ -393,6 +393,7 @@ describe('the shared default entrypoint during the transition', () => {
       'triage',
       'implementation-check',
       'proposal-review',
+      'pr-gate',
     ]);
     for (const id of [...Object.keys(policy.agents), ...Object.keys(policy.reads)])
       expect(isIsolated(id), id).toBe(bornIsolated.has(id));

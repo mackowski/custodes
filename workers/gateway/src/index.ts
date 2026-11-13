@@ -129,6 +129,9 @@ app.post('/webhooks/github', async (c) => {
     payload: queuedFields(parsed.data),
   };
   await c.env.INBOUND.send(msg, { contentType: 'json' });
+  // pr-gate runs in its own Worker and consumes its own queue (ADR 0018); it reads only
+  // pull request events, so only those go there.
+  if (msg.event === 'pull_request') await c.env.INBOUND_PR_GATE.send(msg, { contentType: 'json' });
   return c.json({ queued: msg.id }, 202);
 });
 
@@ -317,9 +320,15 @@ const TRIAGE_CLASSES = new Set([
 ]);
 
 /** The Worker that runs the class in `/agents/<class>/...`. */
-export function agentWorker(env: { AGENTS: Fetcher; TRIAGE: Fetcher }, path: string): Fetcher {
+export function agentWorker(
+  env: { AGENTS: Fetcher; TRIAGE: Fetcher; PR_GATE: Fetcher },
+  path: string,
+): Fetcher {
   const cls = path.split('/').filter(Boolean)[1] ?? '';
-  return TRIAGE_CLASSES.has(cls) ? env.TRIAGE : env.AGENTS;
+  if (TRIAGE_CLASSES.has(cls)) return env.TRIAGE;
+  // pr-gate moved to custodes-pr-gate (ADR 0018).
+  if (cls === 'pr-gate-agent') return env.PR_GATE;
+  return env.AGENTS;
 }
 
 async function proxy(fetcher: Fetcher, path: string, init?: RequestInit): Promise<Response> {

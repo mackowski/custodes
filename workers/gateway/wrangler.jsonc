@@ -28,6 +28,9 @@
     // their classes goes here, and their keys page uses its KeyAdmin.
     { "binding": "TRIAGE", "service": "custodes-triage" },
     { "binding": "KEYS_TRIAGE", "service": "custodes-triage", "entrypoint": "KeyAdmin" },
+    // pr-gate in its own Worker (ADR 0018, cutover): /agents/pr-gate-agent/* and its keys.
+    { "binding": "PR_GATE", "service": "custodes-pr-gate" },
+    { "binding": "KEYS_PR_GATE", "service": "custodes-pr-gate", "entrypoint": "KeyAdmin" },
     // triage-apply's public keys and Rotate for /admin/agent-keys (ADR 0018, ADR 0019). It is a new
     // Worker deployed before the gateway, so the binding exists from the first deploy; the other
     // agents' KEYS_* bindings come with their cutovers.
@@ -37,5 +40,12 @@
       "entrypoint": "KeyAdmin",
     },
   ],
-  "queues": { "producers": [{ "binding": "INBOUND", "queue": "custodes-inbound" }] },
+  // custodes-inbound: the shared Worker (cheatsheet-review). custodes-inbound-pr-gate: pull request
+  // events for pr-gate in its own Worker; each consumer ignores what is not for it.
+  "queues": {
+    "producers": [
+      { "binding": "INBOUND", "queue": "custodes-inbound" },
+      { "binding": "INBOUND_PR_GATE", "queue": "custodes-inbound-pr-gate" },
+    ],
+  },
 }
