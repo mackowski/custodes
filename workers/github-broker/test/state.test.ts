@@ -35,12 +35,17 @@ describe('broker /v1/state (#103, threat T1: agents do not bind the kill switch)
       reason: 'wrong close',
     });
     // Another agent is not affected by it.
-    expect(await (await state({ agentId: 'triage' })).json()).toEqual({ halted: false });
+    // (cheatsheet-review: triage is isolated since its cutover, so the shared app refuses it.)
+    expect(await (await state({ agentId: 'cheatsheet-review' })).json()).toEqual({
+      halted: false,
+    });
   });
 
   it('answers the fleet-wide halt for every agent', async () => {
     await kill().halt('*', 'incident', 'operator@example.com');
-    expect(await (await state({ agentId: 'triage' })).json()).toMatchObject({ halted: true });
+    expect(await (await state({ agentId: 'cheatsheet-review' })).json()).toMatchObject({
+      halted: true,
+    });
   });
 
   it('refuses a malformed request', async () => {

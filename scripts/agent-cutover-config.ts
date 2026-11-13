@@ -13,6 +13,9 @@
 //       Prints the path of the written file (next to the source config, git-ignored).
 //   agent-cutover-config.ts classes
 //       Prints every class that has a move, comma-separated (for the deploy guard).
+//   agent-cutover-config.ts moved
+//       Prints `<Classes> <dir> <Worker>` for each move already done (its classes `transferred`
+//       in custodes-agents): the deploy guard checks each target still owns them.
 import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -27,32 +30,36 @@ interface Move {
   secrets: string[];
 }
 
-/** Every planned move. A class appears in one move only. */
-export const MOVES: Readonly<Record<string, Move>> = {
-  'pr-gate': {
-    target: 'custodes-pr-gate',
-    dir: 'workers/pr-gate',
-    classes: ['PrGateAgent'],
-    agentIds: ['pr-gate'],
-    secrets: ['AI_GATEWAY_TOKEN', 'OPENROUTER_API_KEY'],
-  },
-  'cheatsheet-review': {
-    target: 'custodes-cheatsheet-review',
-    dir: 'workers/cheatsheet-review',
-    classes: ['CheatsheetReviewAgent'],
-    agentIds: ['cheatsheet-review'],
-    secrets: ['AI_GATEWAY_TOKEN'],
-  },
-  triage: {
-    target: 'custodes-triage',
-    dir: 'workers/triage',
-    // Triage and its specialists move together: they call each other through Durable Object
-    // bindings, which stay inside one Worker.
-    classes: ['TriageAgent', 'ImplementationCheckAgent', 'ProposalReviewAgent'],
-    agentIds: ['triage', 'implementation-check', 'proposal-review'],
-    secrets: ['AI_GATEWAY_TOKEN'],
-  },
-};
+/** A move as the file must hold it; anything else stops the script (fail closed). */
+function asMove(name: string, v: unknown): Move {
+  const m = v as Partial<Record<keyof Move, unknown>> | null;
+  const names = (x: unknown, re: RegExp) =>
+    Array.isArray(x) && x.length > 0 && x.every((s) => typeof s === 'string' && re.test(s));
+  if (
+    m === null ||
+    typeof m !== 'object' ||
+    typeof m.target !== 'string' ||
+    !/^custodes-[a-z-]+$/.test(m.target) ||
+    typeof m.dir !== 'string' ||
+    !/^workers\/[a-z-]+$/.test(m.dir) ||
+    !names(m.classes, /^[A-Z][A-Za-z]+$/) ||
+    !names(m.agentIds, /^[a-z][a-z0-9-]{1,30}$/) ||
+    !names(m.secrets, /^[A-Z][A-Z0-9_]+$/)
+  )
+    throw new Error(`scripts/agent-moves.json: malformed move "${name}"`);
+  return m as Move;
+}
+
+/** Every planned move (scripts/agent-moves.json). A class appears in one move only. */
+export const MOVES: Readonly<Record<string, Move>> = Object.fromEntries(
+  Object.entries(
+    JSON.parse(
+      readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'agent-moves.json'), 'utf8'),
+    ) as Record<string, unknown>,
+  )
+    .filter(([name]) => !name.startsWith('$'))
+    .map(([name, v]) => [name, asMove(name, v)]),
+);
 
 const SOURCE = 'custodes-agents';
 
@@ -135,6 +142,19 @@ function phaseConfig(move: Move, phase: string): { dir: string; config: Wrangler
 }
 
 const [agent = '', what = ''] = process.argv.slice(2);
+if (agent === 'moved') {
+  // Moves whose classes are all `transferred` in custodes-agents: one line each,
+  // `<Class,Class> <dir> <Worker>`, for the deploy guard (the target must still own them).
+  const shared = readJsonc(join(root, 'workers/agents/wrangler.jsonc'));
+  for (const m of Object.values(MOVES)) {
+    const done = m.classes.every((c) => {
+      const e = shared.exports?.[c] as { state?: string } | undefined;
+      return e?.state === 'transferred';
+    });
+    if (done) console.log(`${m.classes.join(',')} ${m.dir} ${m.target}`);
+  }
+  process.exit(0);
+}
 if (agent === 'classes') {
   console.log(
     Object.values(MOVES)

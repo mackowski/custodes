@@ -38,10 +38,7 @@
   // Secrets (set by CI on deploy): AI_GATEWAY_TOKEN, OPENROUTER_API_KEY
   "durable_objects": {
     "bindings": [
-      { "name": "TriageAgent", "class_name": "TriageAgent" },
-      // Specialists triage delegates to over RPC (read-only, own broker read policy each).
-      { "name": "ImplementationCheckAgent", "class_name": "ImplementationCheckAgent" },
-      { "name": "ProposalReviewAgent", "class_name": "ProposalReviewAgent" },
+      // triage and its specialists moved to custodes-triage on 2026-11-12 (ADR 0018, cutover).
       // hotl: closes community PRs that break CONTRIBUTING.md (broker policy pr-gate).
       { "name": "PrGateAgent", "class_name": "PrGateAgent" },
       // hotl: multi-model review when the operator labels a PR (ADR 0017, broker policy cheatsheet-review).
@@ -53,14 +50,30 @@
   "exports": {
     // The hello smoke-test agent is removed with its stored data (#103).
     "HelloAgent": { "type": "durable-object", "state": "deleted" },
-    "TriageAgent": { "type": "durable-object", "storage": "sqlite" },
-    "ImplementationCheckAgent": { "type": "durable-object", "storage": "sqlite" },
-    "ProposalReviewAgent": { "type": "durable-object", "storage": "sqlite" },
+    // Moved with their data to custodes-triage (ADR 0018, cutover 2026-11-12). The classes stay in
+    // this Worker's code for now: Cloudflare supports a `transferred` tombstone next to an exported
+    // class; a later PR removes both.
+    "TriageAgent": {
+      "type": "durable-object",
+      "state": "transferred",
+      "transferred_to": "custodes-triage",
+    },
+    "ImplementationCheckAgent": {
+      "type": "durable-object",
+      "state": "transferred",
+      "transferred_to": "custodes-triage",
+    },
+    "ProposalReviewAgent": {
+      "type": "durable-object",
+      "state": "transferred",
+      "transferred_to": "custodes-triage",
+    },
     "PrGateAgent": { "type": "durable-object", "storage": "sqlite" },
     "CheatsheetReviewAgent": { "type": "durable-object", "storage": "sqlite" },
   },
   // Must match CRON_TRIAGE_POLL / CRON_TRIAGE_PREPARE / CRON_TRIAGE_DIGEST in src/index.ts (UTC).
-  // pr-gate shares them (polls on the first two, summary with the digest).
+  // pr-gate still runs on them here (polls on the first two, summary with the digest); triage has
+  // the same crons in custodes-triage.
   "triggers": { "crons": ["17 */4 * * *", "30 5 * * *", "0 7 * * *"] },
   // Workers AI, for Clef (shadow decision model, ADR 0015) and cheatsheet-review's DeepSeek models
   // (ADR 0017). Every call names the "custodes" AI Gateway (ClefClient and WorkersAiChat require it):

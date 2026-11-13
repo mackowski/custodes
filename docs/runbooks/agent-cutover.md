@@ -58,25 +58,66 @@ If a step fails:
 
 ## After
 
-The agent is still halted. On its first broker call its Keyholder creates a key, and the broker
-refuses it (`broker.caller.refused`, `unknown_key`) until it is pinned.
+The agent is still halted. It stays unable to act, and reads as halted even after you resume it,
+until its key is pinned: its `/v1/state` call is signed with a key the broker does not know yet, so
+the broker refuses it (`broker.caller.refused`, `unknown_key`) and `guard()` fails closed. Until then
+the Keyholder logs one refusal per guarded call (a few a day, from the crons).
 
-1. Read the key: the Worker logs `keyholder.key.created` with its `kid` and public `x` when it
-   creates the key (Workers Logs of that Worker; public data only).
-2. Open and merge the follow-up PR, by hand (the **Agent key pin** workflow can only read keys once the
-   gateway binds the Worker, which is part of this PR). It contains:
-   - the public key in `packages/schema/src/agent-keys.json` (check `kid` and `x` against the log);
-   - the classes as `transferred` in `workers/agents/wrangler.jsonc`, and the agent removed from the
-     shared Worker's code;
-   - the agent's Worker in `deploy-workers.yml`, after the broker and the agents, with its secrets
-     and the same guard (`<Class> --guard workers/<agent> <Worker>`);
+Do it in this order (done for triage on 2026-11-12/13, PR #111):
+
+1. **Follow-up PR, by hand, without the key.** The **Agent key pin** workflow can only read keys once
+   the gateway binds the Worker, which is part of this PR. It contains:
+   - the classes as `transferred` in `workers/agents/wrangler.jsonc`, with their bindings removed
+     (the code can keep exporting them, see "Clean-up PR" below);
+   - the agent's Worker in `deploy-workers.yml`, after the broker and the agents, with its secrets.
+     The deploy guard needs no edit: it reads `scripts/agent-moves.json` and checks every finished
+     move (`agent-cutover-config.ts moved`);
    - the gateway: the agent's webhook events to its queue, `/agents/<agent>-agent/*` routed to its
-     Worker, and its `KeyAdmin` bound as `KEYS_<AGENT>` (only the gateway may bind it,
-     `bindings.test.ts`);
-   - `isolated: true` for the agent's ids in `policy.json`.
-3. After its deploy: a sandbox run (`POST /agents/<agent>-agent/custodes-sandbox/run`, or the trigger
-   label for cheatsheet-review). The audit record must show `agentSignature: valid` on `/verify/<id>`.
-4. Resume the agent.
+     Worker (`agentWorker` in `workers/gateway/src/index.ts`, with a case in its test), and its
+     `KeyAdmin` bound as `KEYS_<AGENT>` (only the gateway may bind it, `bindings.test.ts`);
+   - `isolated: true` for the agent's ids in `policy.json` (`cutover-moves.test.ts` fails if a
+     finished move forgets one);
+   - `AgentsEnv` types and the test bindings in `workers/agents/vitest.config.ts`.
+
+   Merge it and approve **Deploy Workers** in `prod`.
+
+2. **Create the key.** Either **Rotate** the Worker on `/admin/agent-keys/page` (creates a `next`
+   key; the Worker adopts it once the broker accepts it) or let its first broker call create it.
+   The Worker logs `keyholder.key.created` with its `kid` and public `x` (Workers Logs of that
+   Worker; public data only).
+3. **Pin it.** Run **Agent key pin** (`gh workflow run agent-key-pin.yml --ref main`). It pushes a
+   branch; open the PR, compare `kid` and `x` with the log, merge, and approve Deploy Workers again.
+4. **Resume every id of the move**, so the run below can do anything (a halted agent stops at
+   `guard()` before its first read). Use `custodes agents resume <id>` or
+   `POST /admin/agents/<id>/resume`, once per id (for triage: `triage`, `implementation-check`,
+   `proposal-review`), not by deleting the `halt:*` keys in KV: the admin route logs who resumed
+   (`admin.resume`). Without the CLI, from the browser console on `https://custodes.work/admin/agents`:
+
+   ```js
+   for (const id of ['triage', 'implementation-check', 'proposal-review'])
+     console.log(id, await (await fetch(`/admin/agents/${id}/resume`, { method: 'POST' })).json());
+   ```
+
+5. **Verify with a sandbox run** (`POST /agents/<agent>-agent/custodes-sandbox/run`, or the trigger
+   label for cheatsheet-review). If the check fails, halt the ids again.
+   - an agent that acts (pr-gate, cheatsheet-review): the audit record shows
+     `agentSignature: valid` on `/verify/<id>`;
+   - a read-only agent (triage and its specialists): reads leave no audit record. Check the
+     broker's Workers Logs instead: `broker.read` lines for the agent ids, and no
+     `broker.caller.refused` for the Worker.
+
+### Clean-up PR (later)
+
+The shared Worker still exports the moved classes next to their `transferred` tombstones, which
+Cloudflare supports for zero-downtime transfers. Once the agent runs fine, a later PR removes:
+
+- the class exports from `workers/agents/src/index.ts` and, for triage, the `hasTriage` branch and
+  the cron job in `crons`/`scheduled`;
+- the test-only `durableObjects` in `workers/agents/vitest.config.ts` (the classes then need another
+  test home) and the `AgentsEnv` entries, which today are required although the shared Worker has no
+  such binding (code there checks first; a missing check fails closed, as an outage);
+- the `transferred` entries, once Cloudflare reports them stale (check that dropping a tombstone is
+  allowed before removing it).
 
 ## If something is wrong after the move
 

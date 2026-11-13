@@ -385,9 +385,15 @@ describe('the shared default entrypoint during the transition', () => {
     }
   });
 
-  it('marks no moved agent isolated yet; triage-apply is isolated from the start (ADR 0019)', () => {
+  it('isolates triage-apply from the start (ADR 0019) and triage with its specialists after their cutover', () => {
     // triage-apply never ran in the shared Worker, so it has no transition to wait for.
-    const bornIsolated = new Set(['triage-apply']);
+    // triage and its specialists moved on 2026-11-12 (cutover).
+    const bornIsolated = new Set([
+      'triage-apply',
+      'triage',
+      'implementation-check',
+      'proposal-review',
+    ]);
     for (const id of [...Object.keys(policy.agents), ...Object.keys(policy.reads)])
       expect(isIsolated(id), id).toBe(bornIsolated.has(id));
   });

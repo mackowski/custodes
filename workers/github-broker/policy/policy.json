@@ -68,7 +68,9 @@
     "triage": {
       "tokenBinding": "PAT_READONLY",
       "repos": ["OWASP/CheatSheetSeries", "mackowski/custodes-sandbox"],
-      "resources": ["issues", "labels", "cheatsheets", "timeline"]
+      "resources": ["issues", "labels", "cheatsheets", "timeline"],
+      "isolated": true,
+      "$comment_isolated": "ADR 0018: moved to custodes-triage on 2026-11-12 with implementation-check and proposal-review; the shared entrypoint refuses them."
     },
     "implementation-check": {
       "tokenBinding": "PAT_READONLY",
@@ -81,12 +83,14 @@
         "pull_files",
         "cheatsheets",
         "cheatsheet"
-      ]
+      ],
+      "isolated": true
     },
     "proposal-review": {
       "tokenBinding": "PAT_READONLY",
       "repos": ["OWASP/CheatSheetSeries", "mackowski/custodes-sandbox"],
-      "resources": ["issue", "comments", "timeline", "labels", "cheatsheets", "cheatsheet"]
+      "resources": ["issue", "comments", "timeline", "labels", "cheatsheets", "cheatsheet"],
+      "isolated": true
     },
     "pr-gate": {
       "tokenBinding": "PAT_READONLY",

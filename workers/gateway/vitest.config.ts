@@ -31,6 +31,7 @@ export default defineConfig({
           stubWorker('custodes-github-broker'),
           stubWorker('custodes-agents'),
           stubWorker('custodes-triage-apply'),
+          stubWorker('custodes-triage'),
         ],
       },
     }),
