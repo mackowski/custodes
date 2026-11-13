@@ -30,13 +30,35 @@ interface Move {
   secrets: string[];
 }
 
+/** A move as the file must hold it; anything else stops the script (fail closed). */
+function asMove(name: string, v: unknown): Move {
+  const m = v as Partial<Record<keyof Move, unknown>> | null;
+  const names = (x: unknown, re: RegExp) =>
+    Array.isArray(x) && x.length > 0 && x.every((s) => typeof s === 'string' && re.test(s));
+  if (
+    m === null ||
+    typeof m !== 'object' ||
+    typeof m.target !== 'string' ||
+    !/^custodes-[a-z-]+$/.test(m.target) ||
+    typeof m.dir !== 'string' ||
+    !/^workers\/[a-z-]+$/.test(m.dir) ||
+    !names(m.classes, /^[A-Z][A-Za-z]+$/) ||
+    !names(m.agentIds, /^[a-z][a-z0-9-]{1,30}$/) ||
+    !names(m.secrets, /^[A-Z][A-Z0-9_]+$/)
+  )
+    throw new Error(`scripts/agent-moves.json: malformed move "${name}"`);
+  return m as Move;
+}
+
 /** Every planned move (scripts/agent-moves.json). A class appears in one move only. */
 export const MOVES: Readonly<Record<string, Move>> = Object.fromEntries(
   Object.entries(
     JSON.parse(
       readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'agent-moves.json'), 'utf8'),
-    ) as Record<string, Move>,
-  ).filter(([name]) => !name.startsWith('$')),
+    ) as Record<string, unknown>,
+  )
+    .filter(([name]) => !name.startsWith('$'))
+    .map(([name, v]) => [name, asMove(name, v)]),
 );
 
 const SOURCE = 'custodes-agents';

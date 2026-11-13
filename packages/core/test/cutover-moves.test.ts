@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import { CALLER_AGENTS, CallerName } from '@custodes/schema';
 
 /**
  * What a finished agent cutover leaves behind (ADR 0018, docs/runbooks/agent-cutover.md), derived
@@ -49,6 +50,15 @@ describe('agent moves (scripts/agent-moves.json)', () => {
     expect(new Set(classes).size).toBe(classes.length);
     expect(new Set(ids).size).toBe(ids.length);
     for (const m of moves) expect(jsonc(`${m.dir}/wrangler.jsonc`).name, m.name).toBe(m.target);
+  });
+
+  it('names exactly the agent ids its Worker may serve (CALLER_AGENTS)', () => {
+    // An id served by the Worker but missing here would never be checked for `isolated` below,
+    // so the unsigned default entrypoint could keep serving it (Claude review of #111).
+    for (const m of moves) {
+      const caller = CallerName.parse(m.target);
+      expect([...m.agentIds].sort(), m.name).toEqual([...CALLER_AGENTS[caller]].sort());
+    }
   });
 
   it('has at least one finished move to check (triage, 2026-11-12)', () => {
