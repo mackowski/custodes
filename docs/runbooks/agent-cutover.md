@@ -87,14 +87,24 @@ Do it in this order (done for triage on 2026-11-12/13, PR #111):
    Worker; public data only).
 3. **Pin it.** Run **Agent key pin** (`gh workflow run agent-key-pin.yml --ref main`). It pushes a
    branch; open the PR, compare `kid` and `x` with the log, merge, and approve Deploy Workers again.
-4. **Verify with a sandbox run** (`POST /agents/<agent>-agent/custodes-sandbox/run`, or the trigger
-   label for cheatsheet-review):
+4. **Resume every id of the move**, so the run below can do anything (a halted agent stops at
+   `guard()` before its first read). Use `custodes agents resume <id>` or
+   `POST /admin/agents/<id>/resume`, once per id (for triage: `triage`, `implementation-check`,
+   `proposal-review`), not by deleting the `halt:*` keys in KV: the admin route logs who resumed
+   (`admin.resume`). Without the CLI, from the browser console on `https://custodes.work/admin/agents`:
+
+   ```js
+   for (const id of ['triage', 'implementation-check', 'proposal-review'])
+     console.log(id, await (await fetch(`/admin/agents/${id}/resume`, { method: 'POST' })).json());
+   ```
+
+5. **Verify with a sandbox run** (`POST /agents/<agent>-agent/custodes-sandbox/run`, or the trigger
+   label for cheatsheet-review). If the check fails, halt the ids again.
    - an agent that acts (pr-gate, cheatsheet-review): the audit record shows
      `agentSignature: valid` on `/verify/<id>`;
    - a read-only agent (triage and its specialists): reads leave no audit record. Check the
      broker's Workers Logs instead: `broker.read` lines for the agent ids, and no
      `broker.caller.refused` for the Worker.
-5. **Resume** the agent (delete its `halt:*` keys, or `custodes agents resume`).
 
 ### Clean-up PR (later)
 
