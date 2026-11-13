@@ -13,7 +13,7 @@ export const TRIAGE_APPLY_MANIFEST: AgentManifest = {
   description:
     'Turns one triage proposal (assignee, labels, comment) into one approval request; the broker applies it only after the operator approves the e-mailed link (ADR 0019). No model.',
   mode: 'hitl',
-  repos: ['mackowski/custodes-sandbox'],
+  repos: ['mackowski/custodes-sandbox', 'OWASP/CheatSheetSeries'],
 };
 
 /** Comment pages read per issue (100 each), as many as the broker reads before running. */

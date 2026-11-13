@@ -49,16 +49,18 @@ describe('instances', () => {
       expect(PR_GATE_MANIFEST.repos).toContain(repo);
       expect(policy.agents['pr-gate'].repos).toContain(repo);
       for (const [id, r] of Object.entries(policy.reads))
-        if (id !== 'cheatsheet-review' && id !== 'triage-apply') expect(r.repos).toContain(repo);
+        if (id !== 'cheatsheet-review') expect(r.repos).toContain(repo);
     }
   });
 
-  it('runs triage-apply on the sandbox only until its evals and end-to-end run pass (ADR 0019)', () => {
-    const sandbox = ['mackowski/custodes-sandbox'];
-    expect(TRIAGE_APPLY_MANIFEST.repos).toEqual(sandbox);
-    expect(policy.agents['triage-apply'].repos).toEqual(sandbox);
-    expect(policy.reads['triage-apply'].repos).toEqual(sandbox);
+  it('runs triage-apply on the sandbox and OWASP, hitl, after its evals and sandbox run (ADR 0019)', () => {
+    const both = ['mackowski/custodes-sandbox', 'OWASP/CheatSheetSeries'];
+    expect(TRIAGE_APPLY_MANIFEST.repos).toEqual(both);
+    expect(policy.agents['triage-apply'].repos).toEqual(both);
+    expect(policy.reads['triage-apply'].repos).toEqual(both);
+    // Widening the repositories never removes the operator's click on each bundle.
     expect(policy.agents['triage-apply'].mode).toBe('hitl');
+    expect(policy.agents['triage-apply'].bundleOnly).toBe(true);
   });
 
   it('runs cheatsheet-review on the sandbox and OWASP, approving every OWASP post (ADR 0017)', () => {

@@ -3,6 +3,14 @@ import { AgentId, AgentMode, GitHubRepo } from './agent.js';
 import { BrokerActionType } from './actions.js';
 import { ReadResource } from './read.js';
 
+/**
+ * Labels that start automation when added from the operator's account: `custodes_cheatsheet_review`
+ * (cheatsheet-review, ADR 0017) and `jules` (Google Jules on OWASP, which then pushes a branch and
+ * opens a PR as the operator). No agent that labels from the operator's account may add them, and
+ * proposals never suggest them (ADR 0019; security review of #113). Compared case-insensitively.
+ */
+export const AUTOMATION_TRIGGER_LABELS: readonly string[] = ['custodes_cheatsheet_review', 'jules'];
+
 export const AgentPolicy = z
   .object({
     /** Name of the Secrets Store binding that holds this agent's GitHub PAT. */

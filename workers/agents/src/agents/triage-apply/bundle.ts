@@ -68,7 +68,10 @@ export function snapshotOf(issue: PublicIssue, commentsDigest: string): IssueSna
 /** The author and every commenter, as GitHub reports them (author first, case-insensitive set). */
 export function threadPeople(issue: PublicIssue, comments: IssueComment[]): string[] {
   const out: string[] = [];
-  for (const l of [issue.user?.login, ...comments.map((c) => c.user?.login)])
+  // Never a bot account: assigning or naming one could start another agent as the operator.
+  const human = (u: { login: string; type?: unknown } | null | undefined) =>
+    u && u.type !== 'Bot' ? u.login : undefined;
+  for (const l of [human(issue.user), ...comments.map((c) => human(c.user))])
     if (l && GitHubLogin.safeParse(l).success && !out.some((p) => lower(p) === lower(l)))
       out.push(l);
   return out;

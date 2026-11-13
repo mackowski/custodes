@@ -1,6 +1,11 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { Policy as PolicySchema, type BrokerRequest, type Policy } from '@custodes/schema';
+import {
+  AUTOMATION_TRIGGER_LABELS,
+  Policy as PolicySchema,
+  type BrokerRequest,
+  type Policy,
+} from '@custodes/schema';
 import { evaluatePolicy } from '../src/policy-eval.js';
 
 const policy: Policy = {
@@ -335,29 +340,27 @@ describe('evaluatePolicy for cheatsheet-review (real broker policy)', () => {
     }
   });
 
-  it('lets no agent add the review trigger: a label only the operator adds', () => {
-    // triage-apply (ADR 0019) may add labels, but never this one: its PAT is the operator's
-    // account, so its label would pass cheatsheet-review's "who added it" check.
+  it('lets no agent add a label that starts automation from the operator account', () => {
+    // triage-apply (ADR 0019) may add labels, but never these: its PAT is the operator's account,
+    // so its label counts as the operator's trigger (cheatsheet-review; Google Jules on OWASP).
+    expect(AUTOMATION_TRIGGER_LABELS).toEqual(['custodes_cheatsheet_review', 'jules']);
     for (const [id, a] of Object.entries(real.agents)) {
       if (!a.actions.includes('issue.label.add')) continue;
       expect(id).toBe('triage-apply');
       // GitHub label names are case-insensitive.
-      expect(
-        (a.labels ?? []).map((l) => l.toLowerCase()),
-        id,
-      ).not.toContain('custodes_cheatsheet_review');
-      expect(
-        evaluatePolicy(real, {
-          ...base,
-          agentId: id,
-          action: {
-            type: 'issue.label.add',
-            repo: 'mackowski/custodes-sandbox',
-            issue: 1,
-            labels: ['custodes_cheatsheet_review'],
-          },
-        }).allow,
-      ).toBe(false);
+      const allowed = (a.labels ?? []).map((l) => l.toLowerCase());
+      for (const trigger of AUTOMATION_TRIGGER_LABELS) {
+        expect(allowed, `${id} ${trigger}`).not.toContain(trigger.toLowerCase());
+        for (const repo of a.repos)
+          expect(
+            evaluatePolicy(real, {
+              ...base,
+              agentId: id,
+              action: { type: 'issue.label.add', repo, issue: 1, labels: [trigger] },
+            }).allow,
+            `${id} ${trigger} on ${repo}`,
+          ).toBe(false);
+      }
     }
   });
   it('does not let other agents post inline reviews', () => {

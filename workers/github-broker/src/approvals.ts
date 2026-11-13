@@ -19,7 +19,7 @@ import { act } from './act.js';
 import { read } from './read.js';
 import { keyring, type BrokerEnv } from './env.js';
 import { policy } from './policy.js';
-import { ApprovalStore } from './store.js';
+import { ApprovalStore, AuditStore } from './store.js';
 
 /**
  * Human approval of one side effect (ADR 0004, ADR 0017 amendment):
@@ -180,7 +180,7 @@ export async function readIssueThread(
   const data = got.data as {
     state?: unknown;
     comments?: unknown;
-    user?: { login?: unknown } | null;
+    user?: { login?: unknown; type?: unknown } | null;
     labels?: ({ name?: unknown } | string)[];
     assignees?: { login?: unknown }[] | null;
     pull_request?: unknown;
@@ -202,7 +202,8 @@ export async function readIssueThread(
     .sort();
   if (typeof data.updated_at !== 'string') return { ok: false, reason: 'unexpected issue shape' };
   const updatedAt = data.updated_at;
-  const people = [author];
+  // A bot author is not a person to assign or name either.
+  const people = data.user?.type === 'Bot' ? [] : [author];
   const all: unknown[] = [];
   let count = 0;
   for (let page = 1; page <= MAX_COMMENT_PAGES; page++) {
@@ -212,10 +213,14 @@ export async function readIssueThread(
       fetchImpl,
     );
     if (!c.ok) return { ok: false, reason: `comments read failed: ${c.code}` };
-    const list = Array.isArray(c.data) ? (c.data as { user?: { login?: unknown } | null }[]) : [];
+    const list = Array.isArray(c.data)
+      ? (c.data as { user?: { login?: unknown; type?: unknown } | null }[])
+      : [];
     count += list.length;
     all.push(...list);
     for (const item of list) {
+      // A bot is never a person to assign or name: it could start another agent.
+      if (item.user?.type === 'Bot') continue;
       const who = login(item.user?.login);
       if (who !== null && !people.some((p) => p.toLowerCase() === who.toLowerCase()))
         people.push(who);
@@ -346,7 +351,7 @@ export interface BundleStep {
 }
 
 export type DecideOutcome =
-  | { result: 'not_found' | 'not_pending' | 'expired' }
+  | { result: 'not_found' | 'not_pending' | 'expired' | 'rate_limited' }
   | { result: 'ok'; decision: 'rejected' }
   | { result: 'ok'; decision: 'approved'; executed: BrokerResponse; steps?: BundleStep[] };
 
@@ -359,6 +364,23 @@ export async function decideApproval(
   now = new Date(),
 ): Promise<DecideOutcome> {
   const store = new ApprovalStore(env.AUDIT);
+  // A bundle that does not fit in this hour's rate limit would stop half-way and use up its
+  // approval: refuse before deciding, so it stays pending and the operator can approve it later
+  // (security review of #113).
+  if (decision === 'approved') {
+    const pending = await store.get(id);
+    const agentPolicy = pending ? policy.agents[pending.agentId] : undefined;
+    if (pending?.bundle && agentPolicy) {
+      const hourAgo = new Date(now.getTime() - 3_600_000).toISOString();
+      const used = await new AuditStore(env.AUDIT).countAllowedSince(
+        pending.agentId,
+        pending.action.repo,
+        hourAgo,
+      );
+      if (used + pending.bundle.actions.length > agentPolicy.rateLimitPerHour)
+        return { result: 'rate_limited' };
+    }
+  }
   const result = await store.decide(id, decision, by, now);
   if (result !== 'ok') return { result };
   console.log(JSON.stringify({ event: 'broker.approval.decided', approvalId: id, decision }));
