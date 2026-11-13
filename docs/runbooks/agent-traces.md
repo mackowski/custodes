@@ -1,10 +1,10 @@
 # Agent traces (ADR 0016)
 
 Every agent Worker records Workers traces with model and tool payloads while its `TRACE_PAYLOADS`
-is `"true"`: `custodes-agents` (`workers/agents/wrangler.jsonc`), `custodes-triage`
-(`workers/triage/wrangler.jsonc`), `custodes-pr-gate` (`workers/pr-gate/wrangler.jsonc`) and, after
-its cutover, `custodes-cheatsheet-review`. `custodes-triage-apply` calls no model and records no
-payloads. Owner of every step below: the operator.
+is `"true"`: `custodes-triage` (`workers/triage/wrangler.jsonc`), `custodes-pr-gate`
+(`workers/pr-gate/wrangler.jsonc`) and `custodes-cheatsheet-review`
+(`workers/cheatsheet-review/wrangler.jsonc`). `custodes-agents` runs no agent since the cutovers.
+`custodes-triage-apply` calls no model and records no payloads. Owner of every step below: the operator.
 
 ## After the first deploy with traces, and after any tracing change
 

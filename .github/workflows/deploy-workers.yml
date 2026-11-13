@@ -95,16 +95,11 @@ jobs:
           accountId: 5f62912564df344533c9563904c77662
           workingDirectory: workers/agents
           command: deploy
-          # Worker secrets are pushed on every deploy from the prod environment; nothing is set by hand.
-          # Only what the agents left here (cheatsheet-review) use: no OPENROUTER_API_KEY since
-          # pr-gate moved (security review of #114).
-          secrets: |
-            AI_GATEWAY_TOKEN
-        env:
-          AI_GATEWAY_TOKEN: ${{ secrets.AI_GATEWAY_TOKEN }}
+          # No secrets: every agent runs in its own Worker since its cutover (ADR 0018), and
+          # custodes-agents only keeps the `transferred` tombstones until the clean-up PR.
       - name: Drop secrets custodes-agents no longer needs
-        # Deploys never delete Worker secrets. pr-gate's OpenRouter key stays out of the shared
-        # Worker, which reads untrusted pull request diffs for cheatsheet-review.
+        # Deploys never delete Worker secrets. No model key stays in a Worker that no longer needs
+        # it: OPENROUTER_API_KEY since pr-gate moved, AI_GATEWAY_TOKEN since cheatsheet-review moved.
         working-directory: workers/agents
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN_DEPLOY }}
@@ -112,10 +107,13 @@ jobs:
         run: |
           # Listed first, outside the `if`: a failed list must fail the step (bash -e), not read as
           # "no secret".
-          secrets="$(pnpm exec wrangler secret list)"
-          if grep -q '"name": *"OPENROUTER_API_KEY"' <<<"$secrets"; then
-            pnpm exec wrangler secret delete OPENROUTER_API_KEY
-          fi
+          # JSON explicitly: the grep below depends on it (security review of #116).
+          secrets="$(pnpm exec wrangler secret list --format json)"
+          for name in OPENROUTER_API_KEY AI_GATEWAY_TOKEN; do
+            if grep -q "\"name\": *\"$name\"" <<<"$secrets"; then
+              pnpm exec wrangler secret delete "$name"
+            fi
+          done
       - name: Deploy triage
         # triage and its specialists, in their own Worker since the 2026-11-12 cutover (ADR 0018).
         # Not wrangler-action `secrets:`: it ignores `-c` and writes the secrets to custodes-agents
@@ -149,6 +147,18 @@ jobs:
           for name in AI_GATEWAY_TOKEN OPENROUTER_API_KEY; do
             printf '%s' "${!name}" | pnpm exec wrangler secret put "$name" -c ../pr-gate/wrangler.jsonc
           done
+      - name: Deploy cheatsheet-review
+        # cheatsheet-review, in its own Worker since its cutover (ADR 0018). Secrets as for triage.
+        working-directory: workers/agents
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN_DEPLOY }}
+          CLOUDFLARE_ACCOUNT_ID: 5f62912564df344533c9563904c77662
+          AI_GATEWAY_TOKEN: ${{ secrets.AI_GATEWAY_TOKEN }}
+        run: |
+          # A missing GitHub secret must fail here, not overwrite the working key with "".
+          : "${AI_GATEWAY_TOKEN:?AI_GATEWAY_TOKEN is not set}"
+          pnpm exec wrangler deploy -c ../cheatsheet-review/wrangler.jsonc
+          printf '%s' "$AI_GATEWAY_TOKEN" | pnpm exec wrangler secret put AI_GATEWAY_TOKEN -c ../cheatsheet-review/wrangler.jsonc
       - name: Deploy triage-apply
         # Its own Worker from the start (ADR 0019): no model, no secrets, no Durable Object moved
         # from custodes-agents. The broker refuses it until its key is pinned (agent-key-pin.yml).

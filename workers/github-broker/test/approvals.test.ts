@@ -9,7 +9,8 @@ import {
   MAX_PENDING_PER_AGENT,
 } from '../src/approvals.js';
 import type { BrokerEnv } from '../src/env.js';
-import broker, { BrokerAdmin } from '../src/index.js';
+import broker, { BrokerAdmin, sharedAgentApp } from '../src/index.js';
+import { policy } from '../src/policy.js';
 import { ApprovalStore, AuditStore } from '../src/store.js';
 
 const base: Omit<BrokerRequest, 'action'> = {
@@ -232,17 +233,31 @@ describe('single shot (review M1)', () => {
       ok: false,
       code: 'approval_invalid',
     });
-    // And the agents' entrypoint never accepts an approval id at all.
-    const res = await broker.fetch(
-      new Request('https://broker.internal/v1/act', {
+    // And the agents' routes never accept an approval id at all. Every agent is isolated since
+    // its cutover, so the routes are tested with a policy copy that keeps cheatsheet-review on
+    // them; its own entrypoint (callerApp) uses the same routes behind the signature check.
+    const shared = sharedAgentApp({
+      ...policy,
+      agents: {
+        ...policy.agents,
+        'cheatsheet-review': { ...policy.agents['cheatsheet-review']!, isolated: false },
+      },
+      reads: {
+        ...policy.reads,
+        'cheatsheet-review': { ...policy.reads['cheatsheet-review']!, isolated: false },
+      },
+    });
+    const res = await shared.request(
+      '/v1/act',
+      {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ ...review('halted then resumed'), approvalId: c.approval.id }),
-      }),
+      },
       testEnv,
-      {} as ExecutionContext,
     );
     expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ reason: 'approved actions are run by the broker' });
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 });

@@ -66,26 +66,30 @@ describe('gateway', () => {
     );
     expect(res.status).toBe(202);
   });
-  it('also queues pull request events, and only those, for pr-gate in its own Worker', async () => {
-    const key = await crypto.subtle.importKey(
-      'raw',
-      new TextEncoder().encode(testEnv().GITHUB_WEBHOOK_SECRET),
-      { name: 'HMAC', hash: 'SHA-256' },
-      false,
-      ['sign'],
-    );
-    const deliver = async (event: string, payload: object) => {
+  describe('webhook queues after the cutovers (each agent consumes its own)', () => {
+    const deliver = async (
+      event: string,
+      payload: object,
+      fail: readonly ('shared' | 'prGate' | 'review')[] = [],
+    ) => {
+      const key = await crypto.subtle.importKey(
+        'raw',
+        new TextEncoder().encode(testEnv().GITHUB_WEBHOOK_SECRET),
+        { name: 'HMAC', hash: 'SHA-256' },
+        false,
+        ['sign'],
+      );
       const body = JSON.stringify(payload);
       const sig = Array.from(
         new Uint8Array(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(body))),
         (b) => b.toString(16).padStart(2, '0'),
       ).join('');
-      const shared: unknown[] = [];
-      const prGate: unknown[] = [];
-      const queue = (into: unknown[]) =>
+      const sent = { shared: 0, prGate: 0, review: 0 };
+      const queue = (name: keyof typeof sent) =>
         ({
-          send: (m: unknown) => {
-            into.push(m);
+          send: () => {
+            if (fail.includes(name)) return Promise.reject(new Error('queue down'));
+            sent[name] += 1;
             return Promise.resolve();
           },
         }) as unknown as Queue;
@@ -95,23 +99,66 @@ describe('gateway', () => {
           body,
           headers: { 'x-hub-signature-256': `sha256=${sig}`, 'x-github-event': event },
         }),
-        { ...testEnv(), INBOUND: queue(shared), INBOUND_PR_GATE: queue(prGate) },
+        {
+          ...testEnv(),
+          INBOUND: queue('shared'),
+          INBOUND_PR_GATE: queue('prGate'),
+          INBOUND_CHEATSHEET_REVIEW: queue('review'),
+        },
         ctx,
       );
-      expect(res.status).toBe(202);
-      return { shared: shared.length, prGate: prGate.length };
+      return { status: res.status, ...sent };
     };
     const repo = { repository: { full_name: 'a/b' }, sender: { login: 'x' } };
-    expect(
-      await deliver('pull_request', {
-        ...repo,
-        action: 'opened',
-        pull_request: { number: 7, updated_at: '2026-10-26T10:00:00Z' },
-      }),
-    ).toEqual({ shared: 1, prGate: 1 });
-    expect(await deliver('issues', { ...repo, action: 'opened', issue: { number: 1 } })).toEqual({
-      shared: 1,
-      prGate: 0,
+    const pr = {
+      ...repo,
+      action: 'labeled',
+      pull_request: { number: 7, updated_at: '2026-10-26T10:00:00Z' },
+      label: { name: 'custodes_cheatsheet_review' },
+    };
+
+    it('sends pull request events to pr-gate, and only labeled ones to cheatsheet-review', async () => {
+      expect(await deliver('pull_request', pr)).toEqual({
+        status: 202,
+        shared: 1,
+        prGate: 1,
+        review: 1,
+      });
+      expect(await deliver('pull_request', { ...pr, action: 'opened' })).toEqual({
+        status: 202,
+        shared: 1,
+        prGate: 1,
+        review: 0,
+      });
+      expect(await deliver('issues', { ...repo, action: 'opened', issue: { number: 1 } })).toEqual({
+        status: 202,
+        shared: 1,
+        prGate: 0,
+        review: 0,
+      });
+    });
+
+    it("leaves other pull request deliveries alone when cheatsheet-review's queue is down", async () => {
+      expect(await deliver('pull_request', { ...pr, action: 'opened' }, ['review'])).toMatchObject({
+        status: 202,
+        prGate: 1,
+      });
+    });
+
+    it("fails the delivery when cheatsheet-review's queue fails: it has no poll to catch up", async () => {
+      const r = await deliver('pull_request', pr, ['review']);
+      expect(r.status).toBe(500);
+      // pr-gate was sent first and still got it.
+      expect(r.prGate).toBe(1);
+    });
+
+    it('still accepts the delivery when only the pr-gate or the shared queue fails', async () => {
+      expect(await deliver('pull_request', pr, ['prGate', 'shared'])).toEqual({
+        status: 202,
+        shared: 0,
+        prGate: 0,
+        review: 1,
+      });
     });
   });
   it('queues only the fields consumers use, never PR bodies', async () => {
@@ -254,7 +301,8 @@ describe('agentWorker: which Worker serves /agents/<class>/... (ADR 0018, cutove
   const TRIAGE = { which: 'triage' } as unknown as Fetcher;
   const AGENTS = { which: 'agents' } as unknown as Fetcher;
   const PR_GATE = { which: 'pr-gate' } as unknown as Fetcher;
-  const to = (path: string) => agentWorker({ AGENTS, TRIAGE, PR_GATE }, path);
+  const CHEATSHEET_REVIEW = { which: 'cheatsheet-review' } as unknown as Fetcher;
+  const to = (path: string) => agentWorker({ AGENTS, TRIAGE, PR_GATE, CHEATSHEET_REVIEW }, path);
 
   it('sends triage and its two specialists to custodes-triage', () => {
     for (const cls of ['triage-agent', 'implementation-check-agent', 'proposal-review-agent'])
@@ -271,10 +319,15 @@ describe('agentWorker: which Worker serves /agents/<class>/... (ADR 0018, cutove
     expect(to('/agents//pr-gate-agent/owasp-cheatsheetseries/comparisons')).toBe(PR_GATE);
   });
 
+  it('sends cheatsheet-review to custodes-cheatsheet-review (its cutover)', () => {
+    expect(to('/agents/cheatsheet-review-agent/custodes-sandbox')).toBe(CHEATSHEET_REVIEW);
+    expect(to('/agents//cheatsheet-review-agent/owasp-cheatsheetseries/x')).toBe(CHEATSHEET_REVIEW);
+  });
+
   it('leaves every other class, odd spelling and the Keyholder with custodes-agents', () => {
     for (const path of [
       '/agents/pr-gate%2Dagent/x',
-      '/agents/cheatsheet-review-agent/custodes-sandbox',
+      '/agents/cheatsheet%2Dreview-agent/x',
       '/agents/triage%2Dagent/x',
       '/agents/Triage-Agent/x',
       '/agents/keyholder/default',

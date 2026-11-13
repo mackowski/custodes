@@ -13,6 +13,10 @@
     "head_sampling_rate": 1,
     "traces": { "enabled": true, "head_sampling_rate": 1 },
   },
+  // NO EFFECT HERE since the cutovers (ADR 0018): no agent runs in this Worker. Each agent reads these
+  // from its own wrangler file (workers/<agent>/wrangler.jsonc): change TRACE_PAYLOADS, e-mail or
+  // AI Gateway settings there. Kept only so the generated Env type still has them; the clean-up PR
+  // removes them (docs/runbooks/agent-cutover.md).
   "vars": {
     "ENVIRONMENT": "prod",
     "AI_GATEWAY_ACCOUNT_ID": "5f62912564df344533c9563904c77662",
@@ -21,9 +25,7 @@
     "EMAIL_DOMAIN": "custodes.work",
     // Recipient of digests. Must be a verified Email Routing destination (infra/terraform email module).
     "OPERATOR_EMAIL": "jkb.mackowski@gmail.com",
-    // NO EFFECT HERE since pr-gate's cutover: pr-gate reads PR_GATE_ENFORCE and JEV_* from
-    // workers/pr-gate/wrangler.jsonc. Kept only so the generated Env type still has them; the
-    // clean-up PR removes them (docs/runbooks/agent-cutover.md).
+    // pr-gate reads PR_GATE_ENFORCE and JEV_* from workers/pr-gate/wrangler.jsonc.
     "PR_GATE_ENFORCE": "true",
     "JEV_TRANSPORT": "direct",
     "JEV_GATEWAY_PATH": "api/alpha/decisions",
@@ -33,16 +35,11 @@
     // Approval links in e-mails (ADR 0017 amendment): the gateway page behind Cloudflare Access.
     "APPROVAL_LINK_BASE": "https://custodes.work/admin/approvals/link",
   },
-  // Secrets (set by CI on deploy): AI_GATEWAY_TOKEN (cheatsheet-review). OPENROUTER_API_KEY is
-  // removed by deploy-workers since pr-gate moved.
-  "durable_objects": {
-    "bindings": [
-      // triage and its specialists moved to custodes-triage on 2026-11-12 (ADR 0018, cutover).
-      // pr-gate moved to custodes-pr-gate (ADR 0018, cutover; see scripts/agent-moves.json).
-      // hotl: multi-model review when the operator labels a PR (ADR 0017, broker policy cheatsheet-review).
-      { "name": "CheatsheetReviewAgent", "class_name": "CheatsheetReviewAgent" },
-    ],
-  },
+  // Secrets: none since cheatsheet-review moved. deploy-workers deletes the AI_GATEWAY_TOKEN and
+  // OPENROUTER_API_KEY left here by earlier deploys.
+  // No Durable Object bindings: every agent runs in its own Worker since its cutover (ADR 0018,
+  // scripts/agent-moves.json): triage and its specialists in custodes-triage, pr-gate in
+  // custodes-pr-gate, cheatsheet-review in custodes-cheatsheet-review.
   // Durable Object classes, declaratively (ADR 0018): replaces the old `migrations` tags v1..v5.
   // One-way: once deployed with `exports`, this Worker cannot go back to `migrations`.
   "exports": {
@@ -71,19 +68,25 @@
       "state": "transferred",
       "transferred_to": "custodes-pr-gate",
     },
-    "CheatsheetReviewAgent": { "type": "durable-object", "storage": "sqlite" },
+    "CheatsheetReviewAgent": {
+      "type": "durable-object",
+      "state": "transferred",
+      "transferred_to": "custodes-cheatsheet-review",
+    },
   },
   // Must match CRON_TRIAGE_POLL / CRON_TRIAGE_PREPARE / CRON_TRIAGE_DIGEST in src/index.ts (UTC).
   // Since the triage and pr-gate cutovers nothing here runs on them (both skip when unbound); they
   // run in custodes-triage and custodes-pr-gate. The clean-up PR removes them.
   "triggers": { "crons": ["17 */4 * * *", "30 5 * * *", "0 7 * * *"] },
-  // Workers AI, for Clef (shadow decision model, ADR 0015) and cheatsheet-review's DeepSeek models
-  // (ADR 0017). Every call names the "custodes" AI Gateway (ClefClient and WorkersAiChat require it):
-  // all agent model traffic goes through one gateway.
+  // NO USE HERE since the cutovers: Clef (pr-gate) and the DeepSeek reviewers (cheatsheet-review)
+  // call Workers AI from their own Workers. Kept so the generated Env type still has it; the
+  // clean-up PR removes it.
   "ai": { "binding": "AI", "remote": true },
   // No KILL_SWITCH binding: a KV binding can write, so an agent could clear its own halt flag.
   // Agents read their state from the broker (/v1/state); only the broker and gateway bind it.
   "services": [{ "binding": "BROKER", "service": "custodes-github-broker" }],
+  // Nothing here acts on these events since cheatsheet-review moved (its own queue,
+  // custodes-inbound-cheatsheet-review): the consumer acks and drops them. The clean-up PR removes it.
   "queues": {
     "consumers": [
       {

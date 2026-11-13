@@ -1,5 +1,5 @@
 import { env } from 'cloudflare:workers';
-import { beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   canonicalJson,
   KeyStore,
@@ -132,6 +132,27 @@ describe('per-Worker broker entrypoints (ADR 0018)', () => {
   it('maps each agent id to at most one Worker', () => {
     const all = Object.values(CALLER_AGENTS).flat();
     expect(new Set(all).size).toBe(all.length);
+  });
+});
+
+describe('approval ids on a per-Worker entrypoint (security review of #116, L2)', () => {
+  it('refuses a signed /v1/act that names an approval: only the broker runs approved actions', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    try {
+      const res = await call('/v1/act', {
+        agentId: 'pr-gate',
+        agentVersion: '0.3.0',
+        runId: '9d7c1e9e-2b1a-4b6e-9a2e-1f7d1c2b3a44',
+        triggeredBy: { kind: 'schedule' },
+        action: { type: 'pr.close', repo: 'mackowski/custodes-sandbox', pull: 1, body: 'x' },
+        approvalId: '30d2f6f4-0814-4ad7-859a-01b8cd18eece',
+      });
+      expect(res.status).toBe(400);
+      expect(await res.json()).toMatchObject({ reason: 'approved actions are run by the broker' });
+      expect(fetchSpy).not.toHaveBeenCalled();
+    } finally {
+      fetchSpy.mockRestore();
+    }
   });
 });
 
@@ -352,13 +373,20 @@ describe('the shared default entrypoint during the transition', () => {
       },
       env,
     );
+  // Every agent is isolated since the last cutover; the tests start from a copy where none is,
+  // then isolate one.
   const isolate = (id: string, where: 'agents' | 'reads'): Policy => {
-    const table: Record<string, object> = policy[where];
+    const unisolated = (table: Record<string, object>) =>
+      Object.fromEntries(
+        Object.entries(table).map(([k, v]): [string, object] => [k, { ...v, isolated: false }]),
+      );
+    const base = { ...policy, agents: unisolated(policy.agents), reads: unisolated(policy.reads) };
+    const table: Record<string, object> = base[where];
     const entries = Object.entries(table).map(([k, v]): [string, object] => [
       k,
       k === id ? { ...v, isolated: true } : v,
     ]);
-    return Policy.parse({ ...policy, [where]: Object.fromEntries(entries) });
+    return Policy.parse({ ...base, [where]: Object.fromEntries(entries) });
   };
 
   it('refuses, on every route, an agent whose policy entry is marked isolated', async () => {
@@ -385,17 +413,11 @@ describe('the shared default entrypoint during the transition', () => {
     }
   });
 
-  it('isolates triage-apply from the start (ADR 0019) and triage with its specialists after their cutover', () => {
-    // triage-apply never ran in the shared Worker, so it has no transition to wait for.
-    // triage and its specialists moved on 2026-11-12 (cutover).
-    const bornIsolated = new Set([
-      'triage-apply',
-      'triage',
-      'implementation-check',
-      'proposal-review',
-      'pr-gate',
-    ]);
+  it('isolates every agent id: the shared entrypoint serves none since the last cutover', () => {
+    // isIsolated() is opt-in, so a new policy entry without `isolated: true` would be served
+    // unsigned by the shared default entrypoint (security review of #116, M1). Every agent runs in
+    // its own Worker (ADR 0018, ADR 0019), so every id must carry the flag.
     for (const id of [...Object.keys(policy.agents), ...Object.keys(policy.reads)])
-      expect(isIsolated(id), id).toBe(bornIsolated.has(id));
+      expect(isIsolated(id), id).toBe(true);
   });
 });
