@@ -98,9 +98,9 @@ comment.
 
 - **Authority:** the triage-apply PAT (a classic `public_repo` token on an account that is admin on
   OWASP/CheatSheetSeries) could do far more if leaked; the policy lets it only assign, label and comment. The
-  policy grants it only behind the per-bundle approval. It can never add the cheatsheet-review
-  trigger label: that PAT is the operator's account, so cheatsheet-review's "who added the label"
-  check would accept it.
+  policy grants it only behind the per-bundle approval. It can never add a label that starts
+  automation (`AUTOMATION_TRIGGER_LABELS`: the cheatsheet-review trigger and `jules`): that PAT is
+  the operator's account, so the automation would take the label as the operator's.
 - **Untrusted input:** proposals are built from model output over issue text. Logins come only from
   GitHub-set fields, and the broker checks assignees and mentions against the thread twice (when
   asked and when run). It counts every `@` not after a letter or digit as a mention, and refuses
