@@ -77,7 +77,13 @@ Do it in this order (done for triage on 2026-11-12/13, PR #111):
      `KeyAdmin` bound as `KEYS_<AGENT>` (only the gateway may bind it, `bindings.test.ts`);
    - `isolated: true` for the agent's ids in `policy.json` (`cutover-moves.test.ts` fails if a
      finished move forgets one);
-   - `AgentsEnv` types and the test bindings in `workers/agents/vitest.config.ts`.
+   - `AgentsEnv` types and the test bindings in `workers/agents/vitest.config.ts`;
+   - the agent's secrets set with `wrangler secret put -c <its config>` in its deploy step, never
+     wrangler-action `secrets:` (it ignores `-c` and writes to custodes-agents);
+   - a step that deletes from custodes-agents any secret only the moved agent used (deploys never
+     delete Worker secrets), and comments marking its now unused vars there;
+   - the moved agent's docs (its knobs now live in its own wrangler file) and the Workers listed
+     in `docs/runbooks/agent-traces.md`.
 
    Merge it and approve **Deploy Workers** in `prod`.
 

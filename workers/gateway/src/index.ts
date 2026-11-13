@@ -131,7 +131,21 @@ app.post('/webhooks/github', async (c) => {
   await c.env.INBOUND.send(msg, { contentType: 'json' });
   // pr-gate runs in its own Worker and consumes its own queue (ADR 0018); it reads only
   // pull request events, so only those go there.
-  if (msg.event === 'pull_request') await c.env.INBOUND_PR_GATE.send(msg, { contentType: 'json' });
+  if (msg.event === 'pull_request') {
+    // The shared queue (cheatsheet-review, no poll fallback) already has it: a failure here must
+    // not make GitHub see an error. pr-gate catches up on its next poll.
+    try {
+      await c.env.INBOUND_PR_GATE.send(msg, { contentType: 'json' });
+    } catch {
+      console.warn(
+        JSON.stringify({
+          event: 'webhook.queue_failed',
+          queue: 'pr-gate',
+          delivery: msg.deliveryId,
+        }),
+      );
+    }
+  }
   return c.json({ queued: msg.id }, 202);
 });
 

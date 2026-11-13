@@ -32,7 +32,8 @@
     // The gateway's approval-link page; triage puts triage-apply's tokens after it (ADR 0019).
     "APPROVAL_LINK_BASE": "https://custodes.work/admin/approvals/link",
   },
-  // Secrets (set by CI on deploy): AI_GATEWAY_TOKEN
+  // Secrets (set by deploy-workers with `wrangler secret put -c`, not wrangler-action `secrets:`,
+  // which writes to custodes-agents): AI_GATEWAY_TOKEN
   "durable_objects": {
     "bindings": [
       { "name": "TriageAgent", "class_name": "TriageAgent" },

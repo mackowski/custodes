@@ -33,7 +33,8 @@
     "JEV_GATEWAY_PATH": "api/alpha/decisions",
     "TRACE_PAYLOADS": "true",
   },
-  // Secrets (set by CI on deploy): AI_GATEWAY_TOKEN, OPENROUTER_API_KEY
+  // Secrets (set by deploy-workers with `wrangler secret put -c`, not wrangler-action `secrets:`,
+  // which writes to custodes-agents): AI_GATEWAY_TOKEN, OPENROUTER_API_KEY
   "durable_objects": {
     "bindings": [
       { "name": "PrGateAgent", "class_name": "PrGateAgent" },
