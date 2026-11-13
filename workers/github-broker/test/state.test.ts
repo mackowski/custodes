@@ -5,12 +5,24 @@ import { sharedAgentApp } from '../src/index.js';
 import { policy } from '../src/policy.js';
 
 const kill = () => new KillSwitch(env.KILL_SWITCH);
-// /v1/state itself, on the shared entrypoint, for two agents that run there. pr-gate has its own
-// Worker now (isolated); this copy of the policy keeps it on the shared app for the test only.
+// /v1/state itself, on the shared entrypoint. Every agent has its own Worker now (isolated); this
+// copy of the policy keeps two of them on the shared app for the test only.
+const shared = <T extends { isolated?: boolean }>(entry: T | undefined): T => ({
+  ...entry!,
+  isolated: false,
+});
 const app = sharedAgentApp({
   ...policy,
-  agents: { ...policy.agents, 'pr-gate': { ...policy.agents['pr-gate']!, isolated: false } },
-  reads: { ...policy.reads, 'pr-gate': { ...policy.reads['pr-gate']!, isolated: false } },
+  agents: {
+    ...policy.agents,
+    'pr-gate': shared(policy.agents['pr-gate']),
+    'cheatsheet-review': shared(policy.agents['cheatsheet-review']),
+  },
+  reads: {
+    ...policy.reads,
+    'pr-gate': shared(policy.reads['pr-gate']),
+    'cheatsheet-review': shared(policy.reads['cheatsheet-review']),
+  },
 });
 const state = (body: unknown) =>
   app.request(

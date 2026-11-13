@@ -352,13 +352,20 @@ describe('the shared default entrypoint during the transition', () => {
       },
       env,
     );
+  // Every agent is isolated since the last cutover; the tests start from a copy where none is,
+  // then isolate one.
   const isolate = (id: string, where: 'agents' | 'reads'): Policy => {
-    const table: Record<string, object> = policy[where];
+    const unisolated = (table: Record<string, object>) =>
+      Object.fromEntries(
+        Object.entries(table).map(([k, v]): [string, object] => [k, { ...v, isolated: false }]),
+      );
+    const base = { ...policy, agents: unisolated(policy.agents), reads: unisolated(policy.reads) };
+    const table: Record<string, object> = base[where];
     const entries = Object.entries(table).map(([k, v]): [string, object] => [
       k,
       k === id ? { ...v, isolated: true } : v,
     ]);
-    return Policy.parse({ ...policy, [where]: Object.fromEntries(entries) });
+    return Policy.parse({ ...base, [where]: Object.fromEntries(entries) });
   };
 
   it('refuses, on every route, an agent whose policy entry is marked isolated', async () => {
@@ -394,6 +401,7 @@ describe('the shared default entrypoint during the transition', () => {
       'implementation-check',
       'proposal-review',
       'pr-gate',
+      'cheatsheet-review',
     ]);
     for (const id of [...Object.keys(policy.agents), ...Object.keys(policy.reads)])
       expect(isIsolated(id), id).toBe(bornIsolated.has(id));

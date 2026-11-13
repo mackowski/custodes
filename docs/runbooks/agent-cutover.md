@@ -63,7 +63,8 @@ until its key is pinned: its `/v1/state` call is signed with a key the broker do
 the broker refuses it (`broker.caller.refused`, `unknown_key`) and `guard()` fails closed. Until then
 the Keyholder logs one refusal per guarded call (a few a day, from the crons).
 
-Do it in this order (done for triage on 2026-11-12/13, PR #111):
+Do it in this order (done for triage on 2026-11-12/13, PR #111, and for pr-gate on 2026-11-13,
+PRs #114 and #115):
 
 1. **Follow-up PR, by hand, without the key.** The **Agent key pin** workflow can only read keys once
    the gateway binds the Worker, which is part of this PR. It contains:
@@ -78,6 +79,9 @@ Do it in this order (done for triage on 2026-11-12/13, PR #111):
    - `isolated: true` for the agent's ids in `policy.json` (`cutover-moves.test.ts` fails if a
      finished move forgets one);
    - `AgentsEnv` types and the test bindings in `workers/agents/vitest.config.ts`;
+   - for cheatsheet-review, which has no poll to catch up: the gateway must fail the delivery when
+     its queue send fails (GitHub then shows the delivery as failed and it can be redelivered);
+     the other queues are best effort;
    - the agent's secrets set with `wrangler secret put -c <its config>` in its deploy step, never
      wrangler-action `secrets:` (it ignores `-c` and writes to custodes-agents);
    - a step that deletes from custodes-agents any secret only the moved agent used (deploys never
@@ -124,6 +128,11 @@ Cloudflare supports for zero-downtime transfers. Once the agent runs fine, a lat
   such binding (code there checks first; a missing check fails closed, as an outage);
 - the `transferred` entries, once Cloudflare reports them stale (check that dropping a tombstone is
   allowed before removing it).
+- after the last cutover (cheatsheet-review), what custodes-agents keeps only for the generated
+  types: the shared crons, the `custodes-inbound` queue (consumer here, `INBOUND` producer in the
+  gateway), the `AI` binding, the pr-gate vars, and the `hasTriage`/`hasPrGate`/`hasCheatsheetReview`
+  branches. Then decide whether the Worker stays at all (the gateway's `AGENTS` binding still serves
+  `/registry`).
 
 ## If something is wrong after the move
 

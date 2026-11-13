@@ -25,7 +25,9 @@
         "OWASP/CheatSheetSeries": ["pr.review.inline"]
       },
       "rateLimitPerHour": 20,
-      "labels": ["custodes_cheatsheet_review"]
+      "labels": ["custodes_cheatsheet_review"],
+      "isolated": true,
+      "$comment_isolated": "ADR 0018: moved to custodes-cheatsheet-review (cutover); the shared entrypoint refuses it."
     },
     "triage-apply": {
       "$comment": "ADR 0019 (#108): applies one triage proposal per issue (assign, labels, comment) only after the operator approves the bundle through the e-mailed link. hitl: every action needs that approval. Own Worker and key (ADR 0018). Comments carry only the hidden trailer (operator decision, #108). Approvals live 7 days, 50 pending at most: the digest is daily and read in batches.",
@@ -112,7 +114,8 @@
         "cheatsheet",
         "comments",
         "pull_reviews"
-      ]
+      ],
+      "isolated": true
     },
     "triage-apply": {
       "$comment": "ADR 0019: the issue and its comments, to check a proposal against the thread before asking for an approval (the broker reads them again before running it).",

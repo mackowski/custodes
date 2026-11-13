@@ -79,7 +79,8 @@ describe('agent moves (scripts/agent-moves.json)', () => {
       const target = jsonc(`${m.dir}/wrangler.jsonc`);
       for (const c of m.classes) {
         expect(
-          shared.durable_objects?.bindings?.some((b) => b.class_name === c),
+          // No `durable_objects` at all (every agent moved) also means no binding.
+          shared.durable_objects?.bindings?.some((b) => b.class_name === c) ?? false,
           c,
         ).toBe(false);
         expect(shared.exports?.[c]?.transferred_to, c).toBe(m.target);

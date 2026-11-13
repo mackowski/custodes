@@ -4,6 +4,9 @@
 - Repositories: mackowski/custodes-sandbox (posts directly) and OWASP/CheatSheetSeries (every
   review waits for the operator's approval on the e-mailed link)
 - Class: `workers/agents/src/agents/cheatsheet-review.ts` · Logic: `workers/agents/src/agents/cheatsheet-review/`
+- Worker: `custodes-cheatsheet-review` (`workers/cheatsheet-review/wrangler.jsonc`, its knobs and
+  bindings), with its own Keyholder key and broker entrypoint `CheatsheetReviewBroker` (ADR 0018).
+  Webhook events reach it on its own queue, `custodes-inbound-cheatsheet-review`.
 - Policy: `agents.cheatsheet-review` (`pr.review.inline`, `issue.label.remove` limited to the trigger
   label, 20/h; `pr.review.inline` needs the operator's approval on OWASP, `requiresApprovalOn`) and `reads.cheatsheet-review` (`pull`, `pull_files`, `pull_file_at_ref`, `timeline`,
   `issue`, `cheatsheets`, `cheatsheet`, `comments`, `pull_reviews`). ADR 0017 and its 2026-11-05 amendment.

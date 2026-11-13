@@ -262,6 +262,45 @@ describe('queue consumer', () => {
     }
   });
 
+  it('after the cheatsheet-review cutover (no agent bound here) acks and drops its events', async () => {
+    const shared = {
+      ...testEnv,
+      PrGateAgent: undefined,
+      CheatsheetReviewAgent: undefined,
+    } as unknown as AgentsEnv;
+    const logs: string[] = [];
+    const spy = vi.spyOn(console, 'log').mockImplementation((m: unknown) => {
+      logs.push(String(m));
+    });
+    try {
+      const labeled = message(
+        event(
+          {
+            repo: 'mackowski/custodes-sandbox',
+            payload: {
+              action: 'labeled',
+              repository: { full_name: 'mackowski/custodes-sandbox' },
+              sender: { login: 'mackowski' },
+              pull_request: { number: 12 },
+              label: { name: 'custodes_cheatsheet_review' },
+            },
+          },
+          'labeled',
+        ),
+      );
+      await worker.queue(
+        { queue: 'custodes-inbound', messages: [labeled] } as unknown as MessageBatch,
+        shared,
+      );
+      expect(labeled.ack).toHaveBeenCalledOnce();
+      expect(labeled.retry).not.toHaveBeenCalled();
+      expect(logs.some((l) => l.includes('runs in custodes-cheatsheet-review'))).toBe(true);
+      expect(logs.some((l) => l.includes('"outcome":"scheduled"'))).toBe(false);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it('acks ignored and malformed events without retrying', async () => {
     for (const body of [event({ repo: 'attacker/repo' }), event({}, 'edited'), { bogus: true }]) {
       const msg = await run(body);

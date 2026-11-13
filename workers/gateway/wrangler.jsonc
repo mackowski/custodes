@@ -31,6 +31,14 @@
     // pr-gate in its own Worker (ADR 0018, cutover): /agents/pr-gate-agent/* and its keys.
     { "binding": "PR_GATE", "service": "custodes-pr-gate" },
     { "binding": "KEYS_PR_GATE", "service": "custodes-pr-gate", "entrypoint": "KeyAdmin" },
+    // cheatsheet-review in its own Worker (ADR 0018, cutover): /agents/cheatsheet-review-agent/*
+    // and its keys.
+    { "binding": "CHEATSHEET_REVIEW", "service": "custodes-cheatsheet-review" },
+    {
+      "binding": "KEYS_CHEATSHEET_REVIEW",
+      "service": "custodes-cheatsheet-review",
+      "entrypoint": "KeyAdmin",
+    },
     // triage-apply's public keys and Rotate for /admin/agent-keys (ADR 0018, ADR 0019). It is a new
     // Worker deployed before the gateway, so the binding exists from the first deploy; the other
     // agents' KEYS_* bindings come with their cutovers.
@@ -40,12 +48,14 @@
       "entrypoint": "KeyAdmin",
     },
   ],
-  // custodes-inbound: the shared Worker (cheatsheet-review). custodes-inbound-pr-gate: pull request
-  // events for pr-gate in its own Worker; each consumer ignores what is not for it.
+  // Pull request events go to each agent's own queue: custodes-inbound-cheatsheet-review (its trigger
+  // label) and custodes-inbound-pr-gate. custodes-inbound: the shared Worker, which acts on nothing
+  // since the cutovers; the clean-up PR removes it. Each consumer ignores what is not for it.
   "queues": {
     "producers": [
       { "binding": "INBOUND", "queue": "custodes-inbound" },
       { "binding": "INBOUND_PR_GATE", "queue": "custodes-inbound-pr-gate" },
+      { "binding": "INBOUND_CHEATSHEET_REVIEW", "queue": "custodes-inbound-cheatsheet-review" },
     ],
   },
 }

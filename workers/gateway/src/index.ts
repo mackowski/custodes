@@ -106,6 +106,17 @@ function queuedFields(p: GitHubWebhookEnvelope): GitHubWebhookEnvelope {
     ...(p.label ? { label: { name: p.label.name.slice(0, 50) } } : {}),
   };
 }
+/** A queue whose consumer can do without the event: a failure is logged, never returned to GitHub. */
+async function bestEffortSend(queue: Queue, name: string, msg: InboundEvent): Promise<void> {
+  try {
+    await queue.send(msg, { contentType: 'json' });
+  } catch {
+    console.warn(
+      JSON.stringify({ event: 'webhook.queue_failed', queue: name, delivery: msg.deliveryId }),
+    );
+  }
+}
+
 app.post('/webhooks/github', async (c) => {
   const raw = await c.req.text();
   const ok = await verifyGitHubWebhookSignature(
@@ -128,24 +139,17 @@ app.post('/webhooks/github', async (c) => {
     repo: parsed.data.repository.full_name,
     payload: queuedFields(parsed.data),
   };
-  await c.env.INBOUND.send(msg, { contentType: 'json' });
-  // pr-gate runs in its own Worker and consumes its own queue (ADR 0018); it reads only
-  // pull request events, so only those go there.
+  // Every agent runs in its own Worker and consumes its own queue (ADR 0018); both read only pull
+  // request events, so only those go there.
   if (msg.event === 'pull_request') {
-    // The shared queue (cheatsheet-review, no poll fallback) already has it: a failure here must
-    // not make GitHub see an error. pr-gate catches up on its next poll.
-    try {
-      await c.env.INBOUND_PR_GATE.send(msg, { contentType: 'json' });
-    } catch {
-      console.warn(
-        JSON.stringify({
-          event: 'webhook.queue_failed',
-          queue: 'pr-gate',
-          delivery: msg.deliveryId,
-        }),
-      );
-    }
+    // cheatsheet-review has no poll fallback: a failure here must make GitHub see an error, so the
+    // delivery shows as failed and can be redelivered.
+    await c.env.INBOUND_CHEATSHEET_REVIEW.send(msg, { contentType: 'json' });
+    // pr-gate catches up on its next poll.
+    await bestEffortSend(c.env.INBOUND_PR_GATE, 'pr-gate', msg);
   }
+  // The shared Worker acts on none of these since the cutovers; the clean-up PR removes the queue.
+  await bestEffortSend(c.env.INBOUND, 'shared', msg);
   return c.json({ queued: msg.id }, 202);
 });
 
@@ -326,7 +330,7 @@ app.all('/agents/*', async (c) => {
   );
 });
 
-/** Agent classes that moved to `custodes-triage` (ADR 0018); the rest still run in custodes-agents. */
+/** Agent classes that moved to `custodes-triage` (ADR 0018). */
 const TRIAGE_CLASSES = new Set([
   'triage-agent',
   'implementation-check-agent',
@@ -335,13 +339,14 @@ const TRIAGE_CLASSES = new Set([
 
 /** The Worker that runs the class in `/agents/<class>/...`. */
 export function agentWorker(
-  env: { AGENTS: Fetcher; TRIAGE: Fetcher; PR_GATE: Fetcher },
+  env: { AGENTS: Fetcher; TRIAGE: Fetcher; PR_GATE: Fetcher; CHEATSHEET_REVIEW: Fetcher },
   path: string,
 ): Fetcher {
   const cls = path.split('/').filter(Boolean)[1] ?? '';
   if (TRIAGE_CLASSES.has(cls)) return env.TRIAGE;
-  // pr-gate moved to custodes-pr-gate (ADR 0018).
+  // pr-gate and cheatsheet-review moved to their own Workers (ADR 0018).
   if (cls === 'pr-gate-agent') return env.PR_GATE;
+  if (cls === 'cheatsheet-review-agent') return env.CHEATSHEET_REVIEW;
   return env.AGENTS;
 }
 
