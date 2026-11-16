@@ -137,10 +137,12 @@ Once all three agents had moved, `custodes-agents` was reduced to a Worker that 
 Kept on purpose, for later PRs:
 
 - **The tombstones** (`transferred`, and `HelloAgent` `deleted`) in `workers/agents/wrangler.jsonc`.
-  Cloudflare reports a stale one with a `stale_tombstone` notice on every deploy; drop it then. The
-  deploy guard reads the `transferred` entries to know which moves are done
-  (`agent-cutover-config.ts moved`): change it first. Rehearse step G of
-  `scripts/do-transfer-test/README.md` before dropping any.
+  The rehearsal for this PR (2026-11-16, steps F and G of `scripts/do-transfer-test/README.md`)
+  showed: with the class gone from the code, the `transferred` tombstone deploys with the notice
+  `stale_tombstone` ("Safe to remove from `exports`"), and a deploy without the tombstone is accepted
+  with the target's data untouched. So they can go in a later PR; the deploy guard reads the
+  `transferred` entries to know which moves are done (`agent-cutover-config.ts moved`), so change
+  it first.
 - **`custodes-agents` itself**, for `/registry`. Decide whether the registry moves to the gateway
   (then this Worker, its deploy steps and the `AGENTS` binding go) or the Worker stays.
 - **The `custodes-inbound` queue and its DLQ** in Terraform (nothing produces to or consumes it now).
