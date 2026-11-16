@@ -155,4 +155,21 @@ describe('Access JWT (#104: verified by the gateway and again by the broker)', (
       ).toBe(null);
     expect(fetches).toHaveLength(1);
   });
+
+  it('stops using cached keys an hour after the last good fetch when fetching fails (fail closed)', async () => {
+    let t = NOW;
+    let up = true;
+    const o = {
+      now: () => t,
+      fetchImpl: () =>
+        up ? Promise.resolve(Response.json(jwks)) : Promise.reject(new Error('down')),
+    };
+    const good = await mint({ email: 'op@example.com', exp: NOW / 1000 + 10 * 3600 });
+    expect(await verifyAccessToken(good, TEAM, AUD, o)).not.toBe(null);
+    up = false;
+    t = NOW + 30 * 60_000; // past the 10-minute TTL, fetch fails: old keys still used
+    expect(await verifyAccessToken(good, TEAM, AUD, o)).not.toBe(null);
+    t = NOW + 61 * 60_000; // past an hour: refused
+    expect(await verifyAccessToken(good, TEAM, AUD, o)).toBe(null);
+  });
 });

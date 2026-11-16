@@ -2733,4 +2733,20 @@ describe('links: reference definitions and HTML href/src (#95)', () => {
       '//evil.example/post',
     ]);
   });
+
+  it('treats <pre> in inline code as text, and keeps protocol-relative markup in samples audited (review L-a, L-b)', () => {
+    expect([...fencedLines('Use `<pre>` for samples.\n[1]: //evil.example/x\n')]).toEqual([]);
+    const r = scanCode(
+      [2],
+      ' a',
+      '+<a href="https://evil.example/s">x</a>',
+      '+See [it](https://evil.example/s).',
+    );
+    expect(r.links).toEqual([
+      expect.objectContaining({ line: 3, context: 'See [it](https://evil.example/s).' }),
+    ]);
+    expect(
+      scanCode([2], ' a', '+<a href="//evil.example/p">x</a>').links.map((l) => l.url),
+    ).toEqual(['//evil.example/p']);
+  });
 });

@@ -219,7 +219,12 @@ export function scanLinks(
         prior.line = link.line;
         prior.context = link.context;
       }
-      if (prior?.markup && !link.markup) delete prior.markup;
+      if (prior?.markup && !link.markup) {
+        // Audit it against the sentence that cites it, not the code sample (review of #125, L-b).
+        delete prior.markup;
+        prior.line = link.line;
+        prior.context = link.context;
+      }
       return;
     }
     seen.add(link.url);
@@ -258,7 +263,8 @@ export function scanLinks(
       // the bare-URL scan always audited it (M2).
       const markup = new Set(markupTargets(l.text).map(trailing));
       const inCode = codeLines?.has(l.newLine) === true;
-      const sample = (url: string) => inCode && markup.has(url) && !/^https?:/i.test(url);
+      // Never an http(s) or protocol-relative target: those render as live links (L-a).
+      const sample = (url: string) => inCode && markup.has(url) && !/^(?:https?:)?\/\//i.test(url);
       const flag = (url: string) => (markup.has(url) ? { markup: true as const } : {});
       const now = targets(l.text).filter((u) => !sample(u));
       const cited = citationTargets(l.text);

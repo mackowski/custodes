@@ -125,7 +125,8 @@ export function fencedLines(markdown: string): Set<number> {
   // <pre> blocks are code too.
   let pre = false;
   lines.forEach((line, i) => {
-    if (/<pre\b/i.test(line)) pre = true;
+    // Not inside inline code (``Use `<pre>` for samples``), which is text (review of #125, L-a).
+    if (/<pre\b/i.test(line.replace(CODE_SPAN, ''))) pre = true;
     if (pre) out.add(i + 1);
     if (/<\/pre>/i.test(line)) pre = false;
   });
