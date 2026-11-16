@@ -1,17 +1,9 @@
-import type { AgentManifest } from '@custodes/schema';
-import { INSTANCE_REPOS } from '../instances.js';
 import { SpecialistAgent, type SpecialistJob } from './specialists/agent.js';
 import { checkImplementation } from './specialists/implementation.js';
 import type { SpecialistDeps } from './specialists/run.js';
 
-export const IMPLEMENTATION_CHECK_MANIFEST: AgentManifest = {
-  id: 'implementation-check',
-  version: '0.1.0',
-  description:
-    'Read-only: for issues accepted (ACK_OBTAINED) over a week ago, checks whether the cheat sheets already implement them and quotes the evidence. Called by triage.',
-  mode: 'readonly',
-  repos: [...INSTANCE_REPOS],
-};
+export { IMPLEMENTATION_CHECK_MANIFEST } from '../manifests.js';
+import { IMPLEMENTATION_CHECK_MANIFEST } from '../manifests.js';
 
 /** A result is reused for this long while the issue is unchanged. */
 const RECHECK_AFTER_MS = 30 * 86_400_000;

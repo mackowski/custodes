@@ -6,7 +6,7 @@
 import { CheatSheetPath } from '@custodes/schema';
 import type { PullFile } from '../triage/github.js';
 import { addedLines, removedLines, type Hunk } from './diff.js';
-import { citationTargets, knownTargetForm, maskedLine } from './links.js';
+import { CODE_SPAN, citationTargets, knownTargetForm, maskedLine } from './links.js';
 
 /**
  * A cheat sheet or draft under the broker's strict name rule (no newlines, one level). File names
@@ -40,8 +40,6 @@ export const AMBIGUOUS_MAX_LINES = 30;
  */
 const mdTargets = (t: string) => citationTargets(t).join('\n');
 
-/** Inline code: n-backtick spans (CommonMark) and <code> elements. */
-const CODE_SPAN = /(?<!`)(`+)(?:[^`]|[^`][\s\S]*?[^`])\1(?!`)|<code>[\s\S]*?<\/code>/gi;
 /** Longer changed lines skip the regexes and go to the full review. */
 const MAX_SCANNED_LINE = 4_000;
 
@@ -127,7 +125,8 @@ export function fencedLines(markdown: string): Set<number> {
   // <pre> blocks are code too.
   let pre = false;
   lines.forEach((line, i) => {
-    if (/<pre\b/i.test(line)) pre = true;
+    // Not inside inline code (``Use `<pre>` for samples``), which is text (review of #125, L-a).
+    if (/<pre\b/i.test(line.replace(CODE_SPAN, ''))) pre = true;
     if (pre) out.add(i + 1);
     if (/<\/pre>/i.test(line)) pre = false;
   });

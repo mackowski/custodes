@@ -9,15 +9,8 @@ import {
   type JevState,
   type JevTransport,
 } from '@custodes/llm';
-import type { AgentManifest } from '@custodes/schema';
 import type { AgentsEnv } from '../env.js';
-import {
-  INSTANCE_REPOS,
-  instanceOf,
-  OWASP_INSTANCE,
-  UnknownInstanceError,
-  unknownInstance,
-} from '../instances.js';
+import { instanceOf, OWASP_INSTANCE, UnknownInstanceError, unknownInstance } from '../instances.js';
 import { closeComment } from './pr-gate/comment.js';
 import { decide, type Decision } from './pr-gate/decide.js';
 import { APPROVAL_QUESTIONS } from './pr-gate/approval.js';
@@ -46,14 +39,8 @@ import {
   type PublicPull,
 } from './triage/github.js';
 
-export const PR_GATE_MANIFEST: AgentManifest = {
-  id: 'pr-gate',
-  version: '0.1.0',
-  description:
-    'Checks open community PRs against CONTRIBUTING.md (approved and assigned issue, minor fix, AI disclosure) and closes those that break it with a signed comment. Daily e-mail summary.',
-  mode: 'hotl',
-  repos: [...INSTANCE_REPOS],
-};
+export { PR_GATE_MANIFEST } from '../manifests.js';
+import { PR_GATE_MANIFEST } from '../manifests.js';
 
 export const PR_GATE_INSTANCE = OWASP_INSTANCE;
 

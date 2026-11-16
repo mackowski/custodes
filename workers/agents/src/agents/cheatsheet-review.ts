@@ -16,7 +16,7 @@ import {
   type ChatModel,
   type ReviewModel,
 } from '@custodes/llm';
-import type { AgentManifest, BrokerAction, BrokerResponse, Trigger } from '@custodes/schema';
+import type { BrokerAction, BrokerResponse, Trigger } from '@custodes/schema';
 import type { AgentsEnv } from '../env.js';
 import { instanceOf, UnknownInstanceError, unknownInstance } from '../instances.js';
 import {
@@ -48,15 +48,8 @@ import {
 import { describeError } from './triage/errors.js';
 import { BrokerGitHubReader, issueLabels, type PublicPull } from './triage/github.js';
 
-export const CHEATSHEET_REVIEW_MANIFEST: AgentManifest = {
-  id: 'cheatsheet-review',
-  version: '0.2.0',
-  description:
-    'Multi-model review of a cheat sheet pull request when the operator adds the trigger label: posts one review with inline suggestions, e-mails a close recommendation for low-quality PRs.',
-  mode: 'hotl',
-  // OWASP reviews are posted only after the operator approves each one (policy requiresApprovalOn).
-  repos: ['mackowski/custodes-sandbox', 'OWASP/CheatSheetSeries'],
-};
+export { CHEATSHEET_REVIEW_MANIFEST } from '../manifests.js';
+import { CHEATSHEET_REVIEW_MANIFEST } from '../manifests.js';
 
 /** At most this many model calls at once: AI Gateway's rate limit is shared by every agent. */
 const MAX_CONCURRENT_CALLS = 4;

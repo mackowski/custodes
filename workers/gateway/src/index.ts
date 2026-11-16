@@ -1,6 +1,11 @@
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { importPublicKey, KillSwitch, verifyAttestation, verifyCallerIntent } from '@custodes/core';
+import {
+  accessTokenOf,
+  importPublicKey,
+  verifyAttestation,
+  verifyCallerIntent,
+} from '@custodes/core';
 import { verifyGitHubWebhookSignature } from '@custodes/github';
 import {
   AgentId,
@@ -175,30 +180,39 @@ admin.get('/agents', async (c) => {
   });
 });
 
+/**
+ * Every admin write is decided by the broker, which verifies the operator's own Access token
+ * again (#104): the gateway forwards it and sends no identity of its own. The kill switch is
+ * written there too; the gateway no longer binds it.
+ */
+function asOperator(c: { req: { raw: Request } }, body?: unknown): RequestInit {
+  return {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'cf-access-jwt-assertion': accessTokenOf(c.req.raw) ?? '',
+    },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  };
+}
+
 admin.post('/agents/:id/halt', async (c) => {
   const id = c.req.param('id');
   if (id !== '*' && !AgentId.safeParse(id).success) return c.json({ error: 'bad agent id' }, 400);
   const body = HaltRequest.safeParse(await c.req.json().catch(() => null));
   if (!body.success) return c.json({ error: body.error.message }, 400);
-  const actor = c.get('actor');
-  await new KillSwitch(c.env.KILL_SWITCH).halt(id, body.data.reason, actor.subject);
-  console.log(
-    JSON.stringify({
-      event: 'admin.halt',
-      agentId: id,
-      by: actor.subject,
-      reason: body.data.reason,
-    }),
-  );
-  return c.json({ halted: id });
+  console.log(JSON.stringify({ event: 'admin.halt', agentId: id, by: c.get('actor').subject }));
+  return proxy(c.env.BROKER, `/v1/agents/${encodeURIComponent(id)}/halt`, asOperator(c, body.data));
 });
 
 admin.post('/agents/:id/resume', async (c) => {
   const id = c.req.param('id');
   if (id !== '*' && !AgentId.safeParse(id).success) return c.json({ error: 'bad agent id' }, 400);
-  await new KillSwitch(c.env.KILL_SWITCH).resume(id);
+  // Resuming lets an agent act again: approvers only (the broker checks again).
+  if (!isApprover(c.get('actor'), c.env.APPROVER_EMAILS))
+    return c.json({ error: 'only an approver may resume an agent' }, 403);
   console.log(JSON.stringify({ event: 'admin.resume', agentId: id, by: c.get('actor').subject }));
-  return c.json({ resumed: id });
+  return proxy(c.env.BROKER, `/v1/agents/${encodeURIComponent(id)}/resume`, asOperator(c));
 });
 
 admin.get('/approvals', (c) => proxy(c.env.BROKER, '/v1/approvals'));
@@ -224,14 +238,7 @@ admin.post('/approvals/link/:token', async (c) => {
   if (choice !== 'approve' && choice !== 'reject') return c.json({ error: 'bad decision' }, 400);
   const res = await c.env.BROKER.fetch(
     `https://broker.internal/v1/approvals/token/${encodeURIComponent(c.req.param('token'))}/decide`,
-    {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        decision: choice === 'approve' ? 'approved' : 'rejected',
-        by: actor.subject,
-      }),
-    },
+    asOperator(c, { decision: choice === 'approve' ? 'approved' : 'rejected' }),
   );
   if (res.status === 404) return c.body(invalidPage(), 404, PAGE_HEADERS);
   const out = await res.json<DecideResult>();
@@ -249,11 +256,7 @@ admin.post('/approvals/:id/:decision{approve|reject}', async (c) => {
     return c.json({ error: 'approve through the e-mailed link, which shows the action' }, 400);
   const id = c.req.param('id');
   if (!UUID.test(id)) return c.json({ error: 'bad approval id' }, 400);
-  return proxy(c.env.BROKER, `/v1/approvals/${id}/decide`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ decision: 'rejected', by: c.get('actor').subject }),
-  });
+  return proxy(c.env.BROKER, `/v1/approvals/${id}/decide`, asOperator(c, { decision: 'rejected' }));
 });
 admin.get('/audit', (c) => {
   const q = new URL(c.req.url).search;
@@ -305,10 +308,13 @@ admin.get('/keys', (c) => proxy(c.env.BROKER, '/v1/keys'));
 admin.post('/keys/:agent/rotate', (c) => {
   const agent = c.req.param('agent');
   if (!AgentId.safeParse(agent).success) return c.json({ error: 'bad agent id' }, 400);
+  // The broker's attestation key: approvers only, and the broker checks again (#104).
+  if (!isApprover(c.get('actor'), c.env.APPROVER_EMAILS))
+    return c.json({ error: 'only an approver may rotate keys' }, 403);
   console.log(
     JSON.stringify({ event: 'admin.keys.rotate', agentId: agent, by: c.get('actor').subject }),
   );
-  return proxy(c.env.BROKER, `/v1/keys/${agent}/rotate`, { method: 'POST' });
+  return proxy(c.env.BROKER, `/v1/keys/${agent}/rotate`, asOperator(c));
 });
 
 app.route('/admin', admin);
@@ -323,6 +329,10 @@ app.all('/agents/*', async (c) => {
     return c.json({ error: 'service tokens may only trigger run, digest or summary' }, 403);
   url.host = 'agents.internal';
   const headers = new Headers(c.req.raw.headers);
+  // Never hand the operator's Access credentials to an agent Worker: since #104 that token is what
+  // the broker needs to decide, rotate, halt and resume (review of #125, H1). Agents get only the
+  // identity the gateway verified.
+  for (const h of AGENT_STRIPPED_HEADERS) headers.delete(h);
   headers.set('x-custodes-actor', actor.subject);
   headers.set('x-custodes-actor-via', actor.via);
   // Only a class that has its own Worker is routed; anything else is a 404 here, never a fallback
@@ -331,6 +341,16 @@ app.all('/agents/*', async (c) => {
   if (worker === null) return c.json({ error: 'unknown agent class' }, 404);
   return worker.fetch(new Request(url, { method: c.req.method, headers, body: c.req.raw.body }));
 });
+
+/** Request headers that carry the operator's credentials, removed before proxying to an agent. */
+export const AGENT_STRIPPED_HEADERS = [
+  'cf-access-jwt-assertion',
+  'cf-access-token',
+  'cf-access-client-id',
+  'cf-access-client-secret',
+  'cookie',
+  'authorization',
+] as const;
 
 /** Agent classes that moved to `custodes-triage` (ADR 0018). */
 const TRIAGE_CLASSES = new Set([

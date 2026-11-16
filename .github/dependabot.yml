@@ -4,11 +4,16 @@ updates:
     directory: /
     schedule: { interval: weekly, day: monday }
     open-pull-requests-limit: 10
-    # Respect the 3-day release-age gate used by pnpm (minimumReleaseAge: 4320)
-    cooldown: { default-days: 3 }
+    # Respect the 7-day release-age gate used by pnpm (minimumReleaseAge: 10080). One cooldown per
+    # ecosystem entry is all Dependabot allows, so tooling waits as long as runtime code (#105).
+    cooldown: { default-days: 7 }
     groups:
       # Group order matters: a dependency joins the first group whose pattern matches.
-      cloudflare: { patterns: ['wrangler', 'agents', '@cloudflare/*'] }
+      # Code that ships inside the Workers (docs/security/worker-bundles.json), in its own PR so
+      # it is reviewed apart from tooling (#105).
+      runtime:
+        patterns: ['agents', 'zod', 'hono', '@modelcontextprotocol/*', 'jose']
+      cloudflare: { patterns: ['wrangler', '@cloudflare/*'] }
       lint: { patterns: ['eslint*', '@eslint/*', 'typescript-eslint', 'prettier', 'globals'] }
       test: { patterns: ['vitest', '@vitest/*'] }
       # Everything else that is minor/patch lands as one PR; majors stay separate PRs.

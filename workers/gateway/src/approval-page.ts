@@ -4,7 +4,7 @@
  * URL. Everything shown can hold model output or third-party text: it is HTML-escaped, never
  * linked or rendered as Markdown, and the page has no script. It cannot be framed (clickjacking).
  */
-import type { AdminActor, ApprovalRequest, BrokerResponse } from '@custodes/schema';
+import type { ApprovalRequest, BrokerResponse } from '@custodes/schema';
 
 export const PAGE_HEADERS = {
   'content-type': 'text/html; charset=utf-8',
@@ -15,15 +15,8 @@ export const PAGE_HEADERS = {
   'cache-control': 'no-store',
 } as const;
 
-/** Only a person on the approver list decides: not a service token, not any other Access user. */
-export function isApprover(actor: AdminActor, approverEmails: string): boolean {
-  if (actor.via !== 'access-user') return false;
-  const list = approverEmails
-    .split(',')
-    .map((s) => s.trim().toLowerCase())
-    .filter(Boolean);
-  return list.includes(actor.subject.toLowerCase());
-}
+/** Shared with the broker, which re-checks it (#104). */
+export { isApprover } from '@custodes/core';
 
 /**
  * HTML-escaped, with invisible characters shown: a bidi override or zero-width character would

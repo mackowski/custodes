@@ -152,7 +152,7 @@ Kept on purpose, for later PRs:
   Email Routing catch-all for custodes.work sends every incoming message to this Worker
   (`infra/terraform/modules/email-routing`, `agents_worker_name`), which has never had an `email()`
   handler; deleting the Worker means changing that rule first.
-- **The `custodes-inbound` queue and its DLQ** in Terraform (nothing produces to or consumes it now).
+- ~~The `custodes-inbound` queue and its DLQ in Terraform~~: removed in the #95/#104/#105 PR (apply after a green deploy of the gateway without `INBOUND`).
 - **The `isolated` flags in the policy.** They no longer decide anything (the default entrypoint
   refuses every id); `cutover-moves.test.ts` still checks them.
 

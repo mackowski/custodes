@@ -11,6 +11,7 @@ import {
 import type { BrokerEnv } from '../src/env.js';
 import broker, { BrokerAdmin } from '../src/index.js';
 import { ApprovalStore, AuditStore } from '../src/store.js';
+import { accessToken, APPROVER, asOperator } from './access.js';
 
 const base: Omit<BrokerRequest, 'action'> = {
   agentId: 'cheatsheet-review',
@@ -173,11 +174,15 @@ describe('deciding', () => {
 });
 
 describe('entrypoints', () => {
-  const call = (fetcher: { fetch: (r: Request) => Response | Promise<Response> }, path: string) =>
+  const call = async (
+    fetcher: { fetch: (r: Request) => Response | Promise<Response> },
+    path: string,
+  ) =>
     fetcher.fetch(
       new Request(`https://broker.internal${path}`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        // The approver's own Access token: the broker checks it on every admin write (#104).
+        headers: await asOperator(),
         body: JSON.stringify({ decision: 'approved', by: 'agent' }),
       }),
     );
@@ -239,11 +244,11 @@ describe('single shot (review M1)', () => {
 });
 
 describe('deciding by id (review M2, L1)', () => {
-  const byId = (id: string, decision: string) =>
+  const byId = async (id: string, decision: string) =>
     new BrokerAdmin({} as ExecutionContext, testEnv).fetch(
       new Request(`https://broker.internal/v1/approvals/${id}/decide`, {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: await asOperator(),
         body: JSON.stringify({ decision, by: 'op@example.org' }),
       }),
     );
@@ -371,5 +376,87 @@ describe('one live approval per pull request (CI review L1, L2)', () => {
     const { ApprovalStore } = await import('../src/store.js');
     const stored = await new ApprovalStore(env.AUDIT).requestOf(c.approval.id);
     expect(stored?.onBehalfOf).toBeUndefined();
+  });
+});
+
+describe("admin writes need the operator's own Access token, checked by the broker (#104)", () => {
+  const admin = () => new BrokerAdmin({} as ExecutionContext, testEnv);
+  const post = (path: string, headers: Record<string, string>, body: unknown = {}) =>
+    admin().fetch(
+      new Request(`https://broker.internal${path}`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+      }),
+    );
+  const plain = { 'content-type': 'application/json' };
+
+  it('refuses to decide with no token, a service token, a non-approver or an expired token', async () => {
+    const fetchSpy = githubOk();
+    const c = await created();
+    const path = `/v1/approvals/token/${c.token}/decide`;
+    const body = { decision: 'approved', by: APPROVER };
+    expect((await post(path, plain, body)).status).toBe(401);
+    expect((await post(path, await asOperator({ service: 'abc.access' }), body)).status).toBe(403);
+    expect((await post(path, await asOperator('mallory@example.com'), body)).status).toBe(403);
+    const expired = await accessToken(APPROVER, { exp: Math.floor(Date.now() / 1000) - 3600 });
+    expect((await post(path, { ...plain, 'cf-access-jwt-assertion': expired }, body)).status).toBe(
+      401,
+    );
+    expect(await approvalByToken(testEnv, c.token)).toMatchObject({
+      approval: { status: 'pending' },
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('records who decided from the token, never from the body', async () => {
+    githubOk();
+    const c = await created();
+    const res = await post(`/v1/approvals/token/${c.token}/decide`, await asOperator(), {
+      decision: 'rejected',
+      by: 'mallory@example.com',
+    });
+    expect(res.status).toBe(200);
+    expect(await new ApprovalStore(env.AUDIT).get(c.approval.id)).toMatchObject({
+      status: 'rejected',
+      decidedBy: APPROVER,
+    });
+  });
+
+  it('lets an approver only rotate the broker key', async () => {
+    const path = '/v1/keys/cheatsheet-review/rotate';
+    expect((await post(path, plain)).status).toBe(401);
+    expect((await post(path, await asOperator('mallory@example.com'))).status).toBe(403);
+    expect((await post(path, await asOperator())).status).toBe(201);
+  });
+
+  it('lets any operator halt, and only an approver resume (the kill switch lives here)', async () => {
+    const ks = new KillSwitch(env.KILL_SWITCH);
+    try {
+      expect((await post('/v1/agents/pr-gate/halt', plain, { reason: 'test halt' })).status).toBe(
+        401,
+      );
+      expect(
+        (
+          await post('/v1/agents/pr-gate/halt', await asOperator({ service: 'abc.access' }), {
+            reason: 'test halt',
+          })
+        ).status,
+      ).toBe(403);
+      const operator = 'second-operator@example.com';
+      expect(
+        (await post('/v1/agents/pr-gate/halt', await asOperator(operator), { reason: 'test halt' }))
+          .status,
+      ).toBe(200);
+      expect(await ks.state('pr-gate')).toMatchObject({ halted: true, by: operator });
+      expect((await post('/v1/agents/pr-gate/resume', await asOperator(operator))).status).toBe(
+        403,
+      );
+      expect((await ks.state('pr-gate')).halted).toBe(true);
+      expect((await post('/v1/agents/pr-gate/resume', await asOperator())).status).toBe(200);
+      expect((await ks.state('pr-gate')).halted).toBe(false);
+    } finally {
+      await ks.resume('pr-gate');
+    }
   });
 });

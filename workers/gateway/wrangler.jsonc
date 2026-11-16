@@ -18,7 +18,8 @@
     "APPROVER_EMAILS": "jkb.mackowski@gmail.com",
   },
   // Secrets (set by CI on deploy): GITHUB_WEBHOOK_SECRET
-  "kv_namespaces": [{ "binding": "KILL_SWITCH", "id": "841e2b0dd14d48fbac292217839957a4" }],
+  // No KILL_SWITCH binding: halting and resuming go through the broker, which checks the
+  // operator's own Access token (#104). A KV binding can write, so it stays with the broker only.
   "services": [
     // The broker's admin entrypoint (approvals, audit, keys). Agents bind their own signed entrypoints
     // (ADR 0018); the default one serves no agent and cannot decide approvals.

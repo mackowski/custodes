@@ -11,3 +11,4 @@ export * from './request-signature.js';
 export * from './signed-broker.js';
 export * from './key-store.js';
 export * from './issue-digest.js';
+export * from './access-jwt.js';
