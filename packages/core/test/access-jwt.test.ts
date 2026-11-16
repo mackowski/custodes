@@ -210,4 +210,18 @@ describe('Access JWT (#104: verified by the gateway and again by the broker)', (
     up = true;
     expect(await verifyAccessToken(t, TEAM, AUD, o)).not.toBe(null);
   });
+
+  it('fails closed after the timeout when the keys fetch hangs, and lets the next request retry (review of #128)', async () => {
+    let hang = true;
+    const o = {
+      now: () => NOW,
+      fetchTimeoutMs: 20,
+      fetchImpl: () =>
+        hang ? new Promise<Response>(() => undefined) : Promise.resolve(Response.json(jwks)),
+    };
+    const t = await mint({ email: 'op@example.com' });
+    expect(await verifyAccessToken(t, TEAM, AUD, o)).toBe(null);
+    hang = false;
+    expect(await verifyAccessToken(t, TEAM, AUD, o)).not.toBe(null);
+  });
 });
