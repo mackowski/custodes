@@ -240,3 +240,14 @@ conversation. Nothing told them the sheet had grown from 1,334 to 2,132 words ei
   comment can shape the judge's list. The list is advisory, the review is approved by the operator
   before it is posted on OWASP, and the comment text is data inside an envelope. Owner: the
   maintainer.
+
+## Amendment (2026-11-16): the broker verifies the approver (#104)
+
+Deciding an approval no longer trusts the gateway's word for who decided. The gateway forwards the
+operator's own Cloudflare Access token, and `BrokerAdmin` verifies it (RS256 against the Access
+team's keys, issuer, audience, expiry) before deciding by link or rejecting by id; the approver on
+the record comes from that token, never from the request body. Only a person on `APPROVER_EMAILS`
+(the broker's own copy, pinned equal to the gateway's) may decide. The same check guards rotating
+the broker's keys and resuming an agent; the kill switch is now written only by the broker. A
+compromised gateway can still replay a token it sees during the operator's session for another
+link it also sees; that residual risk is recorded in `docs/architecture/threat-model.md`.

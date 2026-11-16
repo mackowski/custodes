@@ -74,12 +74,13 @@ signed calls only for the ids it hosts, and its unsigned default entrypoint refu
 1. A contributor opens an issue whose body contains hidden instructions to approve a PR. The
    triage agent's proposal is schema-bound to labels; the broker denies `pr.review` for the triage
    agent; the injection eval catches regressions.
-2. Someone spoofs the operator's address to approve a pending request. DMARC fails → rejected. If
-   they also control the operator's mail, the approval token is still single-use and expiring, and
-   the audit trail shows `by: email:<addr>` for forensics.
+2. Someone who gets an approval link (forwarded mail, the gateway's logs) tries to approve it.
+   Deciding needs the link token **and** an approver's own Cloudflare Access token, which the
+   broker verifies itself (#104); e-mail replies decide nothing. The token is single-use and
+   expiring, and the approval records the approver from the verified token.
 3. A dependency update introduces exfiltration code. Dependency review, `minimumReleaseAge`,
    Semgrep and CodeQL run on the PR; agent Workers hold no GitHub secrets to exfiltrate; the AI
-   Gateway token and approval-token secret are rotated per the runbooks.
+   Gateway token is rotated per the runbooks (approval links are keyed in the broker's Keyring).
 4. Someone games pr-gate into closing other people's pull requests (for example by assigning an
    issue, or by flooding). Assignment needs triage rights on the repository; closes are capped (5 per
    poll, 10 per day, 5 per hour in the broker), every close is signed, listed in the daily summary
@@ -120,6 +121,13 @@ signed calls only for the ids it hosts, and its unsigned default entrypoint refu
   reviewers and holds the same Cloudflare credentials as prod; branch-controlled Terraform can run
   code with them. Three classic PATs (since OWASP was added to cheatsheet-review, then to
   triage-apply) make this more likely. Owner: operator. Follow-up: a read-only Cloudflare token for the plan job.
+- **The gateway as the only holder of `BrokerAdmin` (#104), narrowed 2026-11-16:** the broker
+  verifies the operator's own Access token on every admin write (decide, reject, rotate, halt,
+  resume), takes the approver from it, and alone writes the kill switch. What a compromised gateway
+  can still do: replay an operator's token it sees during that session (Access sessions last 8 h)
+  for another approval link it also sees; show a page that differs from what will run (the broker
+  runs only its stored request); read the audit log and pending approvals. Access has no step-up or
+  MFA requirement beyond the Cloudflare account's. Owner: operator.
 - **Resolved by ADR 0018** (every agent moved by 2026-11-13, the unsigned entrypoint closed on
   2026-11-16); kept for the record. Was: agents in one Worker share a trust domain: the broker trusts the `agentId` a caller in the agents
   Worker sends. Owner: operator. Revisited on 2026-10-15 when pr-gate gained `pr.close` (ADR 0011):

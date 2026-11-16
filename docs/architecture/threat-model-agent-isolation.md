@@ -146,12 +146,12 @@ GitHub Actions (service token, read) ─► gateway /admin/agent-keys (public ke
 
 ## Accepted risks
 
-| Risk                                                                                                                                                 | Owner    |
-| ---------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
-| S5: Worker Editors/Admins and the CI deploy token can read an agent key; restrict roles (operator step), per-Worker deploy tokens later.             | operator |
-| S4: rotation PR and `/admin/agent-keys/page` both pass through the gateway; the entrypoint binding is the second factor (#104).                      | operator |
-| E1: a compromised shared dependency signs as every agent (#105).                                                                                     | operator |
-| E2: shared `AI_GATEWAY_TOKEN` until per-agent tokens exist.                                                                                          | operator |
-| T3: agent state may reset if the DO transfer does not carry data.                                                                                    | operator |
-| R1 limits: fields the agent does not sign (decision, reason, repeated execution) are broker-asserted; approval-run records carry no agent signature. | operator |
-| D2: a D1 outage stops all broker calls (fail closed).                                                                                                | operator |
+| Risk                                                                                                                                                                                                                                    | Owner    |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
+| S5: Worker Editors/Admins and the CI deploy token can read an agent key; restrict roles (operator step), per-Worker deploy tokens later.                                                                                                | operator |
+| S4: rotation PR and `/admin/agent-keys/page` both pass through the gateway; the entrypoint binding is the second factor (#104: broker admin writes now need the operator's own token, agent-key pins still rely on the log comparison). | operator |
+| E1: a compromised shared dependency signs as every agent (#105).                                                                                                                                                                        | operator |
+| E2: shared `AI_GATEWAY_TOKEN` until per-agent tokens exist.                                                                                                                                                                             | operator |
+| T3: agent state may reset if the DO transfer does not carry data.                                                                                                                                                                       | operator |
+| R1 limits: fields the agent does not sign (decision, reason, repeated execution) are broker-asserted; approval-run records carry no agent signature.                                                                                    | operator |
+| D2: a D1 outage stops all broker calls (fail closed).                                                                                                                                                                                   | operator |
