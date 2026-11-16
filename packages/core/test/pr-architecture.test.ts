@@ -96,7 +96,14 @@ describe('PR architecture section check (/ship)', () => {
     const v = checkPrBody(filled({ verdict: 'Data flow: unchanged: only a refactoring here' }), [
       'workers/gateway/wrangler.jsonc',
     ]);
-    expect(v.errors.join()).toMatch(/says unchanged/);
+    expect(v.errors.join()).toMatch(/re-check it/);
+    // Re-checked (its "Last checked" line bumped): "unchanged" with a reason passes.
+    expect(
+      checkPrBody(filled({ verdict: 'Data flow: unchanged: only a refactoring here' }), [
+        'workers/gateway/wrangler.jsonc',
+        'docs/architecture/data-flow.md',
+      ]).errors,
+    ).toEqual([]);
   });
 
   it('wants the ADR or issue in the Authority row when policy.json changes', () => {

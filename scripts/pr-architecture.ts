@@ -70,10 +70,16 @@ export function checkPrBody(body: string, changed: readonly string[]): Verdict {
     errors.push(`says the data flow changed but ${DATA_FLOW_DOC} is not updated`);
   else if (verdict.startsWith('unchanged') && verdict.replace('unchanged:', '').trim().length < 10)
     errors.push('"Data flow: unchanged" needs a reason');
-  else if (verdict.startsWith('unchanged') && flowFiles.length > 0)
-    // A diagram the operator relies on must not call a flow change "unchanged" (review of #123, M1).
+  else if (
+    verdict.startsWith('unchanged') &&
+    flowFiles.length > 0 &&
+    !changed.includes(DATA_FLOW_DOC)
+  )
+    // A diagram the operator relies on must not call a flow change "unchanged" unchecked (review
+    // of #123, M1): with flow files in the diff, data-flow.md must at least be re-checked (its
+    // "Last checked" line), even when only, say, the order of deploy steps changes.
     errors.push(
-      `files that change the data flow are in the diff, but the section says unchanged (update ${DATA_FLOW_DOC})`,
+      `files that change the data flow are in the diff: update ${DATA_FLOW_DOC}, or re-check it and bump its "Last checked" line`,
     );
   if (PLACEHOLDERS.test(section)) errors.push('a placeholder is still in the section');
 

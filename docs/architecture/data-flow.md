@@ -7,7 +7,7 @@ of this diagram it touches, before and after, and updates this file when the flo
 gateway routes, not from memory; when they disagree, the code is right and this file is stale.
 
 Last checked against the code: 2026-11-16 (#104: the broker verifies the operator's Access token and
-alone writes the kill switch).
+alone writes the kill switch; the #124 deploy-order hotfix changed no flow).
 
 ## The whole system
 

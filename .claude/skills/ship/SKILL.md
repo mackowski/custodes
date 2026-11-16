@@ -94,6 +94,8 @@ values, account ids or token prefixes.
 (mermaid, changes marked; or one diagram titled "unchanged")
 
 Data flow: changed (data-flow.md updated) | unchanged: <one-line reason>
+(when files that usually change the flow are in the diff, "unchanged" still needs data-flow.md
+re-checked: bump its "Last checked" line)
 
 ### Security
 
