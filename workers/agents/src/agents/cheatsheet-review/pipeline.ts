@@ -1,6 +1,7 @@
 /**
  * One review of a frozen snapshot (ADR 0017): depth, links, independent reviewers in parallel,
- * then the judge, then the multi-model invariant. No side effects: the agent decides what to post.
+ * the claim check (#90), then the judge, then the multi-model invariant. No side effects: the
+ * agent decides what to post.
  */
 import {
   judgeMessage,
@@ -21,7 +22,15 @@ import {
   type AddedLink,
   MAX_EXTERNAL_LINKS,
   type FetchedLink,
+  type SourceDoc,
 } from './links.js';
+import {
+  claimStage,
+  enforceClaims,
+  judgeClaims,
+  reportsForJudge,
+  type ClaimResult,
+} from './claims.js';
 import { invariantBreach, type RoleOutcome } from './lineup.js';
 import { JUDGE_PROMPT, LINK_PROMPT, reviewerPrompt, SCOPE_PROMPT } from './prompts.js';
 import { runRole, type RunnerDeps } from './runner.js';
@@ -37,6 +46,8 @@ import {
 
 export interface PipelineDeps extends RunnerDeps {
   fetchLink: (url: string) => Promise<FetchedLink>;
+  /** #90: a claim's source, full text (PDFs through Workers AI toMarkdown). */
+  fetchSource: (url: string) => Promise<SourceDoc>;
 }
 
 export interface PipelineResult {
@@ -52,10 +63,17 @@ export interface PipelineResult {
   /** Links to verify by hand (401/403/429/5xx, timeouts, refused hosts). */
   linkNotes: string[];
   injectionSeen: boolean;
-  /** The reviewer roles whose reports saw instruction-like text (#79.9). */
-  injectionRoles: ReviewerRole[];
+  /** The reviewer roles (and the claim verifier) whose answers saw instruction-like text (#79.9). */
+  injectionRoles: (ReviewerRole | 'claim-verifier')[];
   /** #89: every external link that was checked, for the "Links checked" table. */
   linkChecks: LinkCheck[];
+  /**
+   * #90: every claim a reviewer made, with its verdict. NOT-FOUND ones are listed for the maintainer;
+   * REFUTED ones are left out of the review and recorded for the operator.
+   */
+  claims: ClaimResult[];
+  /** #90: judge items and suggestions code removed because they were about an unconfirmed claim. */
+  claimItemsRemoved: number;
 }
 
 /** One checked external link, as the review lists it. Status words come from code or the enum. */
@@ -309,14 +327,20 @@ export async function reviewPipeline(snap: Snapshot, deps: PipelineDeps): Promis
   }
   const notRun = roles.filter((r) => !reports.some((x) => x.role === r));
 
+  // #90: claims are checked before the judge, which sees only what the verdicts leave.
+  const claims = await claimStage(snap, reports, deps);
+  if (claims.outcome) outcomes.push(claims.outcome);
+  const judgedReports = reportsForJudge(reports, claims.results);
+
   const judged = await runRole(
     deps,
     'judge',
     ReviewDecision,
     JUDGE_PROMPT,
-    judgeMessage(snap, reports, notRun),
+    judgeMessage(snap, judgedReports, notRun, judgeClaims(claims.results)),
   );
   outcomes.push(judged.outcome);
+  const enforced = judged.answer && enforceClaims(judged.answer, claims.results);
 
   // #89: lines whose only change is a link target, for every sheet (also when no link stage ran).
   const targetOnly = new Map(
@@ -330,7 +354,9 @@ export async function reviewPipeline(snap: Snapshot, deps: PipelineDeps): Promis
           ] as const,
       ),
   );
-  const reviewerBlocked = reports.some(
+  // The original reports minus REFUTED findings only (reportsForJudge): a NOT-FOUND claim never
+  // lowers a reviewer's BLOCK. The agent reads the same reports for reviewEvent.
+  const reviewerBlocked = judgedReports.some(
     (x) =>
       x.report.verdict === 'BLOCK' &&
       (x.role === 'security-reviewer' ||
@@ -355,13 +381,18 @@ export async function reviewPipeline(snap: Snapshot, deps: PipelineDeps): Promis
     changeClass,
     classWhy: scope.why,
     outcomes,
-    reports,
-    decision: judged.answer && scoped(judged.answer),
+    reports: judgedReports,
+    decision: enforced && scoped(enforced.decision),
     breach: invariantBreach(outcomes),
     allowed: links?.allowed ?? new Set(),
     linkNotes: links?.notes ?? [],
-    injectionSeen: reports.some((x) => x.report.injectionSeen === true),
-    injectionRoles: reports.filter((x) => x.report.injectionSeen === true).map((x) => x.role),
+    injectionSeen: claims.injectionSeen || reports.some((x) => x.report.injectionSeen === true),
+    injectionRoles: [
+      ...reports.filter((x) => x.report.injectionSeen === true).map((x) => x.role),
+      ...(claims.injectionSeen ? (['claim-verifier'] as const) : []),
+    ],
     linkChecks: links?.checks ?? [],
+    claims: claims.results,
+    claimItemsRemoved: enforced?.removed ?? 0,
   };
 }

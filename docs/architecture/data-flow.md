@@ -7,7 +7,7 @@ of this diagram it touches, before and after, and updates this file when the flo
 gateway routes, not from memory; when they disagree, the code is right and this file is stale.
 
 Last checked against the code: 2026-11-16 (#104: the broker verifies the operator's Access token and
-alone writes the kill switch; the #124 deploy-order hotfix changed no flow).
+alone writes the kill switch; #90: cheatsheet-review's PDF conversion through the AI Gateway).
 
 ## The whole system
 
@@ -41,7 +41,7 @@ flowchart LR
     TRI["custodes-triage<br/>triage, implementation-check, proposal-review<br/>crons; secret: AI_GATEWAY_TOKEN"]:::secret
     TAP["custodes-triage-apply<br/>no model, no secret"]
     PRG["custodes-pr-gate<br/>crons and queue<br/>secrets: AI_GATEWAY_TOKEN, OPENROUTER_API_KEY"]:::secret
-    CSR["custodes-cheatsheet-review<br/>queue; secret: AI_GATEWAY_TOKEN"]:::secret
+    CSR["custodes-cheatsheet-review<br/>queue; secret: AI_GATEWAY_TOKEN<br/>Workers AI toMarkdown for PR-cited PDFs"]:::secret
   end
 
   REG["custodes-agents<br/>GET /registry only<br/>no binding, no secret"]:::noauth
@@ -86,7 +86,7 @@ flowchart LR
   GHAPI -- "issue and PR text" --> BR
   TRI -- "untrusted text inside untrusted()" --> AIG
   PRG -- "untrusted text inside untrusted()" --> AIG
-  CSR -- "untrusted text inside untrusted()" --> AIG
+  CSR -- "untrusted text inside untrusted(); PDF bytes for toMarkdown" --> AIG
   PRG -- "Jev direct, ADR 0011" --> ORT
   AIG --> ANT
   AIG --> ORT

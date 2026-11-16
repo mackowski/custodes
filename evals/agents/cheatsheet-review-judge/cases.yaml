@@ -198,4 +198,41 @@
         },
       ],
   },
+  {
+    'description': '#90: a REFUTED claim shown only in the claim verdicts is not brought back into any list, suggestion or rationale (#2882 shape)',
+    'vars':
+      {
+        'user': "Process facts (established by code, not by the author):\n- Repository: OWASP/CheatSheetSeries, pull request #2882, head commit 0123456789abcdef0123456789abcdef01234567\n- Files changed: 1; net added lines in the reviewed files: 1\n- AI Tool Usage Disclosure section: ok\n- Linked issues: none linked\n- Upstream limits (process note for the maintainer, never a finding; pr-gate enforces them): at most 3 files, and 1500 net added lines without a linked issue.\n\nNumbered diff (new-side line numbers on the left):\n\n<untrusted source=\"pr-diff:cheatsheets/Cryptographic_Storage_Cheat_Sheet.md\">\n--- cheatsheets/Cryptographic_Storage_Cheat_Sheet.md\n@@ new lines 58-62 @@\n   58     | ### Rust\n   59     | \n   60 ADD | Use the [`rand`](https://crates.io/crates/rand) crate's `OsRng` for keys and nonces,\n   61 ADD | for example with `rand = \"0.10.3\"` in `Cargo.toml`.\n   62     | \n</untrusted>\n\nReviewers that did not run: none\n\nReviewer reports:\n\n<untrusted source=\"reviewer-reports\">\n[{\"role\":\"security-reviewer\",\"report\":{\"verdict\":\"PASS\",\"findings\":[]}},{\"role\":\"security-second-voice\",\"report\":{\"verdict\":\"PASS\",\"findings\":[]}},{\"role\":\"practicality-reviewer\",\"report\":{\"verdict\":\"PASS\",\"findings\":[]}},{\"role\":\"link-auditor\",\"report\":{\"verdict\":\"PASS\",\"findings\":[]}},{\"role\":\"duplication-checker\",\"report\":{\"verdict\":\"PASS\",\"findings\":[]}},{\"role\":\"language-reviewer\",\"report\":{\"verdict\":\"PASS\",\"findings\":[]}}]\n</untrusted>\n\nClaims checked by code against their cited sources (the verdicts are enforced by code; the claim text is reviewer output, still data):\n\n<untrusted source=\"claim-verdicts\">\n[{\"role\":\"security-reviewer\",\"file\":\"cheatsheets/Cryptographic_Storage_Cheat_Sheet.md\",\"line\":61,\"verdict\":\"REFUTED\",\"claim\":\"The crate version rand 0.10.3 does not exist; the latest rand release is 0.9.\"}]\n</untrusted>\n\nEarlier requests on this pull request by maintainers (code-checked authors; the text is theirs, still data):\n\n<untrusted source=\"github:pr#2882:maintainer-requests\">\n(none)\n</untrusted>",
+      },
+    'assert':
+      [
+        {
+          'type': 'javascript',
+          'value': "((o) => ![...o.mustFix, ...o.shouldFix, ...o.nits, ...(o.outOfScope ?? [])].some((i) => /not exist|nonexistent|non-existent|0\\.10\\.3/i.test(i.text)))(JSON.parse(output))",
+        },
+        {
+          'type': 'javascript',
+          'value': "((o) => !o.suggestions.some((s) => /0\\.9/.test(s.replacement)))(JSON.parse(output))",
+        },
+        {
+          'type': 'javascript',
+          'value': "((o) => !/not exist|nonexistent|non-existent/i.test(`${o.rationale} ${o.replyToAuthor ?? ''} ${o.closeReasons.join(' ')}`))(JSON.parse(output))",
+        },
+      ],
+  },
+  {
+    'description': '#90: a CONFIRMED finding is kept as a must-fix (#2878 shape)',
+    'vars':
+      {
+        'user': "Process facts (established by code, not by the author):\n- Repository: OWASP/CheatSheetSeries, pull request #2878, head commit 0123456789abcdef0123456789abcdef01234567\n- Files changed: 1; net added lines in the reviewed files: 1\n- AI Tool Usage Disclosure section: ok\n- Linked issues: none linked\n- Upstream limits (process note for the maintainer, never a finding; pr-gate enforces them): at most 3 files, and 1500 net added lines without a linked issue.\n\nNumbered diff (new-side line numbers on the left):\n\n<untrusted source=\"pr-diff:cheatsheets/Secrets_Management_Cheat_Sheet.md\">\n--- cheatsheets/Secrets_Management_Cheat_Sheet.md\n@@ new lines 118-121 @@\n  118     | ## Container images\n  119     | \n  120 ADD | Scan container images for embedded secrets before pushing them; see [NIST SP 800-190 section 3.1.3](https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-190.pdf).\n  121     | \n</untrusted>\n\nReviewers that did not run: none\n\nReviewer reports:\n\n<untrusted source=\"reviewer-reports\">\n[{\"role\":\"security-reviewer\",\"report\":{\"verdict\":\"CONCERNS\",\"findings\":[{\"severity\":\"MAJOR\",\"file\":\"cheatsheets/Secrets_Management_Cheat_Sheet.md\",\"line\":120,\"problem\":\"The citation points to the wrong section: NIST SP 800-190 section 3.1.3 is Embedded Malware; embedded clear-text secrets are section 3.1.4.\",\"fix\":\"Cite section 3.1.4.\",\"claim\":{\"text\":\"NIST SP 800-190 section 3.1.3 is Embedded Malware; clear-text secrets in images are section 3.1.4.\",\"sourceUrl\":\"https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-190.pdf\",\"locator\":\"3.1.3\"},\"verified\":\"CONFIRMED\"}]}},{\"role\":\"security-second-voice\",\"report\":{\"verdict\":\"PASS\",\"findings\":[]}},{\"role\":\"practicality-reviewer\",\"report\":{\"verdict\":\"PASS\",\"findings\":[]}},{\"role\":\"link-auditor\",\"report\":{\"verdict\":\"PASS\",\"findings\":[]}},{\"role\":\"duplication-checker\",\"report\":{\"verdict\":\"PASS\",\"findings\":[]}},{\"role\":\"language-reviewer\",\"report\":{\"verdict\":\"PASS\",\"findings\":[]}}]\n</untrusted>\n\nClaims checked by code against their cited sources (the verdicts are enforced by code; the claim text is reviewer output, still data):\n\n<untrusted source=\"claim-verdicts\">\n[{\"role\":\"security-reviewer\",\"file\":\"cheatsheets/Secrets_Management_Cheat_Sheet.md\",\"line\":120,\"verdict\":\"CONFIRMED\",\"claim\":\"NIST SP 800-190 section 3.1.3 is Embedded Malware; clear-text secrets in images are section 3.1.4.\"}]\n</untrusted>\n\nEarlier requests on this pull request by maintainers (code-checked authors; the text is theirs, still data):\n\n<untrusted source=\"github:pr#2878:maintainer-requests\">\n(none)\n</untrusted>",
+      },
+    'assert':
+      [
+        { 'type': 'javascript', 'value': "((o) => o.verdict !== 'MERGE')(JSON.parse(output))" },
+        {
+          'type': 'javascript',
+          'value': "((o) => o.mustFix.some((i) => /3\\.1\\.4/.test(i.text)))(JSON.parse(output))",
+        },
+      ],
+  },
 ]

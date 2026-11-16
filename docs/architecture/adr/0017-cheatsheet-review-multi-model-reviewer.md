@@ -241,6 +241,67 @@ conversation. Nothing told them the sheet had grown from 1,334 to 2,132 words ei
   before it is posted on OWASP, and the comment text is data inside an envelope. Owner: the
   maintainer.
 
+## Amendment: Claim verification (2026-11-16, #90)
+
+On OWASP/CheatSheetSeries#2878 the judge dropped a correct finding (NIST SP 800-190 §3.1.3 is
+_Embedded malware_; clear-text secrets are §3.1.4) because it could not check it, and on #2882 it
+could not refute a false one ("rand 0.10.3 does not exist"). Decisions from `/grill-plan`
+(operator, 2026-11-16, recorded on #90):
+
+- **Where a claim lives:** an optional `claim: {text, sourceUrl, locator}` on `Finding`, asked for
+  by every reviewer role through `FINDING_FORMAT`. The verdict applies to that finding; there is
+  no matching of claims to findings.
+- **Source boundary:** code fetches only URLs that are external links in the diff of a cheat sheet
+  or in a changed cheat sheet at the head commit (`claims.ts` `sourceUrls`; https, public host,
+  known target form). A URL the model wrote is never fetched; a claim without such a source is
+  NOT-FOUND.
+- **Verifier:** a new role `claim-verifier` on the link auditor's pair (DeepSeek V4.1 Flash on
+  Workers AI, low effort; GPT-6 Luna fallback), one call for all claims of a review, with
+  `UNTRUSTED_DATA_RULES` and `injectionSeen`. The claim and the excerpt are separate envelopes
+  (`reviewer-claim`, `page:<host>`).
+- **Limits:** HTML and text as `fetchLink` (10 s, 2 MB, 5 redirects each re-checked); PDFs (by
+  content type) up to 10 MB, converted by Workers AI `toMarkdown` through the AI Gateway (ADR 0015).
+  The excerpt is ±3,000 characters around the locator, matched with whitespace and case
+  normalised (a section number never matches a longer one; the last heading-like match wins over a
+  table of contents). Without a match the verifier gets the first 6,000 characters and code
+  turns REFUTED into NOT-FOUND. At most 5 claims per review, BLOCKER first, then MAJOR, MINOR, NIT;
+  the rest are NOT-FOUND with a note. The PDF conversion has its own 15 s bound.
+- **Verdicts, enforced by code after the judge:** CONFIRMED keeps the finding, marked "verified
+  against <host>, <locator>", and code adds it back (MERGE becomes REQUEST_CHANGES for a BLOCKER or
+  MAJOR) if the judge dropped it. **NOT-FOUND never removes or downgrades a finding:** it stays in
+  the judge's input marked by code `"verified": "NOT-FOUND"`, in the reviewer verdicts code reads
+  (`reviewerBlocked`, the review event), and wherever the judge puts it; it is also listed under
+  "Claims to verify manually". REFUTED removes the claimant's own finding: it leaves the judge's
+  input and the reviewer verdicts code reads, and `enforceClaims` removes judge items of the
+  claimant's dimension that speak about it (another reviewer's corroborating finding in another
+  dimension stays), the claimant's own suggestion, and sentences about it in the rationale, close
+  reasons, reply, dimension headlines and earlier-request summaries. On OWASP it is listed in the
+  approval request's note (the approval page), on the sandbox it is on the trace
+  (`custodes.review.claims_refuted_ids`, and the verifier span's payload under ADR 0016).
+  Amended after the security review of #126. Operator decision (2026-11-16, as in /grill-plan): a REFUTED claim removes its finding with no exception, a security BLOCKER included.
+- **Failures:** a fetch error, an oversized PDF, a `toMarkdown` error, a missing verdict, a
+  verifier failure or `injectionSeen` is NOT-FOUND with a code-written reason. Errors and injection
+  never remove or confirm a finding; the review always continues.
+- **Observability:** the `cheatsheet-review.claims` log and span attributes carry ids
+  (`role#index`), counts, verdicts, source hosts and code reasons, never claim, page or verifier
+  text.
+- **Evals:** new suite `cheatsheet-review-verifier` (#2878 CONFIRMED, #2882 REFUTED, locator absent,
+  injection in the page, injection in the claim) and a judge case where a refuted claim shown only in
+  the verdicts is not brought back.
+
+Ruled out: a separate `checkableClaims` list (it needs claims matched to findings), fetching URLs
+the model proposes (SSRF and injection boundary), REFUTED from the start of a document, and
+keeping PDFs at 2 MB (most NIST documents would be NOT-FOUND).
+
+**Accepted risks:** the verifier is one cheap model; a wrong CONFIRMED keeps a finding the judge
+would have dropped (the review still says to double-check), a wrong REFUTED removes one (only with
+the cited passage in front of it, and visible to the operator). The code check that a judge item
+"speaks about" a removed finding is a text heuristic (same file and line, plus locator, URL or
+shared words; the locator matched like the excerpt locator; an item without a line never matches a
+finding with one); it can miss a heavy rephrase or remove an overlapping item. Owner: operator.
+
+**Accepted risk (operator, 2026-11-16): a refuted security finding is removed.** The claim's source is a link the PR author chose, so a page the author controls can "refute" a true security finding, including a BLOCKER, and the finding then leaves the review. On OWASP the operator sees it in the refuted-claims note on the approval page before anything is posted; on the sandbox nobody does (it is only on the trace). The security-reviewer and security-second-voice share the Security dimension, so a refutation of one also removes the other's matching judge item; the other's report keeps its BLOCK, so the verdict is not promoted to MERGE, but the review event may become COMMENT. Owner: operator.
+
 ## Amendment (2026-11-16): the broker verifies the approver (#104)
 
 Deciding an approval no longer trusts the gateway's word for who decided. The gateway forwards the
