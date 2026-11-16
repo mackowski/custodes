@@ -14,7 +14,14 @@
  */
 import { inertText } from '@custodes/llm';
 import { claimMessage, type ClaimInput, type JudgeClaim, type Snapshot } from './input.js';
-import { fetchable, isExternal, knownTargetForm, targets, type SourceDoc } from './links.js';
+import {
+  fetchable,
+  isExternal,
+  knownTargetForm,
+  MAX_LINK_LINE,
+  targets,
+  type SourceDoc,
+} from './links.js';
 import type { RoleOutcome } from './lineup.js';
 import { VERIFIER_PROMPT } from './prompts.js';
 import { runRole, type RunnerDeps } from './runner.js';
@@ -71,28 +78,36 @@ const RANK: Readonly<Record<Finding['severity'], number>> = {
   NIT: 3,
 };
 
-/** Same bound as scope.ts's MAX_SCANNED_LINE (4,000): longer lines are not scanned for links. */
-const MAX_LINK_LINE = 4_000;
+/** The lines of the cheat sheet diffs and of the changed cheat sheets at the head commit. */
+function sheetLines(snap: Snapshot): string[] {
+  const out: string[] = [];
+  for (const f of snap.files) {
+    if (!isSheet(f.file.filename)) continue;
+    for (const h of f.hunks) for (const l of h.lines) out.push(l.text);
+  }
+  for (const [path, text] of snap.contents) if (isSheet(path)) out.push(...text.split('\n'));
+  return out;
+}
 
 /**
  * The only URLs a claim may be checked against: external links (known target form, fetchable) in
- * the diff of a cheat sheet or in a changed cheat sheet at the head commit.
+ * the diff of a cheat sheet or in a changed cheat sheet at the head commit. Lines longer than
+ * MAX_LINK_LINE are not scanned (the link stage flags them for a person).
  */
 export function sourceUrls(snap: Snapshot): Set<string> {
   const out = new Set<string>();
-  const add = (text: string) => {
-    // Longer lines are not scanned (as scope.ts's MAX_SCANNED_LINE): the regexes stay cheap.
-    if (text.length > MAX_LINK_LINE) return;
+  for (const text of sheetLines(snap)) {
+    if (text.length > MAX_LINK_LINE) continue;
     for (const u of targets(text))
       if (isExternal(u) && knownTargetForm(u) && fetchable(u)) out.add(u);
-  };
-  for (const f of snap.files) {
-    if (!isSheet(f.file.filename)) continue;
-    for (const h of f.hunks) for (const l of h.lines) add(l.text);
   }
-  for (const [path, text] of snap.contents)
-    if (isSheet(path)) for (const line of text.split('\n')) add(line);
   return out;
+}
+
+/** Whether `sourceUrl` appears only on a line too long to scan: then the reason says so. */
+function onLongLine(snap: Snapshot, sourceUrl: string): boolean {
+  const u = sourceUrl.trim();
+  return u.length > 0 && sheetLines(snap).some((t) => t.length > MAX_LINK_LINE && t.includes(u));
 }
 
 const withoutFragment = (u: string) => u.split('#', 1)[0] ?? u;
@@ -113,9 +128,11 @@ const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 /** The locator as a pattern: whitespace runs match any whitespace; a number never matches a longer one. */
 function pattern(locator: string): RegExp {
   const body = locator.split(/\s+/).map(escape).join('\\s+');
-  return /^\d+(\.\d+)*$/.test(locator)
-    ? new RegExp(`(?<![\\w.])${body}(?!\\w|\\.\\d)`, 'giu')
-    : new RegExp(body, 'giu');
+  // A number at either end never runs into a longer one ("5.1.1" vs "5.1.10" or "15.1.1", "page 12"
+  // vs "page 120"); a word at the end never runs into a numbered revision ("800-63B" vs "800-63B-4").
+  const before = /^\d/.test(locator) ? '(?<![\\w.])' : '';
+  const after = /\d$/.test(locator) ? '(?!\\w|\\.\\d|-\\d)' : /\w$/.test(locator) ? '(?!-\\d)' : '';
+  return new RegExp(`${before}${body}${after}`, 'giu');
 }
 
 /** A match at the start of a line (heading or list), on a line that is not a table-of-contents entry. */
@@ -202,7 +219,9 @@ export async function claimStage(
         ...c,
         verdict: 'NOT-FOUND',
         by: 'code',
-        reason: 'the source is not a link in this pull request, so it was not fetched',
+        reason: onLongLine(snap, c.finding.claim.sourceUrl)
+          ? 'the source line is too long to read, so it was not fetched'
+          : 'the source is not a link in this pull request, so it was not fetched',
       });
     else cited.push({ ...c, source });
   }

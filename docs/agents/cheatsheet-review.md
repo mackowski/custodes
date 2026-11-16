@@ -337,4 +337,4 @@ The label can also be removed from the repository's label list; nothing triggers
 - A refuted claim removes its finding with no exception, a security BLOCKER included (operator
   decision 2026-11-16, #90). The source is a link the PR author chose, so a page the author
   controls can "refute" a true security finding. On OWASP the operator sees it in the
-  refuted-claims note on the approval page; on the sandbox nobody does. Owner: operator.
+  refuted-claims note on the approval page; on the sandbox nobody does. The security-reviewer and security-second-voice share the Security dimension, so a refutation of one also removes the other's matching judge item; the other's report keeps its BLOCK, so the verdict is not promoted to MERGE, but the review event may become COMMENT. Owner: operator.

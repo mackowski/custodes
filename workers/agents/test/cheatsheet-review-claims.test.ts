@@ -205,6 +205,28 @@ describe('claims.sourceUrls and citedSource: the source boundary', () => {
     expect(sources.has('https://long.example.com/a')).toBe(false);
   });
 
+  it('says the source line is too long when the claim URL is only on a skipped line', async () => {
+    const url = 'https://long.example.com/a';
+    const long = `${'x'.repeat(4_001)} [src](${url})`;
+    const f = fakes(
+      () => pdf(),
+      () => verdicts([]),
+    );
+    const r = await claimStage(
+      snap({ files: [sheetFile(`@@ -1,1 +1,2 @@\n x\n+${long}`)], contents: new Map() }),
+      [{ role: 'security-reviewer', report: report([finding({}, { sourceUrl: url })]) }],
+      f.deps,
+    );
+    expect(f.fetched).toEqual([]);
+    expect(r.results).toMatchObject([
+      {
+        verdict: 'NOT-FOUND',
+        by: 'code',
+        reason: 'the source line is too long to read, so it was not fetched',
+      },
+    ]);
+  });
+
   it('accepts the PR link, or the same link with another fragment, and returns the PR string', () => {
     const sources = new Set([NIST]);
     expect(citedSource(NIST, sources)).toBe(NIST);
@@ -245,6 +267,17 @@ describe('claims.locate and excerptFor', () => {
   it('never matches a longer number', () => {
     expect(locate('See 3.1.30 and 13.1.3 and 3.1.3.1', '3.1.3')).toBeUndefined();
     expect(locate('Section 4 only', 'Section 4.2')).toBeUndefined();
+  });
+
+  it('never runs a locator with a number or a word at its end into a longer one', () => {
+    expect(locate('See Section 5.1.10 here.', 'Section 5.1.1')).toBeUndefined();
+    expect(locate('See page 120 here.', 'page 12')).toBeUndefined();
+    expect(locate('See NIST SP 800-63B-4 here.', 'SP 800-63B')).toBeUndefined();
+    expect(locate('See 15.1.1 here.', '5.1.1 Overview')).toBeUndefined();
+    expect(locate('As in 5.1.1.', '5.1.1')).toBeDefined();
+    expect(locate('See Section 5.1.1, then.', 'Section 5.1.1')).toBeDefined();
+    expect(locate('See page 12.', 'page 12')).toBeDefined();
+    expect(locate('Per SP 800-63B, use MFA.', 'SP 800-63B')).toBeDefined();
   });
 
   it('cuts ±3,000 characters around the locator', () => {
@@ -1001,7 +1034,7 @@ describe('claims in the review, the logs and the approval note', () => {
       '- **MAJOR** `cheatsheets/Secrets_Management_Cheat_Sheet.md:3` (Security)',
     );
     expect(body).toContain('Source: `nvlpubs.nist.gov`');
-    expect(body).toContain('Source: not a link in this PR');
+    expect(body).toContain('Source: not fetched');
     expect(body).toContain('Not confirmed: source not read: HTTP 403');
     expect(body).not.toContain('<https://evil');
     expect(body).not.toContain('<img');

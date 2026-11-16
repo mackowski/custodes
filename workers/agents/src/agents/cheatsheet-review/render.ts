@@ -257,9 +257,7 @@ export interface ReviewBodyInput {
 function claimLine(c: ClaimResult): string {
   const f = c.finding;
   const where = `\`${inertText(f.file, 200).replace(/`/g, '')}${f.line ? `:${f.line}` : ''}\``;
-  const source = c.host
-    ? `\`${inertText(c.host, 100).replace(/`/g, '')}\``
-    : 'not a link in this PR';
+  const source = c.host ? `\`${inertText(c.host, 100).replace(/`/g, '')}\`` : 'not fetched';
   return `- **${f.severity}** ${where} (${DIMENSION[c.role]}): ${inertMarkdown(f.problem, NONE, 400)} Claim: ${inertMarkdown(f.claim.text, NONE, 300)} Source: ${source}, at ${inertMarkdown(f.claim.locator, NONE, 80)}. Not confirmed: ${inertMarkdown(c.reason, NONE, 300)}`;
 }
 

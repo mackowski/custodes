@@ -300,7 +300,7 @@ the cited passage in front of it, and visible to the operator). The code check t
 shared words; the locator matched like the excerpt locator; an item without a line never matches a
 finding with one); it can miss a heavy rephrase or remove an overlapping item. Owner: operator.
 
-**Accepted risk (operator, 2026-11-16): a refuted security finding is removed.** The claim's source is a link the PR author chose, so a page the author controls can \"refute\" a true security finding, including a BLOCKER, and the finding then leaves the review. On OWASP the operator sees it in the refuted-claims note on the approval page before anything is posted; on the sandbox nobody does (it is only on the trace). Owner: operator.
+**Accepted risk (operator, 2026-11-16): a refuted security finding is removed.** The claim's source is a link the PR author chose, so a page the author controls can "refute" a true security finding, including a BLOCKER, and the finding then leaves the review. On OWASP the operator sees it in the refuted-claims note on the approval page before anything is posted; on the sandbox nobody does (it is only on the trace). The security-reviewer and security-second-voice share the Security dimension, so a refutation of one also removes the other's matching judge item; the other's report keeps its BLOCK, so the verdict is not promoted to MERGE, but the review event may become COMMENT. Owner: operator.
 
 ## Amendment (2026-11-16): the broker verifies the approver (#104)
 

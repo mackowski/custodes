@@ -1577,7 +1577,7 @@ describe('cheatsheet-review: claim verification (#90)', () => {
     expect(fetched.some((u) => new URL(u).hostname === 'crates.io')).toBe(false);
     expect(new Set(fetched)).toEqual(new Set([NIST]));
     expect(calls(r, 'claim-verifier')).toEqual([]);
-    expect(reviewActs(r)[0]?.body).toContain('Source: not a link in this PR');
+    expect(reviewActs(r)[0]?.body).toContain('Source: not fetched');
   });
 
   it('never confirms on an injected page, keeps it inside envelopes and names the verifier for the operator', async () => {
