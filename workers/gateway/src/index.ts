@@ -329,6 +329,10 @@ app.all('/agents/*', async (c) => {
     return c.json({ error: 'service tokens may only trigger run, digest or summary' }, 403);
   url.host = 'agents.internal';
   const headers = new Headers(c.req.raw.headers);
+  // Never hand the operator's Access credentials to an agent Worker: since #104 that token is what
+  // the broker needs to decide, rotate, halt and resume (review of #125, H1). Agents get only the
+  // identity the gateway verified.
+  for (const h of AGENT_STRIPPED_HEADERS) headers.delete(h);
   headers.set('x-custodes-actor', actor.subject);
   headers.set('x-custodes-actor-via', actor.via);
   // Only a class that has its own Worker is routed; anything else is a 404 here, never a fallback
@@ -337,6 +341,16 @@ app.all('/agents/*', async (c) => {
   if (worker === null) return c.json({ error: 'unknown agent class' }, 404);
   return worker.fetch(new Request(url, { method: c.req.method, headers, body: c.req.raw.body }));
 });
+
+/** Request headers that carry the operator's credentials, removed before proxying to an agent. */
+export const AGENT_STRIPPED_HEADERS = [
+  'cf-access-jwt-assertion',
+  'cf-access-token',
+  'cf-access-client-id',
+  'cf-access-client-secret',
+  'cookie',
+  'authorization',
+] as const;
 
 /** Agent classes that moved to `custodes-triage` (ADR 0018). */
 const TRIAGE_CLASSES = new Set([

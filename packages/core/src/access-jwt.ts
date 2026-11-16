@@ -19,8 +19,13 @@ export interface AccessJwtOptions {
 const SKEW_S = 30;
 /** How long fetched keys are reused before they are fetched again. */
 const KEYS_TTL_MS = 10 * 60_000;
+/** At most one fetch per issuer this often, so unknown kids cannot make every request fetch. */
+const MIN_REFETCH_MS = 60_000;
+/** Cached keys are not used past this age, even when fetching fails (fail closed). */
+const KEYS_MAX_AGE_MS = 60 * 60_000;
 const ALG = { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' } as const;
 const keyCache = new Map<string, { at: number; keys: Map<string, CryptoKey> }>();
+const lastFetch = new Map<string, number>();
 
 /** The token Access injects (`Cf-Access-Jwt-Assertion`) or a CLI sends (`cf-access-token`). */
 export function accessTokenOf(req: Request): string | null {
@@ -52,20 +57,27 @@ export async function verifyAccessToken(
   const parts = token.split('.');
   if (parts.length !== 3) return null;
   const [h = '', p = '', s = ''] = parts;
-  let header: { alg?: unknown; kid?: unknown };
-  let claims: Record<string, unknown>;
+  let rawHeader: unknown;
+  let rawClaims: unknown;
   let signature: Uint8Array<ArrayBuffer>;
   try {
-    header = JSON.parse(new TextDecoder().decode(fromBase64Url(h))) as typeof header;
-    claims = JSON.parse(new TextDecoder().decode(fromBase64Url(p))) as Record<string, unknown>;
+    rawHeader = JSON.parse(new TextDecoder().decode(fromBase64Url(h)));
+    rawClaims = JSON.parse(new TextDecoder().decode(fromBase64Url(p)));
     signature = fromBase64Url(s);
   } catch {
     return null;
   }
-  if (header.alg !== 'RS256' || typeof header.kid !== 'string') return null;
+  // `null` or a non-object decodes fine as JSON: refuse it here, not with a TypeError (review L1).
+  const isObject = (v: unknown): v is Record<string, unknown> =>
+    typeof v === 'object' && v !== null && !Array.isArray(v);
+  if (!isObject(rawHeader) || !isObject(rawClaims)) return null;
+  const alg = rawHeader['alg'];
+  const kid = rawHeader['kid'];
+  const claims = rawClaims;
+  if (alg !== 'RS256' || typeof kid !== 'string') return null;
   const issuer = `https://${team}.cloudflareaccess.com`;
   const now = (opts.now ?? Date.now)();
-  const key = await keyFor(issuer, header.kid, now, opts.fetchImpl);
+  const key = await keyFor(issuer, kid, now, opts.fetchImpl);
   if (!key) return null;
   const ok = await crypto.subtle.verify(ALG, key, signature, new TextEncoder().encode(`${h}.${p}`));
   if (!ok) return null;
@@ -82,7 +94,7 @@ export async function verifyAccessToken(
   return null;
 }
 
-/** The team's key for `kid`, from the cache or fetched (again once, for a key not seen yet). */
+/** The team's key for `kid`, from the cache or fetched (throttled; review L2). */
 async function keyFor(
   issuer: string,
   kid: string,
@@ -90,11 +102,21 @@ async function keyFor(
   fetchImpl: AccessJwtOptions['fetchImpl'],
 ): Promise<CryptoKey | undefined> {
   const cached = keyCache.get(issuer);
-  if (cached && now - cached.at < KEYS_TTL_MS && cached.keys.has(kid)) return cached.keys.get(kid);
-  const keys = await fetchKeys(issuer, fetchImpl).catch(() => null);
-  if (!keys) return cached?.keys.get(kid);
-  keyCache.set(issuer, { at: now, keys });
-  return keys.get(kid);
+  const fresh = cached !== undefined && now - cached.at < KEYS_TTL_MS;
+  if (fresh && cached.keys.has(kid)) return cached.keys.get(kid);
+  const lastTry = lastFetch.get(issuer) ?? -Infinity;
+  if (now - lastTry >= MIN_REFETCH_MS) {
+    lastFetch.set(issuer, now);
+    const keys = await fetchKeys(issuer, fetchImpl).catch(() => null);
+    if (keys) {
+      keyCache.set(issuer, { at: now, keys });
+      return keys.get(kid);
+    }
+  }
+  // No fresh fetch (throttled or failed): old keys only while not too old.
+  return cached !== undefined && now - cached.at < KEYS_MAX_AGE_MS
+    ? cached.keys.get(kid)
+    : undefined;
 }
 
 async function fetchKeys(
@@ -129,4 +151,5 @@ async function fetchKeys(
 /** Tests only: forget the cached keys. */
 export function clearAccessKeyCache(): void {
   keyCache.clear();
+  lastFetch.clear();
 }

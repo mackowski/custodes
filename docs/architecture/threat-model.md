@@ -126,7 +126,9 @@ signed calls only for the ids it hosts, and its unsigned default entrypoint refu
   resume), takes the approver from it, and alone writes the kill switch. What a compromised gateway
   can still do: replay an operator's token it sees during that session (Access sessions last 8 h)
   for another approval link it also sees; show a page that differs from what will run (the broker
-  runs only its stored request); read the audit log and pending approvals. Access has no step-up or
+  runs only its stored request); read the audit log and pending approvals. The gateway strips the
+  operator's Access credentials before proxying to an agent Worker, so a compromised agent never
+  holds a token the broker would accept. Access has no step-up or
   MFA requirement beyond the Cloudflare account's. Owner: operator.
 - **Resolved by ADR 0018** (every agent moved by 2026-11-13, the unsigned entrypoint closed on
   2026-11-16); kept for the record. Was: agents in one Worker share a trust domain: the broker trusts the `agentId` a caller in the agents

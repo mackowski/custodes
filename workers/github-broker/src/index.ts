@@ -2,7 +2,6 @@ import { WorkerEntrypoint } from 'cloudflare:workers';
 import { Hono } from 'hono';
 import { z } from 'zod';
 import {
-  type AccessJwtOptions,
   accessTokenOf,
   canonicalJson,
   isApprover,
@@ -40,6 +39,7 @@ import { keyring, type BrokerEnv } from './env.js';
 
 export { Keyring } from './keyring.js';
 import { policy } from './policy.js';
+import { accessOptions } from './access-options.js';
 import { ApprovalStore, AuditStore } from './store.js';
 
 /**
@@ -307,12 +307,6 @@ adminApp.get('/v1/approvals/token/:token', async (c) => {
   const found = await approvalByToken(c.env, c.req.param('token'));
   return found.ok ? c.json(found.approval) : c.json({ error: found.reason }, 404);
 });
-
-/**
- * How the broker fetches Cloudflare Access keys; tests inject `fetchImpl` and `now`. Production
- * uses the defaults (fetch, the clock).
- */
-export const accessOptions: AccessJwtOptions = {};
 
 /**
  * The operator behind an admin write, from their own Access token, which the gateway forwards

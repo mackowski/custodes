@@ -11,7 +11,7 @@ modules/
   ai-gateway      authenticated gateway with logging, rate/spend limits, guardrails
   dns             records for the gateway custom domain and email (MX/SPF/DKIM/DMARC)
   secrets-store   the account Secrets Store and one PAT entry *name* per agent (values synced by CI)
-  data-stores     KV (kill switch), D1 (audit), Queues (inbound + DLQ)
+  data-stores     KV (kill switch), D1 (audit), Queues (one per agent consumer + DLQ)
 envs/
   prod            the single environment (ADR 0007); composes the modules
 ```

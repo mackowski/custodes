@@ -1,6 +1,6 @@
 import { env } from 'cloudflare:workers';
 import { toBase64Url } from '@custodes/core';
-import { accessOptions } from '../src/index.js';
+import { accessOptions } from '../src/access-options.js';
 
 /**
  * Test-only Cloudflare Access: a local RSA key the broker trusts through `accessOptions`, and

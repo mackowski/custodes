@@ -134,4 +134,25 @@ describe('Access JWT (#104: verified by the gateway and again by the broker)', (
     );
     expect(isApprover({ subject: 'mallory@example.com', via: 'access-user' }, list)).toBe(false);
   });
+
+  it('refuses a token whose header or claims decode to null, without throwing (review L1)', async () => {
+    const t = `${b64(null)}.${b64({ email: 'op@example.com' })}.x`;
+    await expect(verifyAccessToken(t, TEAM, AUD, opts())).resolves.toBe(null);
+    const u = `${b64({ alg: 'RS256', kid: 'k1' })}.${b64(null)}.x`;
+    await expect(verifyAccessToken(u, TEAM, AUD, opts())).resolves.toBe(null);
+  });
+
+  it('fetches keys at most once a minute for unknown kids (review L2)', async () => {
+    const o = opts();
+    for (let i = 0; i < 5; i++)
+      expect(
+        await verifyAccessToken(
+          await mint({ email: 'op@example.com' }, { kid: `k${i + 2}` }),
+          TEAM,
+          AUD,
+          o,
+        ),
+      ).toBe(null);
+    expect(fetches).toHaveLength(1);
+  });
 });

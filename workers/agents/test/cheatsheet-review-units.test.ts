@@ -2690,4 +2690,47 @@ describe('links: reference definitions and HTML href/src (#95)', () => {
     for (const host of ['archive.is', 'archive.li', 'archive.vn', 'archive.md'])
       expect(sameSite(`https://${host}/a`, `https://${host}/a`)).toBe(false);
   });
+
+  const scanCode = (code: number[], ...patchLines: string[]) =>
+    scanLinks(SHEET, parsePatch(['@@ -1,9 +1,9 @@', ...patchLines].join('\n')), new Set(code));
+
+  it('never lets a code-sample href hide a later real citation of the same URL (review M1)', () => {
+    const r = scanCode(
+      [2],
+      ' a',
+      '+<a href="//evil.example/x">sample</a>',
+      '+Source: [RFC](//evil.example/x).',
+    );
+    expect(r.links).toEqual([expect.objectContaining({ url: '//evil.example/x', line: 3 })]);
+    expect(r.links[0]?.markup).toBeUndefined();
+  });
+
+  it('drops only non-http markup in fenced code; an http(s) target there is still audited (review M2)', () => {
+    const r = scanCode(
+      [2, 3],
+      ' a',
+      '+<a href="javascript:alert(1)">x</a>',
+      '+[1]: https://evil.example/y',
+    );
+    expect(r.links.map((l) => l.url)).toEqual(['https://evil.example/y']);
+  });
+
+  it('flags a line too long to scan instead of scanning it (review M3)', () => {
+    const long = `+${'src=a1 '.repeat(800)}<code>x</code>`;
+    const r = scan(' a', long);
+    expect(r.links).toEqual([]);
+    expect(r.longLines).toEqual([2]);
+  });
+
+  it('reads every URL of a srcset and action/poster targets (review L4)', () => {
+    const r = scan(
+      '+<img srcset="//evil.example/a.png 1x, ../assets/b.png 2x">',
+      '+<form action="//evil.example/post"></form>',
+    );
+    expect(r.links.map((l) => l.url)).toEqual([
+      '//evil.example/a.png',
+      '../assets/b.png',
+      '//evil.example/post',
+    ]);
+  });
 });

@@ -1,6 +1,6 @@
 import { env } from 'cloudflare:workers';
 import { describe, expect, it } from 'vitest';
-import worker, { agentWorker } from '../src/index.js';
+import worker, { AGENT_STRIPPED_HEADERS, agentWorker } from '../src/index.js';
 import { AgentKeys, type ApprovalRequest, type AuditRecord } from '@custodes/schema';
 import { toBase64Url } from '@custodes/core';
 import {
@@ -995,5 +995,31 @@ describe("admin writes forward the operator's own Access token to the broker (#1
     );
     expect(seen[0]?.jwt).toBe(jwt);
     expect(JSON.parse(seen[0]?.body ?? '{}')).toEqual({ decision: 'rejected' });
+  });
+
+  it("never passes the operator's Access credentials on to an agent Worker (review of #125, H1)", async () => {
+    const jwt = await token(approver());
+    let got: Headers | undefined;
+    const prGate = {
+      fetch: (req: Request) => {
+        got = req.headers;
+        return Promise.resolve(Response.json({ ok: true }));
+      },
+    } as unknown as GatewayEnv['PR_GATE'];
+    const res = await worker.fetch(
+      new Request('https://custodes.work/agents/pr-gate-agent/custodes-sandbox/report', {
+        headers: {
+          'cf-access-jwt-assertion': jwt,
+          'cf-access-token': jwt,
+          cookie: 'CF_Authorization=secret',
+          authorization: 'Bearer x',
+        },
+      }),
+      { ...testEnv(), PR_GATE: prGate },
+      ctx,
+    );
+    expect(res.status).toBe(200);
+    for (const h of AGENT_STRIPPED_HEADERS) expect(got?.get(h), h).toBe(null);
+    expect(got?.get('x-custodes-actor')).toBe(approver());
   });
 });
