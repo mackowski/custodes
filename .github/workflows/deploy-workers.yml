@@ -115,8 +115,10 @@ jobs:
           sel='.result[] | select(.queue_name == "custodes-inbound")'
           qid="$(jq -r "$sel | .queue_id" <<<"$queues")"
           if [ -z "$qid" ]; then echo "custodes-inbound does not exist; nothing to detach"; exit 0; fi
+          [[ $qid =~ ^[0-9a-f]{32}$ ]] || { echo "::error::unexpected queue id"; exit 1; }
           # Already detached on an earlier run: nothing to delete, the check below still runs.
           for cid in $(jq -r "$sel | .consumers[]? | select(.script == \"custodes-agents\" or .service == \"custodes-agents\") | .consumer_id" <<<"$queues"); do
+            [[ $cid =~ ^[0-9a-f]{32}$ ]] || { echo "::error::unexpected consumer id"; exit 1; }
             curl -fsS -X DELETE -H "$auth" "$api/$qid/consumers/$cid" >/dev/null
             echo "detached consumer $cid"
           done
