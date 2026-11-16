@@ -1,15 +1,8 @@
 import { getAgentByName } from 'agents';
 import { CustodesAgent } from '@custodes/core/agent';
 import { AnthropicGateway, inertText } from '@custodes/llm';
-import type { AgentManifest } from '@custodes/schema';
 import type { AgentsEnv } from '../env.js';
-import {
-  INSTANCE_REPOS,
-  instanceOf,
-  OWASP_INSTANCE,
-  UnknownInstanceError,
-  unknownInstance,
-} from '../instances.js';
+import { instanceOf, OWASP_INSTANCE, UnknownInstanceError, unknownInstance } from '../instances.js';
 import { PendingResults, type SpecialistJob } from './specialists/agent.js';
 import { ImplementationCheck } from './specialists/implementation.js';
 import { ProposalReview } from './specialists/proposal.js';
@@ -43,14 +36,8 @@ const MAX_APPLY_LINKS = 20;
 /** `<approvalId>.<exp>.<hmac>`, as ApprovalCreated in @custodes/schema. */
 const APPROVAL_TOKEN = /^[0-9a-f-]{36}\.\d{1,12}\.[A-Za-z0-9_-]{20,100}$/;
 
-export const TRIAGE_MANIFEST: AgentManifest = {
-  id: 'triage',
-  version: '0.2.0',
-  description:
-    'Read-only triage report for OWASP Cheat Sheet Series issues: suggests labels, cheat sheet and duplicates, delegates to implementation-check and proposal-review, e-mails daily.',
-  mode: 'readonly',
-  repos: [...INSTANCE_REPOS],
-};
+export { TRIAGE_MANIFEST } from '../manifests.js';
+import { TRIAGE_MANIFEST } from '../manifests.js';
 
 /** One instance per repository. */
 export const TRIAGE_INSTANCE = OWASP_INSTANCE;

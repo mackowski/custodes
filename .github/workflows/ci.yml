@@ -28,6 +28,11 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm build
+      - name: Third-party packages per Worker bundle (#105)
+        # Builds every Worker with `wrangler deploy --dry-run` (nothing is uploaded) and compares the
+        # packages each bundles with docs/security/worker-bundles.json: a dependency that reaches a
+        # Worker shows in the PR, per Worker. Update with `pnpm bundle:manifest`.
+        run: node --experimental-strip-types scripts/bundle-manifest.ts --check
       - name: actionlint
         uses: docker://rhysd/actionlint:1.7.7@sha256:887a259a5a534f3c4f36cb02dca341673c6089431057242cdc931e9f133147e9
         with:
