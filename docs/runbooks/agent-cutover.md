@@ -145,8 +145,8 @@ Kept on purpose, for later PRs:
   with the target's data untouched. So they can go in a later PR; the deploy guard reads the
   `transferred` entries to know which moves are done (`agent-cutover-config.ts moved`), so change
   it first.
-- **`custodes-agents` itself**, for `/registry`. Decide whether the registry moves to the gateway
-  (then this Worker, its deploy steps and the `AGENTS` binding go) or the Worker stays. Note: the
+- **`custodes-agents` itself stays** (operator's decision, 2026-11-16), for `/registry`. It must not
+  get bindings, secrets or agent code again; a new agent gets its own Worker. Note: the
   Email Routing catch-all for custodes.work sends every incoming message to this Worker
   (`infra/terraform/modules/email-routing`, `agents_worker_name`), which has never had an `email()`
   handler; deleting the Worker means changing that rule first.

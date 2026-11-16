@@ -228,6 +228,7 @@ jobs:
           done
           # Check the result, not the loop: a field it did not match must not pass as "nothing to do".
           left="$(curl -fsS -H "$auth" "$api/$qid/consumers")"
-          if jq -e '.result[]? | select((.script // .script_name // .service) == "custodes-agents")' <<<"$left" >/dev/null; then
-            echo "::error::custodes-agents is still a consumer of custodes-inbound"; exit 1
-          fi
+          # Nothing consumes custodes-inbound any more: expect an empty list. Assigned outside an `if`,
+          # so a response jq cannot read fails the step (bash -e) instead of passing unchecked.
+          n="$(jq -er '.result | if type == "array" then length else error("bad shape") end' <<<"$left")"
+          [ "$n" = 0 ] || { echo "::error::custodes-inbound still has $n consumer(s)"; exit 1; }
