@@ -1,11 +1,25 @@
 {
   "custodes-github-broker": {
-    "thirdParty": ["hono@4.13.16", "zod@4.6.7"],
-    "workspace": ["@custodes/core", "@custodes/github", "@custodes/schema"]
+    "thirdParty": [
+      "hono@4.13.18",
+      "zod@4.6.7"
+    ],
+    "workspace": [
+      "@custodes/core",
+      "@custodes/github",
+      "@custodes/schema"
+    ]
   },
   "custodes-gateway": {
-    "thirdParty": ["hono@4.13.18", "zod@4.6.7"],
-    "workspace": ["@custodes/core", "@custodes/github", "@custodes/schema"]
+    "thirdParty": [
+      "hono@4.13.18",
+      "zod@4.6.7"
+    ],
+    "workspace": [
+      "@custodes/core",
+      "@custodes/github",
+      "@custodes/schema"
+    ]
   },
   "custodes-agents": {
     "thirdParty": [],
@@ -22,7 +36,7 @@
       "cron-schedule@6.0.0",
       "eventsource-parser@3.1.1",
       "eventsource@3.0.7",
-      "jose@6.2.15",
+      "jose@6.2.17",
       "mime-db@1.52.0",
       "mime-types@2.1.35",
       "mimetext@3.0.28",
@@ -30,7 +44,11 @@
       "pkce-challenge@5.0.1",
       "zod@4.6.7"
     ],
-    "workspace": ["@custodes/core", "@custodes/llm", "@custodes/schema"]
+    "workspace": [
+      "@custodes/core",
+      "@custodes/llm",
+      "@custodes/schema"
+    ]
   },
   "custodes-triage-apply": {
     "thirdParty": [
@@ -43,7 +61,7 @@
       "cron-schedule@6.0.0",
       "eventsource-parser@3.1.1",
       "eventsource@3.0.7",
-      "jose@6.2.15",
+      "jose@6.2.17",
       "mime-db@1.52.0",
       "mime-types@2.1.35",
       "mimetext@3.0.28",
@@ -51,7 +69,10 @@
       "pkce-challenge@5.0.1",
       "zod@4.6.7"
     ],
-    "workspace": ["@custodes/core", "@custodes/schema"]
+    "workspace": [
+      "@custodes/core",
+      "@custodes/schema"
+    ]
   },
   "custodes-pr-gate": {
     "thirdParty": [
@@ -64,7 +85,7 @@
       "cron-schedule@6.0.0",
       "eventsource-parser@3.1.1",
       "eventsource@3.0.7",
-      "jose@6.2.15",
+      "jose@6.2.17",
       "mime-db@1.52.0",
       "mime-types@2.1.35",
       "mimetext@3.0.28",
@@ -72,7 +93,11 @@
       "pkce-challenge@5.0.1",
       "zod@4.6.7"
     ],
-    "workspace": ["@custodes/core", "@custodes/llm", "@custodes/schema"]
+    "workspace": [
+      "@custodes/core",
+      "@custodes/llm",
+      "@custodes/schema"
+    ]
   },
   "custodes-cheatsheet-review": {
     "thirdParty": [
@@ -85,7 +110,7 @@
       "cron-schedule@6.0.0",
       "eventsource-parser@3.1.1",
       "eventsource@3.0.7",
-      "jose@6.2.15",
+      "jose@6.2.17",
       "mime-db@1.52.0",
       "mime-types@2.1.35",
       "mimetext@3.0.28",
@@ -93,6 +118,10 @@
       "pkce-challenge@5.0.1",
       "zod@4.6.7"
     ],
-    "workspace": ["@custodes/core", "@custodes/llm", "@custodes/schema"]
+    "workspace": [
+      "@custodes/core",
+      "@custodes/llm",
+      "@custodes/schema"
+    ]
   }
 }
