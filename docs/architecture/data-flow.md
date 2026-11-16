@@ -6,7 +6,8 @@ of this diagram it touches, before and after, and updates this file when the flo
 (`docs/sdlc.md`, `.github/workflows/pr-architecture.yml`). Derived from the Workers' `wrangler.jsonc` files, the broker policy and the
 gateway routes, not from memory; when they disagree, the code is right and this file is stale.
 
-Last checked against the code: 2026-11-16 (PR #122, after the last agent cutover).
+Last checked against the code: 2026-11-16 (PR #122, after the last agent cutover; re-checked for
+the deploy-order hotfix, no change).
 
 ## The whole system
 
