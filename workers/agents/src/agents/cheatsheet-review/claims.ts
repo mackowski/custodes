@@ -137,7 +137,9 @@ export function locate(text: string, locator: string): { at: number; length: num
   const section = /^(?:§+\s*|section\s+|sec\.\s*)?(\d+(?:\.\d+)+)(?![\w.]|\.\d)/i.exec(l)?.[1];
   if (section !== undefined && section !== l) candidates.push(section);
   for (const c of candidates) {
-    const hits = [...text.matchAll(pattern(c))].slice(0, 500);
+    // At most 500 matches are looked at: a short locator in a converted PDF can match very often.
+    const hits: RegExpExecArray[] = [];
+    for (const h of text.matchAll(pattern(c))) if (hits.push(h) >= 500) break;
     const first = hits[0];
     if (!first) continue;
     const pick = hits.filter((h) => headingLike(text, h.index)).at(-1) ?? first;
@@ -388,7 +390,8 @@ export function mentions(text: string, f: ClaimedFinding, strict = false): boole
   const t = fold(text);
   const loc = fold(f.claim.locator).replace(/^["'“”‘’]+|["'“”‘’]+$/g, '');
   if ((/\d/.test(loc) && loc.length >= 3) || loc.length >= 12) if (t.includes(loc)) return true;
-  if (t.includes(fold(f.claim.sourceUrl))) return true;
+  const url = fold(f.claim.sourceUrl);
+  if (/^https?:\/\/\S{8,}$/.test(url) && t.includes(url)) return true;
   const a = words(text);
   const b = words(`${f.problem} ${f.claim.text}`);
   const small = Math.min(a.size, b.size);

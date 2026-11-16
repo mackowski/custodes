@@ -44,6 +44,7 @@ Security is never dropped for a change to guidance, whatever its size (`MODELS.m
 | practicality-reviewer | Claude Sonnet 5.5                            | Muse Spark 1.3                                   |
 | duplication-checker   | Muse Spark 1.3                               | GPT-6.1 Sol                                      |
 | link-auditor          | DeepSeek V4.1 Flash (Workers AI, low effort) | GPT-6 Luna                                       |
+| claim-verifier        | DeepSeek V4.1 Flash (Workers AI, low effort) | GPT-6 Luna                                       |
 | language-reviewer     | GPT-6 Luna                                   | Claude Haiku 5.5                                 |
 | judge                 | GPT-6 Astra                                  | Claude Sonnet 5.5                                |
 
@@ -92,6 +93,26 @@ previous URL. Link targets must have a known form (http(s) with a plain host and
 an anchor, an image under assets); anything else is a MAJOR "verify by hand" finding and makes the
 change content.
 
+**Claim verification** (#90, ADR 0017 amendment 2026-11-16): a reviewer finding may carry a
+`claim` (text, source URL, locator: a quote of at most 200 characters or a section or page number).
+After the reviewers and before the judge, `claims.ts`:
+
+1. takes the claims, BLOCKER first, then MAJOR, MINOR, NIT; at most 5 are checked, the rest are
+   "not checked" with a note;
+2. fetches a source only when its URL is an external link in a cheat sheet diff or a changed cheat
+   sheet at the head commit (the same https, public-host and target-form rules as the link
+   auditor); HTML and text under `fetchLink`'s limits (10 s, 2 MB, 5 re-checked redirects), PDFs up
+   to 10 MB through Workers AI `toMarkdown` (via the AI Gateway). Each source is fetched once;
+3. cuts ±3,000 characters around the locator (whitespace and case normalised), or the first 6,000
+   when it is not found, and sends claim and excerpt to the `claim-verifier` in separate envelopes;
+4. applies the verdicts in code. CONFIRMED stays, marked "verified against <host>, <locator>" (and
+   is added back, as must-fix when BLOCKER or MAJOR, if the judge dropped it). NOT-FOUND leaves the
+   verdict and is listed under "Claims to verify manually" with the reason. REFUTED is left out of
+   the review and listed for the operator on the approval page (OWASP) or on the trace (sandbox).
+   REFUTED without a locator match, `injectionSeen`, a fetch, PDF or verifier failure all become
+   NOT-FOUND. The judge sees only what the verdicts leave, and code removes any item, suggestion,
+   close reason or rationale sentence about a removed claim from its answer.
+
 **Multi-model invariant** (`invariantBreach`): when both security voices are asked for, both
 answer and come from different vendors, and the judge is a different model from both. Every review
 has at least two different models. If that fails, or the judge does not answer, nothing is
@@ -101,7 +122,8 @@ published: the operator gets the partial review by e-mail and the label stays on
 
 - The pull request's title, body, diff and changed files at the head commit, file names included.
 - Existing cheat sheets (default branch), the linked issues' labels and assignees.
-- The text of external pages the pull request links to (fetched by the agent).
+- The text of external pages the pull request links to (fetched by the agent), and of PR-linked
+  sources a reviewer's claim cites, PDFs included (#90).
 - The webhook (`pull_request.labeled`): only a hint to wake up.
 - Model output, including reviewer reports that the judge reads.
 
@@ -146,20 +168,22 @@ repository is a fuse against a bug.
 
 ## Failure modes and what happens
 
-| Failure                                          | What happens                                                                                       |
-| ------------------------------------------------ | -------------------------------------------------------------------------------------------------- |
-| Kill switch on                                   | Nothing runs; `guard()` before every model call, link fetch, broker action and e-mail.             |
-| Label added by someone else, or removed again    | No model call, no action; logged with ids only.                                                    |
-| A model fails, refuses or answers badly          | One retry on 429, one repair of unparsable JSON, then the fallback (shown in the review).          |
-| Primary and fallback both fail                   | The role is "unavailable"; if that breaks the invariant, partial review by e-mail, nothing posted. |
-| An external link answers 401/403/429/5xx/timeout | Listed under "Links to verify manually", never called broken.                                      |
-| A suggestion is outside the diff                 | Not placed inline; listed in the body instead.                                                     |
-| The broker refuses the review                    | Partial review by e-mail; the label stays.                                                         |
-| The broker refuses the approval request          | Partial review by e-mail; the label stays.                                                         |
-| The approval link is not used within 24 h        | The approval expires; nothing is posted. Label the pull request again for a new review.            |
-| The author pushes before the operator approves   | The review is posted on the commit it was written for; GitHub marks its comments outdated.         |
-| The review posts but the label removal fails     | Logged; the label event is already recorded, so it is not reviewed twice.                          |
-| A reviewer sees instruction-like text            | Its own span carries `custodes.review.injection_seen`; the approval e-mail names the role.         |
+| Failure                                                                                                                  | What happens                                                                                           |
+| ------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------ |
+| Kill switch on                                                                                                           | Nothing runs; `guard()` before every model call, link or claim-source fetch, broker action and e-mail. |
+| Label added by someone else, or removed again                                                                            | No model call, no action; logged with ids only.                                                        |
+| A model fails, refuses or answers badly                                                                                  | One retry on 429, one repair of unparsable JSON, then the fallback (shown in the review).              |
+| Primary and fallback both fail                                                                                           | The role is "unavailable"; if that breaks the invariant, partial review by e-mail, nothing posted.     |
+| An external link answers 401/403/429/5xx/timeout                                                                         | Listed under "Links to verify manually", never called broken.                                          |
+| A suggestion is outside the diff                                                                                         | Not placed inline; listed in the body instead.                                                         |
+| The broker refuses the review                                                                                            | Partial review by e-mail; the label stays.                                                             |
+| The broker refuses the approval request                                                                                  | Partial review by e-mail; the label stays.                                                             |
+| The approval link is not used within 24 h                                                                                | The approval expires; nothing is posted. Label the pull request again for a new review.                |
+| The author pushes before the operator approves                                                                           | The review is posted on the commit it was written for; GitHub marks its comments outdated.             |
+| The review posts but the label removal fails                                                                             | Logged; the label event is already recorded, so it is not reviewed twice.                              |
+| A reviewer sees instruction-like text                                                                                    | Its own span carries `custodes.review.injection_seen`; the approval e-mail names the role.             |
+| A claim cannot be checked (source not in the PR, fetch error, PDF over 10 MB or not converted, verifier down, injection) | NOT-FOUND: listed under "Claims to verify manually" with the reason; never removed, never confirmed.   |
+| A claim is refuted against its cited passage                                                                             | Left out of the review; listed in the approval note (OWASP) or on the trace (sandbox).                 |
 
 Runs are listed (ids, class, verdict, event, models, review URL; no content) at the agent's status
 endpoint through the gateway. Traces show one `invoke_agent cheatsheet-review` per run with an
@@ -200,6 +224,10 @@ The label can also be removed from the repository's label list; nothing triggers
    the review (`render.ts`) → broker `pr.review.inline` (schema bounds, marker on every inline
    comment, trailer and signed attestation on the body).
 7. Agent → `EMAIL` (operator only); model and author text inert (`email.ts`).
+8. Agent → claim sources (`links.ts` `fetchSource`, #90): only URLs already linked in the PR's
+   cheat sheets, never a URL from model output; same host and redirect checks, 2 MB for HTML and
+   text, 10 MB for PDFs. PDF bytes go to Workers AI `toMarkdown` through the AI Gateway under a
+   fixed file name. At most ±3,000 characters reach **only** the claim verifier, enveloped.
 
 ### STRIDE
 
@@ -213,6 +241,10 @@ The label can also be removed from the repository's label list; nothing triggers
 | **I**: prompt or system prompt leaks into a public review                               | low        | low    | prompts contain no secrets; reviews are rendered from schema fields, length-bounded                                                                                                                     | none                                                          |
 | **I**: untrusted text in AI Gateway logs outside `TRACE_PAYLOADS`                       | low        | low    | `gatewayMetadata` allows ids only                                                                                                                                                                       | none                                                          |
 | **D**: a huge PR or many links burns model budget or time                               | medium     | low    | the operator chooses what to label; 15 links, 2 MB, 4 concurrent calls, fixed `max_tokens`                                                                                                              | no wall-clock budget per run beyond the alarm limit           |
+| **T**: a poisoned source page or claim steers the claim verifier to confirm or refute   | medium     | medium | claim and page in separate envelopes, `UNTRUSTED_DATA_RULES`; `injectionSeen` turns every verdict into NOT-FOUND; REFUTED only with the locator found; eval injection cases (page and claim)            | the verifier may miss an injection it does not flag           |
+| **T**: a reviewer or the judge points the claim check at an attacker URL (SSRF)         | low        | medium | only URLs already linked in the PR's cheat sheets are fetched; `fetchable` on every hop                                                                                                                 | none                                                          |
+| **I**: claim or page text in logs                                                       | low        | low    | `cheatsheet-review.claims` logs ids, counts, verdicts, hosts and code reasons only; payloads only in trace spans under `TRACE_PAYLOADS` (ADR 0016)                                                      | none                                                          |
+| **D**: large PDFs or many claims burn time                                              | low        | low    | 5 claims, one fetch per source, 10 MB and 10 s per download, one verifier call                                                                                                                          | the `toMarkdown` conversion has no own timeout                |
 | **D**: repeated label toggling floods reviews                                           | low        | low    | each label event once; broker 20/h                                                                                                                                                                      | none                                                          |
 | **E**: the agent does more than review                                                  | low        | high   | broker policy: two actions, one label, one repository; `APPROVE` not in the schema; no `pr.close`                                                                                                       | none (own Worker since ADR 0018)                              |
 | **E**: the agent, or a compromised dependency in it, approves its own review on OWASP   | low        | high   | approvals decided only on the broker's `BrokerAdmin` entrypoint (gateway only, Access + `APPROVER_EMAILS`); link token HMAC from the `Keyring` bound to the action hash; broker runs the stored request | none known                                                    |
@@ -290,3 +322,6 @@ The label can also be removed from the repository's label list; nothing triggers
 - A model can be wrong in a way all reviewers share (common training data). Mitigated by the
   notice to authors and the operator's own reading. Owner: operator.
 - Fetching author-supplied URLs reveals Cloudflare egress to those sites. Owner: operator.
+- A wrong claim verdict (one cheap model) keeps or removes one finding; refutations need the cited
+  passage and are shown to the operator, and the check that a judge item is "about" a removed
+  claim is a text heuristic (#90). Owner: operator.

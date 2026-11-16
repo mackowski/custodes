@@ -860,6 +860,9 @@ describe('claims.enforceClaims: the judge cannot bring a removed finding back', 
     expect(mentions('https://crates.io/crates/rand is cited', RAND)).toBe(true);
     expect(mentions('The section needs work.', RAND)).toBe(false);
     expect(mentions('Typo in the heading.', RAND)).toBe(false);
+    // A junk "URL" or locator never matches everything.
+    const junk = finding({}, { sourceUrl: 'a', locator: 'e' });
+    expect(mentions('Any sentence at all about a heading.', junk)).toBe(false);
   });
 });
 

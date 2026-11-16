@@ -240,3 +240,56 @@ conversation. Nothing told them the sheet had grown from 1,334 to 2,132 words ei
   comment can shape the judge's list. The list is advisory, the review is approved by the operator
   before it is posted on OWASP, and the comment text is data inside an envelope. Owner: the
   maintainer.
+
+## Amendment: Claim verification (2026-11-16, #90)
+
+On OWASP/CheatSheetSeries#2878 the judge dropped a correct finding (NIST SP 800-190 §3.1.3 is
+_Embedded malware_; clear-text secrets are §3.1.4) because it could not check it, and on #2882 it
+could not refute a false one ("rand 0.10.3 does not exist"). Decisions from `/grill-plan`
+(operator, 2026-11-16, recorded on #90):
+
+- **Where a claim lives:** an optional `claim: {text, sourceUrl, locator}` on `Finding`, asked for
+  by every reviewer role through `FINDING_FORMAT`. The verdict applies to that finding; there is
+  no matching of claims to findings.
+- **Source boundary:** code fetches only URLs that are external links in the diff of a cheat sheet
+  or in a changed cheat sheet at the head commit (`claims.ts` `sourceUrls`; https, public host,
+  known target form). A URL the model wrote is never fetched; a claim without such a source is
+  NOT-FOUND.
+- **Verifier:** a new role `claim-verifier` on the link auditor's pair (DeepSeek V4.1 Flash on
+  Workers AI, low effort; GPT-6 Luna fallback), one call for all claims of a review, with
+  `UNTRUSTED_DATA_RULES` and `injectionSeen`. The claim and the excerpt are separate envelopes
+  (`reviewer-claim`, `page:<host>`).
+- **Limits:** HTML and text as `fetchLink` (10 s, 2 MB, 5 redirects each re-checked); PDFs (by
+  content type) up to 10 MB, converted by Workers AI `toMarkdown` through the AI Gateway (ADR 0015).
+  The excerpt is ±3,000 characters around the locator, matched with whitespace and case
+  normalised (a section number never matches a longer one; the last heading-like match wins over a
+  table of contents). Without a match the verifier gets the first 6,000 characters and code
+  turns REFUTED into NOT-FOUND. At most 5 claims per review, BLOCKER first, then MAJOR, MINOR, NIT;
+  the rest are NOT-FOUND with a note.
+- **Verdicts, enforced by code after the judge:** CONFIRMED keeps the finding, marked "verified
+  against <host>, <locator>", and code adds it back (MERGE becomes REQUEST_CHANGES for a BLOCKER or
+  MAJOR) if the judge dropped it. NOT-FOUND moves it to "Claims to verify manually", outside the
+  verdict. REFUTED removes it from the review; on OWASP it is listed in the approval request's note
+  (the approval page), on the sandbox it is on the trace (`custodes.review.claims_refuted_ids`, and
+  the verifier span's payload under ADR 0016). The judge sees neither removed finding in the
+  reports, only the verdicts in a `claim-verdicts` envelope; `enforceClaims` removes items,
+  suggestions, close reasons and rationale sentences that still speak about them.
+- **Failures:** a fetch error, an oversized PDF, a `toMarkdown` error, a missing verdict, a
+  verifier failure or `injectionSeen` is NOT-FOUND with a code-written reason. Errors and injection
+  never remove or confirm a finding; the review always continues.
+- **Observability:** the `cheatsheet-review.claims` log and span attributes carry ids
+  (`role#index`), counts, verdicts, source hosts and code reasons, never claim, page or verifier
+  text.
+- **Evals:** new suite `cheatsheet-review-verifier` (#2878 CONFIRMED, #2882 REFUTED, locator absent,
+  injection in the page, injection in the claim) and a judge case where a refuted claim repeated by
+  another reviewer stays out of the decision.
+
+Ruled out: a separate `checkableClaims` list (it needs claims matched to findings), fetching URLs
+the model proposes (SSRF and injection boundary), REFUTED from the start of a document, and
+keeping PDFs at 2 MB (most NIST documents would be NOT-FOUND).
+
+**Accepted risks:** the verifier is one cheap model; a wrong CONFIRMED keeps a finding the judge
+would have dropped (the review still says to double-check), a wrong REFUTED removes one (only with
+the cited passage in front of it, and visible to the operator). The code check that a judge item
+"speaks about" a removed finding is a text heuristic (same file and line, plus locator, URL or
+shared words); it can miss a heavy rephrase or remove an overlapping item. Owner: operator.
