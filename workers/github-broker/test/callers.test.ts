@@ -9,9 +9,9 @@ import {
   signRequest,
   verifyCallerIntent,
 } from '@custodes/core';
-import { AgentKeys, type CallerName, Policy, verificationKeys } from '@custodes/schema';
+import { AgentKeys, type CallerName, verificationKeys } from '@custodes/schema';
 import { CALLER_AGENTS, isIsolated } from '../src/callers.js';
-import { callerApp, sharedAgentApp } from '../src/index.js';
+import broker, { callerApp, sharedAgentApp } from '../src/index.js';
 import { AuditStore } from '../src/store.js';
 import { policy } from '../src/policy.js';
 
@@ -342,7 +342,7 @@ describe('agent side to broker, end to end (ADR 0018)', () => {
   });
 });
 
-describe('the shared default entrypoint during the transition', () => {
+describe('the default (unsigned) entrypoint serves no agent (ADR 0018)', () => {
   const runId = '9d7c1e9e-2b1a-4b6e-9a2e-1f7d1c2b3a44';
   /** One payload per route, all naming `agentId`. */
   const routes = (agentId: string) => {
@@ -363,8 +363,8 @@ describe('the shared default entrypoint during the transition', () => {
       ['/v1/approvals', { request, rationale: 'x' }],
     ] as const;
   };
-  const post = (p: Policy, path: string, payload: unknown) =>
-    sharedAgentApp(p).request(
+  const post = (path: string, payload: unknown) =>
+    sharedAgentApp().request(
       path,
       {
         method: 'POST',
@@ -373,50 +373,39 @@ describe('the shared default entrypoint during the transition', () => {
       },
       env,
     );
-  // Every agent is isolated since the last cutover; the tests start from a copy where none is,
-  // then isolate one.
-  const isolate = (id: string, where: 'agents' | 'reads'): Policy => {
-    const unisolated = (table: Record<string, object>) =>
-      Object.fromEntries(
-        Object.entries(table).map(([k, v]): [string, object] => [k, { ...v, isolated: false }]),
-      );
-    const base = { ...policy, agents: unisolated(policy.agents), reads: unisolated(policy.reads) };
-    const table: Record<string, object> = base[where];
-    const entries = Object.entries(table).map(([k, v]): [string, object] => [
-      k,
-      k === id ? { ...v, isolated: true } : v,
-    ]);
-    return Policy.parse({ ...base, [where]: Object.fromEntries(entries) });
-  };
 
-  it('refuses, on every route, an agent whose policy entry is marked isolated', async () => {
-    const p = isolate('pr-gate', 'agents');
-    expect(isIsolated('pr-gate', p)).toBe(true);
-    for (const [path, payload] of routes('pr-gate')) {
-      const res = await post(p, path, payload);
-      expect(res.status, path).toBe(403);
-      // The reason proves the isolation check refused it, not a later step that also answers 403.
-      expect(JSON.stringify(await res.json()), path).toMatch(/runs in its own Worker/);
-    }
-    // Another agent is still served (state answers; the rest reach the normal pipeline).
-    expect((await post(p, '/v1/state', { agentId: 'cheatsheet-review' })).status).toBe(200);
+  it('refuses every route for every agent in the policy, and for one that is not in it', async () => {
+    // By code, not by a policy flag: a new agent added to policy.json is refused with no flag.
+    const ids = [
+      ...new Set([...Object.keys(policy.agents), ...Object.keys(policy.reads)]),
+      'a-future-agent',
+    ];
+    expect(ids.length).toBeGreaterThan(5);
+    for (const id of ids)
+      for (const [path, payload] of routes(id)) {
+        const res = await post(path, payload);
+        expect(res.status, `${id} ${path}`).toBe(403);
+        // The reason proves the refusal came from the entrypoint, not a later step that also says 403.
+        expect(JSON.stringify(await res.json()), `${id} ${path}`).toMatch(
+          /signed broker entrypoint/,
+        );
+      }
   });
 
-  it('refuses, on every route, a read-only agent whose reads entry is marked isolated', async () => {
-    const p = isolate('triage', 'reads');
-    expect(isIsolated('triage', p)).toBe(true);
-    for (const [path, payload] of routes('triage')) {
-      const res = await post(p, path, payload);
-      expect(res.status, path).toBe(403);
-      // The reason proves the isolation check refused it, not a later step that also answers 403.
-      expect(JSON.stringify(await res.json()), path).toMatch(/runs in its own Worker/);
-    }
+  it('is what the Worker answers on its default export', async () => {
+    const res = await broker.fetch(
+      new Request('https://broker.internal/v1/state', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ agentId: 'cheatsheet-review' }),
+      }),
+      env,
+      {} as ExecutionContext,
+    );
+    expect(res.status).toBe(403);
   });
 
-  it('isolates every agent id: the shared entrypoint serves none since the last cutover', () => {
-    // isIsolated() is opt-in, so a new policy entry without `isolated: true` would be served
-    // unsigned by the shared default entrypoint (security review of #116, M1). Every agent runs in
-    // its own Worker (ADR 0018, ADR 0019), so every id must carry the flag.
+  it('still marks every agent id isolated in the policy (data the cutover tests rely on)', () => {
     for (const id of [...Object.keys(policy.agents), ...Object.keys(policy.reads)])
       expect(isIsolated(id), id).toBe(true);
   });

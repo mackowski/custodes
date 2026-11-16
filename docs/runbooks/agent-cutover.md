@@ -116,24 +116,36 @@ PRs #114 and #115):
      broker's Workers Logs instead: `broker.read` lines for the agent ids, and no
      `broker.caller.refused` for the Worker.
 
-### Clean-up PR (later)
+### Clean-up PR (done 2026-11-16, after the last cutover)
 
-The shared Worker still exports the moved classes next to their `transferred` tombstones, which
-Cloudflare supports for zero-downtime transfers. Once the agent runs fine, a later PR removes:
+Once all three agents had moved, `custodes-agents` was reduced to a Worker that runs no agent:
 
-- the class exports from `workers/agents/src/index.ts` and, for triage, the `hasTriage` branch and
-  the cron job in `crons`/`scheduled`;
-- the test-only `durableObjects` in `workers/agents/vitest.config.ts` (the classes then need another
-  test home) and the `AgentsEnv` entries, which today are required although the shared Worker has no
-  such binding (code there checks first; a missing check fails closed, as an outage);
-- the `transferred` entries, once Cloudflare reports them stale (check that dropping a tombstone is
-  allowed before removing it).
-- after the last cutover (cheatsheet-review), what custodes-agents keeps only for the generated
-  types: the shared crons, the `custodes-inbound` queue (consumer here, `INBOUND` producer in the
-  gateway), the `AI` and `send_email` bindings, the unsigned default `BROKER` binding, every var, and
-  the `hasTriage`/`hasPrGate`/`hasCheatsheetReview` branches. The gateway can then answer 404 for an
-  unknown `/agents/<class>` instead of falling back to `AGENTS`. Then decide whether the Worker stays at all (the gateway's `AGENTS` binding still serves
-  `/registry`).
+- `src/index.ts` answers only `GET /registry` (the gateway's `/admin/agents`) and `/healthz`: no
+  class exports, no `hasTriage`/`hasPrGate`/`hasCheatsheetReview` branches, no `scheduled`, no `queue`;
+- `wrangler.jsonc` has no vars, crons, queue consumer, Durable Object bindings, `BROKER`, `AI` or
+  `send_email` binding. The `AgentsEnv` type is declared by hand in `src/env.ts` (it is the union of
+  what the agent Workers bind, so no single wrangler file describes it);
+- the tests run from `test/entry.ts` (every class exported, bound side by side next to a stub
+  broker) and test the per-agent entry points (`src/*-worker.ts`);
+- deploy-workers pushes no secret to it and deletes the ones it still held (`OPENROUTER_API_KEY`,
+  `AI_GATEWAY_TOKEN`, `APPROVAL_TOKEN_SECRET`);
+- the gateway no longer produces to `custodes-inbound` and answers 404 for an `/agents/<class>`
+  that has no Worker (no fallback to `AGENTS`);
+- the broker's default entrypoint refuses every agent id in code, and a binding test fails if any
+  Worker binds it.
+
+Kept on purpose, for later PRs:
+
+- **The tombstones** (`transferred`, and `HelloAgent` `deleted`) in `workers/agents/wrangler.jsonc`.
+  Cloudflare reports a stale one with a `stale_tombstone` notice on every deploy; drop it then. The
+  deploy guard reads the `transferred` entries to know which moves are done
+  (`agent-cutover-config.ts moved`): change it first. Rehearse step G of
+  `scripts/do-transfer-test/README.md` before dropping any.
+- **`custodes-agents` itself**, for `/registry`. Decide whether the registry moves to the gateway
+  (then this Worker, its deploy steps and the `AGENTS` binding go) or the Worker stays.
+- **The `custodes-inbound` queue and its DLQ** in Terraform (nothing produces to or consumes it now).
+- **The `isolated` flags in the policy.** They no longer decide anything (the default entrypoint
+  refuses every id); `cutover-moves.test.ts` still checks them.
 
 ## If something is wrong after the move
 

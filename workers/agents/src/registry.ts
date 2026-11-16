@@ -6,8 +6,8 @@ import { PROPOSAL_REVIEW_MANIFEST } from './agents/proposal-review.js';
 import { TRIAGE_MANIFEST } from './agents/triage.js';
 
 /**
- * Every agent class deployed in this Worker. The gateway's `/admin/agents` reads it; the
- * `/new-agent` skill appends to it. Keep in sync with wrangler.jsonc durable_objects bindings.
+ * Every agent, whichever Worker it runs in (ADR 0018). The gateway's `/admin/agents` reads it from
+ * custodes-agents; the `/new-agent` skill appends to it. triage-apply is not listed yet.
  */
 export const REGISTRY: readonly AgentManifest[] = [
   TRIAGE_MANIFEST,

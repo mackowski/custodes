@@ -143,3 +143,11 @@ have each agent sign its own requests with a key only its Worker holds.
   follow-up.
 - **Secrets.** Agent private keys are generated inside the agent's Worker and never written to a
   file, CI or the repository. Only public keys are committed.
+
+## Update 2026-11-16
+
+All agents have moved: triage with its two specialists (2026-11-12), pr-gate and cheatsheet-review
+(2026-11-13), and triage-apply was born in its own Worker (ADR 0019). `custodes-agents` now runs no
+agent and has no secret, binding to the broker, cron or queue; it only answers the registry
+listing. The broker's default (unsigned) entrypoint refuses every agent id in code, and a binding
+test fails if any Worker binds it. The status above is unchanged: it is the operator's call.

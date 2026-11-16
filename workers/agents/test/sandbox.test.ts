@@ -2,6 +2,9 @@ import { TRIAGE_APPLY_MANIFEST } from '../src/agents/triage-apply.js';
 import { env } from 'cloudflare:workers';
 import { describe, expect, it } from 'vitest';
 import worker from '../src/index.js';
+import prGateWorker from '../src/pr-gate-worker.js';
+import triageWorker from '../src/triage-worker.js';
+import cheatsheetReviewWorker from '../src/cheatsheet-review-worker.js';
 import { testKillSwitch } from './helpers/halt-state.js';
 import type { AgentsEnv } from '../src/env.js';
 import {
@@ -21,9 +24,23 @@ import type { PublicPull } from '../src/agents/triage/github.js';
 import policy from '../../github-broker/policy/policy.json';
 
 const testEnv = env as AgentsEnv;
-const ctx = {} as ExecutionContext;
-const call = (path: string, method = 'GET') =>
-  worker.fetch(new Request(`https://x${path}`, { method }), testEnv, ctx);
+/**
+ * Every agent runs in its own Worker (ADR 0018), so `/agents/<class>/...` is served by that
+ * Worker's entry point, as the gateway routes it (`agentWorker`). Anything else goes to
+ * `custodes-agents`, which runs no agent.
+ */
+const ENTRY: Record<string, (req: Request) => Response | Promise<Response>> = {
+  'pr-gate-agent': (r) => prGateWorker.fetch(r, testEnv),
+  'triage-agent': (r) => triageWorker.fetch(r, testEnv),
+  'implementation-check-agent': (r) => triageWorker.fetch(r, testEnv),
+  'proposal-review-agent': (r) => triageWorker.fetch(r, testEnv),
+  'cheatsheet-review-agent': (r) => cheatsheetReviewWorker.fetch(r, testEnv),
+};
+const call = (path: string, method = 'GET') => {
+  const cls = path.split('/').filter(Boolean)[1] ?? '';
+  const req = new Request(`https://x${path}`, { method });
+  return Promise.resolve(Object.hasOwn(ENTRY, cls) ? ENTRY[cls]!(req) : worker.fetch(req));
+};
 
 describe('instances', () => {
   it('maps instance names to repositories and nothing else', () => {
@@ -139,12 +156,26 @@ describe('on-demand routes', () => {
     expect(allowedAgentPath(`/agents//pr-gate-agent/${SANDBOX_INSTANCE}`)).toBe(true);
   });
 
-  it('makes every agent class this Worker exports routable, and nothing else', async () => {
-    const exported = Object.keys(await import('../src/index.js')).filter((k) =>
-      k.endsWith('Agent'),
-    );
+  it('makes every agent class the agent Workers export routable, and nothing else', async () => {
+    const entries = await Promise.all([
+      import('../src/pr-gate-worker.js'),
+      import('../src/triage-worker.js'),
+      import('../src/cheatsheet-review-worker.js'),
+    ]);
+    const exported = entries.flatMap((m) => Object.keys(m)).filter((k) => k.endsWith('Agent'));
     const kebab = (s: string) => s.replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase();
     expect(new Set(exported.map(kebab))).toEqual(AGENT_CLASSES);
+  });
+
+  it('refuses every agent route on custodes-agents, which runs no agent', () => {
+    for (const path of [
+      `/agents/pr-gate-agent/${SANDBOX_INSTANCE}/run`,
+      `/agents/triage-agent/${OWASP_INSTANCE}`,
+      '/agents/keyholder/default',
+      '/',
+    ])
+      expect(worker.fetch(new Request(`https://x${path}`)).status, path).toBe(404);
+    expect(worker.fetch(new Request('https://x/registry', { method: 'POST' })).status).toBe(405);
   });
 
   it('preview the sandbox summary without sending it', async () => {
@@ -178,7 +209,7 @@ describe('on-demand routes', () => {
   });
 
   it('lists the registry without the removed hello agent', async () => {
-    const res = await call('/registry');
+    const res = worker.fetch(new Request('https://x/registry'));
     const ids = (await res.json<{ id: string }[]>()).map((m) => m.id);
     expect(ids).toEqual(
       expect.arrayContaining([

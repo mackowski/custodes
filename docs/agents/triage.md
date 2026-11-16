@@ -44,7 +44,7 @@ Issue text and recent titles are wrapped with `untrusted()`.
 
 ## Schedule
 
-Worker cron triggers in `workers/agents/wrangler.jsonc`:
+Worker cron triggers of `custodes-triage` (`workers/triage/wrangler.jsonc`):
 
 - poll `17 */4 * * *`: triage of changed issues and a refresh of accepted issues;
 - prepare `30 5 * * *`: the same poll, then the pending issues go to the specialists, so their

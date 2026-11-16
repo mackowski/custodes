@@ -36,7 +36,7 @@ function readWrangler(worker: string): Bindings {
 }
 
 const BROKER = 'custodes-github-broker';
-/** The shared agents Worker: the only one allowed on the broker's unsigned default entrypoint. */
+/** The shared agents Worker: it runs no agent and has no broker binding; the gateway lists its registry. */
 const SHARED = 'custodes-agents';
 /**
  * Broker entrypoint → the one Worker (wrangler `name`) allowed to bind it (ADR 0018). Mirrors
@@ -116,10 +116,10 @@ describe('bindings that carry approval authority', () => {
       expect(toBroker.length, w).toBeLessThanOrEqual(1);
       for (const s of toBroker) {
         if (s.entrypoint === 'BrokerAdmin') continue;
-        // The unsigned default entrypoint is only for the shared Worker, until every agent moved.
-        if (s.entrypoint === undefined)
-          expect(b.name, `${w} binds the default entrypoint`).toBe(SHARED);
-        else expect(owner[s.entrypoint], `${w} binds ${s.entrypoint}`).toBe(b.name);
+        // No Worker binds the unsigned default entrypoint any more: every agent runs in its own
+        // Worker with its own signed one, and the default refuses every agent id anyway.
+        expect(s.entrypoint, `${w} binds the broker's unsigned default entrypoint`).toBeDefined();
+        expect(owner[s.entrypoint ?? ''], `${w} binds ${s.entrypoint}`).toBe(b.name);
       }
     }
   });
@@ -208,12 +208,21 @@ describe('bindings that carry approval authority', () => {
     }
   });
 
-  it('let agent Workers e-mail only the addresses the shared Worker may', () => {
-    const allowed = readWrangler('agents').send_email?.[0]?.allowed_destination_addresses ?? [];
+  it("let agent Workers e-mail only the operators (the gateway's approvers)", () => {
+    // The shared Worker used to hold the reference list; it binds no e-mail since it runs no agent.
+    const allowed = (readWrangler('gateway').vars?.['APPROVER_EMAILS'] ?? '')
+      .split(',')
+      .map((a) => a.trim())
+      .filter((a) => a !== '');
     expect(allowed.length).toBeGreaterThan(0);
+    expect(readWrangler('agents').send_email, 'custodes-agents runs no agent').toBeUndefined();
+    let bound = 0;
     for (const w of workers)
-      for (const e of readWrangler(w).send_email ?? [])
+      for (const e of readWrangler(w).send_email ?? []) {
+        bound += 1;
         expect(e.allowed_destination_addresses, `${w} ${e.name}`).toEqual(allowed);
+      }
+    expect(bound).toBeGreaterThan(0);
   });
 
   it('give every queue one consumer Worker', () => {

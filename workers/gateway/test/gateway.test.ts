@@ -70,7 +70,7 @@ describe('gateway', () => {
     const deliver = async (
       event: string,
       payload: object,
-      fail: readonly ('shared' | 'prGate' | 'review')[] = [],
+      fail: readonly ('prGate' | 'review')[] = [],
     ) => {
       const key = await crypto.subtle.importKey(
         'raw',
@@ -84,7 +84,7 @@ describe('gateway', () => {
         new Uint8Array(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(body))),
         (b) => b.toString(16).padStart(2, '0'),
       ).join('');
-      const sent = { shared: 0, prGate: 0, review: 0 };
+      const sent = { prGate: 0, review: 0 };
       const queue = (name: keyof typeof sent) =>
         ({
           send: () => {
@@ -101,7 +101,6 @@ describe('gateway', () => {
         }),
         {
           ...testEnv(),
-          INBOUND: queue('shared'),
           INBOUND_PR_GATE: queue('prGate'),
           INBOUND_CHEATSHEET_REVIEW: queue('review'),
         },
@@ -120,19 +119,16 @@ describe('gateway', () => {
     it('sends pull request events to pr-gate, and only labeled ones to cheatsheet-review', async () => {
       expect(await deliver('pull_request', pr)).toEqual({
         status: 202,
-        shared: 1,
         prGate: 1,
         review: 1,
       });
       expect(await deliver('pull_request', { ...pr, action: 'opened' })).toEqual({
         status: 202,
-        shared: 1,
         prGate: 1,
         review: 0,
       });
       expect(await deliver('issues', { ...repo, action: 'opened', issue: { number: 1 } })).toEqual({
         status: 202,
-        shared: 1,
         prGate: 0,
         review: 0,
       });
@@ -152,12 +148,19 @@ describe('gateway', () => {
       expect(r.prGate).toBe(1);
     });
 
-    it('still accepts the delivery when only the pr-gate or the shared queue fails', async () => {
-      expect(await deliver('pull_request', pr, ['prGate', 'shared'])).toEqual({
+    it("still accepts the delivery when only pr-gate's queue fails: it catches up on its next poll", async () => {
+      expect(await deliver('pull_request', pr, ['prGate'])).toEqual({
         status: 202,
-        shared: 0,
         prGate: 0,
         review: 1,
+      });
+    });
+
+    it('queues nothing for events no agent reads, and still answers 202', async () => {
+      expect(await deliver('issues', { ...repo, action: 'opened', issue: { number: 1 } })).toEqual({
+        status: 202,
+        prGate: 0,
+        review: 0,
       });
     });
   });
@@ -197,7 +200,7 @@ describe('gateway', () => {
       }),
       {
         ...testEnv(),
-        INBOUND: {
+        INBOUND_PR_GATE: {
           send: (m: unknown) => {
             sent.push(m);
             return Promise.resolve();
@@ -251,7 +254,7 @@ describe('gateway', () => {
       }),
       {
         ...testEnv(),
-        INBOUND: {
+        INBOUND_PR_GATE: {
           send: (m: unknown) => {
             sent.push(m);
             return Promise.resolve();
@@ -299,10 +302,9 @@ describe('cross-site writes to Access-protected routes', () => {
 
 describe('agentWorker: which Worker serves /agents/<class>/... (ADR 0018, cutovers)', () => {
   const TRIAGE = { which: 'triage' } as unknown as Fetcher;
-  const AGENTS = { which: 'agents' } as unknown as Fetcher;
   const PR_GATE = { which: 'pr-gate' } as unknown as Fetcher;
   const CHEATSHEET_REVIEW = { which: 'cheatsheet-review' } as unknown as Fetcher;
-  const to = (path: string) => agentWorker({ AGENTS, TRIAGE, PR_GATE, CHEATSHEET_REVIEW }, path);
+  const to = (path: string) => agentWorker({ TRIAGE, PR_GATE, CHEATSHEET_REVIEW }, path);
 
   it('sends triage and its two specialists to custodes-triage', () => {
     for (const cls of ['triage-agent', 'implementation-check-agent', 'proposal-review-agent'])
@@ -324,7 +326,7 @@ describe('agentWorker: which Worker serves /agents/<class>/... (ADR 0018, cutove
     expect(to('/agents//cheatsheet-review-agent/owasp-cheatsheetseries/x')).toBe(CHEATSHEET_REVIEW);
   });
 
-  it('leaves every other class, odd spelling and the Keyholder with custodes-agents', () => {
+  it('has no Worker for any other class, odd spelling or the Keyholder: no fallback to custodes-agents', () => {
     for (const path of [
       '/agents/pr-gate%2Dagent/x',
       '/agents/cheatsheet%2Dreview-agent/x',
@@ -335,7 +337,7 @@ describe('agentWorker: which Worker serves /agents/<class>/... (ADR 0018, cutove
       '/agents',
       '/',
     ])
-      expect(to(path), path).toBe(AGENTS);
+      expect(to(path), path).toBeNull();
   });
 
   it('still refuses a service-token POST that is not run, digest or summary, whichever Worker it targets', () => {

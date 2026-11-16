@@ -2,6 +2,7 @@ import { env } from 'cloudflare:workers';
 import { describe, expect, it, vi } from 'vitest';
 import evalSystemPrompt from '../../../evals/agents/triage/system.txt?raw';
 import worker from '../src/index.js';
+import triageWorker from '../src/triage-worker.js';
 import type { AgentsEnv } from '../src/env.js';
 import { TRIAGE_MANIFEST } from '../src/agents/triage.js';
 import {
@@ -273,20 +274,18 @@ describe('runTriage', () => {
 
 describe('triage agent wiring', () => {
   const testEnv = env as AgentsEnv;
-  const ctx = {} as ExecutionContext;
 
   it('is registered as read-only with no GitHub write path', async () => {
     expect(TRIAGE_MANIFEST.mode).toBe('readonly');
-    const res = await worker.fetch(new Request('https://x/registry'), testEnv, ctx);
+    const res = worker.fetch(new Request('https://x/registry'));
     const reg = await res.json<{ id: string; mode: string }[]>();
     expect(reg.find((m) => m.id === 'triage')?.mode).toBe('readonly');
   });
 
   it('serves status for operators', async () => {
-    const res = await worker.fetch(
+    const res = await triageWorker.fetch(
       new Request('https://x/agents/triage-agent/owasp-cheatsheetseries'),
       testEnv,
-      ctx,
     );
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ manifest: { id: 'triage' }, recent: [] });

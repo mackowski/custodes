@@ -150,8 +150,6 @@ app.post('/webhooks/github', async (c) => {
     if (msg.payload.action === 'labeled')
       await c.env.INBOUND_CHEATSHEET_REVIEW.send(msg, { contentType: 'json' });
   }
-  // The shared Worker acts on none of these since the cutovers; the clean-up PR removes the queue.
-  await bestEffortSend(c.env.INBOUND, 'shared', msg);
   return c.json({ queued: msg.id }, 202);
 });
 
@@ -327,9 +325,11 @@ app.all('/agents/*', async (c) => {
   const headers = new Headers(c.req.raw.headers);
   headers.set('x-custodes-actor', actor.subject);
   headers.set('x-custodes-actor-via', actor.via);
-  return agentWorker(c.env, url.pathname).fetch(
-    new Request(url, { method: c.req.method, headers, body: c.req.raw.body }),
-  );
+  // Only a class that has its own Worker is routed; anything else is a 404 here, never a fallback
+  // to a shared Worker (custodes-agents runs no agent).
+  const worker = agentWorker(c.env, url.pathname);
+  if (worker === null) return c.json({ error: 'unknown agent class' }, 404);
+  return worker.fetch(new Request(url, { method: c.req.method, headers, body: c.req.raw.body }));
 });
 
 /** Agent classes that moved to `custodes-triage` (ADR 0018). */
@@ -339,17 +339,16 @@ const TRIAGE_CLASSES = new Set([
   'proposal-review-agent',
 ]);
 
-/** The Worker that runs the class in `/agents/<class>/...`. */
+/** The Worker that runs the class in `/agents/<class>/...`, or null for a class that has none. */
 export function agentWorker(
-  env: { AGENTS: Fetcher; TRIAGE: Fetcher; PR_GATE: Fetcher; CHEATSHEET_REVIEW: Fetcher },
+  env: { TRIAGE: Fetcher; PR_GATE: Fetcher; CHEATSHEET_REVIEW: Fetcher },
   path: string,
-): Fetcher {
+): Fetcher | null {
   const cls = path.split('/').filter(Boolean)[1] ?? '';
   if (TRIAGE_CLASSES.has(cls)) return env.TRIAGE;
-  // pr-gate and cheatsheet-review moved to their own Workers (ADR 0018).
   if (cls === 'pr-gate-agent') return env.PR_GATE;
   if (cls === 'cheatsheet-review-agent') return env.CHEATSHEET_REVIEW;
-  return env.AGENTS;
+  return null;
 }
 
 async function proxy(fetcher: Fetcher, path: string, init?: RequestInit): Promise<Response> {

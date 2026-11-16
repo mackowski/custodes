@@ -10,7 +10,6 @@ import {
   BundleApprovalAsk,
   type CallerName,
   CallerSignature,
-  type Policy,
 } from '@custodes/schema';
 import { act } from './act.js';
 import {
@@ -24,7 +23,6 @@ import {
   authenticateCaller,
   CALLER_AGENTS,
   CALLER_ENTRYPOINTS,
-  isIsolated,
   type VerifiedCall,
 } from './callers.js';
 import { read } from './read.js';
@@ -64,8 +62,11 @@ const CreateApproval = z.object({
   rationale: z.string().max(4000),
 });
 
-/** The routes agents use, behind `admit`. Shared by the default and the per-Worker entrypoints. */
-function agentRoutes(app: App, admitAgent: Admit, entrypoint: string, signed: boolean): App {
+/**
+ * The routes agents use, behind `admit`. Shared by the default and the per-Worker entrypoints;
+ * exported so the route tests can run them with their own `admit`.
+ */
+export function agentRoutes(app: App, admitAgent: Admit, entrypoint: string, signed: boolean): App {
   /**
    * Logs every refusal: a signed request from one Worker naming another Worker's agent is the
    * clearest sign of the compromise ADR 0018 is about (threat S1). Ids only.
@@ -179,15 +180,19 @@ function agentRoutes(app: App, admitAgent: Admit, entrypoint: string, signed: bo
   return app;
 }
 
-// ---------- Shared agents Worker (default entrypoint) ----------
-/** The default entrypoint's routes: unsigned, but never for an agent that has its own Worker. */
-export function sharedAgentApp(p: Policy = policy): App {
+// ---------- Default entrypoint ----------
+/**
+ * The default entrypoint is unsigned, so it serves no agent: every agent runs in its own Worker
+ * with its own signed entrypoint (ADR 0018), and no Worker binds this one (a binding test checks).
+ * It refuses every agent id in code, not by a flag in the policy: a new agent added to the policy
+ * is refused here without anyone having to remember a flag.
+ */
+export function sharedAgentApp(): App {
   const app: App = new Hono();
-  app.get('/healthz', (c) => c.json({ ok: true, agents: Object.keys(p.agents) }));
+  app.get('/healthz', (c) => c.json({ ok: true }));
   return agentRoutes(
     app,
-    (id) =>
-      isIsolated(id, p) ? `agent ${id} runs in its own Worker; use its broker entrypoint` : null,
+    (id) => `agent ${id} is not served here; use its Worker's signed broker entrypoint`,
     'default',
     false,
   );
