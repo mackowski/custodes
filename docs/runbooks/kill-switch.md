@@ -9,6 +9,10 @@ custodes agents halt '*' --reason "incident"    # whole fleet
 custodes agents resume <agent|*>
 ```
 
+Only the broker writes the kill switch (#104). The gateway passes the request on with your own
+Cloudflare Access token, and the broker checks it: any operator signed in as a person may halt (the
+safe direction); only an approver (`APPROVER_EMAILS`) may resume. A service token can do neither.
+
 Without the CLI (e.g. laptop lost): in the Cloudflare dashboard, KV → `custodes-kill-switch-<env>`
 → add key `halt:*` with value `{"halted":true,"reason":"manual","by":"<you>","at":"<iso>"}`.
 

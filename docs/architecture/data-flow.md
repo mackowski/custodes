@@ -6,7 +6,8 @@ of this diagram it touches, before and after, and updates this file when the flo
 (`docs/sdlc.md`, `.github/workflows/pr-architecture.yml`). Derived from the Workers' `wrangler.jsonc` files, the broker policy and the
 gateway routes, not from memory; when they disagree, the code is right and this file is stale.
 
-Last checked against the code: 2026-11-16 (#90 claim verification: cheatsheet-review's PDF conversion through the AI Gateway).
+Last checked against the code: 2026-11-16 (#104: the broker verifies the operator's Access token and
+alone writes the kill switch; #90: cheatsheet-review's PDF conversion through the AI Gateway).
 
 ## The whole system
 
@@ -29,7 +30,7 @@ flowchart LR
     ER["Email Routing<br/>catch-all"]
   end
 
-  GW["custodes-gateway<br/>secret: GITHUB_WEBHOOK_SECRET<br/>KV KILL_SWITCH read and write"]:::secret
+  GW["custodes-gateway<br/>secret: GITHUB_WEBHOOK_SECRET<br/>no KV binding"]:::secret
 
   subgraph QUEUES["Queues"]
     QPR[("custodes-inbound-pr-gate")]:::store
@@ -45,7 +46,7 @@ flowchart LR
 
   REG["custodes-agents<br/>GET /registry only<br/>no binding, no secret"]:::noauth
 
-  BR["custodes-github-broker<br/>policy, kill switch, approvals, rate limit,<br/>signature and nonce check, audit, countersign<br/>PATs in Secrets Store; Keyring DO"]:::secret
+  BR["custodes-github-broker<br/>policy, kill switch (only writer), approvals, rate limit,<br/>signature and nonce check, audit, countersign,<br/>verifies the operator's Access token on admin writes<br/>PATs in Secrets Store; Keyring DO"]:::secret
   D1[("D1: audit, approvals, nonces")]:::store
   KV[("KV: kill switch")]:::store
   GHAPI["api.github.com"]
@@ -72,14 +73,14 @@ flowchart LR
   GW -- "/agents/:class after Access" --> CSR
   GW -- "KeyAdmin: public keys, Rotate" --> AGENTS
   GW -- "GET /registry" --> REG
-  GW -- "BrokerAdmin: decide approvals, audit, keys" --> BR
-  GW -- "halt, resume" --> KV
+  GW -- "BrokerAdmin + operator's Access token:<br/>decide, rotate, halt, resume; audit" --> BR
+  BR -- "Access team keys (certs)" --> ACCESS
   TRI -- "RPC TriageApplyIntake: proposals" --> TAP
   TRI -- "signed, TriageBroker: reads" --> BR
   TAP -- "signed, TriageApplyBroker: bundle approvals" --> BR
   PRG -- "signed, PrGateBroker: reads, pr.close" --> BR
   CSR -- "signed, CheatsheetReviewBroker: reads, review" --> BR
-  BR -- "reads state" --> KV
+  BR -- "reads state; halt, resume" --> KV
   BR --> D1
   BR -- "only holder of GitHub tokens" --> GHAPI
   GHAPI -- "issue and PR text" --> BR
@@ -103,26 +104,26 @@ answer goes through `parseStructured()` (CLAUDE.md invariant 2).
 
 ## Trust boundaries
 
-| #   | Boundary                       | What crosses it                                      | Control                                                                                                                                         |
-| --- | ------------------------------ | ---------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| TB1 | Internet → gateway             | webhooks, operator requests, `/verify`               | webhook HMAC; Cloudflare Access JWT and approver list for `/admin` and `/agents`; service tokens may only trigger run, digest or summary        |
-| TB2 | gateway → agent Workers        | queued webhook fields (no bodies), operator requests | `queuedFields()` minimises payloads; the consumer re-checks repo, label and sender (`route()`); unknown classes are a 404 (no fallback)         |
-| TB3 | agent Worker → broker          | action and read requests, approval requests          | Ed25519 signature by the Worker's own key, nonce, per-Worker entrypoint admits only its agent ids; the default entrypoint refuses everything    |
-| TB4 | broker → GitHub                | writes and reads                                     | policy (`policy.json`), kill switch, approvals, rate limits, audit record countersigned; PATs only here                                         |
-| TB5 | GitHub text → model            | issue, PR and comment text                           | `untrusted()` envelopes, `parseStructured()` with zod, injection evals                                                                          |
-| TB6 | agent Worker → e-mail          | digests, summaries, approval links                   | `send_email` `allowed_destination_addresses` = the gateway's `APPROVER_EMAILS` (`bindings.test.ts`)                                             |
-| TB7 | operator click → broker action | approval decision                                    | link token bound to the action hash, single use; decided only on `BrokerAdmin` (gateway only), behind Access; the broker re-checks the snapshot |
+| #   | Boundary                       | What crosses it                                      | Control                                                                                                                                                                                        |
+| --- | ------------------------------ | ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| TB1 | Internet → gateway             | webhooks, operator requests, `/verify`               | webhook HMAC; Cloudflare Access JWT and approver list for `/admin` and `/agents`; service tokens may only trigger run, digest or summary                                                       |
+| TB2 | gateway → agent Workers        | queued webhook fields (no bodies), operator requests | `queuedFields()` minimises payloads; the consumer re-checks repo, label and sender (`route()`); unknown classes are a 404 (no fallback)                                                        |
+| TB3 | agent Worker → broker          | action and read requests, approval requests          | Ed25519 signature by the Worker's own key, nonce, per-Worker entrypoint admits only its agent ids; the default entrypoint refuses everything                                                   |
+| TB4 | broker → GitHub                | writes and reads                                     | policy (`policy.json`), kill switch, approvals, rate limits, audit record countersigned; PATs only here                                                                                        |
+| TB5 | GitHub text → model            | issue, PR and comment text                           | `untrusted()` envelopes, `parseStructured()` with zod, injection evals                                                                                                                         |
+| TB6 | agent Worker → e-mail          | digests, summaries, approval links                   | `send_email` `allowed_destination_addresses` = the gateway's `APPROVER_EMAILS` (`bindings.test.ts`)                                                                                            |
+| TB7 | operator click → broker action | approval decision                                    | link token bound to the action hash, single use; decided only on `BrokerAdmin` (gateway only), which verifies the approver's own Access token itself (#104); the broker re-checks the snapshot |
 
 ## Where each credential lives
 
-| Credential                                 | Holder                                        | Used for                            |
-| ------------------------------------------ | --------------------------------------------- | ----------------------------------- |
-| GitHub PATs (`PAT_*`, Secrets Store)       | custodes-github-broker only                   | every GitHub read and write         |
-| Broker Keyring (Ed25519, approval HMAC)    | custodes-github-broker (Durable Object)       | countersigning audit records, links |
-| Agent keys (Ed25519, Keyholder)            | each agent Worker, its own                    | signing its broker calls            |
-| `AI_GATEWAY_TOKEN`                         | custodes-triage, -pr-gate, -cheatsheet-review | calling AI Gateway                  |
-| `OPENROUTER_API_KEY`                       | custodes-pr-gate only                         | Jev, direct (ADR 0011)              |
-| Provider keys (BYOK)                       | AI Gateway                                    | Anthropic, OpenRouter               |
-| `GITHUB_WEBHOOK_SECRET`                    | custodes-gateway                              | verifying webhooks                  |
-| Kill switch (KV, write)                    | custodes-gateway; the broker reads it         | halt and resume                     |
-| CI: Cloudflare deploy token, Anthropic WIF | GitHub Actions, `prod` environment            | deploys, Claude review and evals    |
+| Credential                                 | Holder                                                                            | Used for                            |
+| ------------------------------------------ | --------------------------------------------------------------------------------- | ----------------------------------- |
+| GitHub PATs (`PAT_*`, Secrets Store)       | custodes-github-broker only                                                       | every GitHub read and write         |
+| Broker Keyring (Ed25519, approval HMAC)    | custodes-github-broker (Durable Object)                                           | countersigning audit records, links |
+| Agent keys (Ed25519, Keyholder)            | each agent Worker, its own                                                        | signing its broker calls            |
+| `AI_GATEWAY_TOKEN`                         | custodes-triage, -pr-gate, -cheatsheet-review                                     | calling AI Gateway                  |
+| `OPENROUTER_API_KEY`                       | custodes-pr-gate only                                                             | Jev, direct (ADR 0011)              |
+| Provider keys (BYOK)                       | AI Gateway                                                                        | Anthropic, OpenRouter               |
+| `GITHUB_WEBHOOK_SECRET`                    | custodes-gateway                                                                  | verifying webhooks                  |
+| Kill switch (KV, write)                    | custodes-github-broker only (the gateway asks it with the operator's token; #104) | halt and resume                     |
+| CI: Cloudflare deploy token, Anthropic WIF | GitHub Actions, `prod` environment                                                | deploys, Claude review and evals    |

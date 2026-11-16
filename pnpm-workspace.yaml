@@ -4,7 +4,7 @@ packages:
   - apps/*
 
 # Supply-chain hardening
-minimumReleaseAge: 4320 # 3 days, in minutes: skip freshly published versions
+minimumReleaseAge: 10080 # 7 days, in minutes: skip freshly published versions (#105)
 minimumReleaseAgeExclude:
   - '@custodes/*'
 strictDepBuilds: true

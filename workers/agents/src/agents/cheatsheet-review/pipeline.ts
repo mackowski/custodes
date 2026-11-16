@@ -12,6 +12,7 @@ import {
   type Snapshot,
 } from './input.js';
 import {
+  MAX_LINK_LINE,
   anchors,
   checkInternal,
   isExternal,
@@ -103,7 +104,17 @@ async function linkStage(snap: Snapshot, deps: PipelineDeps): Promise<LinkStage>
   for (const f of snap.files.filter((x) => isSheet(x.file.filename))) {
     const self = f.file.filename.split('/').pop() ?? f.file.filename;
     const own = snap.contents.get(f.file.filename);
-    for (const link of scanLinks(f.file.filename, f.hunks).links) {
+    const scan = scanLinks(f.file.filename, f.hunks, f.codeLines);
+    // A line too long to scan is verified by hand, never skipped (review of #125, M3).
+    for (const line of scan.longLines)
+      findings.push({
+        severity: 'MAJOR',
+        file: f.file.filename,
+        line,
+        problem: `Line too long to audit its links (over ${MAX_LINK_LINE} characters): verify every link on it by hand.`,
+      });
+    // Code-sample markup inside fenced code is dropped in scanLinks (the XSS sheet is full of it).
+    for (const link of scan.links) {
       // Not a known target form (//host, &#47;&#47;host, a backslash or entity in an https host, a
       // stray scheme is handled below): what renders may differ from what we would fetch. Verify by
       // hand, before anything is fetched.
@@ -335,7 +346,13 @@ export async function reviewPipeline(snap: Snapshot, deps: PipelineDeps): Promis
   const targetOnly = new Map(
     snap.files
       .filter((f) => isSheet(f.file.filename))
-      .map((f) => [f.file.filename, scanLinks(f.file.filename, f.hunks).targetOnlyLines] as const),
+      .map(
+        (f) =>
+          [
+            f.file.filename,
+            scanLinks(f.file.filename, f.hunks, f.codeLines).targetOnlyLines,
+          ] as const,
+      ),
   );
   // The original reports minus REFUTED findings only (reportsForJudge): a NOT-FOUND claim never
   // lowers a reviewer's BLOCK. The agent reads the same reports for reviewEvent.

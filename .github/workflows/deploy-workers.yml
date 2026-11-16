@@ -88,6 +88,46 @@ jobs:
           accountId: 5f62912564df344533c9563904c77662
           workingDirectory: workers/github-broker
           command: d1 migrations apply AUDIT --remote
+      - name: Prepare custodes-agents (no queue consumer, no crons)
+        # Before "Deploy agents": Cloudflare refuses to upload a Worker without a queue() handler
+        # while it still consumes a queue (code 11001; the deploy after #122 failed on exactly this),
+        # and deploys never remove a consumer or a cron. custodes-agents has neither handler any
+        # more, so detach it from custodes-inbound and clear its crons first, through the API. The
+        # gateway may still produce to custodes-inbound until its own deploy below: harmless.
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN_DEPLOY }}
+          CLOUDFLARE_ACCOUNT_ID: 5f62912564df344533c9563904c77662
+        run: |
+          auth="Authorization: Bearer $CLOUDFLARE_API_TOKEN"
+          # Crons: an empty list removes them (wrangler only adds; `"crons": []` in the config would
+          # come too late, after the upload). Then check the result.
+          scripts="https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts"
+          curl -fsS -X PUT -H "$auth" -H 'content-type: application/json' --data '[]' "$scripts/custodes-agents/schedules" >/dev/null
+          crons="$(curl -fsS -H "$auth" "$scripts/custodes-agents/schedules")"
+          c="$(jq -er '.result.schedules | if type == "array" then length else error("bad shape") end' <<<"$crons")"
+          [ "$c" = 0 ] || { echo "::error::custodes-agents still has $c cron(s)"; exit 1; }
+          api="https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/queues"
+          queues="$(curl -fsS -H "$auth" "$api?per_page=100")"
+          # One page only: fail rather than miss the queue on a later one (review of #122, L2).
+          if [ "$(jq -r '.result_info.total_count // 0' <<<"$queues")" -gt "$(jq -r '.result | length' <<<"$queues")" ]; then
+            echo "::error::more queues than one page; page through them before detaching"; exit 1
+          fi
+          sel='.result[] | select(.queue_name == "custodes-inbound")'
+          qid="$(jq -r "$sel | .queue_id" <<<"$queues")"
+          if [ -z "$qid" ]; then echo "custodes-inbound does not exist; nothing to detach"; exit 0; fi
+          [[ $qid =~ ^[0-9a-f]{32}$ ]] || { echo "::error::unexpected queue id"; exit 1; }
+          # Already detached on an earlier run: nothing to delete, the check below still runs.
+          for cid in $(jq -r "$sel | .consumers[]? | select(.script == \"custodes-agents\" or .service == \"custodes-agents\") | .consumer_id" <<<"$queues"); do
+            [[ $cid =~ ^[0-9a-f]{32}$ ]] || { echo "::error::unexpected consumer id"; exit 1; }
+            curl -fsS -X DELETE -H "$auth" "$api/$qid/consumers/$cid" >/dev/null
+            echo "detached consumer $cid"
+          done
+          # Check the result, not the loop: a field it did not match must not pass as "nothing to do".
+          left="$(curl -fsS -H "$auth" "$api/$qid/consumers")"
+          # Nothing consumes custodes-inbound any more: expect an empty list. Assigned outside an `if`,
+          # so a response jq cannot read fails the step (bash -e) instead of passing unchecked.
+          n="$(jq -er '.result | if type == "array" then length else error("bad shape") end' <<<"$left")"
+          [ "$n" = 0 ] || { echo "::error::custodes-inbound still has $n consumer(s)"; exit 1; }
       - name: Deploy agents
         uses: cloudflare/wrangler-action@953926a2e2182532811c01a25e53647d93bf07c0 # v4
         with:
@@ -208,31 +248,3 @@ jobs:
           all="$(pnpm exec wrangler secret list --format json)"
           left="$(grep -o '"name": *"[^"]*"' <<<"$all" | sed 's/.*"\([^"]*\)"$/\1/' | tr '\n' ' ')"
           if [ -n "$left" ]; then echo "::error::custodes-agents still holds: $left"; exit 1; fi
-      - name: Detach custodes-agents from the custodes-inbound queue
-        # Deploys add or update queue consumers but never remove one, and custodes-agents has no
-        # queue handler any more (review of #122, M1). Cloudflare API, read then delete by id. At the
-        # end of the job with the other clean-ups: a failure here fails the run but blocks no deploy.
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN_DEPLOY }}
-          CLOUDFLARE_ACCOUNT_ID: 5f62912564df344533c9563904c77662
-        run: |
-          api="https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/queues"
-          auth="Authorization: Bearer $CLOUDFLARE_API_TOKEN"
-          queues="$(curl -fsS -H "$auth" "$api?per_page=100")"
-          # One page only: fail rather than miss the queue on a later one (review of #122, L2).
-          if [ "$(jq -r '.result_info.total_count // 0' <<<"$queues")" -gt "$(jq -r '.result | length' <<<"$queues")" ]; then
-            echo "::error::more queues than one page; page through them before detaching"; exit 1
-          fi
-          sel='.result[] | select(.queue_name == "custodes-inbound")'
-          qid="$(jq -r "$sel | .queue_id" <<<"$queues")"
-          if [ -z "$qid" ]; then echo "custodes-inbound does not exist; nothing to detach"; exit 0; fi
-          for cid in $(jq -r "$sel | .consumers[]? | select(.script == \"custodes-agents\") | .consumer_id" <<<"$queues"); do
-            curl -fsS -X DELETE -H "$auth" "$api/$qid/consumers/$cid" >/dev/null
-            echo "detached consumer $cid"
-          done
-          # Check the result, not the loop: a field it did not match must not pass as "nothing to do".
-          left="$(curl -fsS -H "$auth" "$api/$qid/consumers")"
-          # Nothing consumes custodes-inbound any more: expect an empty list. Assigned outside an `if`,
-          # so a response jq cannot read fails the step (bash -e) instead of passing unchecked.
-          n="$(jq -er '.result | if type == "array" then length else error("bad shape") end' <<<"$left")"
-          [ "$n" = 0 ] || { echo "::error::custodes-inbound still has $n consumer(s)"; exit 1; }

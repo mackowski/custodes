@@ -1,5 +1,4 @@
 import { CustodesAgent } from '@custodes/core/agent';
-import type { AgentManifest } from '@custodes/schema';
 import { describeError } from './triage/errors.js';
 import { BrokerGitHubReader, type IssueComment } from './triage/github.js';
 import { INSTANCES } from '../instances.js';
@@ -7,14 +6,8 @@ import type { AgentsEnv } from '../env.js';
 import { commentsDigest } from '@custodes/core';
 import { buildBundle, ProposalInput, type ProposeResult } from './triage-apply/bundle.js';
 
-export const TRIAGE_APPLY_MANIFEST: AgentManifest = {
-  id: 'triage-apply',
-  version: '0.1.0',
-  description:
-    'Turns one triage proposal (assignee, labels, comment) into one approval request; the broker applies it only after the operator approves the e-mailed link (ADR 0019). No model.',
-  mode: 'hitl',
-  repos: ['mackowski/custodes-sandbox', 'OWASP/CheatSheetSeries'],
-};
+export { TRIAGE_APPLY_MANIFEST } from '../manifests.js';
+import { TRIAGE_APPLY_MANIFEST } from '../manifests.js';
 
 /** Comment pages read per issue (100 each), as many as the broker reads before running. */
 const MAX_COMMENT_PAGES = 10;

@@ -301,3 +301,14 @@ shared words; the locator matched like the excerpt locator; an item without a li
 finding with one); it can miss a heavy rephrase or remove an overlapping item. Owner: operator.
 
 **Accepted risk (operator, 2026-11-16): a refuted security finding is removed.** The claim's source is a link the PR author chose, so a page the author controls can \"refute\" a true security finding, including a BLOCKER, and the finding then leaves the review. On OWASP the operator sees it in the refuted-claims note on the approval page before anything is posted; on the sandbox nobody does (it is only on the trace). Owner: operator.
+
+## Amendment (2026-11-16): the broker verifies the approver (#104)
+
+Deciding an approval no longer trusts the gateway's word for who decided. The gateway forwards the
+operator's own Cloudflare Access token, and `BrokerAdmin` verifies it (RS256 against the Access
+team's keys, issuer, audience, expiry) before deciding by link or rejecting by id; the approver on
+the record comes from that token, never from the request body. Only a person on `APPROVER_EMAILS`
+(the broker's own copy, pinned equal to the gateway's) may decide. The same check guards rotating
+the broker's keys and resuming an agent; the kill switch is now written only by the broker. A
+compromised gateway can still replay a token it sees during the operator's session for another
+link it also sees; that residual risk is recorded in `docs/architecture/threat-model.md`.

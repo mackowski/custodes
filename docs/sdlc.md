@@ -39,7 +39,7 @@ approvers. The repository encodes how that works so every session behaves the sa
    never replaces, review of the diff on the security paths CODEOWNERS lists.
    `pr-architecture.yml` fails a PR without it (Dependabot exempt; key-pin PRs paste
    `docs/runbooks/key-pin-pr-section.md`).
-8. **CI**: lint, typecheck and tests (one `check` job), the PR architecture section (`pr-architecture`), CodeQL, gitleaks, Semgrep, dependency
+8. **CI**: lint, typecheck and tests (one `check` job, which also compares each Worker's bundled packages with `docs/security/worker-bundles.json`; update it with `pnpm bundle:manifest`), the PR architecture section (`pr-architecture`), CodeQL, gitleaks, Semgrep, dependency
    review, Terraform scan, evals, and Claude code review and security review as PR comments. The
    `main` ruleset requires `check`, `codeql`, `gitleaks`, `dependency-review`, `semgrep` and
    `terraform-scan`. Evals (`promptfoo`) and Claude review (`review`) are advisory. Evals run once per PR (opened as a non-draft, or marked ready), never on a draft and never on later pushes, and only the suites the change can affect (`evals/select-suites.ts`); re-run them by hand with `gh workflow run evals.yml --ref <branch> -f suites="<suites>"`. The free scans (CodeQL, gitleaks, Semgrep, dependency review, Terraform scan) run on every push, drafts included; `pnpm scan` runs Semgrep, gitleaks and actionlint locally in under a minute. Run evals

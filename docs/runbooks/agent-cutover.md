@@ -129,8 +129,10 @@ Once all three agents had moved, `custodes-agents` was reduced to a Worker that 
   broker) and test the per-agent entry points (`src/*-worker.ts`);
 - deploy-workers pushes no secret to it, deletes the ones it still held (`OPENROUTER_API_KEY`,
   `AI_GATEWAY_TOKEN`, `APPROVAL_TOKEN_SECRET`) and fails if any other is left; it deletes the
-  gateway's unused `APPROVAL_TOKEN_SECRET` too. It detaches custodes-agents from the
-  `custodes-inbound` queue and clears its crons (`"crons": []`): deploys never remove either;
+  gateway's unused `APPROVAL_TOKEN_SECRET` too. Before uploading custodes-agents it detaches
+  it from the `custodes-inbound` queue and clears its crons through the API: deploys never remove
+  either, and Cloudflare refuses a Worker without a `queue()` handler while it still consumes a
+  queue (the first deploy after this PR failed on that);
 - the gateway no longer produces to `custodes-inbound` and answers 404 for an `/agents/<class>`
   that has no Worker (no fallback to `AGENTS`);
 - the broker's default entrypoint refuses every agent id in code, and a binding test fails if any
@@ -150,7 +152,7 @@ Kept on purpose, for later PRs:
   Email Routing catch-all for custodes.work sends every incoming message to this Worker
   (`infra/terraform/modules/email-routing`, `agents_worker_name`), which has never had an `email()`
   handler; deleting the Worker means changing that rule first.
-- **The `custodes-inbound` queue and its DLQ** in Terraform (nothing produces to or consumes it now).
+- ~~The `custodes-inbound` queue and its DLQ in Terraform~~: removed in the #95/#104/#105 PR (apply after a green deploy of the gateway without `INBOUND`).
 - **The `isolated` flags in the policy.** They no longer decide anything (the default entrypoint
   refuses every id); `cutover-moves.test.ts` still checks them.
 

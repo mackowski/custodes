@@ -14,6 +14,11 @@ export interface AddedLink {
   context: string;
   /** The target this link replaced, when its line changed nothing but link targets (#89). */
   previous?: string;
+  /**
+   * Found in link markup other than an inline Markdown link: a reference definition or an HTML
+   * href/src value (#95). Inside a fenced code block that is a code sample, not a rendered link.
+   */
+  markup?: true;
 }
 
 export type FetchedLink =
@@ -34,22 +39,59 @@ const MD_LINK = /\]\(\s*<?([^)\s>]+)>?(?:\s+"[^"]*")?\s*\)/g;
 const BARE = /\bhttps?:\/\/[^\s)<>\]"']+/g;
 const withoutMdLinks = (t: string) => t.replace(MD_LINK, ' ');
 
-/** Link targets in a line, in order (Markdown links first, then bare URLs, as extractLinks). */
-export function targets(text: string): string[] {
-  return [
-    ...[...text.matchAll(MD_LINK)].map((m) => m[1] ?? ''),
-    ...[...withoutMdLinks(text).matchAll(BARE)].map((m) => m[0]),
-  ].map((u) => u.replace(/[.,;:]+$/, ''));
+/** Inline code: n-backtick spans (CommonMark) and <code> elements. Markup inside them is text. */
+export const CODE_SPAN = /(?<!`)(`+)(?:[^`]|[^`][\s\S]*?[^`])\1(?!`)|<code>[\s\S]*?<\/code>/gi;
+/** A reference-style link definition, `[label]: <dest> "title"`, at the start of a line (#95). */
+const REF_DEF = /^( {0,3}\[[^\]\n]+\]:[ \t]*<?)([^\s>]+)/;
+/**
+ * An HTML href or src value, quoted or not (#95). Taken as written: an entity-encoded scheme stays
+ * encoded, so knownTargetForm refuses it and the link is verified by hand.
+ */
+const HTML_ATTR =
+  /(\b(?:href|src|srcset|action|formaction|poster)[ \t]*=[ \t]*)(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/gi;
+const trailing = (u: string) => u.replace(/[.,;:]+$/, '');
+
+/** Targets of link markup other than inline Markdown links, outside inline code (#95). */
+function markupTargets(text: string): string[] {
+  const outside = text.replace(CODE_SPAN, ' ');
+  const ref = REF_DEF.exec(outside)?.[2];
+  const attrs = [...outside.matchAll(HTML_ATTR)].flatMap((m) => {
+    const value = (m[2] ?? m[3] ?? m[4] ?? '').trim();
+    // srcset lists "url width, url width": each URL is a target (review of #125, L4).
+    return /^srcset/i.test(m[1] ?? '')
+      ? value.split(',').map((c) => c.trim().split(/\s+/)[0] ?? '')
+      : [value];
+  });
+  return [...(ref === undefined ? [] : [ref]), ...attrs].filter((u) => u !== '');
 }
 
-/** Markdown link targets only: a bare URL (code samples, CORS or CSP values) is content, not a citation. */
-export function citationTargets(text: string): string[] {
-  return [...text.matchAll(MD_LINK)].map((m) => (m[1] ?? '').replace(/[.,;:]+$/, ''));
+/** Link targets in a line, in order (Markdown links, other link markup, then bare URLs), each once. */
+export function targets(text: string): string[] {
+  return [
+    ...new Set(
+      [
+        ...[...text.matchAll(MD_LINK)].map((m) => m[1] ?? ''),
+        ...markupTargets(text),
+        ...[...withoutMdLinks(text).matchAll(BARE)].map((m) => m[0]),
+      ].map(trailing),
+    ),
+  ];
 }
 
 /**
- * The line with every Markdown link target replaced, so two lines that differ only in cited
- * targets compare equal. Bare URLs stay: changing one is a content change.
+ * Targets of link markup: inline Markdown links, reference definitions and HTML href/src values
+ * (#95). A bare URL (code samples, CORS or CSP values) is content, not a citation.
+ */
+export function citationTargets(text: string): string[] {
+  return [...[...text.matchAll(MD_LINK)].map((m) => m[1] ?? ''), ...markupTargets(text)].map(
+    trailing,
+  );
+}
+
+/**
+ * The line with every inline Markdown link target replaced, so two lines that differ only in cited
+ * targets compare equal. Bare URLs, reference definitions and href/src values stay: changing one is
+ * a content change and gets the full review (#92 round 10), while #95 still audits them as links.
  */
 export function maskedLine(text: string): string {
   // Only the target: a changed link title is a text change, never a link change (#92 round 12).
@@ -81,9 +123,22 @@ const OWNER_HOSTS = new Set([
   'raw.githubusercontent.com',
   'gitlab.com',
   'bitbucket.org',
+  // Path tenants: medium.com/@user and hackmd.io/@user are anyone's pages (#95).
+  'medium.com',
+  'hackmd.io',
 ]);
 /** Hosts that serve anyone's copy of anything: never "the same site" as anything. */
-const NEVER_SAME = new Set(['web.archive.org', 'archive.org', 'archive.ph', 'archive.today']);
+const NEVER_SAME = new Set([
+  'web.archive.org',
+  'archive.org',
+  'archive.ph',
+  'archive.today',
+  // archive.today's mirrors (#95).
+  'archive.is',
+  'archive.li',
+  'archive.vn',
+  'archive.md',
+]);
 
 /** "github:<owner>" for GitHub-hosted URLs, otherwise the exact host without a leading www. */
 function siteOf(u: URL): string {
@@ -91,8 +146,11 @@ function siteOf(u: URL): string {
   if (NEVER_SAME.has(host)) return '';
   if (OWNER_HOSTS.has(host)) {
     const owner = (u.pathname.split('/')[1] ?? '').toLowerCase();
-    // GitHub hosts share one owner namespace; GitLab and Bitbucket each have their own.
-    const ns = host === 'gitlab.com' || host === 'bitbucket.org' ? host : 'github';
+    // GitHub hosts share one owner namespace; every other host has its own.
+    const ns =
+      host === 'gist.github.com' || host === 'raw.githubusercontent.com' || host === 'github.com'
+        ? 'github'
+        : host;
     return owner ? `${ns}:${owner}` : '';
   }
   const pages = /^([a-z0-9-]+)\.github\.io$/.exec(host);
@@ -128,7 +186,12 @@ export interface LinkScan {
   links: AddedLink[];
   /** New-side lines whose only change is a link target: their wording is not part of the PR. */
   targetOnlyLines: Set<number>;
+  /** Added lines too long to scan for links (MAX_LINK_LINE): verified by hand, never skipped. */
+  longLines: number[];
 }
+
+/** Longer lines are not scanned (the link patterns are not linear on hostile input); flagged instead. */
+export const MAX_LINK_LINE = 4_000;
 
 /**
  * Links a file's diff adds, with moved links told apart (#89). Within a hunk, an added line that
@@ -136,9 +199,15 @@ export interface LinkScan {
  * there is not audited at all, a changed one is "moved" and keeps its previous URL. Any other added
  * line is new text and its links are audited as before. Pure.
  */
-export function scanLinks(file: string, hunks: readonly Hunk[]): LinkScan {
+export function scanLinks(
+  file: string,
+  hunks: readonly Hunk[],
+  /** New-side lines inside fenced code (scope.ts fencedLines); null or absent: none known. */
+  codeLines?: ReadonlySet<number> | null,
+): LinkScan {
   const links: AddedLink[] = [];
   const targetOnlyLines = new Set<number>();
+  const longLines: number[] = [];
   const seen = new Set<string>();
   const push = (link: AddedLink) => {
     if (!link.url) return;
@@ -147,6 +216,12 @@ export function scanLinks(file: string, hunks: readonly Hunk[]): LinkScan {
       const prior = links.find((x) => x.url === link.url);
       if (prior && link.previous === undefined && prior.previous !== undefined) {
         delete prior.previous;
+        prior.line = link.line;
+        prior.context = link.context;
+      }
+      if (prior?.markup && !link.markup) {
+        // Audit it against the sentence that cites it, not the code sample (review of #125, L-b).
+        delete prior.markup;
         prior.line = link.line;
         prior.context = link.context;
       }
@@ -161,6 +236,7 @@ export function scanLinks(file: string, hunks: readonly Hunk[]): LinkScan {
     // Pairs only inside one contiguous block (removed run, then added run), as scope.ts does.
     let block = new Set<number>();
     let afterAdd = false;
+    const scannable = (t: string) => t.length <= MAX_LINK_LINE;
     for (const l of h.lines) {
       if (l.kind === ' ') {
         block = new Set();
@@ -177,13 +253,27 @@ export function scanLinks(file: string, hunks: readonly Hunk[]): LinkScan {
       }
       afterAdd = true;
       if (l.newLine === undefined) continue;
-      const now = targets(l.text);
+      if (!scannable(l.text)) {
+        longLines.push(l.newLine);
+        continue;
+      }
+      // Link markup on this line, computed once (review of #125, M3). An href/src or reference
+      // definition inside fenced code is a code sample, dropped here before any deduplication so it
+      // never hides a real citation of the same URL (M1); an http(s) target is never dropped, as
+      // the bare-URL scan always audited it (M2).
+      const markup = new Set(markupTargets(l.text).map(trailing));
+      const inCode = codeLines?.has(l.newLine) === true;
+      // Never an http(s) or protocol-relative target: those render as live links (L-a).
+      const sample = (url: string) => inCode && markup.has(url) && !/^(?:https?:)?\/\//i.test(url);
+      const flag = (url: string) => (markup.has(url) ? { markup: true as const } : {});
+      const now = targets(l.text).filter((u) => !sample(u));
       const cited = citationTargets(l.text);
       const key = maskedLine(l.text);
       const i = removed.findIndex(
         (r, idx) =>
           block.has(idx) &&
           !used.has(idx) &&
+          scannable(r.text) &&
           maskedLine(r.text) === key &&
           citationTargets(r.text).length === cited.length &&
           !downgrades(citationTargets(r.text), cited),
@@ -194,20 +284,37 @@ export function scanLinks(file: string, hunks: readonly Hunk[]): LinkScan {
         targetOnlyLines.add(l.newLine);
         cited.forEach((url, k) => {
           const previous = prior[k];
-          if (previous === undefined || previous === url) return;
-          const base = { url, file, line: l.newLine ?? 0, context: l.text.slice(0, 600) };
+          if (previous === undefined || previous === url || sample(url)) return;
+          const base = {
+            url,
+            file,
+            line: l.newLine ?? 0,
+            context: l.text.slice(0, 600),
+            ...flag(url),
+          };
           push(sameSite(previous, url) ? { ...base, previous } : base);
         });
         continue;
       }
       // A target the same block already had (only the anchor text changed) is not new.
-      const blockTargets = new Set([...block].flatMap((idx) => targets(removed[idx]?.text ?? '')));
+      const blockTargets = new Set(
+        [...block].flatMap((idx) => {
+          const t = removed[idx]?.text ?? '';
+          return scannable(t) ? targets(t) : [];
+        }),
+      );
       for (const url of now)
         if (!blockTargets.has(url))
-          push({ url, file, line: l.newLine, context: l.text.slice(0, 600) });
+          push({
+            url,
+            file,
+            line: l.newLine,
+            context: l.text.slice(0, 600),
+            ...flag(url),
+          });
     }
   }
-  return { links, targetOnlyLines };
+  return { links, targetOnlyLines, longLines };
 }
 
 /** Links in added lines, in order, each once. */
@@ -216,12 +323,8 @@ export function extractLinks(file: string, added: readonly DiffLine[]): AddedLin
   const seen = new Set<string>();
   for (const l of added) {
     if (l.newLine === undefined) continue;
-    const found = [
-      ...[...l.text.matchAll(MD_LINK)].map((m) => m[1] ?? ''),
-      ...[...withoutMdLinks(l.text).matchAll(BARE)].map((m) => m[0]),
-    ];
-    for (const raw of found) {
-      const url = raw.replace(/[.,;:]+$/, '');
+    // The same extractor the pipeline uses (#95): one definition of what a link is.
+    for (const url of targets(l.text)) {
       if (!url || seen.has(url)) continue;
       seen.add(url);
       out.push({ url, file, line: l.newLine, context: l.text.slice(0, 600) });

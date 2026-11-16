@@ -16,15 +16,10 @@ resource "cloudflare_d1_database" "audit" {
   read_replication = { mode = "disabled" }
 }
 
-resource "cloudflare_queue" "inbound" {
-  account_id = var.account_id
-  queue_name = "custodes-inbound"
-}
-
-resource "cloudflare_queue" "inbound_dlq" {
-  account_id = var.account_id
-  queue_name = "custodes-inbound-dlq"
-}
+# custodes-inbound and its DLQ are gone (#122, #124 review L2): every agent consumes its own queue
+# below, and since the clean-up nothing produces to or consumes the shared one. Applying this
+# deletes them with any stale messages; apply only after a deploy in which the gateway no longer
+# binds INBOUND has gone green (#124).
 
 # pr-gate in its own Worker (ADR 0018): the gateway sends it webhook wake-ups on its own queue,
 # consumed only by custodes-pr-gate (one consumer per queue).
