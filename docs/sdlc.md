@@ -35,7 +35,8 @@ approvers. The repository encodes how that works so every session behaves the sa
 7. **Ship**: `/ship` updates every doc the change touches (`docs/architecture/data-flow.md` first)
    and writes the PR's "Architecture and data flow" section: Mermaid diagrams of the touched part
    before and after, changes marked, security facts on the diagram, a security table and the docs
-   list. The operator reviews the architecture from it, without reading every line.
+   list. The operator reviews the architecture from it, without reading every line; it supplements,
+   never replaces, review of the diff on the security paths CODEOWNERS lists.
    `pr-architecture.yml` fails a PR without it (Dependabot exempt; key-pin PRs paste
    `docs/runbooks/key-pin-pr-section.md`).
 8. **CI**: lint, typecheck and tests (one `check` job), the PR architecture section (`pr-architecture`), CodeQL, gitleaks, Semgrep, dependency

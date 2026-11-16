@@ -9,7 +9,9 @@ permissions:
   contents: read
 jobs:
   architecture-section:
-    if: github.event.pull_request.user.login != 'dependabot[bot]'
+    # Exempt only when Dependabot opened the PR and made this push: a human's push to a Dependabot
+    # PR is checked (review of #123, L2).
+    if: github.event.pull_request.user.login != 'dependabot[bot]' || github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
