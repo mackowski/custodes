@@ -183,7 +183,7 @@ export function claimMessage(claims: readonly ClaimInput[]): string {
   return claims
     .map((c) =>
       [
-        `Claim ${c.id}:`,
+        `Claim id: ${c.id}`,
         untrusted('reviewer-claim', `Claim: ${c.claim.text}\nLocator: ${c.claim.locator}`),
         `Source: fetched by code (${c.format === 'pdf' ? 'PDF converted to text' : c.format}). Locator found in the source: ${c.found ? 'yes; the excerpt is the text around it' : 'no; the excerpt is the start of the document'}.`,
         untrusted(`page:${c.host}`, c.excerpt),

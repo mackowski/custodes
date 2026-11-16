@@ -270,7 +270,7 @@ export async function claimStage(
     asked.push({
       c,
       input: {
-        id: String(asked.length + 1),
+        id: `C${asked.length + 1}`,
         claim: c.finding.claim,
         host,
         format: doc.format,
@@ -292,8 +292,12 @@ export async function claimStage(
     );
     outcome = r.outcome;
     injectionSeen = r.answer?.injectionSeen === true;
+    const ids = asked.map((x) => x.input.id);
     const answers = new Map<string, ClaimCheck['claims'][number]>();
-    for (const a of r.answer?.claims ?? []) if (!answers.has(a.id)) answers.set(a.id, a);
+    for (const a of r.answer?.claims ?? []) {
+      const id = claimId(a.id, ids);
+      if (id !== undefined && !answers.has(id)) answers.set(id, a);
+    }
     for (const { c, input } of asked) {
       const base = {
         role: c.role,
@@ -322,6 +326,20 @@ export async function claimStage(
   }
   results.sort((a, b) => RANK[a.finding.severity] - RANK[b.finding.severity]);
   return { results, outcome, injectionSeen };
+}
+
+/**
+ * The claim id an answer names (#90 evals: models wrote "Claim 1" or the locator). Exactly as
+ * given, or a narrow normalisation of "C1", "c1", "Claim C1", "Claim 1" or "1" that maps to exactly
+ * one id of the request; anything else (a section number such as "3.1.3", claim text) is no id, so
+ * the claim stays without a verdict and is NOT-FOUND.
+ */
+export function claimId(raw: string, ids: readonly string[]): string | undefined {
+  if (ids.includes(raw)) return raw;
+  const n = /^\s*(?:claim\s+)?c?([1-9]\d?)\s*$/i.exec(raw)?.[1];
+  if (n === undefined) return undefined;
+  const hits = ids.filter((id) => id === `C${n}`);
+  return hits.length === 1 ? hits[0] : undefined;
 }
 
 const VERDICT_RANK = { PASS: 0, CONCERNS: 1, BLOCK: 2 } as const;
@@ -572,7 +590,7 @@ export function enforceClaims(
   };
 }
 
-const claimId = (r: ClaimResult) => `${r.role}#${r.index}`;
+const logId = (r: ClaimResult) => `${r.role}#${r.index}`;
 
 /**
  * What a run logs and puts on its span about claims: ids (`role#index`), severities, verdicts,
@@ -589,7 +607,7 @@ export function claimLog(results: readonly ClaimResult[], removedItems: number) 
     notFound,
     refutedIds: results
       .filter((r) => r.verdict === 'REFUTED')
-      .map((r) => `${claimId(r)}@${r.host ?? 'none'}`)
+      .map((r) => `${logId(r)}@${r.host ?? 'none'}`)
       .join(', '),
     log: {
       claims: results.length,
@@ -598,7 +616,7 @@ export function claimLog(results: readonly ClaimResult[], removedItems: number) 
       notFound,
       removedItems,
       verdicts: results.map((r) => ({
-        id: claimId(r),
+        id: logId(r),
         severity: r.finding.severity,
         verdict: r.verdict,
         host: r.host ?? null,

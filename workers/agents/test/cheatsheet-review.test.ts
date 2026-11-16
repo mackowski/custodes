@@ -1411,7 +1411,7 @@ describe('cheatsheet-review: claim verification (#90)', () => {
     },
   });
   const verdict = (v: string, injectionSeen = false) =>
-    JSON.stringify({ claims: [{ id: '1', verdict: v, reason: 'Checked.' }], injectionSeen });
+    JSON.stringify({ claims: [{ id: 'C1', verdict: v, reason: 'Checked.' }], injectionSeen });
   const script =
     (verifier: string, judge: string, finding: unknown = claimed()): Script =>
     (role, req) =>

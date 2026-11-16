@@ -8,6 +8,7 @@ import type { ChatModel, ChatRequest, ReviewModel } from '@custodes/llm';
 import {
   AROUND_CHARS,
   citedSource,
+  claimId,
   claimLog,
   claimStage,
   enforceClaims,
@@ -544,7 +545,7 @@ describe('claims.claimStage', () => {
     const f = fakes(
       () => pdf(),
       (req) => {
-        const ids = [...req.user.matchAll(/^Claim (\d+):/gm)].map((m) => m[1] ?? '');
+        const ids = [...req.user.matchAll(/^Claim id: (C\d+)$/gm)].map((m) => m[1] ?? '');
         return verdicts(ids.map((id) => ({ id, verdict: 'CONFIRMED' })));
       },
     );
@@ -654,7 +655,7 @@ describe('claims.claimStage', () => {
         excerpt: 'e',
       },
     ]);
-    expect(msg).toContain('Claim 1:');
+    expect(msg).toContain('Claim id: 1');
     expect(msg).toContain('<untrusted source="reviewer-claim">');
     expect(msg).toContain('(PDF converted to text)');
     expect(outside(msg)).not.toContain('nvlpubs');
@@ -688,6 +689,37 @@ describe('claims.claimStage', () => {
     expect(u.outcome).toMatchObject({ role: 'claim-verifier', status: 'unavailable' });
     expect(u.results.map((x) => x.verdict)).toEqual(['NOT-FOUND', 'NOT-FOUND']);
     expect(u.results[0]?.reason).toContain('unavailable');
+  });
+
+  it('numbers claims C1, C2 and accepts the exact id', async () => {
+    const two = [
+      {
+        role: 'security-reviewer' as const,
+        report: report([finding({ severity: 'BLOCKER' }), finding({ severity: 'MAJOR' })]),
+      },
+    ];
+    const f = fakes(
+      () => pdf(),
+      () =>
+        verdicts([
+          { id: 'C2', verdict: 'CONFIRMED' },
+          { id: 'C1', verdict: 'REFUTED' },
+        ]),
+    );
+    const r = await claimStage(snap(), two, f.deps);
+    expect(f.calls[0]?.user).toMatch(/^Claim id: C1$/m);
+    expect(f.calls[0]?.user).toMatch(/^Claim id: C2$/m);
+    expect(r.results.map((x) => x.verdict)).toEqual(['REFUTED', 'CONFIRMED']);
+  });
+
+  it('maps a section number answered as the id to nothing: NOT-FOUND, never a verdict', async () => {
+    const f = fakes(
+      () => pdf(),
+      () => verdicts([{ id: '3.1.3', verdict: 'CONFIRMED' }]),
+    );
+    const r = await claimStage(snap(), only(finding()), f.deps);
+    expect(r.results).toMatchObject([{ verdict: 'NOT-FOUND', by: 'code' }]);
+    expect(r.results[0]?.reason).toContain('no verdict');
   });
 
   it('falls back to GPT-6 Luna when DeepSeek fails', async () => {
@@ -762,6 +794,22 @@ const result = (
     reason: 'r',
     ...over,
   }) as ClaimResult;
+
+describe('claims.claimId: a narrow backstop for ids models rewrite', () => {
+  const ids = ['C1', 'C2'];
+
+  it('accepts the exact id and C1, c1, Claim C1, Claim 1 and 1 when they name one claim', () => {
+    for (const raw of ['C1', 'c1', 'Claim C1', 'claim c1', 'Claim 1', '1', ' C1 '])
+      expect(claimId(raw, ids), raw).toBe('C1');
+    expect(claimId('Claim 2', ids)).toBe('C2');
+  });
+
+  it('never maps a section number, claim text, an unknown or a malformed id', () => {
+    for (const raw of ['3.1.3', '3', 'C3', '0', 'C01', '1.', 'Claim 1:', 'claim one', 'C1 C2', ''])
+      expect(claimId(raw, ids), raw).toBeUndefined();
+    expect(claimId('3.1.3', ['C1', 'C2', 'C3'])).toBeUndefined();
+  });
+});
 
 describe('claims.reportsForJudge and judgeClaims', () => {
   it('removes REFUTED findings only, marks CONFIRMED and NOT-FOUND ones, and only lowers the verdict', () => {
