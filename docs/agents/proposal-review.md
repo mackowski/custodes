@@ -62,7 +62,8 @@ adds "answer the latest comment". A review flagged for possible injection is alw
 
 ## Outputs, limits, failure modes, halting
 
-As for [implementation-check](implementation-check.md): 10 jobs per UTC day, results collected by
+As for [implementation-check](implementation-check.md): 10 jobs per UTC day (40 on the sandbox),
+results collected by
 the triage digest, kill switch `halt:proposal-review`. Evals: `evals/agents/proposal-review`.
 
 ## Threat model

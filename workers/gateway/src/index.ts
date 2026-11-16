@@ -246,10 +246,13 @@ admin.post('/kill-switch/:id/:action{halt|resume}', async (c) => {
     if (!parsed.success) return c.json({ error: 'a reason of 3 to 500 characters is needed' }, 400);
     body = parsed.data;
   }
-  console.log(JSON.stringify({ event: `admin.${action}`, agentId: id, by: actor.subject }));
   const res = await c.env.BROKER.fetch(
     `https://broker.internal/v1/agents/${encodeURIComponent(id)}/${action}`,
     asOperator(c, body),
+  );
+  // Logged after the broker answers, with its status, so a refused halt never reads as done.
+  console.log(
+    JSON.stringify({ event: `admin.${action}`, agentId: id, by: actor.subject, status: res.status }),
   );
   if (!res.ok) return c.json({ error: `the broker refused (${res.status})` }, 502);
   return c.redirect('/admin/kill-switch/page', 303);

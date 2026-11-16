@@ -26,7 +26,7 @@ individual cheat sheets.
   agents Worker. Triage calls them over Durable Object RPC (`getAgentByName(...).enqueue(jobs)`).
   A job is an issue number and the `updated_at` triage saw; no issue text crosses the call. Each
   specialist reads the issue itself under its own broker read policy, queues jobs in SQLite, works
-  one per alarm, caps itself at 10 jobs per UTC day, and keeps results until triage puts them in a
+  one per alarm, caps itself at 10 jobs per UTC day (40 on the sandbox instance, #130), and keeps results until triage puts them in a
   digest (`pendingResults`, `markReported`). Triage re-validates every result with zod on receipt.
 - Each job is a fast file-selection call (`claude-sonnet-5`, thinking disabled) followed by the
   assessment on `claude-opus-5-5` (adaptive thinking, which Opus 5.5 always uses; no sampling
@@ -70,7 +70,7 @@ individual cheat sheets.
 
 The digest gains recommendation sections and leaves accepted issues out unless triage flags them
 (needs a maintainer, or possible injection). Model spend grows by at most 20 jobs a day across both
-specialists, mostly Opus input tokens. The first week works through the backlog of about 27 old
+specialists on OWASP (the sandbox instance allows 40 each, started only on demand, #130), mostly Opus input tokens. The first week works through the backlog of about 27 old
 accepted issues at 10 a day. Results are re-checked after 30 days or when the issue changes.
 
 ## Security considerations
