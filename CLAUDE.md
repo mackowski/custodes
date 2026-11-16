@@ -44,7 +44,7 @@ pnpm --filter ./apps/cli build
 ## Workflow
 
 Use the skills: `/grill-plan`, `/new-agent`, `/new-tool`, `/threat-model`, `/agent-security-review`,
-`/adr`, `/eval`; humans run `/preview` and `/release`. Delegate research to `cloudflare-researcher`,
+`/adr`, `/eval`, `/ship`; humans run `/preview` and `/release`. Delegate research to `cloudflare-researcher`,
 reviews to `security-reviewer`, tests to `test-writer`. Conventions: `.claude/skills/custodes-conventions`.
 Cloudflare platform knowledge comes from the `cloudflare` plugin declared in `.claude/settings.json`
 (`cloudflare:agents-sdk`, `cloudflare:wrangler`, `cloudflare:cloudflare-one`, `cloudflare:durable-objects`,
@@ -58,7 +58,10 @@ starts the paid CI (Claude review, Opus evals), so it happens once, at the end. 
 the plan goes into the same draft PR. Before asking for ready, run locally everything that
 can run: `pnpm check`, `pnpm scan` (Semgrep, gitleaks, actionlint), `/agent-security-review`
 (repeated after every fix until a pass is clean), and the Diagnose and evals the change touches.
-Then the free checks on the draft (`security.yml`) must be green with no open code scanning alert.
+Then run `/ship`: it updates every doc the change touches and writes the PR's "Architecture and
+data flow" section (diagrams before and after with the changes and security marked, checked by
+`pr-architecture.yml`; the operator reviews architecture from it, so it must be exact). Then the free
+checks on the draft (`security.yml`, `pr-architecture.yml`) must be green with no open code scanning alert.
 Pushing to a ready PR re-runs nothing paid; re-run evals by hand (`workflow_dispatch`) for the
 suites a fix touched, after asking the operator.
 

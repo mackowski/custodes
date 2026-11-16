@@ -1,0 +1,32 @@
+name: PR architecture
+# Every pull request carries the "Architecture and data flow" section the /ship skill writes:
+# diagrams before and after, the data-flow verdict, the security table and the documentation list
+# (.claude/skills/ship/SKILL.md). The operator reviews architecture from it. Dependabot is exempt.
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened, ready_for_review]
+permissions:
+  contents: read
+jobs:
+  architecture-section:
+    if: github.event.pull_request.user.login != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+      - name: Check the PR body
+        # The body is untrusted (whoever opens the PR writes it): passed as an environment variable,
+        # never interpolated into the script, and only matched by scripts/pr-architecture.ts.
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          git diff --name-only "$BASE_SHA...$HEAD_SHA" > "$RUNNER_TEMP/changed.txt"
+          node --experimental-strip-types scripts/pr-architecture.ts "$RUNNER_TEMP/changed.txt"
