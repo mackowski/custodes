@@ -11,6 +11,11 @@
   "vars": {
     "ENVIRONMENT": "prod",
     "VERIFY_URL": "https://custodes.work/verify",
+    // The broker verifies the operator's own Cloudflare Access token on every admin write instead
+    // of trusting the gateway (#104). Same values as the gateway's (bindings.test pins that).
+    "ACCESS_TEAM": "ai-custodes",
+    "ACCESS_AUD": "0cb7808f9edd99f93ee4cb7ee333f46eb7ee2ad9cc8abd4a05667344cd8c595e",
+    "APPROVER_EMAILS": "jkb.mackowski@gmail.com",
   },
   // Per-agent Ed25519 signing keys are generated and held by this Durable Object; private keys never leave it.
   "durable_objects": { "bindings": [{ "name": "KEYRING", "class_name": "Keyring" }] },

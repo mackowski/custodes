@@ -2,6 +2,7 @@ import { env } from 'cloudflare:workers';
 import { describe, expect, it } from 'vitest';
 import worker, { agentWorker } from '../src/index.js';
 import { AgentKeys, type ApprovalRequest, type AuditRecord } from '@custodes/schema';
+import { toBase64Url } from '@custodes/core';
 import {
   agentKeysPage,
   listAgentKeys,
@@ -14,7 +15,7 @@ import {
   importPrivateKey,
   signAuditRecord,
 } from '@custodes/core';
-import { adminWriteAllowed, agentWriteAllowed } from '../src/access.js';
+import { accessOptions, adminWriteAllowed, agentWriteAllowed } from '../src/access.js';
 import { approvalPage, isApprover, PAGE_HEADERS, resultPage } from '../src/approval-page.js';
 import type { GatewayEnv } from '../src/env.js';
 
@@ -886,5 +887,113 @@ describe('KEY_ADMIN_BINDINGS', () => {
     expect(KEY_ADMIN_BINDINGS['custodes-triage-apply']).toBe('KEYS_TRIAGE_APPLY');
     expect(Object.keys(KEY_ADMIN_BINDINGS).sort()).toEqual([...CallerName.options].sort());
     expect(new Set(Object.values(KEY_ADMIN_BINDINGS)).size).toBe(CallerName.options.length);
+  });
+});
+
+describe("admin writes forward the operator's own Access token to the broker (#104)", () => {
+  const ALG = {
+    name: 'RSASSA-PKCS1-v1_5',
+    modulusLength: 2048,
+    publicExponent: new Uint8Array([1, 0, 1]),
+    hash: 'SHA-256',
+  } as const;
+  const b64 = (o: unknown) => toBase64Url(new TextEncoder().encode(JSON.stringify(o)));
+  let key: CryptoKey | undefined;
+  const token = async (email: string) => {
+    if (!key) {
+      const pair = (await crypto.subtle.generateKey(ALG, true, [
+        'sign',
+        'verify',
+      ])) as CryptoKeyPair;
+      key = pair.privateKey;
+      const pub = (await crypto.subtle.exportKey('jwk', pair.publicKey)) as JsonWebKey;
+      accessOptions.fetchImpl = () =>
+        Promise.resolve(Response.json({ keys: [{ ...pub, kid: 'g1', alg: 'RS256' }] }));
+    }
+    const e = testEnv();
+    const now = Math.floor(Date.now() / 1000);
+    const head = b64({ alg: 'RS256', kid: 'g1' });
+    const body = b64({
+      iss: `https://${e.ACCESS_TEAM}.cloudflareaccess.com`,
+      aud: [e.ACCESS_AUD],
+      exp: now + 600,
+      email,
+    });
+    const sig = await crypto.subtle.sign(ALG, key, new TextEncoder().encode(`${head}.${body}`));
+    return `${head}.${body}.${toBase64Url(new Uint8Array(sig))}`;
+  };
+  const approver = () => (testEnv().APPROVER_EMAILS.split(',')[0] ?? '').trim();
+  const send = async (path: string, email: string, body?: unknown, form = false) => {
+    const seen: { url: string; jwt: string | null; body: string }[] = [];
+    const broker = {
+      fetch: (url: string, init?: RequestInit) => {
+        seen.push({
+          url,
+          jwt: new Headers(init?.headers).get('cf-access-jwt-assertion'),
+          body: typeof init?.body === 'string' ? init.body : '',
+        });
+        return Promise.resolve(Response.json({ result: 'ok', decision: 'rejected' }));
+      },
+    } as unknown as GatewayEnv['BROKER'];
+    const jwt = await token(email);
+    const res = await worker.fetch(
+      new Request(`https://custodes.work${path}`, {
+        method: 'POST',
+        headers: {
+          'cf-access-jwt-assertion': jwt,
+          ...(form ? {} : { 'content-type': 'application/json' }),
+        },
+        ...(body === undefined
+          ? {}
+          : {
+              body: form
+                ? new URLSearchParams(body as Record<string, string>)
+                : JSON.stringify(body),
+            }),
+      }),
+      { ...testEnv(), BROKER: broker },
+      ctx,
+    );
+    return { res, seen, jwt };
+  };
+
+  it("halts through the broker with the caller's token and no identity of its own", async () => {
+    const { res, seen, jwt } = await send(
+      '/admin/agents/pr-gate/halt',
+      'any-operator@example.com',
+      {
+        reason: 'test halt',
+      },
+    );
+    expect(res.status).toBe(200);
+    expect(seen).toEqual([
+      {
+        url: 'https://broker.internal/v1/agents/pr-gate/halt',
+        jwt,
+        body: '{"reason":"test halt"}',
+      },
+    ]);
+  });
+
+  it('refuses resume and broker key rotation to a non-approver before calling the broker', async () => {
+    for (const path of ['/admin/agents/pr-gate/resume', '/admin/keys/pr-gate/rotate']) {
+      const { res, seen } = await send(path, 'mallory@example.com');
+      expect(res.status, path).toBe(403);
+      expect(seen, path).toEqual([]);
+    }
+    const ok = await send('/admin/agents/pr-gate/resume', approver());
+    expect(ok.res.status).toBe(200);
+    expect(ok.seen[0]?.jwt).toBe(ok.jwt);
+  });
+
+  it('decides by link with the approver\'s token and sends no "by"', async () => {
+    const { seen, jwt } = await send(
+      '/admin/approvals/link/abc.1.def',
+      approver(),
+      { decision: 'reject' },
+      true,
+    );
+    expect(seen[0]?.jwt).toBe(jwt);
+    expect(JSON.parse(seen[0]?.body ?? '{}')).toEqual({ decision: 'rejected' });
   });
 });

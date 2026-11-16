@@ -91,15 +91,24 @@ describe('bindings that carry approval authority', () => {
     }
   });
 
-  it('let only the broker and the gateway bind the kill switch (a KV binding can also write)', () => {
+  it('let only the broker bind the kill switch (a KV binding can also write; #104)', () => {
     expect(killSwitch?.id).toMatch(/^[0-9a-f]{32}$/);
-    expect(readWrangler('gateway').kv_namespaces?.map((k) => k.id)).toContain(killSwitch?.id);
-    for (const w of others.filter((x) => x !== 'gateway')) {
+    // The gateway halts and resumes through BrokerAdmin, which checks the operator's own token.
+    for (const w of others) {
       const kv = readWrangler(w).kv_namespaces ?? [];
       expect(
         kv.filter((k) => k.id === killSwitch?.id || k.binding === 'KILL_SWITCH'),
         w,
       ).toEqual([]);
+    }
+  });
+
+  it('give the broker the same Access team, audience and approvers as the gateway (#104)', () => {
+    const g = readWrangler('gateway').vars ?? {};
+    const b = readWrangler('github-broker').vars ?? {};
+    for (const v of ['ACCESS_TEAM', 'ACCESS_AUD', 'APPROVER_EMAILS']) {
+      expect(g[v], v).toBeTruthy();
+      expect(b[v], v).toBe(g[v]);
     }
   });
 

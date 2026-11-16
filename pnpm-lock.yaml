@@ -252,9 +252,6 @@ importers:
       '@custodes/core':
         specifier: workspace:*
         version: link:../../packages/core
-      '@custodes/email':
-        specifier: workspace:*
-        version: link:../../packages/email
       '@custodes/github':
         specifier: workspace:*
         version: link:../../packages/github
@@ -264,9 +261,6 @@ importers:
       hono:
         specifier: 4.13.18
         version: 4.13.18
-      jose:
-        specifier: 6.2.17
-        version: 6.2.17
       zod:
         specifier: 4.6.7
         version: 4.6.7

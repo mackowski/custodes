@@ -1,7 +1,15 @@
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import { Hono } from 'hono';
 import { z } from 'zod';
-import { canonicalJson, KillSwitch, sha256Hex } from '@custodes/core';
+import {
+  type AccessJwtOptions,
+  accessTokenOf,
+  canonicalJson,
+  isApprover,
+  KillSwitch,
+  sha256Hex,
+  verifyAccessToken,
+} from '@custodes/core';
 import {
   AgentId,
   type AgentKeys,
@@ -10,6 +18,8 @@ import {
   BundleApprovalAsk,
   type CallerName,
   CallerSignature,
+  HaltRequest,
+  type AdminActor,
 } from '@custodes/schema';
 import { act } from './act.js';
 import {
@@ -298,18 +308,46 @@ adminApp.get('/v1/approvals/token/:token', async (c) => {
   return found.ok ? c.json(found.approval) : c.json({ error: found.reason }, 404);
 });
 
-const Decide = z.object({
-  decision: z.enum(['approved', 'rejected']),
-  by: z.string().min(1).max(200),
-});
+/**
+ * How the broker fetches Cloudflare Access keys; tests inject `fetchImpl` and `now`. Production
+ * uses the defaults (fetch, the clock).
+ */
+export const accessOptions: AccessJwtOptions = {};
+
+/**
+ * The operator behind an admin write, from their own Access token, which the gateway forwards
+ * (#104). The broker never takes an identity from the gateway: a compromised gateway can no longer
+ * decide, rotate or resume in an approver's name without that approver's token.
+ */
+async function operator(
+  req: Request,
+  env: BrokerEnv,
+  need: 'person' | 'approver',
+): Promise<AdminActor | 'unauthorized' | 'forbidden'> {
+  const token = accessTokenOf(req);
+  const actor = token
+    ? await verifyAccessToken(token, env.ACCESS_TEAM, env.ACCESS_AUD, accessOptions)
+    : null;
+  if (!actor) return 'unauthorized';
+  if (actor.via !== 'access-user') return 'forbidden';
+  if (need === 'approver' && !isApprover(actor, env.APPROVER_EMAILS)) return 'forbidden';
+  return actor;
+}
+const refusal = (r: 'unauthorized' | 'forbidden') =>
+  Response.json({ error: r }, { status: r === 'unauthorized' ? 401 : 403 });
+
+/** The decision only: who decided comes from the approver's own token, never from the body. */
+const Decide = z.object({ decision: z.enum(['approved', 'rejected']) });
 
 /** Decides through a link token: the token must be valid for the stored approval's action. */
 adminApp.post('/v1/approvals/token/:token/decide', async (c) => {
+  const who = await operator(c.req.raw, c.env, 'approver');
+  if (typeof who === 'string') return refusal(who);
   const parsed = Decide.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
   const found = await approvalByToken(c.env, c.req.param('token'));
   if (!found.ok) return c.json({ error: found.reason }, 404);
-  const out = await decideApproval(c.env, found.approval.id, parsed.data.decision, parsed.data.by);
+  const out = await decideApproval(c.env, found.approval.id, parsed.data.decision, who.subject);
   return c.json(out, out.result === 'ok' ? 200 : 409);
 });
 
@@ -323,11 +361,13 @@ adminApp.get('/v1/approvals/:id', async (c) => {
  * will be posted, the id alone does not.
  */
 adminApp.post('/v1/approvals/:id/decide', async (c) => {
+  const who = await operator(c.req.raw, c.env, 'approver');
+  if (typeof who === 'string') return refusal(who);
   const parsed = Decide.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: parsed.error.message }, 400);
   if (parsed.data.decision !== 'rejected')
     return c.json({ error: 'approve through the e-mailed link, which shows the action' }, 400);
-  const out = await decideApproval(c.env, c.req.param('id'), parsed.data.decision, parsed.data.by);
+  const out = await decideApproval(c.env, c.req.param('id'), parsed.data.decision, who.subject);
   return c.json(out, out.result === 'ok' ? 200 : 409);
 });
 
@@ -349,12 +389,48 @@ adminApp.get('/v1/keys', async (c) => c.json(await keyring(c.env).publicKeys()))
 
 /** Rotate an agent's signing key. Reached only through the Access-protected gateway. */
 adminApp.post('/v1/keys/:agent/rotate', async (c) => {
+  // Immediate (not staged like agent keys): an approver's own token is required (#104).
+  const who = await operator(c.req.raw, c.env, 'approver');
+  if (typeof who === 'string') return refusal(who);
   const agent = c.req.param('agent');
   if (!AgentId.safeParse(agent).success || !policy.agents[agent])
     return c.json({ error: 'unknown agent' }, 404);
   const entry = await keyring(c.env).rotate(agent);
-  console.log(JSON.stringify({ event: 'keyring.rotated', agentId: agent, keyId: entry.keyId }));
+  console.log(
+    JSON.stringify({
+      event: 'keyring.rotated',
+      agentId: agent,
+      keyId: entry.keyId,
+      by: who.subject,
+    }),
+  );
   return c.json(entry, 201);
+});
+
+/**
+ * The kill switch, written here only (#104): any operator may halt (the safe direction), only an
+ * approver may resume. The gateway no longer binds the namespace.
+ */
+adminApp.post('/v1/agents/:id/halt', async (c) => {
+  const who = await operator(c.req.raw, c.env, 'person');
+  if (typeof who === 'string') return refusal(who);
+  const id = c.req.param('id');
+  if (id !== '*' && !AgentId.safeParse(id).success) return c.json({ error: 'bad agent id' }, 400);
+  const body = HaltRequest.safeParse(await c.req.json().catch(() => null));
+  if (!body.success) return c.json({ error: body.error.message }, 400);
+  await new KillSwitch(c.env.KILL_SWITCH).halt(id, body.data.reason, who.subject);
+  console.log(JSON.stringify({ event: 'admin.halt', agentId: id, by: who.subject }));
+  return c.json({ halted: id });
+});
+
+adminApp.post('/v1/agents/:id/resume', async (c) => {
+  const who = await operator(c.req.raw, c.env, 'approver');
+  if (typeof who === 'string') return refusal(who);
+  const id = c.req.param('id');
+  if (id !== '*' && !AgentId.safeParse(id).success) return c.json({ error: 'bad agent id' }, 400);
+  await new KillSwitch(c.env.KILL_SWITCH).resume(id);
+  console.log(JSON.stringify({ event: 'admin.resume', agentId: id, by: who.subject }));
+  return c.json({ resumed: id });
 });
 
 /** Bound only by the gateway (`entrypoint: "BrokerAdmin"` in its wrangler.jsonc). */
