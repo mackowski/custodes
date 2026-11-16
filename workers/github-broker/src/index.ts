@@ -44,7 +44,7 @@ import { ApprovalStore, AuditStore } from './store.js';
  *   approvals, the audit log and keys. An agent cannot approve its own request.
  */
 /** `call` is set only on a per-agent entrypoint, after the signature and nonce checks passed. */
-type App = Hono<{ Bindings: BrokerEnv; Variables: { call?: VerifiedCall } }>;
+export type App = Hono<{ Bindings: BrokerEnv; Variables: { call?: VerifiedCall } }>;
 
 /** Null when `agentId` may be served on this entrypoint, else the reason it may not. */
 type Admit = (agentId: string) => string | null;
@@ -67,6 +67,13 @@ const CreateApproval = z.object({
  * exported so the route tests can run them with their own `admit`.
  */
 export function agentRoutes(app: App, admitAgent: Admit, entrypoint: string): App {
+  // Every route needs a verified call (the caller's signature, checked by the middleware before
+  // this one), whatever `admit` says: reused without signing, these routes serve no one.
+  app.use('*', async (c, next) => {
+    if (c.get('call') === undefined)
+      return c.json({ ok: false, code: 'unauthenticated', reason: 'missing' }, 401);
+    await next();
+  });
   /**
    * Logs every refusal: a signed request from one Worker naming another Worker's agent is the
    * clearest sign of the compromise ADR 0018 is about (threat S1). Ids only.
@@ -193,7 +200,11 @@ export function sharedAgentApp(): App {
   app.all('*', (c) => {
     // Nothing binds this entrypoint, so any request is a sign of a misconfiguration or worse.
     console.warn(
-      JSON.stringify({ event: 'broker.default.refused', path: new URL(c.req.url).pathname }),
+      // The first two segments only: a full path could carry an approval link token (ids only).
+      JSON.stringify({
+        event: 'broker.default.refused',
+        path: new URL(c.req.url).pathname.split('/').slice(0, 3).join('/'),
+      }),
     );
     return c.json(
       {

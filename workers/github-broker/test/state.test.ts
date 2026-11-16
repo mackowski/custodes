@@ -2,13 +2,27 @@ import { env } from 'cloudflare:workers';
 import { afterEach, describe, expect, it } from 'vitest';
 import { KillSwitch } from '@custodes/core';
 import { Hono } from 'hono';
-import { agentRoutes } from '../src/index.js';
+import { agentRoutes, type App } from '../src/index.js';
 
 const kill = () => new KillSwitch(env.KILL_SWITCH);
 // /v1/state itself: the routes every agent Worker's signed entrypoint serves, run with an `admit`
 // that lets pr-gate and cheatsheet-review through (signing is tested in callers.test.ts).
+// A verified call as callerApp's middleware would set it; agentRoutes refuses requests without one.
+const signedApp: App = new Hono();
+signedApp.use('*', async (c, next) => {
+  c.set('call', {
+    caller: 'custodes-pr-gate',
+    kid: 'pr-gate-20261109-aaaaaaaa',
+    signature: 'x',
+    timestamp: '0',
+    nonce: 'n',
+    bodySha256: '0'.repeat(64),
+    admittedAt: 0,
+  });
+  await next();
+});
 const app = agentRoutes(
-  new Hono(),
+  signedApp,
   (id) => (id === 'pr-gate' || id === 'cheatsheet-review' ? null : `agent ${id} is not served`),
   'test',
 );

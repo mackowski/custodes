@@ -96,47 +96,6 @@ jobs:
           workingDirectory: workers/agents
           command: deploy
           # No secrets: every agent runs in its own Worker (ADR 0018); custodes-agents runs none.
-      - name: Drop secrets custodes-agents no longer needs
-        # Deploys never delete Worker secrets, and custodes-agents runs no agent, so it holds no
-        # secret at all (ADR 0018): the model keys left when pr-gate (OPENROUTER_API_KEY) and
-        # cheatsheet-review (AI_GATEWAY_TOKEN) moved, and APPROVAL_TOKEN_SECRET, which approval links
-        # stopped using in ADR 0017's amendment (the broker's Keyring holds that key now).
-        working-directory: workers/agents
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN_DEPLOY }}
-          CLOUDFLARE_ACCOUNT_ID: 5f62912564df344533c9563904c77662
-        run: |
-          # Listed first, outside the `if`: a failed list must fail the step (bash -e), not read as
-          # "no secret". JSON explicitly: the grep below depends on it.
-          secrets="$(pnpm exec wrangler secret list --format json)"
-          for name in OPENROUTER_API_KEY AI_GATEWAY_TOKEN APPROVAL_TOKEN_SECRET; do
-            if grep -q "\"name\": *\"$name\"" <<<"$secrets"; then
-              pnpm exec wrangler secret delete "$name"
-            fi
-          done
-          # It must hold none at all now: anything else left is unexpected, so fail and say which
-          # (the operator decides) rather than delete an unknown secret (review of #122, L8).
-          # Two steps, not a pipe: a failed list must fail here (bash -e), not read as "none left".
-          all="$(pnpm exec wrangler secret list --format json)"
-          left="$(grep -o '"name": *"[^"]*"' <<<"$all" | sed 's/.*"\([^"]*\)"$/\1/' | tr '\n' ' ')"
-          if [ -n "$left" ]; then echo "::error::custodes-agents still holds: $left"; exit 1; fi
-      - name: Detach custodes-agents from the custodes-inbound queue
-        # Deploys add or update queue consumers but never remove one, and custodes-agents has no
-        # queue handler any more (review of #122, M1). Cloudflare API, read then delete by id.
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN_DEPLOY }}
-          CLOUDFLARE_ACCOUNT_ID: 5f62912564df344533c9563904c77662
-        run: |
-          api="https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/queues"
-          auth="Authorization: Bearer $CLOUDFLARE_API_TOKEN"
-          queues="$(curl -fsS -H "$auth" "$api?per_page=100")"
-          sel='.result[] | select(.queue_name == "custodes-inbound")'
-          qid="$(jq -r "$sel | .queue_id" <<<"$queues")"
-          if [ -z "$qid" ]; then echo "custodes-inbound does not exist; nothing to detach"; exit 0; fi
-          for cid in $(jq -r "$sel | .consumers[]? | select(.script == \"custodes-agents\") | .consumer_id" <<<"$queues"); do
-            curl -fsS -X DELETE -H "$auth" "$api/$qid/consumers/$cid" >/dev/null
-            echo "detached consumer $cid"
-          done
       - name: Deploy triage
         # triage and its specialists, in their own Worker since the 2026-11-12 cutover (ADR 0018).
         # Not wrangler-action `secrets:`: it ignores `-c` and writes the secrets to custodes-agents
@@ -202,6 +161,9 @@ jobs:
             GITHUB_WEBHOOK_SECRET
         env:
           GITHUB_WEBHOOK_SECRET: ${{ secrets.GH_WEBHOOK_SECRET }} # GitHub forbids secret names starting with GITHUB_
+      - name: Smoke test
+        # A freshly created custom domain can take a minute to resolve on the runner; retry with backoff.
+        run: curl --fail --silent --show-error --retry 12 --retry-delay 10 --retry-all-errors https://custodes.work/healthz
       - name: Drop secrets the gateway no longer needs
         # APPROVAL_TOKEN_SECRET was pushed to the gateway until approval links moved to the broker's
         # Keyring (ADR 0017 amendment); nothing reads it, and deploys never delete secrets (review
@@ -221,6 +183,51 @@ jobs:
             echo "::error::custodes-gateway holds: $left(expected GITHUB_WEBHOOK_SECRET only)"
             exit 1
           fi
-      - name: Smoke test
-        # A freshly created custom domain can take a minute to resolve on the runner; retry with backoff.
-        run: curl --fail --silent --show-error --retry 12 --retry-delay 10 --retry-all-errors https://custodes.work/healthz
+      - name: Drop secrets custodes-agents no longer needs
+        # At the end of the job: a failure fails the run but blocks no deploy (review of #122, L-b).
+        # Deploys never delete Worker secrets, and custodes-agents runs no agent, so it holds no
+        # secret at all (ADR 0018): the model keys left when pr-gate (OPENROUTER_API_KEY) and
+        # cheatsheet-review (AI_GATEWAY_TOKEN) moved, and APPROVAL_TOKEN_SECRET, which approval links
+        # stopped using in ADR 0017's amendment (the broker's Keyring holds that key now).
+        working-directory: workers/agents
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN_DEPLOY }}
+          CLOUDFLARE_ACCOUNT_ID: 5f62912564df344533c9563904c77662
+        run: |
+          # Listed first, outside the `if`: a failed list must fail the step (bash -e), not read as
+          # "no secret". JSON explicitly: the grep below depends on it.
+          secrets="$(pnpm exec wrangler secret list --format json)"
+          for name in OPENROUTER_API_KEY AI_GATEWAY_TOKEN APPROVAL_TOKEN_SECRET; do
+            if grep -q "\"name\": *\"$name\"" <<<"$secrets"; then
+              pnpm exec wrangler secret delete "$name"
+            fi
+          done
+          # It must hold none at all now: anything else left is unexpected, so fail and say which
+          # (the operator decides) rather than delete an unknown secret (review of #122, L8).
+          # Two steps, not a pipe: a failed list must fail here (bash -e), not read as "none left".
+          all="$(pnpm exec wrangler secret list --format json)"
+          left="$(grep -o '"name": *"[^"]*"' <<<"$all" | sed 's/.*"\([^"]*\)"$/\1/' | tr '\n' ' ')"
+          if [ -n "$left" ]; then echo "::error::custodes-agents still holds: $left"; exit 1; fi
+      - name: Detach custodes-agents from the custodes-inbound queue
+        # Deploys add or update queue consumers but never remove one, and custodes-agents has no
+        # queue handler any more (review of #122, M1). Cloudflare API, read then delete by id. At the
+        # end of the job with the other clean-ups: a failure here fails the run but blocks no deploy.
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN_DEPLOY }}
+          CLOUDFLARE_ACCOUNT_ID: 5f62912564df344533c9563904c77662
+        run: |
+          api="https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/queues"
+          auth="Authorization: Bearer $CLOUDFLARE_API_TOKEN"
+          queues="$(curl -fsS -H "$auth" "$api?per_page=100")"
+          sel='.result[] | select(.queue_name == "custodes-inbound")'
+          qid="$(jq -r "$sel | .queue_id" <<<"$queues")"
+          if [ -z "$qid" ]; then echo "custodes-inbound does not exist; nothing to detach"; exit 0; fi
+          for cid in $(jq -r "$sel | .consumers[]? | select(.script == \"custodes-agents\") | .consumer_id" <<<"$queues"); do
+            curl -fsS -X DELETE -H "$auth" "$api/$qid/consumers/$cid" >/dev/null
+            echo "detached consumer $cid"
+          done
+          # Check the result, not the loop: a field it did not match must not pass as "nothing to do".
+          left="$(curl -fsS -H "$auth" "$api/$qid/consumers")"
+          if jq -e '.result[]? | select((.script // .script_name // .service) == "custodes-agents")' <<<"$left" >/dev/null; then
+            echo "::error::custodes-agents is still a consumer of custodes-inbound"; exit 1
+          fi
