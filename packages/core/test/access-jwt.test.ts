@@ -172,4 +172,42 @@ describe('Access JWT (#104: verified by the gateway and again by the broker)', (
     t = NOW + 61 * 60_000; // past an hour: refused
     expect(await verifyAccessToken(good, TEAM, AUD, o)).toBe(null);
   });
+
+  it('lets concurrent requests on a cold cache wait for one fetch instead of failing (prod 401, #125)', async () => {
+    let calls = 0;
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((r) => (release = r));
+    const o = {
+      now: () => NOW,
+      fetchImpl: async () => {
+        calls += 1;
+        await gate;
+        return Response.json(jwks);
+      },
+    };
+    const t = await mint({ common_name: 'ci.access' });
+    const both = Promise.all([
+      verifyAccessToken(t, TEAM, AUD, o),
+      verifyAccessToken(t, TEAM, AUD, o),
+      verifyAccessToken(t, TEAM, AUD, o),
+    ]);
+    release();
+    expect(await both).toEqual(
+      Array(3).fill({ subject: 'service:ci.access', via: 'access-service-token' }),
+    );
+    expect(calls).toBe(1);
+  });
+
+  it('retries the fetch on the next request when the first failed and nothing is cached', async () => {
+    let up = false;
+    const o = {
+      now: () => NOW,
+      fetchImpl: () =>
+        up ? Promise.resolve(Response.json(jwks)) : Promise.reject(new Error('down')),
+    };
+    const t = await mint({ email: 'op@example.com' });
+    expect(await verifyAccessToken(t, TEAM, AUD, o)).toBe(null);
+    up = true;
+    expect(await verifyAccessToken(t, TEAM, AUD, o)).not.toBe(null);
+  });
 });

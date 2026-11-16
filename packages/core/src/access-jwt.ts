@@ -26,6 +26,7 @@ const KEYS_MAX_AGE_MS = 60 * 60_000;
 const ALG = { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' } as const;
 const keyCache = new Map<string, { at: number; keys: Map<string, CryptoKey> }>();
 const lastFetch = new Map<string, number>();
+const inflight = new Map<string, Promise<Map<string, CryptoKey> | null>>();
 
 /** The token Access injects (`Cf-Access-Jwt-Assertion`) or a CLI sends (`cf-access-token`). */
 export function accessTokenOf(req: Request): string | null {
@@ -94,7 +95,11 @@ export async function verifyAccessToken(
   return null;
 }
 
-/** The team's key for `kid`, from the cache or fetched (throttled; review L2). */
+/**
+ * The team's key for `kid`. Concurrent callers share one fetch (a request arriving while the keys
+ * are being fetched waits for them instead of failing); a new fetch for an unknown kid happens at
+ * most once a minute while keys are held, and held keys are not used past KEYS_MAX_AGE_MS.
+ */
 async function keyFor(
   issuer: string,
   kid: string,
@@ -102,21 +107,25 @@ async function keyFor(
   fetchImpl: AccessJwtOptions['fetchImpl'],
 ): Promise<CryptoKey | undefined> {
   const cached = keyCache.get(issuer);
-  const fresh = cached !== undefined && now - cached.at < KEYS_TTL_MS;
-  if (fresh && cached.keys.has(kid)) return cached.keys.get(kid);
-  const lastTry = lastFetch.get(issuer) ?? -Infinity;
-  if (now - lastTry >= MIN_REFETCH_MS) {
+  if (cached !== undefined && now - cached.at < KEYS_TTL_MS && cached.keys.has(kid))
+    return cached.keys.get(kid);
+  const usable = () =>
+    cached !== undefined && now - cached.at < KEYS_MAX_AGE_MS ? cached.keys.get(kid) : undefined;
+  let pending = inflight.get(issuer);
+  if (pending === undefined) {
+    // Throttle only while keys are held: with none, every request may try (no lock-out).
+    if (cached !== undefined && now - (lastFetch.get(issuer) ?? -Infinity) < MIN_REFETCH_MS)
+      return usable();
     lastFetch.set(issuer, now);
-    const keys = await fetchKeys(issuer, fetchImpl).catch(() => null);
-    if (keys) {
-      keyCache.set(issuer, { at: now, keys });
-      return keys.get(kid);
-    }
+    pending = fetchKeys(issuer, fetchImpl)
+      .catch(() => null)
+      .finally(() => inflight.delete(issuer));
+    inflight.set(issuer, pending);
   }
-  // No fresh fetch (throttled or failed): old keys only while not too old.
-  return cached !== undefined && now - cached.at < KEYS_MAX_AGE_MS
-    ? cached.keys.get(kid)
-    : undefined;
+  const keys = await pending;
+  if (keys === null) return usable();
+  keyCache.set(issuer, { at: now, keys });
+  return keys.get(kid);
 }
 
 async function fetchKeys(
@@ -152,4 +161,5 @@ async function fetchKeys(
 export function clearAccessKeyCache(): void {
   keyCache.clear();
   lastFetch.clear();
+  inflight.clear();
 }
