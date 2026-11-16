@@ -20,6 +20,7 @@ import {
   CallerName,
 } from '@custodes/schema';
 import { agentKeysPage, type HeldKey, keyAdminOf, listAgentKeys } from './agent-keys.js';
+import { AgentFlag, killSwitchPage } from './kill-switch-page.js';
 import { adminWriteAllowed, agentWriteAllowed, crossSiteWrite, verifyAccessJwt } from './access.js';
 import {
   approvalPage,
@@ -213,6 +214,38 @@ admin.post('/agents/:id/resume', async (c) => {
     return c.json({ error: 'only an approver may resume an agent' }, 403);
   console.log(JSON.stringify({ event: 'admin.resume', agentId: id, by: c.get('actor').subject }));
   return proxy(c.env.BROKER, `/v1/agents/${encodeURIComponent(id)}/resume`, asOperator(c));
+});
+
+// The kill switch in a browser (phone): state, Halt and Resume forms. Same rules as the JSON routes
+// above: the broker writes the flag and checks the operator's own token (#104).
+admin.get('/kill-switch/page', async (c) => {
+  const res = await c.env.BROKER.fetch('https://broker.internal/v1/agents/states');
+  const flags = res.ok ? z.array(AgentFlag).safeParse(await res.json()) : null;
+  if (!flags?.success) return c.json({ error: 'kill-switch state unavailable' }, 502);
+  const approver = isApprover(c.get('actor'), c.env.APPROVER_EMAILS);
+  return c.body(killSwitchPage(flags.data, approver), 200, PAGE_HEADERS);
+});
+admin.post('/kill-switch/:id/:action{halt|resume}', async (c) => {
+  const id = c.req.param('id');
+  if (id !== '*' && !AgentId.safeParse(id).success) return c.json({ error: 'bad agent id' }, 400);
+  const action = c.req.param('action');
+  const actor = c.get('actor');
+  let body: unknown;
+  if (action === 'resume') {
+    if (!isApprover(actor, c.env.APPROVER_EMAILS))
+      return c.json({ error: 'only an approver may resume an agent' }, 403);
+  } else {
+    const parsed = HaltRequest.safeParse({ reason: (await c.req.parseBody())['reason'] });
+    if (!parsed.success) return c.json({ error: 'a reason of 3 to 500 characters is needed' }, 400);
+    body = parsed.data;
+  }
+  console.log(JSON.stringify({ event: `admin.${action}`, agentId: id, by: actor.subject }));
+  const res = await c.env.BROKER.fetch(
+    `https://broker.internal/v1/agents/${encodeURIComponent(id)}/${action}`,
+    asOperator(c, body),
+  );
+  if (!res.ok) return c.json({ error: `the broker refused (${res.status})` }, 502);
+  return c.redirect('/admin/kill-switch/page', 303);
 });
 
 admin.get('/approvals', (c) => proxy(c.env.BROKER, '/v1/approvals'));

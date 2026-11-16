@@ -460,3 +460,24 @@ describe("admin writes need the operator's own Access token, checked by the brok
     }
   });
 });
+
+describe('kill-switch states for the operator page', () => {
+  it('lists the fleet flag and every agent own flag, read only', async () => {
+    const ks = new KillSwitch(env.KILL_SWITCH);
+    await ks.halt('pr-gate', 'page test', 'op@example.com');
+    try {
+      const res = await new BrokerAdmin({} as ExecutionContext, testEnv).fetch(
+        new Request('https://broker.internal/v1/agents/states'),
+      );
+      const rows = await res.json<{ id: string; halted: boolean; by?: string }[]>();
+      expect(rows[0]).toMatchObject({ id: '*', halted: false });
+      expect(rows.find((r) => r.id === 'pr-gate')).toMatchObject({
+        halted: true,
+        by: 'op@example.com',
+      });
+      expect(rows.find((r) => r.id === 'triage')).toMatchObject({ halted: false });
+    } finally {
+      await ks.resume('pr-gate');
+    }
+  });
+});

@@ -10,7 +10,8 @@ terraform {
 #   POST /zones/{zone_id}/email/routing/enable
 # then set `rules_enabled = true` after the Workers exist; rules reference them by name.
 
-# approve+<token>@domain and reject+<token>@domain → gateway Worker (approval decisions)
+# approve@ and reject@ → gateway Worker, which refuses them: e-mail no longer decides approvals (the
+# link page behind Access does, ADR 0017 amendment). Kept so such mail is answered, not bounced.
 resource "cloudflare_email_routing_rule" "approvals" {
   for_each = var.rules_enabled ? toset(["approve", "reject"]) : toset([])
   zone_id  = var.zone_id
@@ -20,14 +21,15 @@ resource "cloudflare_email_routing_rule" "approvals" {
   actions  = [{ type = "worker", value = [var.gateway_worker_name] }]
 }
 
-# Anything addressed to an agent mailbox → agents Worker (routeAgentEmail)
+# Anything else is dropped. It used to go to custodes-agents, which never had an email() handler and
+# runs no agent since ADR 0018; no agent reads inbound mail.
 resource "cloudflare_email_routing_catch_all" "agents" {
   count    = var.rules_enabled ? 1 : 0
   zone_id  = var.zone_id
-  name     = "custodes agents catch-all"
+  name     = "custodes catch-all (drop)"
   enabled  = true
   matchers = [{ type = "all" }]
-  actions  = [{ type = "worker", value = [var.agents_worker_name] }]
+  actions  = [{ type = "drop" }]
 }
 
 # Verified destination addresses. Workers may send to these without Email Sending onboarding

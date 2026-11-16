@@ -69,7 +69,7 @@ Undo by hand on GitHub: unassign, re-label, delete the comment. The audit log
 
 ## How to halt: `custodes agents halt triage-apply --reason "..."`
 
-You can also use the kill-switch page behind Access. Halting stops new approval requests and the
+You can also use the kill-switch page behind Access (`/admin/kill-switch/page`). Halting stops new approval requests and the
 running of approved bundles: the broker checks the switch in both places.
 
 ## Threat model (from /threat-model)

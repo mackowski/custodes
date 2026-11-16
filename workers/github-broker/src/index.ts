@@ -402,6 +402,16 @@ adminApp.post('/v1/keys/:agent/rotate', async (c) => {
 });
 
 /**
+ * Every agent's own halt flag and the fleet's, for the operator's kill-switch page. Read only;
+ * the flag's `by` is the operator who halted it (an e-mail, shown only behind Access).
+ */
+adminApp.get('/v1/agents/states', async (c) => {
+  const ks = new KillSwitch(c.env.KILL_SWITCH);
+  const ids = ['*', ...new Set([...Object.keys(policy.agents), ...Object.keys(policy.reads)])];
+  return c.json(await Promise.all(ids.map(async (id) => ({ id, ...(await ks.flag(id)) }))));
+});
+
+/**
  * The kill switch, written here only (#104): any operator may halt (the safe direction), only an
  * approver may resume. The gateway no longer binds the namespace.
  */

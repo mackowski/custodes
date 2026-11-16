@@ -45,6 +45,11 @@ export interface SpecialistState {
 
 /** Jobs (each one fast and one reasoning call) per UTC day: bounds model spend. */
 export const MAX_JOBS_PER_DAY = 10;
+/**
+ * The sandbox instance's daily jobs: higher, so several end-to-end runs in one day still reach the
+ * specialists (operator, 2026-11-16). The sandbox's issues are few and written by the operator.
+ */
+export const MAX_JOBS_PER_DAY_SANDBOX = 40;
 /** A job that fails this many times is dropped (triage re-enqueues it when the issue changes). */
 export const MAX_ATTEMPTS = 4;
 const MAX_ENQUEUE = 100;
@@ -121,6 +126,10 @@ export abstract class SpecialistAgent extends CustodesAgent<AgentsEnv, Specialis
 
   private get repo(): string {
     return instanceOf(this.name).repo;
+  }
+  /** The daily job budget of this instance (higher on the sandbox). */
+  protected jobsPerDay(): number {
+    return instanceOf(this.name).sandbox ? MAX_JOBS_PER_DAY_SANDBOX : MAX_JOBS_PER_DAY;
   }
 
   private ensureSchema(): void {
@@ -205,7 +214,7 @@ export abstract class SpecialistAgent extends CustodesAgent<AgentsEnv, Specialis
     const now = new Date();
     const day = now.toISOString().slice(0, 10);
     const used = this.state.day === day ? this.state.jobsToday : 0;
-    if (used >= MAX_JOBS_PER_DAY) return false; // the first triage poll after midnight UTC resumes
+    if (used >= this.jobsPerDay()) return false; // the first triage poll after midnight UTC resumes
     // enqueued_at doubles as "not before": a failed job is pushed into the future.
     const job = this.sql<JobRow>`SELECT issue, issue_updated_at, attempts FROM jobs
       WHERE enqueued_at <= ${now.toISOString()} ORDER BY enqueued_at, issue LIMIT 1`[0];
@@ -271,7 +280,7 @@ export abstract class SpecialistAgent extends CustodesAgent<AgentsEnv, Specialis
         }),
       );
     }
-    return more && this.readyJobs(new Date()) > 0 && used + 1 < MAX_JOBS_PER_DAY;
+    return more && this.readyJobs(new Date()) > 0 && used + 1 < this.jobsPerDay();
   }
 
   private readyJobs(now: Date): number {

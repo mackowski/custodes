@@ -23,6 +23,11 @@ export class KillSwitch {
     return this.read(haltKey(agentId));
   }
 
+  /** The agent's own flag (or the fleet's, for `*`), ignoring the other: for the operator's page. */
+  async flag(agentId: string): Promise<KillSwitchState> {
+    return this.read(agentId === '*' ? GLOBAL_HALT_KEY : haltKey(agentId));
+  }
+
   async isHalted(agentId: string): Promise<boolean> {
     return (await this.state(agentId)).halted;
   }

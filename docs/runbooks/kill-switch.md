@@ -9,6 +9,9 @@ custodes agents halt '*' --reason "incident"    # whole fleet
 custodes agents resume <agent|*>
 ```
 
+On a phone (no CLI): `https://custodes.work/admin/kill-switch/page` shows every agent's state with
+a Halt form (any operator, a reason is required) and a Resume button (approvers only).
+
 Only the broker writes the kill switch (#104). The gateway passes the request on with your own
 Cloudflare Access token, and the broker checks it: any operator signed in as a person may halt (the
 safe direction); only an approver (`APPROVER_EMAILS`) may resume. A service token can do neither.

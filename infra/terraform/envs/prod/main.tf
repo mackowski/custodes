@@ -66,6 +66,5 @@ module "email" {
   zone_id               = var.zone_id
   domain                = var.hostname
   gateway_worker_name   = "custodes-gateway"
-  agents_worker_name    = "custodes-agents"
   rules_enabled         = var.email_rules_enabled
 }

@@ -4,7 +4,8 @@ import { getAgentByName } from 'agents';
 import { describe, expect, it } from 'vitest';
 import { validateProposalReview } from '../src/agents/specialists/proposal.js';
 import type { AgentsEnv } from '../src/env.js';
-import { SANDBOX_INSTANCE } from '../src/instances.js';
+import { OWASP_INSTANCE, SANDBOX_INSTANCE } from '../src/instances.js';
+import { MAX_JOBS_PER_DAY, MAX_JOBS_PER_DAY_SANDBOX } from '../src/agents/specialists/agent.js';
 
 const testEnv = env as unknown as AgentsEnv;
 const HOUR = 3_600_000;
@@ -195,5 +196,17 @@ describe('SpecialistAgent recheck (ADR 0019)', () => {
       expect(moved.attempts).toBe(0);
       expect(Date.parse(moved.enqueued_at)).toBeLessThanOrEqual(Date.now());
     });
+  });
+});
+
+describe('specialists daily budget (operator, 2026-11-16)', () => {
+  it('gives the sandbox a larger daily job budget than OWASP', async () => {
+    const budget = async (instance: string) =>
+      runInDurableObject(await getAgentByName(testEnv.ProposalReviewAgent, instance), (a) =>
+        (a as unknown as { jobsPerDay(): number }).jobsPerDay(),
+      );
+    expect(await budget(SANDBOX_INSTANCE)).toBe(MAX_JOBS_PER_DAY_SANDBOX);
+    expect(await budget(OWASP_INSTANCE)).toBe(MAX_JOBS_PER_DAY);
+    expect(MAX_JOBS_PER_DAY_SANDBOX).toBeGreaterThan(MAX_JOBS_PER_DAY);
   });
 });
