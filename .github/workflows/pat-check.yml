@@ -1,0 +1,49 @@
+name: PAT check
+# Checks each agent PAT with one read-only GitHub call (GET /user) and prints only the HTTP status,
+# the token's scopes and its expiry date (GitHub's `github-authentication-token-expiration`
+# header). Never the token, never the response body. Classic tokens expire silently: pr-gate's
+# PAT_PR_GATE (set 2026-10-15) started getting 401 "Bad credentials" on 2026-11-14, and every close
+# failed until it was rotated (docs/runbooks/rotate-pat.md).
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '23 6 * * 1' # Mondays: a week's warning before a 30-day token runs out
+permissions: {}
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # The PATs are repository secrets (the `prod` environment holds none), so no approval gate: the
+    # job only reads GET /user and prints no secret.
+    steps:
+      - name: Check each PAT (status, scopes, expiry)
+        env:
+          PAT_PR_GATE: ${{ secrets.PAT_PR_GATE }}
+          PAT_CHEATSHEET_REVIEW: ${{ secrets.PAT_CHEATSHEET_REVIEW }}
+          PAT_TRIAGE_APPLY: ${{ secrets.PAT_TRIAGE_APPLY }}
+          PAT_READONLY: ${{ secrets.PAT_READONLY }}
+        run: |
+          bad=0
+          now=$(date -u +%s)
+          for name in PAT_PR_GATE PAT_CHEATSHEET_REVIEW PAT_TRIAGE_APPLY PAT_READONLY; do
+            token="${!name}"
+            if [ -z "$token" ]; then
+              echo "::error::$name is not set"; bad=1; continue
+            fi
+            # Headers only; the body (the account) is discarded. The token goes in a header.
+            headers="$(curl -sS -o /dev/null -D - -H "Authorization: Bearer $token" \
+              -H 'Accept: application/vnd.github+json' https://api.github.com/user)"
+            status="$(head -1 <<<"$headers" | awk '{print $2}')"
+            expiry="$(grep -i '^github-authentication-token-expiration:' <<<"$headers" | cut -d' ' -f2- | tr -d '\r')"
+            scopes="$(grep -i '^x-oauth-scopes:' <<<"$headers" | cut -d' ' -f2- | tr -d '\r')"
+            echo "$name: HTTP $status; scopes: ${scopes:-(fine-grained or none)}; expires: ${expiry:-no expiry}"
+            if [ "$status" != 200 ]; then
+              echo "::error::$name does not work (HTTP $status): rotate it (docs/runbooks/rotate-pat.md)"; bad=1
+            elif [ -n "$expiry" ]; then
+              left=$(( ( $(date -u -d "$expiry" +%s) - now ) / 86400 ))
+              if [ "$left" -lt 10 ]; then
+                echo "::warning::$name expires in $left day(s) ($expiry): rotate it soon"
+              fi
+            fi
+          done
+          exit "$bad"
