@@ -1540,7 +1540,8 @@ describe('cheatsheet-review: claim verification (#90)', () => {
         claimed({ sourceUrl: 'https://crates.io/crates/rand/0.10.3', locator: '0.10.3' }),
       ),
     });
-    expect(fetched.some((u) => u.includes('crates.io'))).toBe(false);
+    expect(fetched.some((u) => new URL(u).hostname === 'crates.io')).toBe(false);
+    expect(new Set(fetched)).toEqual(new Set([NIST]));
     expect(calls(r, 'claim-verifier')).toEqual([]);
     expect(reviewActs(r)[0]?.body).toContain('Source: not a link in this PR');
   });
