@@ -24,7 +24,7 @@ packages/schema   zod wire formats (source of truth for types)
 packages/core     attestation, approval tokens, kill switch, policy eval, CustodesAgent base
 packages/github|llm|email   adapters (no policy decisions)
 workers/gateway   public ingress: webhooks, approval e-mail, Access-protected admin API, /verify
-workers/agents    Durable Object agents (Agents SDK); registry.ts lists them
+workers/agents    agent code (Agents SDK); each agent deploys as its own Worker (workers/<agent>, ADR 0018); registry.ts lists them
 workers/github-broker   THE policy enforcement point: policy → kill switch → approval → rate limit → execute → audit → sign
 apps/cli          `custodes` operator CLI (Cloudflare Access)
 infra/terraform   Access, Email, DNS, AI Gateway, Secrets Store, KV/D1/Queues
@@ -36,8 +36,8 @@ evals/            promptfoo behaviour + injection suites
 
 ```bash
 pnpm install && pnpm check   # format, lint, typecheck, test
-pnpm dev:migrate && pnpm dev # all three Workers locally on :8787 (shared state in .wrangler/state)
-pnpm dev:agents              # agents Worker alone on :8788, bypasses the Access-protected gateway
+pnpm dev:migrate && pnpm dev # gateway, broker and every agent Worker locally on :8787 (state in .wrangler/state)
+pnpm dev:agents              # custodes-pr-gate + broker on :8788, bypasses the Access-protected gateway
 pnpm --filter ./apps/cli build
 ```
 

@@ -18,6 +18,7 @@ One page per agent. Create pages with `/new-agent`; the template is below.
 
 - Version: 0.1.0 · Mode: hitl|hotl
 - Repositories: ...
+- Worker: `custodes-<id>` (`workers/<id>/wrangler.jsonc`, entry `workers/agents/src/<id>-worker.ts`)
 - Class: `workers/agents/src/agents/<id>.ts` · Policy: `workers/github-broker/policy/policy.json#agents.<id>`
 
 ## Purpose

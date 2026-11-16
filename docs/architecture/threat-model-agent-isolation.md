@@ -9,8 +9,10 @@ After the change ships, it is folded into that file.
 **Components:**
 
 - `custodes-pr-gate`, `custodes-cheatsheet-review`, `custodes-triage` (triage plus two read-only
-  specialists): one Worker per agent, each with a `keyholder` Durable Object.
-- The broker's per-agent entrypoints, signature and nonce check, and `isolated` flag.
+  specialists) and `custodes-triage-apply` (ADR 0019): one Worker per agent, each with a
+  `keyholder` Durable Object. `custodes-agents` runs no agent since 2026-11-16 (#122).
+- The broker's per-agent entrypoints, signature and nonce check, and its default entrypoint, which
+  refuses every agent (the `isolated` flag served the transition).
 - `packages/schema/src/agent-keys.json` (built into the broker and the gateway).
 - The gateway's `/admin/agent-keys/page` and per-agent queues.
 - The rotation workflow.
@@ -129,9 +131,10 @@ GitHub Actions (service token, read) ─► gateway /admin/agent-keys (public ke
 3. **Remove the `KILL_SWITCH` binding from agent Workers.** `guard()` uses a signed broker call,
    and only the broker and gateway bind the KV (T1). This can ship first, in the current single
    Worker.
-4. `isolated: true` honoured on the default entrypoint for act, read, state and approvals, for both
-   `agents` and `reads` entries, with tests (T2). Refusals are logged (`broker.admit.refused`).
-   Turning `isolated` back to `false` is a widening (invariant 4).
+4. Done, then superseded (#122, 2026-11-16): `isolated: true` was honoured on the default entrypoint
+   during the transition (T2). After the last move the default entrypoint refuses every request but
+   `/healthz` in code (`broker.default.refused`), no Worker may bind it (`bindings.test.ts`), and the
+   agent routes refuse any call without a verified signature. The flag stays as a record only.
 5. Done: audit record stores the agent signature; the gateway's `/verify` checks both signatures against committed keys (R1). Follow-ups: sign approval requests; CLI `audit verify`; report `missing` for an isolated agent's record without signature or approval.
 6. Done: `keyholder` exposes only `signRequest`, `publicKeys`, `rotate`, `activateNextIfAccepted`; canary tests cover both keys (I1).
 7. Done for the keyholder: rotation keeps the old key until the broker accepts the next one (D1). Page and workflow show

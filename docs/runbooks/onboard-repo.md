@@ -11,7 +11,7 @@
    footer with `custodes audit verify`.
 6. Optional: if you have admin rights, add a webhook so pr-gate reacts within about 30 minutes
    instead of at the next 4-hourly cron. Do it on `mackowski/custodes-sandbox` first and check one
-   PR end to end (`queue.dispatch` with `outcome: scheduled` in the agents Worker logs, then a
+   PR end to end (`queue.dispatch` with `outcome: scheduled` in the `custodes-pr-gate` Worker logs, then a
    `pr-gate.wake` log about 30 minutes later). Settings → Webhooks → Add webhook:
    - Payload URL `https://custodes.work/webhooks/github`, content type `application/json`.
    - Secret: the value of `GITHUB_WEBHOOK_SECRET` (Keychain, `scripts/with-secrets.sh`; never

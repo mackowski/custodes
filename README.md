@@ -54,17 +54,19 @@ Read more: [architecture](docs/architecture/overview.md) · [threat model](docs/
 pnpm install
 pnpm check                 # format, lint, typecheck, 45 tests (Workers run in workerd)
 pnpm dev:migrate           # create the local D1 schema once
-pnpm dev                   # gateway + agents + broker on http://localhost:8787
+pnpm dev                   # gateway, broker and every agent Worker on http://localhost:8787
 ```
 
 The gateway is the only public entry point, and its `/admin` and `/agents` routes require a
-Cloudflare Access JWT even locally. To poke an agent directly during development, run the agents
-Worker on its own port in a second terminal:
+Cloudflare Access JWT even locally. Every agent runs in its own Worker (ADR 0018). To poke one
+directly during development, run its Worker with the broker on its own port in a second terminal;
+`pnpm dev:agents` does that for pr-gate:
 
 ```bash
-pnpm dev:agents            # http://localhost:8788
-curl localhost:8788/registry
+pnpm dev:agents            # custodes-pr-gate + broker on http://localhost:8788
 curl localhost:8788/agents/pr-gate-agent/custodes-sandbox/report
+# another agent: its own config first, e.g.
+pnpm --filter ./workers/agents exec wrangler dev -c ../triage/wrangler.jsonc -c ../github-broker/wrangler.jsonc --port 8788 --persist-to ../../.wrangler/state
 ```
 
 `POST .../run` is left out on purpose: it runs pr-gate for real, and with a local `PAT_PR_GATE` it
