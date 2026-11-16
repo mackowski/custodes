@@ -252,7 +252,12 @@ admin.post('/kill-switch/:id/:action{halt|resume}', async (c) => {
   );
   // Logged after the broker answers, with its status, so a refused halt never reads as done.
   console.log(
-    JSON.stringify({ event: `admin.${action}`, agentId: id, by: actor.subject, status: res.status }),
+    JSON.stringify({
+      event: `admin.${action}`,
+      agentId: id,
+      by: actor.subject,
+      status: res.status,
+    }),
   );
   if (!res.ok) return c.json({ error: `the broker refused (${res.status})` }, 502);
   return c.redirect('/admin/kill-switch/page', 303);
