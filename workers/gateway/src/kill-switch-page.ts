@@ -19,8 +19,8 @@ export type AgentFlag = z.infer<typeof AgentFlag>;
  * The kill switch in a browser (no CLI on a phone): each agent's state, a Halt form for every
  * operator and a Resume button that only approvers can use (the broker checks again, #104).
  * Everything shown is escaped; the forms post to this origin only (PAGE_HEADERS CSP).
- * `flags === null` means the state could not be read: the page still offers Halt (and Resume to
- * approvers) for the whole fleet, since halting needs no read.
+ * `flags === null` means the state could not be read: the page still offers Halt for the whole
+ * fleet, since halting needs no read, and no Resume (use the CLI once the state is readable).
  */
 export function killSwitchPage(flags: readonly AgentFlag[] | null, approver: boolean): string {
   const unknown = flags === null;
@@ -33,8 +33,9 @@ export function killSwitchPage(flags: readonly AgentFlag[] | null, approver: boo
         ? `<strong>halted</strong>${f.reason ? `: ${escapeHtml(f.reason)}` : ''}${f.by ? ` (by ${escapeHtml(f.by)}` : ''}${f.at ? `${f.by ? ', ' : ' ('}${escapeHtml(f.at)})` : f.by ? ')' : ''}`
         : 'running';
     const halt = `<form method="post" action="/admin/kill-switch/${id}/halt"><input name="reason" required minlength="3" maxlength="500" placeholder="reason"> <button>Halt</button></form>`;
+    // No Resume while the state is unknown: a mis-tap on a phone must not resume a halted fleet.
     const resume =
-      f.halted || unknown
+      f.halted && !unknown
         ? approver
           ? `<form method="post" action="/admin/kill-switch/${id}/resume"><button>Resume</button></form>`
           : '<p class="note">Only an approver may resume.</p>'

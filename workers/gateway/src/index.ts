@@ -223,7 +223,8 @@ admin.get('/kill-switch/page', async (c) => {
   try {
     const res = await c.env.BROKER.fetch('https://broker.internal/v1/agents/states');
     const parsed = res.ok ? z.array(AgentFlag).safeParse(await res.json()) : null;
-    if (parsed?.success) flags = parsed.data;
+    // A reply without the fleet row would leave no Halt for everything: treat it as unreadable.
+    if (parsed?.success && parsed.data.some((f) => f.id === '*')) flags = parsed.data;
   } catch {
     // Unreadable state: the page still offers a fleet-wide Halt (review of #130, L1).
   }
