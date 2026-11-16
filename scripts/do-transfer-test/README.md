@@ -98,7 +98,8 @@ For the clean-up PR (steps F and G), do not merge it unless:
    owner check still prints the target. If F fails, keep the class exports in
    `workers/agents/src/index.ts` (and the test entry's) until the error is understood.
 9. After G, note the outcome in the PR (accepted, refused, any notice). It decides when the
-   tombstones can go; the clean-up PR keeps them.
+   tombstones can go; the clean-up PR kept them. They were dropped on 2026-11-16 (#146), after
+   every production deploy reported them `stale_tombstone`.
 
 ## Clean up
 
