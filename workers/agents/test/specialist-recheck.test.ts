@@ -6,6 +6,7 @@ import { validateProposalReview } from '../src/agents/specialists/proposal.js';
 import type { AgentsEnv } from '../src/env.js';
 import { OWASP_INSTANCE, SANDBOX_INSTANCE } from '../src/instances.js';
 import { MAX_JOBS_PER_DAY, MAX_JOBS_PER_DAY_SANDBOX } from '../src/agents/specialists/agent.js';
+import e2eRunner from '../../../e2e/sandbox/run.ts?raw';
 
 const testEnv = env as unknown as AgentsEnv;
 const HOUR = 3_600_000;
@@ -208,5 +209,10 @@ describe('specialists daily budget (operator, 2026-11-16)', () => {
     expect(await budget(SANDBOX_INSTANCE)).toBe(MAX_JOBS_PER_DAY_SANDBOX);
     expect(await budget(OWASP_INSTANCE)).toBe(MAX_JOBS_PER_DAY);
     expect(MAX_JOBS_PER_DAY_SANDBOX).toBeGreaterThan(MAX_JOBS_PER_DAY);
+  });
+
+  it('is mirrored by the sandbox e2e runner, which stops waiting at the cap', () => {
+    // A stale mirror made the 2026-11-16 e2e send its digest before the specialists finished.
+    expect(e2eRunner).toContain(`const SPECIALIST_JOBS_PER_DAY = ${MAX_JOBS_PER_DAY_SANDBOX};`);
   });
 });
