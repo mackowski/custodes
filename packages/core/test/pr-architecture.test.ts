@@ -91,4 +91,32 @@ describe('PR architecture section check (/ship)', () => {
     // The After diagram is still real, so one real diagram is enough.
     expect(errors).toEqual([]);
   });
+
+  it('refuses "unchanged" when the diff touches files that change the flow (review of #123, M1)', () => {
+    const v = checkPrBody(filled({ verdict: 'Data flow: unchanged: only a refactoring here' }), [
+      'workers/gateway/wrangler.jsonc',
+    ]);
+    expect(v.errors.join()).toMatch(/says unchanged/);
+  });
+
+  it('wants the ADR or issue in the Authority row when policy.json changes', () => {
+    const body = filled({ verdict: 'Data flow: changed (data-flow.md updated)' });
+    const changed = ['workers/github-broker/policy/policy.json', 'docs/architecture/data-flow.md'];
+    expect(checkPrBody(body, changed).errors.join()).toMatch(/must name its ADR or issue/);
+    const named = body.replace(
+      '| Authority (policy, actions, repos) | none | same | n/a |',
+      '| Authority (policy, actions, repos) | adds a repo | wider | ADR 0019, #108 |',
+    );
+    expect(checkPrBody(named, changed).errors).toEqual([]);
+  });
+
+  it('refuses a section with a placeholder left in, such as the key-pin one before it is filled', () => {
+    const section = readFileSync(new URL('docs/runbooks/key-pin-pr-section.md', ROOT), 'utf8');
+    const keys = ['packages/schema/src/agent-keys.json'];
+    expect(checkPrBody(section, keys).errors.join()).toMatch(/placeholder/);
+    const done = section
+      .replace('<custodes-...>', 'custodes-pr-gate')
+      .replace('<kid>', 'pr-gate-20261113-93a57ed5');
+    expect(checkPrBody(done, keys).errors).toEqual([]);
+  });
 });

@@ -33,6 +33,9 @@ const FLOW_FILES: RegExp[] = [
   /^infra\/terraform\//,
 ];
 const DATA_FLOW_DOC = 'docs/architecture/data-flow.md';
+const POLICY = 'workers/github-broker/policy/policy.json';
+/** Placeholders the template and the key-pin section ship with; left in, the section is not done. */
+const PLACEHOLDERS = /<(reason|custodes-\.\.\.|kid|worker)>/i;
 
 export interface Verdict {
   errors: string[];
@@ -67,6 +70,12 @@ export function checkPrBody(body: string, changed: readonly string[]): Verdict {
     errors.push(`says the data flow changed but ${DATA_FLOW_DOC} is not updated`);
   else if (verdict.startsWith('unchanged') && verdict.replace('unchanged:', '').trim().length < 10)
     errors.push('"Data flow: unchanged" needs a reason');
+  else if (verdict.startsWith('unchanged') && flowFiles.length > 0)
+    // A diagram the operator relies on must not call a flow change "unchanged" (review of #123, M1).
+    errors.push(
+      `files that change the data flow are in the diff, but the section says unchanged (update ${DATA_FLOW_DOC})`,
+    );
+  if (PLACEHOLDERS.test(section)) errors.push('a placeholder is still in the section');
 
   const security = /^### Security\s*$([\s\S]*?)(?=^### |(?![\s\S]))/m.exec(section)?.[1] ?? '';
   if (security === '') errors.push('missing "### Security"');
@@ -78,6 +87,15 @@ export function checkPrBody(body: string, changed: readonly string[]): Verdict {
       if (row === undefined) errors.push(`security table: no row for "${aspect}"`);
       else if (!cells[2] || !cells[3])
         errors.push(`security table: "${aspect}" needs its change and effect`);
+      // A policy change must name the ADR or issue behind it (CLAUDE.md invariant 4).
+      else if (
+        aspect.startsWith('Authority') &&
+        changed.includes(POLICY) &&
+        !/\bADR \d{4}\b|#\d+/.test(cells[4] ?? '')
+      )
+        errors.push(
+          'security table: policy.json changes, so "Authority" must name its ADR or issue',
+        );
     }
 
   const docs = /^### Documentation\s*$([\s\S]*)/m.exec(section)?.[1] ?? '';
@@ -95,8 +113,9 @@ if (process.argv[1]?.endsWith('pr-architecture.ts')) {
         .filter((l) => l !== '')
     : [];
   const { errors, flowFiles } = checkPrBody(process.env['PR_BODY'] ?? '', changed);
+  // A count, not the names: file names come from the PR and are not ours to print.
   if (flowFiles.length > 0)
-    console.log(`Files that usually change the data flow: ${flowFiles.join(', ')}`);
+    console.log(`${flowFiles.length} changed file(s) usually change the data flow.`);
   for (const e of errors) console.log(`::error::Architecture section: ${e}`);
   if (errors.length > 0) {
     console.log('See .claude/skills/ship/SKILL.md and .github/pull_request_template.md.');
