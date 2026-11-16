@@ -3,7 +3,7 @@ variable "domain" { type = string }
 variable "gateway_worker_name" { type = string }
 variable "rules_enabled" {
   type        = bool
-  description = "Create routing rules. Requires Email Routing enabled on the zone and the gateway/agents Workers deployed."
+  description = "Create routing rules. Requires Email Routing enabled on the zone and the gateway Worker deployed."
   default     = false
 }
 variable "account_id" { type = string }

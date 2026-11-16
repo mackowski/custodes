@@ -219,11 +219,17 @@ admin.post('/agents/:id/resume', async (c) => {
 // The kill switch in a browser (phone): state, Halt and Resume forms. Same rules as the JSON routes
 // above: the broker writes the flag and checks the operator's own token (#104).
 admin.get('/kill-switch/page', async (c) => {
-  const res = await c.env.BROKER.fetch('https://broker.internal/v1/agents/states');
-  const flags = res.ok ? z.array(AgentFlag).safeParse(await res.json()) : null;
-  if (!flags?.success) return c.json({ error: 'kill-switch state unavailable' }, 502);
+  let flags: AgentFlag[] | null = null;
+  try {
+    const res = await c.env.BROKER.fetch('https://broker.internal/v1/agents/states');
+    const parsed = res.ok ? z.array(AgentFlag).safeParse(await res.json()) : null;
+    if (parsed?.success) flags = parsed.data;
+  } catch {
+    // Unreadable state: the page still offers a fleet-wide Halt (review of #130, L1).
+  }
+  if (flags === null) console.log(JSON.stringify({ event: 'admin.kill_switch_state_unavailable' }));
   const approver = isApprover(c.get('actor'), c.env.APPROVER_EMAILS);
-  return c.body(killSwitchPage(flags.data, approver), 200, PAGE_HEADERS);
+  return c.body(killSwitchPage(flags, approver), flags === null ? 503 : 200, PAGE_HEADERS);
 });
 admin.post('/kill-switch/:id/:action{halt|resume}', async (c) => {
   const id = c.req.param('id');

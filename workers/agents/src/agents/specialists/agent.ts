@@ -47,7 +47,9 @@ export interface SpecialistState {
 export const MAX_JOBS_PER_DAY = 10;
 /**
  * The sandbox instance's daily jobs: higher, so several end-to-end runs in one day still reach the
- * specialists (operator, 2026-11-16). The sandbox's issues are few and written by the operator.
+ * specialists (operator, 2026-11-16). The sandbox repo is public, so anyone may file an issue there
+ * (read as untrusted like any other), but its runs start only on demand (`/run` by an operator or
+ * the CI service token); the cap bounds spend at 40 fast + 40 reasoning calls per specialist a day.
  */
 export const MAX_JOBS_PER_DAY_SANDBOX = 40;
 /** A job that fails this many times is dropped (triage re-enqueues it when the issue changes). */

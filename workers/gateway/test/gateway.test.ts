@@ -1058,6 +1058,32 @@ describe("admin writes forward the operator's own Access token to the broker (#1
     const ok = await send('/admin/kill-switch/pr-gate/resume', approver(), {}, true);
     expect(ok.res.status).toBe(303);
     expect(ok.seen[0]?.url).toBe('https://broker.internal/v1/agents/pr-gate/resume');
+    const fleet = await send(
+      '/admin/kill-switch/*/halt',
+      'any-operator@example.com',
+      { reason: 'stop everything' },
+      true,
+    );
+    expect(fleet.res.status).toBe(303);
+    expect(fleet.seen[0]?.url).toBe('https://broker.internal/v1/agents/*/halt');
+  });
+
+  it('still offers a fleet-wide Halt when the broker state cannot be read (review of #130)', async () => {
+    const broker = {
+      fetch: () => Promise.resolve(Response.json([{ id: 'pr-gate', halted: 'odd' }])),
+    } as unknown as GatewayEnv['BROKER'];
+    const res = await worker.fetch(
+      new Request('https://custodes.work/admin/kill-switch/page', {
+        headers: { 'cf-access-jwt-assertion': await token('any-operator@example.com') },
+      }),
+      { ...testEnv(), BROKER: broker },
+      ctx,
+    );
+    expect(res.status).toBe(503);
+    const html = await res.text();
+    expect(html).toContain('state unknown');
+    expect(html).toContain('action="/admin/kill-switch/*/halt"');
+    expect(html).not.toContain('/resume"');
   });
 });
 
