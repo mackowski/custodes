@@ -86,6 +86,9 @@ async function linkStage(snap: Snapshot, deps: PipelineDeps): Promise<LinkStage>
     const self = f.file.filename.split('/').pop() ?? f.file.filename;
     const own = snap.contents.get(f.file.filename);
     for (const link of scanLinks(f.file.filename, f.hunks).links) {
+      // A reference definition or an href/src value inside a fenced code block is a code sample
+      // (the XSS sheet is full of them), not a rendered link. An unread file counts as rendered.
+      if (link.markup && f.codeLines?.has(link.line)) continue;
       // Not a known target form (//host, &#47;&#47;host, a backslash or entity in an https host, a
       // stray scheme is handled below): what renders may differ from what we would fetch. Verify by
       // hand, before anything is fetched.

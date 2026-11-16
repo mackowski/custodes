@@ -85,12 +85,16 @@ existing text (not caused by this PR)", which never counts toward the verdict, a
 suggestion there unless it only changes link targets. Every review with external links ends with a
 "Links checked" table (URL as code, new or moved, status). A target counts as moved only on the same site: the exact
 host (without www.), the same owner on owner-path hosts (github.com, gist, raw.githubusercontent.com,
-*.github.io, gitlab.com, bitbucket.org), or the listed pair `github.com/OWASP` and `owasp.org`. Anything else, including
-subdomain tenants of a shared host, archive copies (web.archive.org) and lookalike domains, is audited
-as a new link. The table shows the
-previous URL. Link targets must have a known form (http(s) with a plain host and no HTML entities, a sibling .md with an optional anchor,
+*.github.io, gitlab.com, bitbucket.org, medium.com, hackmd.io; each host its own owner namespace except the
+GitHub ones), or the listed pair `github.com/OWASP` and `owasp.org`. Anything else, including
+subdomain tenants of a shared host, archive copies (web.archive.org, archive.today and its mirrors
+archive.is, .li, .vn, .md) and lookalike domains, is audited as a new link. The table shows the
+previous URL. A link is any target that renders as one: inline Markdown links, reference definitions
+(`[1]: url`), HTML `href`/`src` values (taken as written, so an entity-encoded scheme stays encoded)
+and bare URLs, outside inline code; an `href`/`src` or reference definition inside a fenced code
+block is a code sample and is skipped (#95). Link targets must have a known form (http(s) with a plain host and no HTML entities, a sibling .md with an optional anchor,
 an anchor, an image under assets); anything else is a MAJOR "verify by hand" finding and makes the
-change content.
+change content. Changing a reference definition or an `href`/`src` value is never "links only".
 
 **Multi-model invariant** (`invariantBreach`): when both security voices are asked for, both
 answer and come from different vendors, and the judge is a different model from both. Every review

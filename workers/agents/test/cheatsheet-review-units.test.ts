@@ -2620,3 +2620,74 @@ describe('render earlier maintainer requests (#91)', () => {
     expect(body([])).not.toContain('Earlier maintainer requests');
   });
 });
+
+// ---------- #95: reference definitions and HTML href/src ----------
+
+describe('links: reference definitions and HTML href/src (#95)', () => {
+  const scan = (...patchLines: string[]) =>
+    scanLinks(SHEET, parsePatch(['@@ -1,9 +1,9 @@', ...patchLines].join('\n')));
+
+  it('extracts reference-definition destinations and href/src values, quoted or not', () => {
+    const r = scan(
+      ' a',
+      '+[1]: <https://a.example/ref> "Title"',
+      '+[two]: //evil.example/x',
+      '+<a href="https://b.example/x">B</a> <img src=\'//evil.example/i.png\'>',
+      '+<a href=https://c.example/y>C</a>',
+    );
+    expect(r.links.map((l) => l.url)).toEqual([
+      'https://a.example/ref',
+      '//evil.example/x',
+      'https://b.example/x',
+      '//evil.example/i.png',
+      'https://c.example/y',
+    ]);
+    expect(r.links.every((l) => l.markup === true)).toBe(true);
+    // extractLinks uses the same extractor.
+    expect(
+      extractLinks(SHEET, [{ kind: '+', text: '[x]: //evil.example/x', newLine: 1 }]).map(
+        (l) => l.url,
+      ),
+    ).toEqual(['//evil.example/x']);
+  });
+
+  it('keeps an entity-encoded scheme as written, so its form is refused', () => {
+    const r = scan(
+      '+<a href="&#106;avascript:alert(1)">x</a>',
+      '+<a href="&#47;&#47;evil.example">y</a>',
+    );
+    expect(r.links.map((l) => l.url)).toEqual([
+      '&#106;avascript:alert(1)',
+      '&#47;&#47;evil.example',
+    ]);
+    for (const l of r.links) expect(knownTargetForm(l.url)).toBe(false);
+  });
+
+  it('ignores link markup inside inline code', () => {
+    const r = scan('+Use `<a href="//x.example">` and `[1]: //y.example` as examples.');
+    expect(r.links).toEqual([]);
+  });
+
+  it('sends an unknown-form reference definition or href to the full review (scope)', () => {
+    const pairs: [string, string][] = [
+      ['[1]: https://a.example/x', '[1]: //evil.example/x'],
+      ['<a href="https://a.example/x">A</a>', '<a href="&#47;&#47;evil.example/x">A</a>'],
+      ['<img src="../assets/a.png">', '<img src="//evil.example/a.png">'],
+    ];
+    for (const [before, after] of pairs)
+      expect(classify([scoped(patchOf([before], [after]))])).toMatchObject({
+        kind: 'decided',
+        class: 'content',
+      });
+  });
+
+  it('treats medium.com and hackmd.io owners as different sites, and archive.today mirrors as never the same', () => {
+    expect(sameSite('https://medium.com/@good/a', 'https://medium.com/@evil/a')).toBe(false);
+    expect(sameSite('https://medium.com/@good/a', 'https://medium.com/@good/b')).toBe(true);
+    expect(sameSite('https://hackmd.io/@good/a', 'https://hackmd.io/@evil/a')).toBe(false);
+    // Not one shared namespace with GitHub owners.
+    expect(sameSite('https://github.com/good/x', 'https://medium.com/good/x')).toBe(false);
+    for (const host of ['archive.is', 'archive.li', 'archive.vn', 'archive.md'])
+      expect(sameSite(`https://${host}/a`, `https://${host}/a`)).toBe(false);
+  });
+});
