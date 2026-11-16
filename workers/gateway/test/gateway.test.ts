@@ -1022,4 +1022,91 @@ describe("admin writes forward the operator's own Access token to the broker (#1
     for (const h of AGENT_STRIPPED_HEADERS) expect(got?.get(h), h).toBe(null);
     expect(got?.get('x-custodes-actor')).toBe(approver());
   });
+
+  it('halts from the page form through the broker, and resumes for approvers only', async () => {
+    const halt = await send(
+      '/admin/kill-switch/pr-gate/halt',
+      'any-operator@example.com',
+      { reason: 'from my phone' },
+      true,
+    );
+    expect(halt.res.status).toBe(303);
+    expect(halt.res.headers.get('location')).toBe('/admin/kill-switch/page');
+    expect(halt.seen).toEqual([
+      {
+        url: 'https://broker.internal/v1/agents/pr-gate/halt',
+        jwt: halt.jwt,
+        body: '{"reason":"from my phone"}',
+      },
+    ]);
+    const noReason = await send(
+      '/admin/kill-switch/pr-gate/halt',
+      'any-operator@example.com',
+      { reason: '' },
+      true,
+    );
+    expect(noReason.res.status).toBe(400);
+    expect(noReason.seen).toEqual([]);
+    const blocked = await send(
+      '/admin/kill-switch/pr-gate/resume',
+      'mallory@example.com',
+      {},
+      true,
+    );
+    expect(blocked.res.status).toBe(403);
+    expect(blocked.seen).toEqual([]);
+    const ok = await send('/admin/kill-switch/pr-gate/resume', approver(), {}, true);
+    expect(ok.res.status).toBe(303);
+    expect(ok.seen[0]?.url).toBe('https://broker.internal/v1/agents/pr-gate/resume');
+    const fleet = await send(
+      '/admin/kill-switch/*/halt',
+      'any-operator@example.com',
+      { reason: 'stop everything' },
+      true,
+    );
+    expect(fleet.res.status).toBe(303);
+    expect(fleet.seen[0]?.url).toBe('https://broker.internal/v1/agents/*/halt');
+  });
+
+  it('still offers a fleet-wide Halt when the broker state cannot be read (review of #130)', async () => {
+    const broker = {
+      fetch: () => Promise.resolve(Response.json([{ id: 'pr-gate', halted: 'odd' }])),
+    } as unknown as GatewayEnv['BROKER'];
+    const res = await worker.fetch(
+      new Request('https://custodes.work/admin/kill-switch/page', {
+        headers: { 'cf-access-jwt-assertion': await token('any-operator@example.com') },
+      }),
+      { ...testEnv(), BROKER: broker },
+      ctx,
+    );
+    expect(res.status).toBe(503);
+    const html = await res.text();
+    expect(html).toContain('state unknown');
+    expect(html).toContain('action="/admin/kill-switch/*/halt"');
+    expect(html).not.toContain('/resume"');
+  });
+});
+
+describe('kill-switch page (phone, no CLI)', () => {
+  it('escapes every field and offers Resume to approvers only', async () => {
+    const { killSwitchPage } = await import('../src/kill-switch-page.js');
+    const flags = [
+      { id: '*', halted: false },
+      {
+        id: 'pr-gate',
+        halted: true,
+        reason: '<script>x</script>',
+        by: 'op@example.com',
+        at: '2026-11-16T14:00:00Z',
+      },
+    ];
+    const asApprover = killSwitchPage(flags, true);
+    expect(asApprover).not.toMatch(/<script>x/);
+    expect(asApprover).toContain('&lt;script&gt;');
+    expect(asApprover).toContain('action="/admin/kill-switch/pr-gate/resume"');
+    expect(asApprover).toContain('action="/admin/kill-switch/*/halt"');
+    const asOperator = killSwitchPage(flags, false);
+    expect(asOperator).not.toContain('/resume"');
+    expect(asOperator).toContain('Only an approver may resume.');
+  });
 });

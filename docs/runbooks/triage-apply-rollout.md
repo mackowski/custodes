@@ -53,6 +53,6 @@ their first step after approval, and the approval is used up.
 
 ## Turn it off
 
-- `halt:triage-apply` (kill-switch page) stops new approvals and the running of approved ones.
+- `halt:triage-apply` (kill-switch page, `/admin/kill-switch/page`) stops new approvals and the running of approved ones.
 - Removing the `TRIAGE_APPLY` binding from `workers/triage/wrangler.jsonc` removes the links.
 - Undo applied changes by hand on GitHub. `custodes audit list --agent triage-apply` lists them.

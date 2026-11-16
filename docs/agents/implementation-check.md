@@ -47,7 +47,7 @@ Nothing on GitHub.
 
 | Limit or failure                        | Effect                                                                        |
 | --------------------------------------- | ----------------------------------------------------------------------------- |
-| 10 jobs per UTC day                     | the rest wait; the first poll after midnight resumes                          |
+| 10 jobs per UTC day (sandbox: 40)       | the rest wait; the first poll after midnight resumes                          |
 | Model output invalid, refused, cut off  | job moves to the back of the queue; dropped after 4 attempts, error in digest |
 | Broker, GitHub or gateway failure       | job kept, chain stops, retried on the next triage poll                        |
 | Kill switch `halt:implementation-check` | alarms return at once; checked again before every model call                  |

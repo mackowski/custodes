@@ -6,8 +6,8 @@ of this diagram it touches, before and after, and updates this file when the flo
 (`docs/sdlc.md`, `.github/workflows/pr-architecture.yml`). Derived from the Workers' `wrangler.jsonc` files, the broker policy and the
 gateway routes, not from memory; when they disagree, the code is right and this file is stale.
 
-Last checked against the code: 2026-11-16 (#104: the broker verifies the operator's Access token and
-alone writes the kill switch; #90: cheatsheet-review's PDF conversion through the AI Gateway).
+Last checked against the code: 2026-11-16 (Email Routing catch-all drops mail; kill-switch page through
+the broker).
 
 ## The whole system
 
@@ -95,7 +95,7 @@ flowchart LR
   PRG -- "summary" --> OUTMAIL
   CSR -- "approval link" --> OUTMAIL
   INMAIL --> ER
-  ER -- "catch-all, no email handler" --> REG
+  ER -- "approve@, reject@: refused by the gateway; the rest: dropped" --> GW
 ```
 
 Legend: red = untrusted input, yellow = holds a credential, blue = stored state, grey = holds

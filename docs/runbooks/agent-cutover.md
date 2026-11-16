@@ -149,9 +149,9 @@ Kept on purpose, for later PRs:
   it first.
 - **`custodes-agents` itself stays** (operator's decision, 2026-11-16), for `/registry`. It must not
   get bindings, secrets or agent code again; a new agent gets its own Worker. Note: the
-  Email Routing catch-all for custodes.work sends every incoming message to this Worker
-  (`infra/terraform/modules/email-routing`, `agents_worker_name`), which has never had an `email()`
-  handler; deleting the Worker means changing that rule first.
+  Email Routing catch-all used to send every incoming message to this Worker, which has never had
+  an `email()` handler; it now drops them (`infra/terraform/modules/email-routing`), so no routing
+  rule depends on the Worker any more.
 - ~~The `custodes-inbound` queue and its DLQ in Terraform~~: removed in the #95/#104/#105 PR (apply after a green deploy of the gateway without `INBOUND`).
 - **The `isolated` flags in the policy.** They no longer decide anything (the default entrypoint
   refuses every id); `cutover-moves.test.ts` still checks them.
