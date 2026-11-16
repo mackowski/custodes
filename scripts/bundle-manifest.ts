@@ -80,9 +80,9 @@ if (process.argv[1]?.endsWith('bundle-manifest.ts')) {
   for (const w of WORKERS) manifest[w.name] = bundle(w);
   const text = `${JSON.stringify(manifest, null, 2)}\n`;
   if (process.argv.includes('--check')) {
-    const committed = readFileSync(OUT, 'utf8');
-    if (committed !== text) {
-      const was = JSON.parse(committed) as typeof manifest;
+    const was = JSON.parse(readFileSync(OUT, 'utf8')) as typeof manifest;
+    // Compare the data, not the text: formatting is not a change.
+    if (JSON.stringify(was) !== JSON.stringify(manifest)) {
       for (const [name, now] of Object.entries(manifest)) {
         const before = new Set(was[name]?.thirdParty ?? []);
         const after = new Set(now.thirdParty);
