@@ -1,53 +1,36 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
+  // custodes-agents (ADR 0018). Every agent runs in its own Worker since the cutovers
+  // (workers/triage, workers/triage-apply, workers/pr-gate, workers/cheatsheet-review); they bundle
+  // their code from `src/` here, deployed with `-c ../<agent>/wrangler.jsonc`. This Worker runs no
+  // agent: no Durable Object, no secret, no cron, no queue, no service, AI or e-mail binding (the
+  // queue consumer and the secrets are removed by deploy-workers, which deploys never do). It
+  // answers only GET /registry (the gateway's /admin/agents) and /healthz, from `src/index.ts`.
   "name": "custodes-agents",
   "main": "src/index.ts",
   "compatibility_date": "2026-08-15",
   "compatibility_flags": ["nodejs_compat"],
-  // Agents are reached through the gateway (Access) or by schedule/queue/e-mail, never directly.
+  // Reached only through the gateway (Access), never directly.
   "workers_dev": false,
   "preview_urls": false,
-  // Logs as before; traces feed the Agents dashboard (ADR 0016).
+  // Empty, not absent: with no `triggers` key a deploy leaves the Worker's existing crons in place
+  // (review of #122, M1), and this Worker has no `scheduled` handler any more.
+  "triggers": { "crons": [] },
   "observability": {
     "enabled": true,
     "head_sampling_rate": 1,
     "traces": { "enabled": true, "head_sampling_rate": 1 },
   },
-  // NO EFFECT HERE since the cutovers (ADR 0018): no agent runs in this Worker. Each agent reads these
-  // from its own wrangler file (workers/<agent>/wrangler.jsonc): change TRACE_PAYLOADS, e-mail or
-  // AI Gateway settings there. Kept only so the generated Env type still has them; the clean-up PR
-  // removes them (docs/runbooks/agent-cutover.md).
-  "vars": {
-    "ENVIRONMENT": "prod",
-    "AI_GATEWAY_ACCOUNT_ID": "5f62912564df344533c9563904c77662",
-    "AI_GATEWAY_ID": "custodes",
-    "EMAIL_FROM": "custodes@custodes.work",
-    "EMAIL_DOMAIN": "custodes.work",
-    // Recipient of digests. Must be a verified Email Routing destination (infra/terraform email module).
-    "OPERATOR_EMAIL": "jkb.mackowski@gmail.com",
-    // pr-gate reads PR_GATE_ENFORCE and JEV_* from workers/pr-gate/wrangler.jsonc.
-    "PR_GATE_ENFORCE": "true",
-    "JEV_TRANSPORT": "direct",
-    "JEV_GATEWAY_PATH": "api/alpha/decisions",
-    // Records model and tool payloads (prompts, issue and PR text) in trace spans (ADR 0016).
-    // Credentials and error text are never recorded. "false" keeps spans metadata-only.
-    "TRACE_PAYLOADS": "true",
-    // Approval links in e-mails (ADR 0017 amendment): the gateway page behind Cloudflare Access.
-    "APPROVAL_LINK_BASE": "https://custodes.work/admin/approvals/link",
-  },
-  // Secrets: none since cheatsheet-review moved. deploy-workers deletes the AI_GATEWAY_TOKEN and
-  // OPENROUTER_API_KEY left here by earlier deploys.
-  // No Durable Object bindings: every agent runs in its own Worker since its cutover (ADR 0018,
-  // scripts/agent-moves.json): triage and its specialists in custodes-triage, pr-gate in
-  // custodes-pr-gate, cheatsheet-review in custodes-cheatsheet-review.
-  // Durable Object classes, declaratively (ADR 0018): replaces the old `migrations` tags v1..v5.
-  // One-way: once deployed with `exports`, this Worker cannot go back to `migrations`.
+  // Durable Object classes, declaratively (ADR 0018). One-way: once deployed with `exports`, this
+  // Worker cannot go back to `migrations`. Only tombstones are left: the namespaces (with their
+  // data) belong to the Workers named below, or are gone. The classes are no longer in this Worker's
+  // code. Do not re-declare a name here without checking who owns the namespace
+  // (scripts/do-namespace-owner.ts, run by deploy-workers). Drop a tombstone only after Cloudflare
+  // reports it stale (the `stale_tombstone` notice on deploy); the deploy guard reads the
+  // `transferred` entries to know which moves are done (scripts/agent-cutover-config.ts moved).
   "exports": {
-    // The hello smoke-test agent is removed with its stored data (#103).
+    // The hello smoke-test agent was removed with its stored data (#103).
     "HelloAgent": { "type": "durable-object", "state": "deleted" },
-    // Moved with their data to custodes-triage (ADR 0018, cutover 2026-11-12). The classes stay in
-    // this Worker's code for now: Cloudflare supports a `transferred` tombstone next to an exported
-    // class; a later PR removes both.
     "TriageAgent": {
       "type": "durable-object",
       "state": "transferred",
@@ -74,34 +57,4 @@
       "transferred_to": "custodes-cheatsheet-review",
     },
   },
-  // Must match CRON_TRIAGE_POLL / CRON_TRIAGE_PREPARE / CRON_TRIAGE_DIGEST in src/index.ts (UTC).
-  // Since the triage and pr-gate cutovers nothing here runs on them (both skip when unbound); they
-  // run in custodes-triage and custodes-pr-gate. The clean-up PR removes them.
-  "triggers": { "crons": ["17 */4 * * *", "30 5 * * *", "0 7 * * *"] },
-  // NO USE HERE since the cutovers: Clef (pr-gate) and the DeepSeek reviewers (cheatsheet-review)
-  // call Workers AI from their own Workers. Kept so the generated Env type still has it; the
-  // clean-up PR removes it.
-  "ai": { "binding": "AI", "remote": true },
-  // No KILL_SWITCH binding: a KV binding can write, so an agent could clear its own halt flag.
-  // Agents read their state from the broker (/v1/state); only the broker and gateway bind it.
-  "services": [{ "binding": "BROKER", "service": "custodes-github-broker" }],
-  // Nothing here acts on these events since cheatsheet-review moved (its own queue,
-  // custodes-inbound-cheatsheet-review): the consumer acks and drops them. The clean-up PR removes it.
-  "queues": {
-    "consumers": [
-      {
-        "queue": "custodes-inbound",
-        "max_batch_size": 10,
-        "max_retries": 3,
-        "dead_letter_queue": "custodes-inbound-dlq",
-      },
-    ],
-  },
-  "send_email": [
-    {
-      "name": "EMAIL",
-      // Agents may only e-mail the operators. Widen deliberately, per agent, in a reviewed PR.
-      "allowed_destination_addresses": ["jkb.mackowski@gmail.com"],
-    },
-  ],
 }

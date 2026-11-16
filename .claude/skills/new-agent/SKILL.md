@@ -22,11 +22,17 @@ lists only registered manifests.
    endpoints or the public API without a token), wrap them with `untrusted()`, call the model via
    `AnthropicGateway`, `parseStructured()` the result, then `this.act()` per proposed action.
    Follow `pr-gate.ts` (a write agent) or `triage.ts` (read-only) for the shape.
-2. **Export + registry**: add `export { <Pascal>Agent }` in `workers/agents/src/index.ts` and the
-   manifest to `REGISTRY` in `src/registry.ts`.
-3. **wrangler**: add the Durable Object binding in every env block of `workers/agents/wrangler.jsonc`
-   and a new migration tag with `new_sqlite_classes`. If it needs a schedule, call `scheduleEvery`
-   in `onStart` guarded by a state flag.
+2. **Its own Worker** (ADR 0018, ADR 0019; custodes-agents runs no agent and must not get one):
+   a Worker directory `workers/<agent>/wrangler.jsonc` and an entry `src/<agent>-worker.ts` that
+   exports the class plus `KeyAdmin` and `Keyholder` and routes only that class. Copy
+   `workers/triage-apply` (a new agent, born isolated) or `workers/pr-gate`. Add the manifest to
+   `REGISTRY` in `src/registry.ts`, the class to `AgentsEnv` (`src/env.ts`) and `AGENT_CLASSES`
+   (`src/instances.ts`), `CALLER_AGENTS` and `CALLER_ENTRYPOINTS` for its broker entrypoint, the
+   gateway bindings (`KEYS_<AGENT>`, its route in `agentWorker`) and its deploy step in
+   `deploy-workers.yml` (secrets with `wrangler secret put -c`, never `secrets:`).
+3. **Schedule**: crons and queue go in the agent's own wrangler file; if it needs a schedule, call
+   `scheduleEvery` in `onStart` guarded by a state flag. Its Durable Object is created by an
+   `exports` entry in its own file, never in `workers/agents/wrangler.jsonc`.
 4. **Policy**: add `$0` to `workers/github-broker/policy/policy.json` with the minimum `repos` and
    `actions`, `mode`, `requiresApproval`, a conservative `rateLimitPerHour` and `tokenBinding: PAT_<UPPER>`.
    Signing keys need no configuration; the broker Keyring generates them.

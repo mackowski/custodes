@@ -10,7 +10,6 @@ import {
   BundleApprovalAsk,
   type CallerName,
   CallerSignature,
-  type Policy,
 } from '@custodes/schema';
 import { act } from './act.js';
 import {
@@ -24,7 +23,6 @@ import {
   authenticateCaller,
   CALLER_AGENTS,
   CALLER_ENTRYPOINTS,
-  isIsolated,
   type VerifiedCall,
 } from './callers.js';
 import { read } from './read.js';
@@ -40,13 +38,13 @@ import { ApprovalStore, AuditStore } from './store.js';
  * - one entrypoint per agent Worker (`PrGateBroker`, ...): act, read, state and asking for an
  *   approval, only with a request signed by a key pinned for that Worker, and only for the agent
  *   ids that Worker hosts;
- * - the default one, bound by the shared agents Worker until every agent has moved: the same
- *   routes, unsigned, refusing agents marked `isolated`;
+ * - the default one, unsigned: it serves no agent (every agent has its own Worker), refuses every
+ *   request but /healthz, and no Worker may bind it (bindings.test);
  * - `BrokerAdmin`, bound only by the gateway, which authenticates with Access first: deciding
  *   approvals, the audit log and keys. An agent cannot approve its own request.
  */
 /** `call` is set only on a per-agent entrypoint, after the signature and nonce checks passed. */
-type App = Hono<{ Bindings: BrokerEnv; Variables: { call?: VerifiedCall } }>;
+export type App = Hono<{ Bindings: BrokerEnv; Variables: { call?: VerifiedCall } }>;
 
 /** Null when `agentId` may be served on this entrypoint, else the reason it may not. */
 type Admit = (agentId: string) => string | null;
@@ -64,8 +62,18 @@ const CreateApproval = z.object({
   rationale: z.string().max(4000),
 });
 
-/** The routes agents use, behind `admit`. Shared by the default and the per-Worker entrypoints. */
-function agentRoutes(app: App, admitAgent: Admit, entrypoint: string, signed: boolean): App {
+/**
+ * The routes agents use, behind `admit`. Shared by the default and the per-Worker entrypoints;
+ * exported so the route tests can run them with their own `admit`.
+ */
+export function agentRoutes(app: App, admitAgent: Admit, entrypoint: string): App {
+  // Every route needs a verified call (the caller's signature, checked by the middleware before
+  // this one), whatever `admit` says: reused without signing, these routes serve no one.
+  app.use('*', async (c, next) => {
+    if (c.get('call') === undefined)
+      return c.json({ ok: false, code: 'unauthenticated', reason: 'missing' }, 401);
+    await next();
+  });
   /**
    * Logs every refusal: a signed request from one Worker naming another Worker's agent is the
    * clearest sign of the compromise ADR 0018 is about (threat S1). Ids only.
@@ -98,8 +106,7 @@ function agentRoutes(app: App, admitAgent: Admit, entrypoint: string, signed: bo
       );
     }
     const call = c.get('call');
-    if (!signed) return c.json(await act(c.env, parsed.data));
-    // Fail closed if a later change ever lets a request past the middleware unverified.
+    // Every action is signed (ADR 0018): fail closed if a request ever reaches here unverified.
     if (call === undefined)
       return c.json({ ok: false, code: 'unauthenticated', reason: 'missing' }, 401);
     // Signed: the body must be the canonical JSON of the request, so the audit record (which holds
@@ -179,20 +186,38 @@ function agentRoutes(app: App, admitAgent: Admit, entrypoint: string, signed: bo
   return app;
 }
 
-// ---------- Shared agents Worker (default entrypoint) ----------
-/** The default entrypoint's routes: unsigned, but never for an agent that has its own Worker. */
-export function sharedAgentApp(p: Policy = policy): App {
+// ---------- Default entrypoint ----------
+/**
+ * The default entrypoint is unsigned, so it serves no agent: every agent runs in its own Worker
+ * with its own signed entrypoint (ADR 0018), and no Worker binds this one (a binding test checks).
+ * It refuses every agent id in code, not by a flag in the policy: a new agent added to the policy
+ * is refused here without anyone having to remember a flag.
+ */
+export function sharedAgentApp(): App {
   const app: App = new Hono();
-  app.get('/healthz', (c) => c.json({ ok: true, agents: Object.keys(p.agents) }));
-  return agentRoutes(
-    app,
-    (id) =>
-      isIsolated(id, p) ? `agent ${id} runs in its own Worker; use its broker entrypoint` : null,
-    'default',
-    false,
-  );
+  app.get('/healthz', (c) => c.json({ ok: true }));
+  // Not agentRoutes with an admit that says no: no route here ever reaches the action pipeline.
+  app.all('*', (c) => {
+    // Nothing binds this entrypoint, so any request is a sign of a misconfiguration or worse.
+    console.warn(
+      // The first two segments only: a full path could carry an approval link token (ids only).
+      JSON.stringify({
+        event: 'broker.default.refused',
+        path: new URL(c.req.url).pathname.split('/').slice(0, 3).join('/'),
+      }),
+    );
+    return c.json(
+      {
+        ok: false,
+        code: 'refused',
+        reason: "no agent is served here; use its Worker's signed broker entrypoint",
+      },
+      403,
+    );
+  });
+  return app;
 }
-export const agentApp: App = sharedAgentApp();
+const agentApp: App = sharedAgentApp();
 
 // ---------- Per-agent Workers (ADR 0018) ----------
 const SIGNED_PATHS = new Set([
@@ -222,7 +247,6 @@ export function callerApp(caller: CallerName, keys: AgentKeys = agentKeys): App 
     app,
     (id) => (hosted.includes(id) ? null : `agent ${id} is not in ${caller}`),
     caller,
-    true,
   );
 }
 
@@ -260,7 +284,7 @@ export class TriageApplyBroker extends WorkerEntrypoint {
 }
 
 // ---------- Admin (BrokerAdmin entrypoint, gateway only) ----------
-export const adminApp: App = new Hono();
+const adminApp: App = new Hono();
 
 adminApp.get('/healthz', (c) => c.json({ ok: true }));
 

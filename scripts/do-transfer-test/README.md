@@ -4,7 +4,9 @@ A rehearsal of both one-way steps in moving `PrGateAgent` (ADR 0018), on two thr
 
 1. the switch from `migrations` to `exports`, which merging PR #106 makes in `custodes-agents` for
    all six agents;
-2. the transfer of a class with its data to another Worker (`agent-cutover.yml`).
+2. the transfer of a class with its data to another Worker (`agent-cutover.yml`);
+3. (steps F and G) what the clean-up PR does to `custodes-agents`: its code no longer has the
+   transferred classes, only their `transferred` tombstones remain in `exports`.
 
 The Cloudflare docs do not state whether SQLite data, alarms and object ids survive these. **Run it
 before PR #106 is marked ready**: the first step ships with the merge.
@@ -55,6 +57,20 @@ $W deploy -c $T/source-exports.jsonc        # note: refused, or accepted?
 curl "$SRC/" ; curl "$TGT/"                 # target data must be untouched
 $OWNER                                      # note: target only, or exit 1 (two owners)
 
+# F. The clean-up PR's deploy of custodes-agents: no Durable Object class in the code, the
+#    `transferred` tombstone still in exports (the docs do not say whether this is accepted:
+#    `config_export_not_in_code` is a possible error). Must succeed.
+$W deploy -c $T/source-no-class.jsonc
+curl "$SRC/"                                # expect {"bound": false, "note": ...}
+curl "$TGT/" ; curl "$TGT/?name=b"          # target data untouched?
+$OWNER                                      # expect: custodes-transfer-test-target
+
+# G. Informational, for a later PR: the tombstone dropped too. Note what Cloudflare prints
+#    (`stale_tombstone` notices before, anything after) and that the target is untouched.
+$W deploy -c $T/source-no-tombstone.jsonc
+curl "$TGT/" ; curl "$TGT/?name=b"
+$OWNER
+
 # E. After the alarm time (15 min), on the target:
 curl "$TGT/" ; curl "$TGT/?name=b"          # "alarmFiredAt" set on both
 ```
@@ -75,6 +91,14 @@ Do not mark #106 ready, or run the cutover, unless all hold:
    target (after `source-transferred`); target (after `target-final`). The cutover workflow's
    `full` and `final-only` guards rely on exactly this. After D, note whether it printed the target or
    exited 1; either is safe (the guard refuses), but write it down in PR #106.
+
+For the clean-up PR (steps F and G), do not merge it unless:
+
+8. After F, the deploy succeeds and the target's `id`s, `value`s and alarms are unchanged, and the
+   owner check still prints the target. If F fails, keep the class exports in
+   `workers/agents/src/index.ts` (and the test entry's) until the error is understood.
+9. After G, note the outcome in the PR (accepted, refused, any notice). It decides when the
+   tombstones can go; the clean-up PR keeps them.
 
 ## Clean up
 

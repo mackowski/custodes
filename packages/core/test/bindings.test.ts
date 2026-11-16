@@ -36,7 +36,7 @@ function readWrangler(worker: string): Bindings {
 }
 
 const BROKER = 'custodes-github-broker';
-/** The shared agents Worker: the only one allowed on the broker's unsigned default entrypoint. */
+/** The shared agents Worker: it runs no agent and has no broker binding; the gateway lists its registry. */
 const SHARED = 'custodes-agents';
 /**
  * Broker entrypoint → the one Worker (wrangler `name`) allowed to bind it (ADR 0018). Mirrors
@@ -116,10 +116,10 @@ describe('bindings that carry approval authority', () => {
       expect(toBroker.length, w).toBeLessThanOrEqual(1);
       for (const s of toBroker) {
         if (s.entrypoint === 'BrokerAdmin') continue;
-        // The unsigned default entrypoint is only for the shared Worker, until every agent moved.
-        if (s.entrypoint === undefined)
-          expect(b.name, `${w} binds the default entrypoint`).toBe(SHARED);
-        else expect(owner[s.entrypoint], `${w} binds ${s.entrypoint}`).toBe(b.name);
+        // No Worker binds the unsigned default entrypoint any more: every agent runs in its own
+        // Worker with its own signed one, and the default refuses every agent id anyway.
+        expect(s.entrypoint, `${w} binds the broker's unsigned default entrypoint`).toBeDefined();
+        expect(owner[s.entrypoint ?? ''], `${w} binds ${s.entrypoint}`).toBe(b.name);
       }
     }
   });
@@ -208,12 +208,47 @@ describe('bindings that carry approval authority', () => {
     }
   });
 
-  it('let agent Workers e-mail only the addresses the shared Worker may', () => {
-    const allowed = readWrangler('agents').send_email?.[0]?.allowed_destination_addresses ?? [];
+  it("let agent Workers e-mail only the operators (the gateway's approvers)", () => {
+    // The shared Worker used to hold the reference list; it binds no e-mail since it runs no agent.
+    const allowed = (readWrangler('gateway').vars?.['APPROVER_EMAILS'] ?? '')
+      .split(',')
+      .map((a) => a.trim())
+      .filter((a) => a !== '');
     expect(allowed.length).toBeGreaterThan(0);
+    expect(readWrangler('agents').send_email, 'custodes-agents runs no agent').toBeUndefined();
+    let bound = 0;
     for (const w of workers)
-      for (const e of readWrangler(w).send_email ?? [])
+      for (const e of readWrangler(w).send_email ?? []) {
+        bound += 1;
         expect(e.allowed_destination_addresses, `${w} ${e.name}`).toEqual(allowed);
+      }
+    expect(bound).toBeGreaterThan(0);
+  });
+
+  it('keep custodes-agents empty: no binding, var, queue, cron or agent class (ADR 0018)', () => {
+    // It runs no agent and must not get one back quietly (review of #122, L1).
+    const shared = readWrangler('agents') as Bindings & Record<string, unknown>;
+    for (const key of [
+      'services',
+      'ai',
+      'kv_namespaces',
+      'd1_databases',
+      'r2_buckets',
+      'durable_objects',
+      'queues',
+      'send_email',
+      'vars',
+      'secrets_store_secrets',
+      'workflows',
+    ])
+      expect(shared[key], `custodes-agents has ${key}`).toBeUndefined();
+    expect((shared['triggers'] as { crons?: unknown[] } | undefined)?.crons).toEqual([]);
+    const exportsLive = Object.entries(
+      (shared['exports'] ?? {}) as Record<string, { state?: string }>,
+    ).filter(([, e]) => e.state === undefined);
+    expect(exportsLive, 'a live Durable Object class in custodes-agents').toEqual([]);
+    const index = readFileSync(new URL('agents/src/index.ts', WORKERS), 'utf8');
+    expect(index, 'custodes-agents exports a class').not.toMatch(/^export (\{|class)/m);
   });
 
   it('give every queue one consumer Worker', () => {

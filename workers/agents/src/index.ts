@@ -1,160 +1,17 @@
-import { getAgentByName, routeAgentRequest } from 'agents';
-import { InboundEvent } from '@custodes/schema';
-import { PR_GATE_INSTANCE } from './agents/pr-gate.js';
-import { TRIAGE_INSTANCE } from './agents/triage.js';
-import { route } from './dispatch.js';
-import type { AgentsEnv } from './env.js';
-import { allowedAgentPath, unknownInstance } from './instances.js';
 import { REGISTRY } from './registry.js';
 
-export { TriageAgent } from './agents/triage.js';
-export { ImplementationCheckAgent } from './agents/implementation-check.js';
-export { ProposalReviewAgent } from './agents/proposal-review.js';
-export { PrGateAgent } from './agents/pr-gate.js';
-export { CheatsheetReviewAgent } from './agents/cheatsheet-review.js';
-
-import { CRON_TRIAGE_DIGEST, CRON_TRIAGE_POLL, CRON_TRIAGE_PREPARE } from './crons.js';
-
-export { CRON_TRIAGE_DIGEST, CRON_TRIAGE_POLL, CRON_TRIAGE_PREPARE } from './crons.js';
-
-/** False once triage has moved to `custodes-triage` and this Worker no longer binds it. */
-function hasTriage(env: AgentsEnv): boolean {
-  return (env as Partial<AgentsEnv>).TriageAgent !== undefined;
-}
-
-/** False once cheatsheet-review has moved to its own Worker and this one no longer binds it. */
-function hasCheatsheetReview(env: AgentsEnv): boolean {
-  return (env as Partial<AgentsEnv>).CheatsheetReviewAgent !== undefined;
-}
-
-/** False once pr-gate has moved to `custodes-pr-gate` and this Worker no longer binds it. */
-function hasPrGate(env: AgentsEnv): boolean {
-  return (env as Partial<AgentsEnv>).PrGateAgent !== undefined;
-}
-
+/**
+ * Entry point of `custodes-agents` (ADR 0018). Every agent runs in its own Worker since the
+ * cutovers (custodes-triage, custodes-triage-apply, custodes-pr-gate, custodes-cheatsheet-review),
+ * so this Worker runs no agent: it has no Durable Object, no secret, no cron, no queue and no
+ * binding. It only answers the gateway's `/admin/agents` listing from the manifests.
+ */
 export default {
-  async fetch(request: Request, env: AgentsEnv, _ctx: ExecutionContext): Promise<Response> {
+  fetch(request: Request): Response {
     const url = new URL(request.url);
-    if (url.pathname === '/healthz') return Response.json({ ok: true, env: env.ENVIRONMENT });
+    if (request.method !== 'GET') return new Response('Method not allowed', { status: 405 });
+    if (url.pathname === '/healthz') return Response.json({ ok: true });
     if (url.pathname === '/registry') return Response.json(REGISTRY);
-    // /agents/<kebab-class-name>/<instance> → the Durable Object. Only reachable via the gateway.
-    // Refuse unlisted instances here: the SDK creates a Durable Object's state before onRequest.
-    if (!allowedAgentPath(url.pathname)) return unknownInstance();
-    return (await routeAgentRequest(request, env)) ?? new Response('Not found', { status: 404 });
+    return new Response('Not found', { status: 404 });
   },
-
-  async scheduled(controller: ScheduledController, env: AgentsEnv): Promise<void> {
-    // Explicit dispatch: a cron added for another agent must never trigger triage spend by default.
-    if (![CRON_TRIAGE_POLL, CRON_TRIAGE_PREPARE, CRON_TRIAGE_DIGEST].includes(controller.cron)) {
-      console.warn(JSON.stringify({ event: 'cron.unknown', cron: controller.cron }));
-      return;
-    }
-    const digest = controller.cron === CRON_TRIAGE_DIGEST;
-    // Independent agents: one failing or halted must not stop the other. pr-gate polls on the
-    // poll and prepare crons and sends its summary with the digest.
-    const jobs = {
-      triage: async () => {
-        // During the move to its own Worker (ADR 0018) this Worker loses the binding first.
-        if (!hasTriage(env)) return { ok: true, detail: 'runs in custodes-triage' };
-        const triage = await getAgentByName(env.TriageAgent, TRIAGE_INSTANCE);
-        return digest
-          ? triage.sendDigest()
-          : triage.poll({ prepare: controller.cron === CRON_TRIAGE_PREPARE });
-      },
-      'pr-gate': async () => {
-        // During the move to its own Worker (ADR 0018) this Worker loses the binding first.
-        if (!hasPrGate(env)) return { ok: true, detail: 'runs in custodes-pr-gate' };
-        const gate = await getAgentByName(env.PrGateAgent, PR_GATE_INSTANCE);
-        return digest ? gate.sendSummary() : gate.poll();
-      },
-    };
-    const results = await Promise.allSettled(Object.values(jobs).map((run) => run()));
-    Object.keys(jobs).forEach((agent, i) => {
-      const r = results[i];
-      console.log(
-        JSON.stringify({
-          event: 'cron',
-          cron: controller.cron,
-          agent,
-          ok: r?.status === 'fulfilled' && r.value.ok,
-          detail: r?.status === 'fulfilled' ? r.value.detail : 'threw',
-        }),
-      );
-    });
-  },
-
-  /**
-   * Webhook events queued by the gateway. Dispatch by repo/event to the agent that owns it; only
-   * pr-gate listens, and only to schedule a poll. Triage stays on its crons.
-   */
-  async queue(batch: MessageBatch, env: AgentsEnv): Promise<void> {
-    for (const msg of batch.messages) {
-      const parsed = InboundEvent.safeParse(msg.body);
-      if (!parsed.success) {
-        console.warn(JSON.stringify({ event: 'queue.invalid', id: msg.id }));
-        msg.ack();
-        continue;
-      }
-      const e = parsed.data;
-      const r = route(e);
-      const ids = {
-        event: 'queue.dispatch',
-        delivery: e.deliveryId,
-        repo: e.repo,
-        type: e.event,
-        action: e.payload.action ?? null,
-      };
-      if (r.agent === null) {
-        console.log(JSON.stringify({ ...ids, outcome: 'ignored', why: r.why }));
-        msg.ack();
-        continue;
-      }
-      try {
-        if (r.agent === 'cheatsheet-review' && !hasCheatsheetReview(env)) {
-          console.log(
-            JSON.stringify({
-              ...ids,
-              outcome: 'ignored',
-              why: 'runs in custodes-cheatsheet-review',
-            }),
-          );
-          msg.ack();
-          continue;
-        }
-        if (r.agent === 'pr-gate' && !hasPrGate(env)) {
-          // Its own Worker consumes its own queue; an event still arriving here is dropped.
-          console.log(
-            JSON.stringify({ ...ids, outcome: 'ignored', why: 'runs in custodes-pr-gate' }),
-          );
-          msg.ack();
-          continue;
-        }
-        const wake =
-          r.agent === 'pr-gate'
-            ? await (await getAgentByName(env.PrGateAgent, r.instance)).notify(r.updatedAt)
-            : await (await getAgentByName(env.CheatsheetReviewAgent, r.instance)).notify(r.pr);
-        console.log(
-          JSON.stringify({
-            ...ids,
-            outcome: 'scheduled',
-            agent: r.agent,
-            instance: r.instance,
-            pr: r.pr,
-            scheduledFor: wake.at,
-          }),
-        );
-        msg.ack();
-      } catch (err) {
-        // Scheduling is idempotent per slot, so a retry is safe; after three the DLQ keeps it.
-        console.error(
-          JSON.stringify({
-            ...ids,
-            outcome: 'retry',
-            what: err instanceof Error ? err.name : 'error',
-          }),
-        );
-        msg.retry();
-      }
-    }
-  },
-} satisfies ExportedHandler<AgentsEnv>;
+} satisfies ExportedHandler;

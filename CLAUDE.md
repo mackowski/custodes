@@ -24,7 +24,7 @@ packages/schema   zod wire formats (source of truth for types)
 packages/core     attestation, approval tokens, kill switch, policy eval, CustodesAgent base
 packages/github|llm|email   adapters (no policy decisions)
 workers/gateway   public ingress: webhooks, approval e-mail, Access-protected admin API, /verify
-workers/agents    Durable Object agents (Agents SDK); registry.ts lists them
+workers/agents    agent code (Agents SDK); each agent deploys as its own Worker (workers/<agent>, ADR 0018); registry.ts lists them
 workers/github-broker   THE policy enforcement point: policy → kill switch → approval → rate limit → execute → audit → sign
 apps/cli          `custodes` operator CLI (Cloudflare Access)
 infra/terraform   Access, Email, DNS, AI Gateway, Secrets Store, KV/D1/Queues
@@ -36,15 +36,15 @@ evals/            promptfoo behaviour + injection suites
 
 ```bash
 pnpm install && pnpm check   # format, lint, typecheck, test
-pnpm dev:migrate && pnpm dev # all three Workers locally on :8787 (shared state in .wrangler/state)
-pnpm dev:agents              # agents Worker alone on :8788, bypasses the Access-protected gateway
+pnpm dev:migrate && pnpm dev # gateway, broker and every agent Worker locally on :8787 (state in .wrangler/state)
+pnpm dev:agents              # custodes-pr-gate + broker on :8788, bypasses the Access-protected gateway
 pnpm --filter ./apps/cli build
 ```
 
 ## Workflow
 
 Use the skills: `/grill-plan`, `/new-agent`, `/new-tool`, `/threat-model`, `/agent-security-review`,
-`/adr`, `/eval`; humans run `/preview` and `/release`. Delegate research to `cloudflare-researcher`,
+`/adr`, `/eval`, `/ship`; humans run `/preview` and `/release`. Delegate research to `cloudflare-researcher`,
 reviews to `security-reviewer`, tests to `test-writer`. Conventions: `.claude/skills/custodes-conventions`.
 Cloudflare platform knowledge comes from the `cloudflare` plugin declared in `.claude/settings.json`
 (`cloudflare:agents-sdk`, `cloudflare:wrangler`, `cloudflare:cloudflare-one`, `cloudflare:durable-objects`,
@@ -58,7 +58,10 @@ starts the paid CI (Claude review, Opus evals), so it happens once, at the end. 
 the plan goes into the same draft PR. Before asking for ready, run locally everything that
 can run: `pnpm check`, `pnpm scan` (Semgrep, gitleaks, actionlint), `/agent-security-review`
 (repeated after every fix until a pass is clean), and the Diagnose and evals the change touches.
-Then the free checks on the draft (`security.yml`) must be green with no open code scanning alert.
+Then run `/ship`: it updates every doc the change touches and writes the PR's "Architecture and
+data flow" section (diagrams before and after with the changes and security marked, checked by
+`pr-architecture.yml`; the operator reviews architecture from it, so it must be exact). Then the free
+checks on the draft (`security.yml`, `pr-architecture.yml`) must be green with no open code scanning alert.
 Pushing to a ready PR re-runs nothing paid; re-run evals by hand (`workflow_dispatch`) for the
 suites a fix touched, after asking the operator.
 

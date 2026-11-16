@@ -13,12 +13,13 @@ GitHub (target repos)         Email (Cloudflare Email Service)         Operator 
 ┌────────────────────────── workers/gateway ────────────────────────────────────────┐
 │ verify webhook HMAC · approval link → decision · Access JWT · admin API · /verify│
 └──────────┬──────────────────────────────────────────────┬─────────────────────────┘
-           │ Queue (INBOUND) / service binding             │ service binding
-┌──────────▼──────────── workers/agents ───────────────┐  ┌▼──────── workers/github-broker ─────────────┐
-│ Durable Object per agent instance (Agents SDK)       │  │ policy.json · kill switch · approvals (D1)   │
-│ schedule/scheduleEvery · state · Workflows           │──▶ per-agent PAT (Secrets Store) · rate limit  │
-│ LLM via AI Gateway (BYOK) · guard() before acting    │  │ audit log (D1) · Ed25519 attestation         │
-│ sends e-mail to operators only                       │  │ → api.github.com (the only place)            │
+           │ per-agent queues · service bindings           │ service binding (BrokerAdmin)
+┌──────────▼──── one Worker per agent (ADR 0018) ──────┐  ┌▼──────── workers/github-broker ─────────────┐
+│ custodes-triage · custodes-triage-apply ·            │  │ policy.json · kill switch · approvals (D1)   │
+│ custodes-pr-gate · custodes-cheatsheet-review        │──▶ per-agent entrypoint: signature + nonce     │
+│ Durable Object per instance (Agents SDK)             │  │ PATs (Secrets Store) · rate limit            │
+│ own Keyholder key signs every broker call            │  │ audit log (D1) · Ed25519 attestation         │
+│ LLM via AI Gateway · guard() · e-mail to operators   │  │ → api.github.com (the only place)            │
 └──────────────────────────────────────────────────────┘  └──────────────────────────────────────────────┘
 ```
 
@@ -29,19 +30,29 @@ queue events; serve approval links (behind Access) and turn clicks into decision
 JWT and expose the admin API used by the CLI; expose `/verify/<attestation-id>` so anyone can check
 an agent's footer against the published keys.
 
-### workers/agents
+### Agent Workers (`workers/<agent>`, code in `workers/agents`)
 
-Hosts the agent classes. Each agent is a Durable Object with SQLite state, scheduling and
-optional WebSocket/e-mail channels, built on the Cloudflare Agents SDK through the
-`CustodesAgent` base class. Agents reason, then _request_ side effects with `this.act()`. They hold
-no GitHub credentials and cannot reach GitHub's write API.
+Each agent runs in its own Worker (ADR 0018): `custodes-triage` (triage and its two read-only
+specialists), `custodes-triage-apply`, `custodes-pr-gate` and `custodes-cheatsheet-review`. Their
+code lives in `workers/agents/src`; each Worker bundles only its entry point (`src/<agent>-worker.ts`)
+and has only its own bindings and secrets. Each agent is a Durable Object with SQLite state and
+scheduling, built on the Cloudflare Agents SDK through the `CustodesAgent` base class. Agents
+reason, then _request_ side effects with `this.act()`. They hold no GitHub credentials and cannot
+reach GitHub's write API. Each Worker keeps its own Ed25519 key in a `Keyholder` Durable Object and
+signs every broker call with it; the broker accepts it only on that Worker's own entrypoint, for the
+agent ids it hosts, and its public key is pinned in `packages/schema/src/agent-keys.json`.
+
+`custodes-agents` (`workers/agents/wrangler.jsonc`) remains, running no agent: it serves the agent
+registry for the gateway's `/admin/agents` and keeps the Durable Object tombstones of the moves.
 
 ### workers/github-broker
 
 The single policy enforcement point. Every requested side effect goes through:
 validate → policy → kill switch → approval (if required) → rate limit → execute → audit → sign.
-It is the only Worker with GitHub tokens (one fine-grained PAT per agent) and with the agents'
-Ed25519 signing keys. It is not reachable from the internet; only service bindings call it.
+It is the only Worker with GitHub tokens (a PAT per write agent, a read-only one for reads), and
+it countersigns every audit record with its own keys; the agents' keys stay in their Workers (ADR
+0018). It is not reachable from the internet; only service bindings call it, each agent Worker on
+its own signed entrypoint (the unsigned default one refuses every agent).
 
 ### packages
 

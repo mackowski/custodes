@@ -1,29 +1,31 @@
 import { env } from 'cloudflare:workers';
 import { afterEach, describe, expect, it } from 'vitest';
 import { KillSwitch } from '@custodes/core';
-import { sharedAgentApp } from '../src/index.js';
-import { policy } from '../src/policy.js';
+import { Hono } from 'hono';
+import { agentRoutes, type App } from '../src/index.js';
 
 const kill = () => new KillSwitch(env.KILL_SWITCH);
-// /v1/state itself, on the shared entrypoint. Every agent has its own Worker now (isolated); this
-// copy of the policy keeps two of them on the shared app for the test only.
-const shared = <T extends { isolated?: boolean }>(entry: T | undefined): T => ({
-  ...entry!,
-  isolated: false,
+// /v1/state itself: the routes every agent Worker's signed entrypoint serves, run with an `admit`
+// that lets pr-gate and cheatsheet-review through (signing is tested in callers.test.ts).
+// A verified call as callerApp's middleware would set it; agentRoutes refuses requests without one.
+const signedApp: App = new Hono();
+signedApp.use('*', async (c, next) => {
+  c.set('call', {
+    caller: 'custodes-pr-gate',
+    kid: 'pr-gate-20261109-aaaaaaaa',
+    signature: 'x',
+    timestamp: '0',
+    nonce: 'n',
+    bodySha256: '0'.repeat(64),
+    admittedAt: 0,
+  });
+  await next();
 });
-const app = sharedAgentApp({
-  ...policy,
-  agents: {
-    ...policy.agents,
-    'pr-gate': shared(policy.agents['pr-gate']),
-    'cheatsheet-review': shared(policy.agents['cheatsheet-review']),
-  },
-  reads: {
-    ...policy.reads,
-    'pr-gate': shared(policy.reads['pr-gate']),
-    'cheatsheet-review': shared(policy.reads['cheatsheet-review']),
-  },
-});
+const app = agentRoutes(
+  signedApp,
+  (id) => (id === 'pr-gate' || id === 'cheatsheet-review' ? null : `agent ${id} is not served`),
+  'test',
+);
 const state = (body: unknown) =>
   app.request(
     '/v1/state',

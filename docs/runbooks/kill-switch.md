@@ -17,7 +17,7 @@ answer (#103). A broker outage, or rolling the broker back to a build without `/
 stops every agent: their status shows `kill-switch state unavailable` and the logs have
 `agent.halt_state.unavailable`. They resume on their own once the broker answers again.
 
-Do not roll the agents Worker back to a version from before #106 (agents without the kill-switch KV): older versions bind the
+Do not roll `custodes-agents` or an agent Worker back to a version from before #106 (agents without the kill-switch KV): older versions bind the
 kill-switch namespace and could write it again. If such a rollback happens, deploy `main` right after.
 Rolling the broker back to a version from before #106 fails too: those versions bind the
 `github-pat-hello` secret, which Terraform deletes on apply.

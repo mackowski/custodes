@@ -1,6 +1,6 @@
 # 0018. One Worker per agent and agent-held signing keys
 
-- Status: proposed
+- Status: accepted (2026-11-16, after every agent moved; see the update at the end)
 - Date: 2026-11-09
 - Deciders: Jakub Maćkowski
 
@@ -143,3 +143,13 @@ have each agent sign its own requests with a key only its Worker holds.
   follow-up.
 - **Secrets.** Agent private keys are generated inside the agent's Worker and never written to a
   file, CI or the repository. Only public keys are committed.
+
+## Update 2026-11-16
+
+All agents have moved: triage with its two specialists (2026-11-12), pr-gate and cheatsheet-review
+(2026-11-13), and triage-apply was born in its own Worker (ADR 0019). `custodes-agents` now runs no
+agent and has no secret, binding to the broker, cron or queue; it only answers the registry
+listing, and stays for that (operator, 2026-11-16). The default entrypoint was not removed, as the
+Decision says, but closed: a Worker always has a default export, so it now refuses every request
+but `/healthz` in code (PR #122), and a binding test fails if any Worker binds it. The `isolated`
+flags stay in the policy as a record of the moves. The operator accepted the ADR on 2026-11-16.

@@ -1,0 +1,9 @@
+{
+  // Step G (informational): the tombstone dropped as well, to learn what Cloudflare says.
+  "name": "custodes-transfer-test-source",
+  "main": "worker-empty.js",
+  "compatibility_date": "2026-08-15",
+  "workers_dev": true,
+  "vars": { "SCRIPT": "source" },
+  "exports": {},
+}

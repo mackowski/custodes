@@ -3,7 +3,8 @@ import { runInDurableObject } from 'cloudflare:test';
 import { getAgentByName } from 'agents';
 import { describe, expect, it, vi } from 'vitest';
 import type { InboundEvent } from '@custodes/schema';
-import worker from '../src/index.js';
+import prGateWorker from '../src/pr-gate-worker.js';
+import cheatsheetReviewWorker from '../src/cheatsheet-review-worker.js';
 import type { PrGateAgent } from '../src/agents/pr-gate.js';
 import { route } from '../src/dispatch.js';
 import type { AgentsEnv } from '../src/env.js';
@@ -195,7 +196,7 @@ describe('pr-gate single flight', () => {
   });
 });
 
-describe('queue consumer', () => {
+describe('queue consumers (each agent has its own Worker and queue, ADR 0018)', () => {
   const message = (body: unknown) => ({
     id: 'm-1',
     body,
@@ -204,108 +205,88 @@ describe('queue consumer', () => {
     ack: vi.fn(),
     retry: vi.fn(),
   });
-  const run = async (body: unknown) => {
-    const msg = message(body);
-    const batch = { queue: 'custodes-inbound', messages: [msg] } as unknown as MessageBatch;
-    await worker.queue(batch, testEnv);
-    return msg;
+  const batch = (queue: string, ...messages: ReturnType<typeof message>[]) =>
+    ({ queue, messages }) as unknown as MessageBatch;
+  const labeled = (number = 12) =>
+    event(
+      {
+        repo: 'mackowski/custodes-sandbox',
+        payload: {
+          action: 'labeled',
+          repository: { full_name: 'mackowski/custodes-sandbox' },
+          sender: { login: 'mackowski' },
+          pull_request: { number },
+          label: { name: 'custodes_cheatsheet_review' },
+        },
+      },
+      'labeled',
+    );
+  const logged = async (run: () => Promise<void>) => {
+    const logs: string[] = [];
+    const spy = vi.spyOn(console, 'log').mockImplementation((m: unknown) => {
+      logs.push(String(m));
+    });
+    try {
+      await run();
+    } finally {
+      spy.mockRestore();
+    }
+    return logs;
   };
 
-  it('schedules pr-gate and acks', async () => {
-    const msg = await run(event({ repo: 'mackowski/custodes-sandbox' }));
+  it('pr-gate: schedules a poll for an opened pull request and acks', async () => {
+    const msg = message(event({ repo: 'mackowski/custodes-sandbox' }));
+    const logs = await logged(() =>
+      prGateWorker.queue(batch('custodes-inbound-pr-gate', msg), testEnv),
+    );
     expect(msg.ack).toHaveBeenCalledOnce();
     expect(msg.retry).not.toHaveBeenCalled();
+    expect(logs.some((l) => l.includes('"queue.dispatch"') && l.includes('"pr-gate"'))).toBe(true);
   });
 
-  it('after the pr-gate cutover (no PrGateAgent binding) drops its events and still routes cheatsheet-review', async () => {
-    const shared = { ...testEnv, PrGateAgent: undefined } as unknown as AgentsEnv;
-    const logs: string[] = [];
-    const spy = vi.spyOn(console, 'log').mockImplementation((m: unknown) => {
-      logs.push(String(m));
-    });
+  it('cheatsheet-review: schedules a review for the trigger label and acks', async () => {
+    const msg = message(labeled());
+    const logs = await logged(() =>
+      cheatsheetReviewWorker.queue(batch('custodes-inbound-cheatsheet-review', msg), testEnv),
+    );
+    expect(msg.ack).toHaveBeenCalledOnce();
+    expect(msg.retry).not.toHaveBeenCalled();
+    expect(
+      logs.some((l) => l.includes('"queue.dispatch"') && l.includes('"cheatsheet-review"')),
+    ).toBe(true);
+  });
+
+  it('each drops what is for the other agent, and malformed or unlisted events, without retrying', async () => {
+    const bodies = [
+      event({ repo: 'attacker/repo' }),
+      event({}, 'edited'),
+      { bogus: true },
+      // the other agent's event
+      labeled(),
+      event({ repo: 'mackowski/custodes-sandbox' }),
+    ];
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     try {
-      const opened = message(event({ repo: 'mackowski/custodes-sandbox' }));
-      await worker.queue(
-        { queue: 'custodes-inbound', messages: [opened] } as unknown as MessageBatch,
-        shared,
+      const prGate = bodies.slice(0, 4).map(message);
+      const review = [...bodies.slice(0, 3), bodies[4]].map(message);
+      const logs = await logged(async () => {
+        await prGateWorker.queue(batch('custodes-inbound-pr-gate', ...prGate), testEnv);
+        await cheatsheetReviewWorker.queue(
+          batch('custodes-inbound-cheatsheet-review', ...review),
+          testEnv,
+        );
+      });
+      for (const msg of [...prGate, ...review]) {
+        expect(msg.ack).toHaveBeenCalledOnce();
+        expect(msg.retry).not.toHaveBeenCalled();
+      }
+      // Dropped, not dispatched: no agent was woken (review of #122, L4).
+      expect(logs.filter((l) => l.includes('"queue.dispatch"'))).toEqual([]);
+      expect(warn.mock.calls.filter(([m]) => String(m).includes('"queue.ignored"'))).toHaveLength(
+        8,
       );
-      expect(opened.ack).toHaveBeenCalledOnce();
-      expect(opened.retry).not.toHaveBeenCalled();
-      expect(logs.some((l) => l.includes('runs in custodes-pr-gate'))).toBe(true);
-
-      const labeled = message(
-        event(
-          {
-            repo: 'mackowski/custodes-sandbox',
-            payload: {
-              action: 'labeled',
-              repository: { full_name: 'mackowski/custodes-sandbox' },
-              sender: { login: 'mackowski' },
-              pull_request: { number: 12 },
-              label: { name: 'custodes_cheatsheet_review' },
-            },
-          },
-          'labeled',
-        ),
-      );
-      logs.length = 0;
-      await worker.queue(
-        { queue: 'custodes-inbound', messages: [labeled] } as unknown as MessageBatch,
-        shared,
-      );
-      expect(labeled.ack).toHaveBeenCalledOnce();
-      // Dispatched to cheatsheet-review, not ignored as a moved agent's event.
-      expect(logs.some((l) => l.includes('runs in custodes-'))).toBe(false);
-      expect(logs.some((l) => l.includes('"queue.dispatch"'))).toBe(true);
     } finally {
-      spy.mockRestore();
-    }
-  });
-
-  it('after the cheatsheet-review cutover (no agent bound here) acks and drops its events', async () => {
-    const shared = {
-      ...testEnv,
-      PrGateAgent: undefined,
-      CheatsheetReviewAgent: undefined,
-    } as unknown as AgentsEnv;
-    const logs: string[] = [];
-    const spy = vi.spyOn(console, 'log').mockImplementation((m: unknown) => {
-      logs.push(String(m));
-    });
-    try {
-      const labeled = message(
-        event(
-          {
-            repo: 'mackowski/custodes-sandbox',
-            payload: {
-              action: 'labeled',
-              repository: { full_name: 'mackowski/custodes-sandbox' },
-              sender: { login: 'mackowski' },
-              pull_request: { number: 12 },
-              label: { name: 'custodes_cheatsheet_review' },
-            },
-          },
-          'labeled',
-        ),
-      );
-      await worker.queue(
-        { queue: 'custodes-inbound', messages: [labeled] } as unknown as MessageBatch,
-        shared,
-      );
-      expect(labeled.ack).toHaveBeenCalledOnce();
-      expect(labeled.retry).not.toHaveBeenCalled();
-      expect(logs.some((l) => l.includes('runs in custodes-cheatsheet-review'))).toBe(true);
-      expect(logs.some((l) => l.includes('"outcome":"scheduled"'))).toBe(false);
-    } finally {
-      spy.mockRestore();
-    }
-  });
-
-  it('acks ignored and malformed events without retrying', async () => {
-    for (const body of [event({ repo: 'attacker/repo' }), event({}, 'edited'), { bogus: true }]) {
-      const msg = await run(body);
-      expect(msg.ack).toHaveBeenCalledOnce();
-      expect(msg.retry).not.toHaveBeenCalled();
+      warn.mockRestore();
     }
   });
 });
