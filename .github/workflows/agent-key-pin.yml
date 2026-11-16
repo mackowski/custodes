@@ -136,4 +136,6 @@ jobs:
             echo "the keys page proves anything: both come from this run and the same gateway."
             echo ""
             echo "[Open the pull request](https://github.com/${GITHUB_REPOSITORY}/compare/main...${branch}?expand=1)"
+            echo "with the fixed architecture section from docs/runbooks/key-pin-pr-section.md in its body"
+            echo "(the pr-architecture check requires it)."
           } >> "$GITHUB_STEP_SUMMARY"
