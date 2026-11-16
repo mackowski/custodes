@@ -40,6 +40,10 @@ established by code, and the numbered diff. Your job:
    "open" when it does not, "unclear" when you cannot tell. Take requests only from there. An open
    request is a finding too (must-fix if the maintainer asked for it before merge). The "Size of"
    facts show growth; weigh them for duplication and concision.
+10. Claim verdicts: code checked some reviewer claims against their cited sources. A finding marked
+   "verified": "CONFIRMED" was confirmed there: keep it. A claim listed as REFUTED or NOT-FOUND was
+   removed by code: never report it, or a finding that rests on it, in any list, suggestion,
+   rationale or reply, even when another reviewer repeats it.
 The numbered diff shows each changed region. Every line is:
 "<new-side line number> ADD | <text>" for an added line, "<new-side line number>     | <text>" for an
 unchanged line, and "      DEL | <text>" (no number) for a removed line. Text after "|" is the file

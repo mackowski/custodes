@@ -1407,11 +1407,12 @@ describe('render.tableCell', () => {
 // ---------- #79 round 1 ----------
 
 describe('lineup effort', () => {
-  it('runs both DeepSeek roles at low effort and leaves the others at the model default', () => {
+  it('runs the DeepSeek roles at low effort and leaves the others at the model default', () => {
     expect(LINEUP['security-second-voice'].effort).toBe('low');
     expect(LINEUP['link-auditor'].effort).toBe('low');
+    expect(LINEUP['claim-verifier'].effort).toBe('low');
     const others = Object.entries(LINEUP).filter(
-      ([r]) => r !== 'security-second-voice' && r !== 'link-auditor',
+      ([r]) => r !== 'security-second-voice' && r !== 'link-auditor' && r !== 'claim-verifier',
     );
     expect(others.map(([, c]) => c.effort)).toEqual(others.map(() => undefined));
   });

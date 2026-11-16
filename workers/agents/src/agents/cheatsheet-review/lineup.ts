@@ -10,7 +10,7 @@ import {
 } from '@custodes/llm';
 import type { ReviewerRole } from './scope.js';
 
-export type Role = ReviewerRole | 'scope-classifier' | 'judge';
+export type Role = ReviewerRole | 'scope-classifier' | 'claim-verifier' | 'judge';
 
 export interface Casting {
   primary: ReviewModelName;
@@ -41,6 +41,13 @@ export const LINEUP: Readonly<Record<Role, Casting>> = {
   'duplication-checker': { primary: 'museSpark', fallback: 'gptSol', max_tokens: 8_000 },
   // Explicit: unset, Workers AI defaults DeepSeek to 'high' (same max_tokens risk as above).
   'link-auditor': {
+    primary: 'deepseekFlash',
+    fallback: 'gptLuna',
+    max_tokens: 8_000,
+    effort: 'low',
+  },
+  // #90: the link auditor's pair; it already reads untrusted pages and passes the injection evals.
+  'claim-verifier': {
     primary: 'deepseekFlash',
     fallback: 'gptLuna',
     max_tokens: 8_000,

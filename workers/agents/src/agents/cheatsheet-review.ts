@@ -32,7 +32,8 @@ import {
   type IssueFacts,
   type Snapshot,
 } from './cheatsheet-review/input.js';
-import { fetchLink } from './cheatsheet-review/links.js';
+import { fetchLink, fetchSource, type ToMarkdown } from './cheatsheet-review/links.js';
+import { refutedNote, claimLog } from './cheatsheet-review/claims.js';
 import { reviewPipeline } from './cheatsheet-review/pipeline.js';
 import { limiter } from './cheatsheet-review/runner.js';
 import { checkSuggestions, reviewBody, reviewEvent } from './cheatsheet-review/render.js';
@@ -92,6 +93,12 @@ export class CheatsheetReviewAgent extends CustodesAgent<AgentsEnv, CheatsheetRe
 
   /** Injected in tests. */
   protected fetchImpl: typeof fetch = (input, init) => fetch(input, init);
+  /**
+   * Workers AI document conversion for PDF claim sources (#90), through the one AI Gateway like
+   * every other AI binding use (ADR 0015). Injected in tests.
+   */
+  protected toMarkdown: ToMarkdown = (name, blob) =>
+    this.env.AI.toMarkdown({ name, blob }, { gateway: { id: this.env.AI_GATEWAY_ID } });
   protected sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
   private get repo(): string {
@@ -280,11 +287,24 @@ export class CheatsheetReviewAgent extends CustodesAgent<AgentsEnv, CheatsheetRe
       runId,
       turn,
       fetchLink: (url) => fetchLink(url, this.fetchImpl),
+      fetchSource: (url) => fetchSource(url, this.fetchImpl, this.toMarkdown),
     });
     const models = JSON.stringify(result.outcomes);
     span.set('custodes.review.class', result.changeClass);
     span.set('custodes.review.verdict', result.decision?.verdict);
     span.set('custodes.review.injection_seen', result.injectionSeen);
+    // #90: ids, counts, verdicts, hosts and code reasons only; never claim or page text.
+    const claimed = claimLog(result.claims, result.claimItemsRemoved);
+    if (result.claims.length > 0) {
+      span.set('custodes.review.claims', result.claims.length);
+      span.set('custodes.review.claims_confirmed', claimed.confirmed);
+      span.set('custodes.review.claims_refuted', claimed.refuted);
+      span.set('custodes.review.claims_not_found', claimed.notFound);
+      if (claimed.refutedIds) span.set('custodes.review.claims_refuted_ids', claimed.refutedIds);
+      console.log(
+        JSON.stringify({ event: 'cheatsheet-review.claims', runId, pull, ...claimed.log }),
+      );
+    }
 
     // 4. Not multi-model enough, or no decision: e-mail what there is, publish nothing.
     if (result.breach !== null || !result.decision) {
@@ -325,6 +345,7 @@ export class CheatsheetReviewAgent extends CustodesAgent<AgentsEnv, CheatsheetRe
       linkNotes: result.linkNotes,
       linkChecks: result.linkChecks,
       allowed: result.allowed,
+      claimsToVerify: result.claims.filter((c) => c.verdict === 'NOT-FOUND'),
     });
     const trig = { kind: 'webhook' as const, ref: `label:${labelEvent}` };
     // The label is the operator's go-ahead: if it was removed, or the author pushed, during the
@@ -357,9 +378,10 @@ export class CheatsheetReviewAgent extends CustodesAgent<AgentsEnv, CheatsheetRe
     // Where the policy asks for the operator's approval (OWASP), the review waits for a click on
     // the e-mailed link; the broker posts exactly this review then (ADR 0017 amendment).
     if (!posted.ok && posted.code === 'approval_required') {
+      // #90: on OWASP the operator sees the refuted claims on the approval page.
       const asked = await this.requestApproval(
         review,
-        `${d.verdict}, ${event}, ${checked.comments.length} inline suggestion(s); run ${runId}`,
+        `${d.verdict}, ${event}, ${checked.comments.length} inline suggestion(s); run ${runId}${refutedNote(result.claims)}`,
         runId,
         trig,
         { turn },

@@ -416,7 +416,7 @@ describe('one AI Gateway in the agents Worker (ADR 0015)', () => {
     eager: true,
   });
 
-  it('uses the AI binding only through ClefClient (pr-gate) and WorkersAiChat (cheatsheet-review)', () => {
+  it('uses the AI binding only through ClefClient (pr-gate), WorkersAiChat and toMarkdown with the gateway (cheatsheet-review)', () => {
     const uses = Object.entries(sources).flatMap(([file, text]) =>
       // `env.AI`, `env['AI']`, `const { AI } = env`, or any `AI.run(`.
       (
@@ -426,7 +426,17 @@ describe('one AI Gateway in the agents Worker (ADR 0015)', () => {
       ).map(() => file),
     );
     expect(Object.keys(sources).length).toBeGreaterThan(10);
-    expect(uses.sort()).toEqual(['../src/agents/cheatsheet-review.ts', '../src/agents/pr-gate.ts']);
+    expect([...new Set(uses)].sort()).toEqual([
+      '../src/agents/cheatsheet-review.ts',
+      '../src/agents/pr-gate.ts',
+    ]);
+    // #90: one more use in cheatsheet-review, the PDF conversion, also through the gateway.
+    const csr = sources['../src/agents/cheatsheet-review.ts'] ?? '';
+    expect(csr.match(/\benv\.AI\b/g)).toHaveLength(2);
+    expect(csr.match(/\bAI\.toMarkdown\(/g)).toHaveLength(1);
+    expect(csr).toMatch(
+      /this\.env\.AI\.toMarkdown\(\{ name, blob \}, \{ gateway: \{ id: this\.env\.AI_GATEWAY_ID \} \}\)/,
+    );
     expect(sources['../src/agents/pr-gate.ts']).toMatch(
       /new ClefClient\(\{\s*ai: \{ run: \(model, inputs, options\) => this\.env\.AI\.run\(model, inputs, options\) \}/,
     );

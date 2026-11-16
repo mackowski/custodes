@@ -15,6 +15,8 @@ const CHEATSHEET = [
   'packages/llm/src/chat.ts',
 ];
 const JEV = ['packages/llm/src/jev.ts', 'packages/llm/src/clef.ts'];
+/** #90: builds the verifier's input and what the judge is told about claim verdicts. */
+const CLAIMS = `${AGENTS}cheatsheet-review/claims.ts`;
 
 /** Paths that can change what one suite's agent does. Its own `evals/agents/<suite>/` is implied. */
 export const SUITE_PATHS: Record<string, readonly string[]> = {
@@ -31,11 +33,12 @@ export const SUITE_PATHS: Record<string, readonly string[]> = {
   ],
   'pr-gate': [`${AGENTS}pr-gate/minor.ts`, `${AGENTS}pr-gate/rules.ts`, ...JEV],
   'pr-gate-approval': [`${AGENTS}pr-gate/approval.ts`, `${AGENTS}pr-gate/rules.ts`, ...JEV],
-  'cheatsheet-review-judge': CHEATSHEET,
+  'cheatsheet-review-judge': [...CHEATSHEET, CLAIMS],
   'cheatsheet-review-links': CHEATSHEET,
   'cheatsheet-review-scope': CHEATSHEET,
   'cheatsheet-review-security': CHEATSHEET,
   'cheatsheet-review-security-2': CHEATSHEET,
+  'cheatsheet-review-verifier': [...CHEATSHEET, CLAIMS],
 };
 
 /** Paths every suite depends on: a change here runs all of them. */

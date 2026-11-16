@@ -18,6 +18,26 @@ export const Suggestion = z.object({
 });
 export type Suggestion = z.infer<typeof Suggestion>;
 
+/** Model text clipped to a bound instead of rejected: an over-long claim must not cost the report. */
+const clipped = (max: number) =>
+  z
+    .string()
+    .min(1)
+    .transform((s) => s.slice(0, max));
+
+/**
+ * #90: a checkable fact a finding rests on. Code fetches `sourceUrl` only when it is a link in the
+ * pull request's cheat sheets, cuts the text around `locator` and asks the claim verifier; the
+ * verdict applies to the finding that carries the claim.
+ */
+export const Claim = z.object({
+  text: clipped(500),
+  sourceUrl: clipped(2_000),
+  /** A literal quote (at most 200 characters) or a section or page number. */
+  locator: clipped(200),
+});
+export type Claim = z.infer<typeof Claim>;
+
 export const Finding = z.object({
   severity: z.enum(['BLOCKER', 'MAJOR', 'MINOR', 'NIT']),
   file: path,
@@ -26,8 +46,27 @@ export const Finding = z.object({
   evidence: z.string().max(1_000).optional(),
   fix: z.string().max(1_000).optional(),
   suggestion: Suggestion.optional(),
+  claim: Claim.optional(),
 });
 export type Finding = z.infer<typeof Finding>;
+
+export const ClaimVerdict = z.enum(['CONFIRMED', 'REFUTED', 'NOT-FOUND']);
+export type ClaimVerdict = z.infer<typeof ClaimVerdict>;
+
+/** #90: the claim verifier's answer, one verdict per claim id code gave it. */
+export const ClaimCheck = z.object({
+  claims: z
+    .array(
+      z.object({
+        id: z.string().max(10),
+        verdict: ClaimVerdict,
+        reason: z.string().max(400),
+      }),
+    )
+    .max(10),
+  injectionSeen: z.boolean().optional(),
+});
+export type ClaimCheck = z.infer<typeof ClaimCheck>;
 
 export const ReviewerReport = z.object({
   verdict: z.enum(['PASS', 'CONCERNS', 'BLOCK', 'N/A']),

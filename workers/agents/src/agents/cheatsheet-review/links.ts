@@ -35,7 +35,7 @@ const BARE = /\bhttps?:\/\/[^\s)<>\]"']+/g;
 const withoutMdLinks = (t: string) => t.replace(MD_LINK, ' ');
 
 /** Link targets in a line, in order (Markdown links first, then bare URLs, as extractLinks). */
-function targets(text: string): string[] {
+export function targets(text: string): string[] {
   return [
     ...[...text.matchAll(MD_LINK)].map((m) => m[1] ?? ''),
     ...[...withoutMdLinks(text).matchAll(BARE)].map((m) => m[0]),
@@ -318,18 +318,26 @@ export function pageText(html: string): { title: string; text: string } {
   return { title: decoded.replace(/\s+/g, ' ').trim().slice(0, 200), text };
 }
 
-async function readCapped(res: Response): Promise<string> {
-  if (!res.body) return '';
+/** At most `max` bytes of the body; `over` when the body had more. */
+async function readBytes(
+  res: Response,
+  max: number,
+): Promise<{ bytes: Uint8Array; over: boolean }> {
+  if (!res.body) return { bytes: new Uint8Array(0), over: false };
   const reader = (res.body as ReadableStream<Uint8Array>).getReader();
   const chunks: Uint8Array[] = [];
   let kept = 0;
+  let over = false;
   for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
-    const room = MAX_BYTES - kept;
+    const room = max - kept;
+    if (value.byteLength > room) over = true;
     chunks.push(value.subarray(0, room));
     kept += Math.min(value.byteLength, room);
-    if (kept >= MAX_BYTES) {
+    if (kept >= max) {
+      // Exactly full: one more read tells whether anything is left.
+      if (!over) over = !(await reader.read()).done;
       await reader.cancel();
       break;
     }
@@ -340,69 +348,156 @@ async function readCapped(res: Response): Promise<string> {
     all.set(c, at);
     at += c.byteLength;
   }
-  return new TextDecoder().decode(all);
+  return { bytes: all, over };
 }
+
+async function readCapped(res: Response): Promise<string> {
+  return new TextDecoder().decode((await readBytes(res, MAX_BYTES)).bytes);
+}
+
+type Opened =
+  { kind: 'open'; res: Response; finalUrl: string } | Exclude<FetchedLink, { kind: 'page' }>;
+
+/**
+ * GET `url`, following at most 5 redirects, each re-checked by `fetchable` (https, public DNS name,
+ * not ours). 404 and 410 are broken; any other non-2xx is unreachable. The caller reads the body.
+ */
+async function open(url: string, fetchImpl: typeof fetch, signal: AbortSignal): Promise<Opened> {
+  let current = url;
+  for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+    if (!fetchable(current)) return { kind: 'unreachable', why: 'not fetched (host or scheme)' };
+    const res = await fetchImpl(current, {
+      redirect: 'manual',
+      signal,
+      headers: {
+        'user-agent': 'custodes-cheatsheet-review (+https://github.com/mackowski/custodes)',
+      },
+    });
+    if (res.status >= 300 && res.status < 400) {
+      const next = res.headers.get('location');
+      await res.body?.cancel();
+      if (!next) return { kind: 'unreachable', why: `redirect ${res.status} without location` };
+      current = new URL(next, current).toString();
+      continue;
+    }
+    if (res.status === 404 || res.status === 410) {
+      await res.body?.cancel();
+      return { kind: 'broken', status: res.status };
+    }
+    if (!res.ok) {
+      await res.body?.cancel();
+      return { kind: 'unreachable', why: `HTTP ${res.status}` };
+    }
+    return { kind: 'open', res, finalUrl: current };
+  }
+  return { kind: 'unreachable', why: 'too many redirects' };
+}
+
+const failure = (err: unknown, signal: AbortSignal): string =>
+  signal.aborted ? 'timeout' : err instanceof Error ? err.name : 'error';
 
 /** One external page, following at most 5 redirects, each to an https public host. */
 export async function fetchLink(url: string, fetchImpl: typeof fetch): Promise<FetchedLink> {
-  let current = url;
   const ac = new AbortController();
   const timer = setTimeout(() => {
     ac.abort();
   }, TIMEOUT_MS);
   try {
-    for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
-      if (!fetchable(current)) return { kind: 'unreachable', why: 'not fetched (host or scheme)' };
-      const res = await fetchImpl(current, {
-        redirect: 'manual',
-        signal: ac.signal,
-        headers: {
-          'user-agent': 'custodes-cheatsheet-review (+https://github.com/mackowski/custodes)',
-        },
-      });
-      if (res.status >= 300 && res.status < 400) {
-        const next = res.headers.get('location');
-        await res.body?.cancel();
-        if (!next) return { kind: 'unreachable', why: `redirect ${res.status} without location` };
-        current = new URL(next, current).toString();
-        continue;
-      }
-      if (res.status === 404 || res.status === 410) {
-        await res.body?.cancel();
-        return { kind: 'broken', status: res.status };
-      }
-      if (!res.ok) {
-        await res.body?.cancel();
-        return { kind: 'unreachable', why: `HTTP ${res.status}` };
-      }
-      const type = res.headers.get('content-type') ?? '';
-      if (!/text\/html|text\/plain|application\/xhtml/i.test(type)) {
-        await res.body?.cancel();
-        return {
-          kind: 'page',
-          status: res.status,
-          finalUrl: current,
-          title: '',
-          excerpt: `(non-text content: ${type.slice(0, 60) || 'unknown'})`,
-        };
-      }
-      const body = await readCapped(res);
-      const { title, text } = /html/i.test(type) ? pageText(body) : { title: '', text: body };
+    const got = await open(url, fetchImpl, ac.signal);
+    if (got.kind !== 'open') return got;
+    const { res, finalUrl } = got;
+    const type = res.headers.get('content-type') ?? '';
+    if (!/text\/html|text\/plain|application\/xhtml/i.test(type)) {
+      await res.body?.cancel();
       return {
         kind: 'page',
         status: res.status,
-        finalUrl: current,
-        title,
-        excerpt: text.slice(0, EXCERPT_CHARS),
+        finalUrl,
+        title: '',
+        excerpt: `(non-text content: ${type.slice(0, 60) || 'unknown'})`,
       };
     }
-    return { kind: 'unreachable', why: 'too many redirects' };
-  } catch (err) {
+    const body = await readCapped(res);
+    const { title, text } = /html/i.test(type) ? pageText(body) : { title: '', text: body };
     return {
-      kind: 'unreachable',
-      why: ac.signal.aborted ? 'timeout' : err instanceof Error ? err.name : 'error',
+      kind: 'page',
+      status: res.status,
+      finalUrl,
+      title,
+      excerpt: text.slice(0, EXCERPT_CHARS),
     };
+  } catch (err) {
+    return { kind: 'unreachable', why: failure(err, ac.signal) };
   } finally {
     clearTimeout(timer);
+  }
+}
+
+/** #90: PDFs up to this size go to Workers AI `toMarkdown`; HTML and text keep MAX_BYTES. */
+export const PDF_MAX_BYTES = 10 * 1024 * 1024;
+
+/** Workers AI `toMarkdown` for one file, injected (tests stay deterministic). */
+export type ToMarkdown = (
+  name: string,
+  blob: Blob,
+) => Promise<{ format: string; data?: string; error?: string }>;
+
+/**
+ * The full text of a claim's source (#90). The reason on failure is a code-written phrase (never
+ * page or error text): it is shown to the maintainer and logged.
+ */
+export type SourceDoc =
+  { kind: 'text'; text: string; format: 'html' | 'text' | 'pdf' } | { kind: 'failed'; why: string };
+
+/**
+ * One claim source, with fetchLink's limits (redirects re-checked, 10 s, 2 MB for HTML and text).
+ * A PDF (by content type) is read up to 10 MB and converted by `toMarkdown`; anything else is
+ * refused. The 10 s cover the download; the conversion runs after it.
+ */
+export async function fetchSource(
+  url: string,
+  fetchImpl: typeof fetch,
+  toMarkdown: ToMarkdown,
+): Promise<SourceDoc> {
+  const ac = new AbortController();
+  const timer = setTimeout(() => {
+    ac.abort();
+  }, TIMEOUT_MS);
+  let pdf: Uint8Array;
+  try {
+    const got = await open(url, fetchImpl, ac.signal);
+    if (got.kind === 'broken') return { kind: 'failed', why: `HTTP ${got.status}` };
+    if (got.kind === 'unreachable') return { kind: 'failed', why: got.why };
+    const { res } = got;
+    const type = res.headers.get('content-type') ?? '';
+    if (/text\/html|application\/xhtml/i.test(type))
+      return { kind: 'text', text: pageText(await readCapped(res)).text, format: 'html' };
+    if (/text\/plain/i.test(type))
+      return { kind: 'text', text: await readCapped(res), format: 'text' };
+    if (!/application\/pdf/i.test(type)) {
+      await res.body?.cancel();
+      return { kind: 'failed', why: 'unsupported content type' };
+    }
+    const declared = Number(res.headers.get('content-length') ?? '0');
+    if (declared > PDF_MAX_BYTES) {
+      await res.body?.cancel();
+      return { kind: 'failed', why: 'PDF larger than 10 MB' };
+    }
+    const read = await readBytes(res, PDF_MAX_BYTES);
+    if (read.over) return { kind: 'failed', why: 'PDF larger than 10 MB' };
+    pdf = read.bytes;
+  } catch (err) {
+    return { kind: 'failed', why: failure(err, ac.signal) };
+  } finally {
+    clearTimeout(timer);
+  }
+  try {
+    // A fixed name: nothing from the URL reaches the converter but the bytes.
+    const out = await toMarkdown('source.pdf', new Blob([pdf], { type: 'application/pdf' }));
+    if (out.format === 'error' || typeof out.data !== 'string')
+      return { kind: 'failed', why: 'PDF conversion error' };
+    return { kind: 'text', text: out.data, format: 'pdf' };
+  } catch {
+    return { kind: 'failed', why: 'PDF conversion failed' };
   }
 }

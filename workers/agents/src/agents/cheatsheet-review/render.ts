@@ -5,6 +5,7 @@
  * comments; the rest stay in the body as text. Pure.
  */
 import { inertText } from '@custodes/llm';
+import { DIMENSION, type ClaimResult } from './claims.js';
 import { inOneHunk, type Hunk } from './diff.js';
 import { LINEUP, model, type Role, type RoleOutcome } from './lineup.js';
 import type { ChangeClass } from './scope.js';
@@ -148,6 +149,7 @@ const ROLE_LABEL: Record<Role, string> = {
   'duplication-checker': 'duplication & placement',
   'link-auditor': 'links & sources',
   'language-reviewer': 'language',
+  'claim-verifier': 'claim check',
   judge: 'decision',
 };
 
@@ -247,6 +249,18 @@ export interface ReviewBodyInput {
   /** #89: every external link that was checked (code statuses or the auditor's enum). */
   linkChecks?: readonly { url: string; moved: boolean; status: string; previous?: string }[];
   allowed: ReadonlySet<string>;
+  /** #90: NOT-FOUND claims, listed for the maintainer and kept out of the verdict. */
+  claimsToVerify?: readonly ClaimResult[];
+}
+
+/** #90: one unchecked claim, every piece of model text inert and nothing clickable. */
+function claimLine(c: ClaimResult): string {
+  const f = c.finding;
+  const where = `\`${inertText(f.file, 200).replace(/`/g, '')}${f.line ? `:${f.line}` : ''}\``;
+  const source = c.host
+    ? `\`${inertText(c.host, 100).replace(/`/g, '')}\``
+    : 'not a link in this PR';
+  return `- **${f.severity}** ${where} (${DIMENSION[c.role]}): ${inertMarkdown(f.problem, NONE, 400)} Claim: ${inertMarkdown(f.claim.text, NONE, 300)} Source: ${source}, at ${inertMarkdown(f.claim.locator, NONE, 80)}. Not confirmed: ${inertMarkdown(c.reason, NONE, 300)}`;
 }
 
 function items(title: string, list: readonly Item[], allowed: ReadonlySet<string>): string[] {
@@ -348,6 +362,16 @@ export function reviewBody(r: ReviewBodyInput): string {
         (c) =>
           `| \`${tableCell(inertText(c.url, 300).replace(/`/g, ''))}\` | ${c.moved && c.previous ? `moved from \`${tableCell(inertText(c.previous, 300).replace(/`/g, ''))}\`` : c.moved ? 'moved' : 'new'} | ${tableCell(inertText(c.status, 40))} |`,
       ),
+      '',
+    );
+  const claims = r.claimsToVerify ?? [];
+  if (claims.length > 0)
+    lines.push(
+      '### Claims to verify manually',
+      '',
+      'Code could not confirm or refute these claims against their cited sources. They are not part of the verdict; please check them by hand.',
+      '',
+      ...claims.map(claimLine),
       '',
     );
   if (r.linkNotes.length > 0)

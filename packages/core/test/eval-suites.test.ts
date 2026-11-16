@@ -18,6 +18,10 @@ describe('eval suite selection', () => {
       all.filter((s) => s.startsWith('cheatsheet-review')),
     );
     expect(selectSuites(['evals/agents/triage/tests.yaml'], all)).toEqual(['triage']);
+    expect(selectSuites(['workers/agents/src/agents/cheatsheet-review/claims.ts'], all)).toEqual([
+      'cheatsheet-review-judge',
+      'cheatsheet-review-verifier',
+    ]);
   });
 
   it('runs every suite for shared plumbing and none for unrelated files', () => {
