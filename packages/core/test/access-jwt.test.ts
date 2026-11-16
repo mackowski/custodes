@@ -172,4 +172,56 @@ describe('Access JWT (#104: verified by the gateway and again by the broker)', (
     t = NOW + 61 * 60_000; // past an hour: refused
     expect(await verifyAccessToken(good, TEAM, AUD, o)).toBe(null);
   });
+
+  it('lets concurrent requests on a cold cache wait for one fetch instead of failing (prod 401, #125)', async () => {
+    let calls = 0;
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((r) => (release = r));
+    const o = {
+      now: () => NOW,
+      fetchImpl: async () => {
+        calls += 1;
+        await gate;
+        return Response.json(jwks);
+      },
+    };
+    const t = await mint({ common_name: 'ci.access' });
+    const both = Promise.all([
+      verifyAccessToken(t, TEAM, AUD, o),
+      verifyAccessToken(t, TEAM, AUD, o),
+      verifyAccessToken(t, TEAM, AUD, o),
+    ]);
+    release();
+    expect(await both).toEqual(
+      Array(3).fill({ subject: 'service:ci.access', via: 'access-service-token' }),
+    );
+    expect(calls).toBe(1);
+  });
+
+  it('retries the fetch on the next request when the first failed and nothing is cached', async () => {
+    let up = false;
+    const o = {
+      now: () => NOW,
+      fetchImpl: () =>
+        up ? Promise.resolve(Response.json(jwks)) : Promise.reject(new Error('down')),
+    };
+    const t = await mint({ email: 'op@example.com' });
+    expect(await verifyAccessToken(t, TEAM, AUD, o)).toBe(null);
+    up = true;
+    expect(await verifyAccessToken(t, TEAM, AUD, o)).not.toBe(null);
+  });
+
+  it('fails closed after the timeout when the keys fetch hangs, and lets the next request retry (review of #128)', async () => {
+    let hang = true;
+    const o = {
+      now: () => NOW,
+      fetchTimeoutMs: 20,
+      fetchImpl: () =>
+        hang ? new Promise<Response>(() => undefined) : Promise.resolve(Response.json(jwks)),
+    };
+    const t = await mint({ email: 'op@example.com' });
+    expect(await verifyAccessToken(t, TEAM, AUD, o)).toBe(null);
+    hang = false;
+    expect(await verifyAccessToken(t, TEAM, AUD, o)).not.toBe(null);
+  });
 });

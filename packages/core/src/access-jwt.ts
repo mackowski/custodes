@@ -13,12 +13,16 @@ export interface AccessJwtOptions {
   fetchImpl?: (url: string) => Promise<Response>;
   /** Milliseconds since the epoch; injected in tests. */
   now?: () => number;
+  /** How long a request waits for the keys fetch before failing closed (default 5 s). */
+  fetchTimeoutMs?: number;
 }
 
 /** Clock skew tolerated on `exp` and `nbf`. */
 const SKEW_S = 30;
 /** How long fetched keys are reused before they are fetched again. */
 const KEYS_TTL_MS = 10 * 60_000;
+/** How long a request waits for the keys fetch. */
+const FETCH_TIMEOUT_MS = 5_000;
 /** At most one fetch per issuer this often, so unknown kids cannot make every request fetch. */
 const MIN_REFETCH_MS = 60_000;
 /** Cached keys are not used past this age, even when fetching fails (fail closed). */
@@ -26,6 +30,7 @@ const KEYS_MAX_AGE_MS = 60 * 60_000;
 const ALG = { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' } as const;
 const keyCache = new Map<string, { at: number; keys: Map<string, CryptoKey> }>();
 const lastFetch = new Map<string, number>();
+const inflight = new Map<string, Promise<Map<string, CryptoKey> | null>>();
 
 /** The token Access injects (`Cf-Access-Jwt-Assertion`) or a CLI sends (`cf-access-token`). */
 export function accessTokenOf(req: Request): string | null {
@@ -77,7 +82,13 @@ export async function verifyAccessToken(
   if (alg !== 'RS256' || typeof kid !== 'string') return null;
   const issuer = `https://${team}.cloudflareaccess.com`;
   const now = (opts.now ?? Date.now)();
-  const key = await keyFor(issuer, kid, now, opts.fetchImpl);
+  const key = await keyFor(
+    issuer,
+    kid,
+    now,
+    opts.fetchImpl,
+    opts.fetchTimeoutMs ?? FETCH_TIMEOUT_MS,
+  );
   if (!key) return null;
   const ok = await crypto.subtle.verify(ALG, key, signature, new TextEncoder().encode(`${h}.${p}`));
   if (!ok) return null;
@@ -94,29 +105,59 @@ export async function verifyAccessToken(
   return null;
 }
 
-/** The team's key for `kid`, from the cache or fetched (throttled; review L2). */
+/**
+ * The team's key for `kid`. Concurrent callers share one fetch (a request arriving while the keys
+ * are being fetched waits for them instead of failing); a new fetch for an unknown kid happens at
+ * most once a minute while keys are held, and held keys are not used past KEYS_MAX_AGE_MS.
+ */
 async function keyFor(
   issuer: string,
   kid: string,
   now: number,
   fetchImpl: AccessJwtOptions['fetchImpl'],
+  timeoutMs: number,
 ): Promise<CryptoKey | undefined> {
   const cached = keyCache.get(issuer);
-  const fresh = cached !== undefined && now - cached.at < KEYS_TTL_MS;
-  if (fresh && cached.keys.has(kid)) return cached.keys.get(kid);
-  const lastTry = lastFetch.get(issuer) ?? -Infinity;
-  if (now - lastTry >= MIN_REFETCH_MS) {
+  if (cached !== undefined && now - cached.at < KEYS_TTL_MS && cached.keys.has(kid))
+    return cached.keys.get(kid);
+  const usable = () =>
+    cached !== undefined && now - cached.at < KEYS_MAX_AGE_MS ? cached.keys.get(kid) : undefined;
+  let pending = inflight.get(issuer);
+  if (pending === undefined) {
+    // Throttle only while keys are held: with none, every request may try (no lock-out). The
+    // accepted cost: while the certs endpoint fails and nothing is cached, each request (not each
+    // concurrent one) starts a fetch, bounded by request volume behind Access.
+    if (cached !== undefined && now - (lastFetch.get(issuer) ?? -Infinity) < MIN_REFETCH_MS)
+      return usable();
     lastFetch.set(issuer, now);
-    const keys = await fetchKeys(issuer, fetchImpl).catch(() => null);
-    if (keys) {
-      keyCache.set(issuer, { at: now, keys });
-      return keys.get(kid);
-    }
+    const started: Promise<Map<string, CryptoKey> | null> = fetchKeys(issuer, fetchImpl)
+      .catch(() => null)
+      .finally(() => {
+        // By identity: a newer fetch may have replaced this one after a timeout.
+        if (inflight.get(issuer) === started) inflight.delete(issuer);
+      });
+    inflight.set(issuer, started);
+    pending = started;
   }
-  // No fresh fetch (throttled or failed): old keys only while not too old.
-  return cached !== undefined && now - cached.at < KEYS_MAX_AGE_MS
-    ? cached.keys.get(kid)
-    : undefined;
+  // Each request waits at most fetchTimeoutMs, in its own context: one hung fetch must not hold up
+  // every later request on the isolate (review of #128). A timed-out fetch is dropped so the next
+  // request starts a new one.
+  const shared = pending;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const keys = await Promise.race([
+    shared,
+    new Promise<null>((r) => {
+      timer = setTimeout(() => {
+        r(null);
+      }, timeoutMs);
+    }),
+  ]).finally(() => {
+    clearTimeout(timer);
+  });
+  if (keys === null && inflight.get(issuer) === shared) inflight.delete(issuer);
+  if (keys === null) return usable();
+  keyCache.set(issuer, { at: now, keys });
+  return keys.get(kid);
 }
 
 async function fetchKeys(
@@ -124,7 +165,9 @@ async function fetchKeys(
   fetchImpl: AccessJwtOptions['fetchImpl'],
 ): Promise<Map<string, CryptoKey>> {
   const url = `${issuer}/cdn-cgi/access/certs`;
-  const res = await (fetchImpl ?? ((u: string) => fetch(u)))(url);
+  const res = await (
+    fetchImpl ?? ((u: string) => fetch(u, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) }))
+  )(url);
   if (!res.ok) throw new Error(`access keys: HTTP ${res.status}`);
   // Typed by hand, so it reads the same under Workers and Node types (the CLI typechecks core too).
   const body: unknown = await res.json();
@@ -152,4 +195,5 @@ async function fetchKeys(
 export function clearAccessKeyCache(): void {
   keyCache.clear();
   lastFetch.clear();
+  inflight.clear();
 }
