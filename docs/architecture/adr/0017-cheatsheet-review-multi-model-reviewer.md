@@ -265,15 +265,20 @@ could not refute a false one ("rand 0.10.3 does not exist"). Decisions from `/gr
   normalised (a section number never matches a longer one; the last heading-like match wins over a
   table of contents). Without a match the verifier gets the first 6,000 characters and code
   turns REFUTED into NOT-FOUND. At most 5 claims per review, BLOCKER first, then MAJOR, MINOR, NIT;
-  the rest are NOT-FOUND with a note.
+  the rest are NOT-FOUND with a note. The PDF conversion has its own 15 s bound.
 - **Verdicts, enforced by code after the judge:** CONFIRMED keeps the finding, marked "verified
   against <host>, <locator>", and code adds it back (MERGE becomes REQUEST_CHANGES for a BLOCKER or
-  MAJOR) if the judge dropped it. NOT-FOUND moves it to "Claims to verify manually", outside the
-  verdict. REFUTED removes it from the review; on OWASP it is listed in the approval request's note
-  (the approval page), on the sandbox it is on the trace (`custodes.review.claims_refuted_ids`, and
-  the verifier span's payload under ADR 0016). The judge sees neither removed finding in the
-  reports, only the verdicts in a `claim-verdicts` envelope; `enforceClaims` removes items,
-  suggestions, close reasons and rationale sentences that still speak about them.
+  MAJOR) if the judge dropped it. **NOT-FOUND never removes or downgrades a finding:** it stays in
+  the judge's input marked by code `"verified": "NOT-FOUND"`, in the reviewer verdicts code reads
+  (`reviewerBlocked`, the review event), and wherever the judge puts it; it is also listed under
+  "Claims to verify manually". REFUTED removes the claimant's own finding: it leaves the judge's
+  input and the reviewer verdicts code reads, and `enforceClaims` removes judge items of the
+  claimant's dimension that speak about it (another reviewer's corroborating finding in another
+  dimension stays), the claimant's own suggestion, and sentences about it in the rationale, close
+  reasons, reply, dimension headlines and earlier-request summaries. On OWASP it is listed in the
+  approval request's note (the approval page), on the sandbox it is on the trace
+  (`custodes.review.claims_refuted_ids`, and the verifier span's payload under ADR 0016).
+  Amended after the security review of #126. Operator decision (2026-11-16, as in /grill-plan): a REFUTED claim removes its finding with no exception, a security BLOCKER included.
 - **Failures:** a fetch error, an oversized PDF, a `toMarkdown` error, a missing verdict, a
   verifier failure or `injectionSeen` is NOT-FOUND with a code-written reason. Errors and injection
   never remove or confirm a finding; the review always continues.
@@ -281,8 +286,8 @@ could not refute a false one ("rand 0.10.3 does not exist"). Decisions from `/gr
   (`role#index`), counts, verdicts, source hosts and code reasons, never claim, page or verifier
   text.
 - **Evals:** new suite `cheatsheet-review-verifier` (#2878 CONFIRMED, #2882 REFUTED, locator absent,
-  injection in the page, injection in the claim) and a judge case where a refuted claim repeated by
-  another reviewer stays out of the decision.
+  injection in the page, injection in the claim) and a judge case where a refuted claim shown only in
+  the verdicts is not brought back.
 
 Ruled out: a separate `checkableClaims` list (it needs claims matched to findings), fetching URLs
 the model proposes (SSRF and injection boundary), REFUTED from the start of a document, and
@@ -292,4 +297,7 @@ keeping PDFs at 2 MB (most NIST documents would be NOT-FOUND).
 would have dropped (the review still says to double-check), a wrong REFUTED removes one (only with
 the cited passage in front of it, and visible to the operator). The code check that a judge item
 "speaks about" a removed finding is a text heuristic (same file and line, plus locator, URL or
-shared words); it can miss a heavy rephrase or remove an overlapping item. Owner: operator.
+shared words; the locator matched like the excerpt locator; an item without a line never matches a
+finding with one); it can miss a heavy rephrase or remove an overlapping item. Owner: operator.
+
+**Accepted risk (operator, 2026-11-16): a refuted security finding is removed.** The claim's source is a link the PR author chose, so a page the author controls can \"refute\" a true security finding, including a BLOCKER, and the finding then leaves the review. On OWASP the operator sees it in the refuted-claims note on the approval page before anything is posted; on the sandbox nobody does (it is only on the trace). Owner: operator.

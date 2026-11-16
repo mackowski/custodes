@@ -284,7 +284,8 @@ export function fetchable(url: string): boolean {
     return false;
   }
   if (u.protocol !== 'https:' || u.username || u.password) return false;
-  const host = u.hostname.toLowerCase();
+  // A fully qualified name ("custodes.work.", "localhost.") is the same host: check it without the dot.
+  const host = u.hostname.toLowerCase().replace(/\.$/, '');
   if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.internal'))
     return false;
   if (host === 'custodes.work' || host.endsWith('.custodes.work')) return false;
@@ -435,6 +436,8 @@ export async function fetchLink(url: string, fetchImpl: typeof fetch): Promise<F
 
 /** #90: PDFs up to this size go to Workers AI `toMarkdown`; HTML and text keep MAX_BYTES. */
 export const PDF_MAX_BYTES = 10 * 1024 * 1024;
+/** #90: the PDF conversion gets its own bound; a hung conversion is NOT-FOUND, not a stuck review. */
+export const CONVERT_TIMEOUT_MS = 15_000;
 
 /** Workers AI `toMarkdown` for one file, injected (tests stay deterministic). */
 export type ToMarkdown = (
@@ -458,6 +461,7 @@ export async function fetchSource(
   url: string,
   fetchImpl: typeof fetch,
   toMarkdown: ToMarkdown,
+  convertTimeoutMs = CONVERT_TIMEOUT_MS,
 ): Promise<SourceDoc> {
   const ac = new AbortController();
   const timer = setTimeout(() => {
@@ -491,13 +495,25 @@ export async function fetchSource(
   } finally {
     clearTimeout(timer);
   }
+  let stop: ReturnType<typeof setTimeout> | undefined;
+  const timedOut = new Promise<'timeout'>((resolve) => {
+    stop = setTimeout(() => {
+      resolve('timeout');
+    }, convertTimeoutMs);
+  });
   try {
     // A fixed name: nothing from the URL reaches the converter but the bytes.
-    const out = await toMarkdown('source.pdf', new Blob([pdf], { type: 'application/pdf' }));
+    const out = await Promise.race([
+      toMarkdown('source.pdf', new Blob([pdf], { type: 'application/pdf' })),
+      timedOut,
+    ]);
+    if (out === 'timeout') return { kind: 'failed', why: 'PDF conversion timed out' };
     if (out.format === 'error' || typeof out.data !== 'string')
       return { kind: 'failed', why: 'PDF conversion error' };
     return { kind: 'text', text: out.data, format: 'pdf' };
   } catch {
     return { kind: 'failed', why: 'PDF conversion failed' };
+  } finally {
+    clearTimeout(stop);
   }
 }

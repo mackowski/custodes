@@ -1453,7 +1453,7 @@ describe('cheatsheet-review: claim verification (#90)', () => {
     expect(body).not.toContain('Claims to verify manually');
     expect(body).toContain('Otherwise fine.');
     const rationale = r.broker.approvals[0]?.rationale ?? '';
-    expect(rationale).toContain('Refuted claims, left out of the review (1;');
+    expect(rationale).toContain('1 refuted claim(s), left out of the review');
     expect(rationale).toContain('(security-reviewer) against nvlpubs.nist.gov at "3.1.3"');
     // Nothing is left to fix: REQUEST_CHANGES with an empty must-fix becomes MERGE.
     expect(r.rows[0]).toMatchObject({ verdict: 'MERGE' });
@@ -1465,20 +1465,53 @@ describe('cheatsheet-review: claim verification (#90)', () => {
     expect(root?.children.map((c) => c.name)).toContain('invoke_agent claim-verifier');
   });
 
-  it('moves a claim whose source cannot be read to "Claims to verify manually" (HTTP 403)', async () => {
+  it('lists a claim whose source cannot be read under "Claims to verify manually" (HTTP 403)', async () => {
     const r = await drive({
       scenario: withNist(),
       fetchImpl: pdfFetch([], 403),
       script: script(verdict('CONFIRMED'), merge),
     });
     expect(calls(r, 'claim-verifier')).toEqual([]);
-    expect(outside(calls(r, 'judge')[0]?.req.user ?? '')).not.toContain('Embedded malware');
+    // The judge still weighs it, marked by code.
+    expect(calls(r, 'judge')[0]?.req.user).toContain('"verified":"NOT-FOUND"');
     const body = reviewActs(r)[0]?.body ?? '';
     expect(body).toMatch(
       /### Claims to verify manually[\s\S]*\*\*MAJOR\*\* `cheatsheets\/Foo_Cheat_Sheet\.md:3` \(Security\)[\s\S]*Not confirmed: source not read: HTTP 403/,
     );
     expect(body).not.toMatch(/Must-fix[\s\S]*Embedded malware/);
     expect(r.rows[0]).toMatchObject({ verdict: 'MERGE' });
+  });
+
+  it('a security BLOCK whose only BLOCKER claim is NOT-FOUND is never weakened: no MERGE, same event', async () => {
+    const blocker = { ...claimed(), severity: 'BLOCKER' };
+    const judge = decisionJson({
+      mustFix: [
+        {
+          dimension: 'Security',
+          severity: 'BLOCKER',
+          file: SHEET,
+          line: 3,
+          text: 'NIST SP 800-190 section 3.1.3 is Embedded malware; cite 3.1.4.',
+        },
+      ],
+      suggestions: [],
+    });
+    const r = await drive({
+      scenario: withNist(),
+      fetchImpl: pdfFetch([], 403),
+      script: (role, req) =>
+        role === 'security-reviewer'
+          ? JSON.stringify({ verdict: 'BLOCK', findings: [blocker] })
+          : script(verdict('CONFIRMED'), judge)(role, req),
+    });
+    expect(r.out).toMatchObject({ ok: true, status: 'posted' });
+    expect(r.rows[0]).toMatchObject({ verdict: 'REQUEST_CHANGES', event: 'REQUEST_CHANGES' });
+    const body = reviewActs(r)[0]?.body ?? '';
+    expect(body).toMatch(/Must-fix[\s\S]*\*\*BLOCKER\*\*[\s\S]*cite 3\.1\.4/);
+    expect(body).toContain('### Claims to verify manually');
+    const judgeUser = calls(r, 'judge')[0]?.req.user ?? '';
+    expect(judgeUser).toContain('"verdict":"BLOCK"');
+    expect(judgeUser).toContain('"verified":"NOT-FOUND"');
   });
 
   it('a toMarkdown error is NOT-FOUND with its reason; the review goes on', async () => {

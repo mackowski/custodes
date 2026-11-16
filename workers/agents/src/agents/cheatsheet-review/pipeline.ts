@@ -337,6 +337,8 @@ export async function reviewPipeline(snap: Snapshot, deps: PipelineDeps): Promis
       .filter((f) => isSheet(f.file.filename))
       .map((f) => [f.file.filename, scanLinks(f.file.filename, f.hunks).targetOnlyLines] as const),
   );
+  // The original reports minus REFUTED findings only (reportsForJudge): a NOT-FOUND claim never
+  // lowers a reviewer's BLOCK. The agent reads the same reports for reviewEvent.
   const reviewerBlocked = judgedReports.some(
     (x) =>
       x.report.verdict === 'BLOCK' &&

@@ -31,6 +31,7 @@ import {
   type Snapshot,
 } from '../src/agents/cheatsheet-review/input.js';
 import {
+  fetchable,
   fetchSource,
   PDF_MAX_BYTES,
   type SourceDoc,
@@ -194,6 +195,14 @@ describe('claims.sourceUrls and citedSource: the source boundary', () => {
       }),
     );
     expect([...sources].sort()).toEqual([MDN, NIST].sort());
+  });
+
+  it('skips lines longer than 4,000 characters', () => {
+    const long = `${'x'.repeat(4_001)} https://long.example.com/a`;
+    const sources = sourceUrls(
+      snap({ files: [sheetFile(`@@ -1,1 +1,2 @@\n x\n+${long}`)], contents: new Map() }),
+    );
+    expect(sources.has('https://long.example.com/a')).toBe(false);
   });
 
   it('accepts the PR link, or the same link with another fragment, and returns the PR string', () => {
@@ -398,6 +407,27 @@ describe('links.fetchSource', () => {
       why: 'not fetched (host or scheme)',
     });
     expect(urls).toEqual([NIST]);
+  });
+
+  it('turns a conversion that never answers into "PDF conversion timed out"', async () => {
+    const got = await fetchSource(
+      NIST,
+      respond(() => new Response('%PDF', { headers: { 'content-type': 'application/pdf' } })),
+      () => new Promise(() => undefined),
+      10,
+    );
+    expect(got).toEqual({ kind: 'failed', why: 'PDF conversion timed out' });
+  });
+
+  it('refuses fully qualified forms of internal hosts (trailing dot)', () => {
+    for (const u of [
+      'https://custodes.work./x',
+      'https://api.custodes.work./x',
+      'https://localhost./x',
+      'https://x.internal./x',
+    ])
+      expect(fetchable(u), u).toBe(false);
+    expect(fetchable('https://example.com./x')).toBe(true);
   });
 
   it('never fetches a non-https or internal URL', async () => {
@@ -701,7 +731,7 @@ const result = (
   }) as ClaimResult;
 
 describe('claims.reportsForJudge and judgeClaims', () => {
-  it('removes REFUTED and NOT-FOUND findings, marks CONFIRMED ones, and only lowers the verdict', () => {
+  it('removes REFUTED findings only, marks CONFIRMED and NOT-FOUND ones, and only lowers the verdict', () => {
     const blocker = finding({ severity: 'BLOCKER' });
     const kept = { severity: 'MINOR' as const, file: SHEET, problem: 'Wording.' };
     const confirmed = finding({ severity: 'MAJOR' });
@@ -717,9 +747,21 @@ describe('claims.reportsForJudge and judgeClaims', () => {
     expect(out[1]?.report).toEqual(report([kept], 'CONCERNS'));
     const passOnly = reportsForJudge(
       [{ role: 'security-reviewer', report: report([blocker], 'PASS') }],
-      [result('NOT-FOUND', blocker)],
+      [result('REFUTED', blocker)],
     );
     expect(passOnly[0]?.report).toEqual({ verdict: 'PASS', findings: [] });
+  });
+
+  it('never drops or downgrades for NOT-FOUND: a BLOCK stays BLOCK, the finding is marked', () => {
+    const blocker = finding({ severity: 'BLOCKER' });
+    const out = reportsForJudge(
+      [{ role: 'security-reviewer', report: report([blocker], 'BLOCK') }],
+      [result('NOT-FOUND', blocker)],
+    );
+    expect(out[0]?.report).toEqual({
+      verdict: 'BLOCK',
+      findings: [{ ...blocker, verified: 'NOT-FOUND' }],
+    });
   });
 
   it('a reviewer cannot mark its own finding verified: the schema strips the field', () => {
@@ -782,7 +824,15 @@ describe('claims.enforceClaims: the judge cannot bring a removed finding back', 
         'The version rand 0.10.3 does not exist on crates.io. The section is otherwise fine.',
       mustFix: [item('rand 0.10.3 does not exist; pin rand 0.9.')],
       shouldFix: [item('Use a released rand version instead of 0.10.3.', { severity: 'MINOR' })],
-      outOfScope: [item('The crate rand 0.10.3 does not exist.', { line: undefined })],
+      outOfScope: [item('The crate rand 0.10.3 does not exist.')],
+      dimensions: [
+        {
+          dimension: 'Security',
+          verdict: 'BLOCK',
+          headline: 'rand 0.10.3 does not exist on crates.io. Otherwise sound.',
+        },
+      ],
+      earlierRequests: [],
       suggestions: [
         { file: SHEET, line: 7, replacement: 'rand = "0.9"', rationale: 'Pin a real version.' },
       ],
@@ -798,13 +848,58 @@ describe('claims.enforceClaims: the judge cannot bring a removed finding back', 
     expect(out.closeReasons).toEqual([]);
     expect(out.rationale).toBe('The section is otherwise fine.');
     expect(out.replyToAuthor).toBe('Thanks! Please fix the link.');
+    expect(out.dimensions[0]?.headline).toBe('Otherwise sound.');
     expect(JSON.stringify(out)).not.toContain('0.10.3');
   });
 
-  it('removes a NOT-FOUND finding from the lists (it is shown under "Claims to verify manually")', () => {
+  it('keeps a NOT-FOUND finding where the judge put it (it is also listed for the maintainer)', () => {
     const d = decision({ mustFix: [item('rand 0.10.3 does not exist; pin rand 0.9.')] });
-    const { decision: out } = enforceClaims(d, [result('NOT-FOUND', RAND)]);
-    expect(out.mustFix).toEqual([]);
+    expect(enforceClaims(d, [result('NOT-FOUND', RAND)])).toEqual({ decision: d, removed: 0 });
+  });
+
+  it("REFUTED removes only the claimant's own dimension; a corroborating finding elsewhere stays", () => {
+    const d = decision({
+      mustFix: [
+        item('rand 0.10.3 does not exist; pin rand 0.9.'),
+        item('rand 0.10.3 does not exist, so the example does not build.', {
+          dimension: 'Practicality',
+        }),
+      ],
+      suggestions: [
+        { file: SHEET, line: 7, replacement: 'rand = "0.9"', rationale: 'Own suggestion.' },
+        {
+          file: SHEET,
+          line: 7,
+          replacement: 'rand = "0.8"',
+          rationale: 'rand 0.10.3 does not exist.',
+        },
+      ],
+    });
+    const { decision: out, removed } = enforceClaims(d, [result('REFUTED', RAND)]);
+    expect(removed).toBe(2);
+    expect(out.mustFix.map((i) => i.dimension)).toEqual(['Practicality']);
+    expect(out.suggestions.map((x) => x.replacement)).toEqual(['rand = "0.8"']);
+  });
+
+  it('removes sentences about a REFUTED claim from earlier-request summaries', () => {
+    const d = decision({
+      earlierRequests: [
+        { by: 'maint', request: 'rand 0.10.3 does not exist on crates.io.', status: 'open' },
+        { by: 'maint', request: 'Shorten the intro.', status: 'open' },
+      ],
+    });
+    const { decision: out } = enforceClaims(d, [result('REFUTED', RAND)]);
+    expect(out.earlierRequests.map((e) => e.request)).toEqual([
+      '(summary removed by code: it repeated a refuted claim)',
+      'Shorten the intro.',
+    ]);
+  });
+
+  it('never drops a judge item without a line for a finding that has one', () => {
+    const d = decision({ mustFix: [item('rand 0.10.3 does not exist.', { line: undefined })] });
+    expect(enforceClaims(d, [result('REFUTED', RAND)]).removed).toBe(0);
+    const lineless = { ...RAND, line: undefined } as unknown as ClaimedFinding;
+    expect(enforceClaims(d, [result('REFUTED', lineless)]).removed).toBe(1);
   });
 
   it('keeps an unrelated item on the same line and every item on another line', () => {
@@ -863,6 +958,11 @@ describe('claims.enforceClaims: the judge cannot bring a removed finding back', 
     // A junk "URL" or locator never matches everything.
     const junk = finding({}, { sourceUrl: 'a', locator: 'e' });
     expect(mentions('Any sentence at all about a heading.', junk)).toBe(false);
+    // The locator matches like locate(): a section number never matches a longer one.
+    const sec = finding({ problem: 'Wrong.' }, { text: 'x', locator: '5.1.1' });
+    expect(mentions('See 15.1.1 here.', sec)).toBe(false);
+    expect(mentions('See 5.1.10 here.', sec)).toBe(false);
+    expect(mentions('See 5.1.1 here.', sec)).toBe(true);
   });
 });
 
@@ -946,10 +1046,22 @@ describe('claims in the review, the logs and the approval note', () => {
   it('records refuted claims for the operator, inert, and nothing when none was refuted', () => {
     expect(refutedNote([result('CONFIRMED')])).toBe('');
     const note = refutedNote([result('REFUTED', finding(), { reason: 'Line\nbreak.' })]);
-    expect(note).toContain('Refuted claims, left out of the review (1;');
+    expect(note).toContain('1 refuted claim(s), left out of the review');
     expect(note).toContain(
       `- MAJOR ${SHEET}:3 (security-reviewer) against nvlpubs.nist.gov at "3.1.3"`,
     );
     expect(note).toContain('Verifier: Line break.');
+  });
+
+  it('keeps five long refuted claims inside the 4,000-character approval note', () => {
+    const long = 'L'.repeat(600);
+    const five = Array.from({ length: 5 }, (_, i) =>
+      result('REFUTED', finding({ line: i + 1 }, { text: long }), { index: i, reason: long }),
+    );
+    const prefix = `REQUEST_CHANGES, COMMENT, 3 inline suggestion(s); run ${'0'.repeat(36)}`;
+    const full = `${prefix}${refutedNote(five)}`;
+    expect(full.length).toBeLessThanOrEqual(4_000);
+    expect(full).toContain('5 refuted claim(s)');
+    for (let i = 1; i <= 5; i++) expect(full).toContain(`${SHEET}:${i} (security-reviewer)`);
   });
 });

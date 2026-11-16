@@ -71,6 +71,9 @@ const RANK: Readonly<Record<Finding['severity'], number>> = {
   NIT: 3,
 };
 
+/** Same bound as scope.ts's MAX_SCANNED_LINE (4,000): longer lines are not scanned for links. */
+const MAX_LINK_LINE = 4_000;
+
 /**
  * The only URLs a claim may be checked against: external links (known target form, fetchable) in
  * the diff of a cheat sheet or in a changed cheat sheet at the head commit.
@@ -78,6 +81,8 @@ const RANK: Readonly<Record<Finding['severity'], number>> = {
 export function sourceUrls(snap: Snapshot): Set<string> {
   const out = new Set<string>();
   const add = (text: string) => {
+    // Longer lines are not scanned (as scope.ts's MAX_SCANNED_LINE): the regexes stay cheap.
+    if (text.length > MAX_LINK_LINE) return;
     for (const u of targets(text))
       if (isExternal(u) && knownTargetForm(u) && fetchable(u)) out.add(u);
   };
@@ -303,9 +308,10 @@ export async function claimStage(
 const VERDICT_RANK = { PASS: 0, CONCERNS: 1, BLOCK: 2 } as const;
 
 /**
- * The reports the judge sees: REFUTED and NOT-FOUND findings removed, CONFIRMED ones marked
- * `"verified": "CONFIRMED"` (a field only code sets: zod strips it from model output). A report
- * that lost findings gets the verdict of what is left, never a higher one.
+ * The reports the judge sees, and the ones code reads reviewer verdicts from: REFUTED findings
+ * removed, CONFIRMED and NOT-FOUND ones marked `"verified": "CONFIRMED" | "NOT-FOUND"` (a field
+ * only code sets: zod strips it from model output). NOT-FOUND never removes or weakens anything:
+ * only a report that lost a REFUTED finding gets the verdict of what is left, never a higher one.
  */
 export function reportsForJudge(
   reports: readonly { role: ReviewerRole; report: ReviewerReport }[],
@@ -317,9 +323,9 @@ export function reportsForJudge(
     const findings: Finding[] = [];
     report.findings.forEach((f, index) => {
       const v = verdictOf(role, index);
-      if (v === 'REFUTED' || v === 'NOT-FOUND') return;
-      const kept: Finding & { verified?: 'CONFIRMED' } =
-        v === 'CONFIRMED' ? { ...f, verified: 'CONFIRMED' } : f;
+      if (v === 'REFUTED') return;
+      const kept: Finding & { verified?: 'CONFIRMED' | 'NOT-FOUND' } =
+        v === undefined ? f : { ...f, verified: v };
       findings.push(kept);
     });
     if (findings.length === report.findings.length || report.verdict === 'N/A')
@@ -383,13 +389,18 @@ function words(s: string): Set<string> {
 
 /**
  * Whether text speaks about the claimed finding: it quotes the locator (a number, or 12 characters
- * or more), names the source URL, or shares at least half of its significant words with the
- * finding's problem and claim (`strict`: 60%, for text with no file or line to anchor it).
+ * or more; matched like `locate`, so 5.1.1 never matches 15.1.1), names the source URL, or shares
+ * at least half of its significant words with the finding's problem and claim (`strict`: 60%, for
+ * text with no file or line to anchor it).
  */
 export function mentions(text: string, f: ClaimedFinding, strict = false): boolean {
   const t = fold(text);
-  const loc = fold(f.claim.locator).replace(/^["'“”‘’]+|["'“”‘’]+$/g, '');
-  if ((/\d/.test(loc) && loc.length >= 3) || loc.length >= 12) if (t.includes(loc)) return true;
+  const loc = f.claim.locator
+    .trim()
+    .replace(/^["'“”‘’]+|["'“”‘’]+$/g, '')
+    .trim();
+  if ((/\d/.test(loc) && loc.length >= 3) || loc.length >= 12)
+    if (pattern(loc).test(text)) return true;
   const url = fold(f.claim.sourceUrl);
   if (/^https?:\/\/\S{8,}$/.test(url) && t.includes(url)) return true;
   const a = words(text);
@@ -400,9 +411,13 @@ export function mentions(text: string, f: ClaimedFinding, strict = false): boole
   return shared / small >= (strict ? 0.6 : 0.5);
 }
 
-/** A judge item about the claimed finding: same file, same line when both have one, and it mentions it. */
+/**
+ * A judge item about the claimed finding: same file, the same line (an item without a line only
+ * for a finding without one), and it mentions it.
+ */
 export function refersTo(i: Pick<Item, 'file' | 'line' | 'text'>, f: ClaimedFinding): boolean {
   if (i.file !== f.file) return false;
+  if (i.line === undefined && f.line !== undefined) return false;
   if (i.line !== undefined && f.line !== undefined && i.line !== f.line) return false;
   return mentions(i.text, f);
 }
@@ -430,18 +445,21 @@ function withoutSentences(text: string, gone: readonly ClaimedFinding[]): string
 }
 
 /**
- * The claim verdicts applied to the judge's decision, in code (#90): whatever the judge wrote,
- * nothing about a REFUTED or NOT-FOUND claim stays in must-fix, should-fix, nits, out-of-scope or a
- * suggestion, and no sentence about a REFUTED claim stays in the rationale, close reasons or reply.
- * A CONFIRMED finding stays: its item is marked verified, or code adds it back when the judge
- * dropped it (a BLOCKER or MAJOR then makes MERGE a REQUEST_CHANGES). Runs before normaliseDecision.
+ * The claim verdicts applied to the judge's decision, in code (#90). A REFUTED finding removes only
+ * the claimant's own item: judge items of the claimant's dimension about it, and the claimant's
+ * own suggestion; another reviewer's corroborating finding in another dimension survives. No
+ * sentence about a REFUTED claim stays in the rationale, close reasons, reply, dimension headlines
+ * or earlier-request summaries. NOT-FOUND changes nothing here (it is also listed for the
+ * maintainer). A CONFIRMED finding stays: its item is marked verified, or code adds it back when
+ * the judge dropped it (a BLOCKER or MAJOR then makes MERGE a REQUEST_CHANGES). Runs before
+ * normaliseDecision.
  */
 export function enforceClaims(
   d: ReviewDecision,
   results: readonly ClaimResult[],
 ): { decision: ReviewDecision; removed: number } {
-  const gone = results.filter((r) => r.verdict !== 'CONFIRMED').map((r) => r.finding);
-  const refuted = results.filter((r) => r.verdict === 'REFUTED').map((r) => r.finding);
+  const gone = results.filter((r) => r.verdict === 'REFUTED');
+  const refuted = gone.map((r) => r.finding);
   const confirmed = results.filter((r) => r.verdict === 'CONFIRMED');
   let removed = 0;
   const keep = <T>(list: readonly T[], drop: (x: T) => boolean): T[] =>
@@ -450,30 +468,44 @@ export function enforceClaims(
       if (out) removed++;
       return !out;
     });
-  const dropItem = (i: Item) => gone.some((f) => refersTo(i, f));
+  const dropItem = (i: Item) =>
+    gone.some((r) => i.dimension === DIMENSION[r.role] && refersTo(i, r.finding));
   const lists = {
     mustFix: keep(d.mustFix, dropItem),
     shouldFix: keep(d.shouldFix, dropItem),
     nits: keep(d.nits, dropItem),
     outOfScope: keep(d.outOfScope, dropItem),
   };
+  // Suggestions carry no dimension: only the claimant's own suggestion goes.
   const suggestions = keep(d.suggestions, (s) =>
     gone.some(
-      (f) =>
-        s.file === f.file &&
-        (f.line === undefined || ((s.startLine ?? s.line) <= f.line && f.line <= s.line)) &&
-        (s.replacement === f.suggestion?.replacement || mentions(s.rationale, f)),
+      ({ finding: f }) =>
+        s.file === f.suggestion?.file &&
+        s.line === f.suggestion.line &&
+        s.replacement === f.suggestion.replacement,
     ),
   );
   const closeReasons = keep(d.closeReasons, (c) => refuted.some((f) => mentions(c, f, true)));
   const { replyToAuthor, ...rest } = d;
   let rationale = d.rationale;
   let reply = replyToAuthor;
+  let dimensions = d.dimensions;
+  let earlierRequests = d.earlierRequests;
   if (refuted.length > 0) {
     rationale =
       withoutSentences(d.rationale, refuted) ||
       'Code removed the rationale: it rested on a claim that its cited source refutes.';
     reply = replyToAuthor !== undefined ? withoutSentences(replyToAuthor, refuted) : undefined;
+    dimensions = d.dimensions.map((x) => ({
+      ...x,
+      headline: withoutSentences(x.headline, refuted),
+    }));
+    earlierRequests = d.earlierRequests.map((e) => ({
+      ...e,
+      request:
+        withoutSentences(e.request, refuted) ||
+        '(summary removed by code: it repeated a refuted claim)',
+    }));
   }
 
   // Confirmed findings: marked where the judge kept them, added back where it did not.
@@ -513,6 +545,8 @@ export function enforceClaims(
       suggestions,
       closeReasons,
       rationale,
+      dimensions,
+      earlierRequests,
       ...(reply ? { replyToAuthor: reply } : {}),
     },
     removed,
@@ -562,13 +596,14 @@ export function claimLog(results: readonly ClaimResult[], removedItems: number) 
 export function refutedNote(results: readonly ClaimResult[]): string {
   const refuted = results.filter((r) => r.verdict === 'REFUTED');
   if (refuted.length === 0) return '';
+  // Count first and short entries: the whole rationale is cut at 4,000 characters.
   return [
     '',
     '',
-    `Refuted claims, left out of the review (${refuted.length}; checked by code against the cited source, the text is model output):`,
+    `${refuted.length} refuted claim(s), left out of the review (checked by code against the cited source; the text is model output):`,
     ...refuted.map(
       (r) =>
-        `- ${r.finding.severity} ${inertText(r.finding.file, 200)}${r.finding.line ? `:${r.finding.line}` : ''} (${r.role}) against ${r.host ?? 'its source'} at "${inertText(r.finding.claim.locator, 80)}": "${inertText(r.finding.claim.text, 300)}" Verifier: ${inertText(r.reason, 300)}`,
+        `- ${r.finding.severity} ${inertText(r.finding.file, 120)}${r.finding.line ? `:${r.finding.line}` : ''} (${r.role}) against ${r.host ?? 'its source'} at "${inertText(r.finding.claim.locator, 60)}": "${inertText(r.finding.claim.text, 150)}" Verifier: ${inertText(r.reason, 150)}`,
     ),
   ].join('\n');
 }
