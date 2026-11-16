@@ -479,8 +479,8 @@ function summaryText(s: string): string {
     .slice(0, 300);
 }
 
-/** Mirrors MAX_JOBS_PER_DAY in workers/agents/src/agents/specialists/agent.ts (per instance). */
-const SPECIALIST_JOBS_PER_DAY = 10;
+/** Mirrors MAX_JOBS_PER_DAY_SANDBOX in workers/agents/src/agents/specialists/agent.ts (checked by specialist-recheck.test.ts). */
+const SPECIALIST_JOBS_PER_DAY = 40;
 const capped = (s: SpecialistStatus, today: string) =>
   s.queued > 0 && s.state.day === today && (s.state.jobsToday ?? 0) >= SPECIALIST_JOBS_PER_DAY;
 
