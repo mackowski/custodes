@@ -3,7 +3,8 @@
   // custodes-agents (ADR 0018). Every agent runs in its own Worker since the cutovers
   // (workers/triage, workers/triage-apply, workers/pr-gate, workers/cheatsheet-review); they bundle
   // their code from `src/` here, deployed with `-c ../<agent>/wrangler.jsonc`. This Worker runs no
-  // agent: no Durable Object, no secret, no cron, no queue, no service, AI or e-mail binding. It
+  // agent: no Durable Object, no secret, no cron, no queue, no service, AI or e-mail binding (the
+  // queue consumer and the secrets are removed by deploy-workers, which deploys never do). It
   // answers only GET /registry (the gateway's /admin/agents) and /healthz, from `src/index.ts`.
   "name": "custodes-agents",
   "main": "src/index.ts",
@@ -12,6 +13,9 @@
   // Reached only through the gateway (Access), never directly.
   "workers_dev": false,
   "preview_urls": false,
+  // Empty, not absent: with no `triggers` key a deploy leaves the Worker's existing crons in place
+  // (review of #122, M1), and this Worker has no `scheduled` handler any more.
+  "triggers": { "crons": [] },
   "observability": {
     "enabled": true,
     "head_sampling_rate": 1,

@@ -268,16 +268,23 @@ describe('queue consumers (each agent has its own Worker and queue, ADR 0018)', 
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
     try {
       const prGate = bodies.slice(0, 4).map(message);
-      await prGateWorker.queue(batch('custodes-inbound-pr-gate', ...prGate), testEnv);
       const review = [...bodies.slice(0, 3), bodies[4]].map(message);
-      await cheatsheetReviewWorker.queue(
-        batch('custodes-inbound-cheatsheet-review', ...review),
-        testEnv,
-      );
+      const logs = await logged(async () => {
+        await prGateWorker.queue(batch('custodes-inbound-pr-gate', ...prGate), testEnv);
+        await cheatsheetReviewWorker.queue(
+          batch('custodes-inbound-cheatsheet-review', ...review),
+          testEnv,
+        );
+      });
       for (const msg of [...prGate, ...review]) {
         expect(msg.ack).toHaveBeenCalledOnce();
         expect(msg.retry).not.toHaveBeenCalled();
       }
+      // Dropped, not dispatched: no agent was woken (review of #122, L4).
+      expect(logs.filter((l) => l.includes('"queue.dispatch"'))).toEqual([]);
+      expect(warn.mock.calls.filter(([m]) => String(m).includes('"queue.ignored"'))).toHaveLength(
+        8,
+      );
     } finally {
       warn.mockRestore();
     }

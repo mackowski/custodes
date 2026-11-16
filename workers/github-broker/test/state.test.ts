@@ -11,7 +11,6 @@ const app = agentRoutes(
   new Hono(),
   (id) => (id === 'pr-gate' || id === 'cheatsheet-review' ? null : `agent ${id} is not served`),
   'test',
-  false,
 );
 const state = (body: unknown) =>
   app.request(

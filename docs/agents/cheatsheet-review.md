@@ -266,10 +266,10 @@ The label can also be removed from the repository's label list; nothing triggers
 4. **Label hijack.** Someone with triage rights adds the label to a rival's PR. The timeline shows
    them, not the operator, as the actor; the run stops before any model call.
 5. **Agent approves its own review.** A compromised dependency in the agents Worker calls the
-   broker's decide endpoint with the token it was given for the e-mail. The agents Worker binds
-   only the broker's default entrypoint, which has no decide route (`approvals.test.ts`
-   "entrypoints"); deciding exists only on `BrokerAdmin`, which only the gateway binds, behind
-   Access and the approver list.
+   broker's decide endpoint with the token it was given for the e-mail. Its Worker binds only its
+   own signed entrypoint (`CheatsheetReviewBroker`), which has no decide route; deciding exists
+   only on `BrokerAdmin`, which only the gateway binds, behind Access and the approver list
+   (`bindings.test.ts`).
 6. **Mail scanner or forwarded link.** The operator's mail provider opens every link, or the
    e-mail is forwarded. Opening shows the page and decides nothing; deciding needs a POST from the
    page (same-origin), an Access session for an `APPROVER_EMAILS` identity, and a token bound to that

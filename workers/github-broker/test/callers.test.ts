@@ -11,7 +11,8 @@ import {
 } from '@custodes/core';
 import { AgentKeys, type CallerName, verificationKeys } from '@custodes/schema';
 import { CALLER_AGENTS, isIsolated } from '../src/callers.js';
-import broker, { callerApp, sharedAgentApp } from '../src/index.js';
+import { Hono } from 'hono';
+import broker, { agentRoutes, callerApp, sharedAgentApp } from '../src/index.js';
 import { AuditStore } from '../src/store.js';
 import { policy } from '../src/policy.js';
 
@@ -361,6 +362,31 @@ describe('the default (unsigned) entrypoint serves no agent (ADR 0018)', () => {
       ],
       ['/v1/state', { agentId }],
       ['/v1/approvals', { request, rationale: 'x' }],
+      [
+        '/v1/approvals/bundle',
+        {
+          request: {
+            agentId,
+            agentVersion: '0.1.0',
+            runId,
+            triggeredBy: { kind: 'cli', ref: 'x' },
+            bundle: {
+              actions: [
+                { type: 'issue.comment', repo: 'mackowski/custodes-sandbox', issue: 1, body: 'x' },
+              ],
+              snapshot: {
+                state: 'open',
+                labels: [],
+                assignees: [],
+                comments: 0,
+                updatedAt: '2026-11-10T10:00:00Z',
+                commentsDigest: '4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945',
+              },
+            },
+          },
+          rationale: 'r',
+        },
+      ],
     ] as const;
   };
   const post = (path: string, payload: unknown) =>
@@ -390,6 +416,27 @@ describe('the default (unsigned) entrypoint serves no agent (ADR 0018)', () => {
           /signed broker entrypoint/,
         );
       }
+  });
+
+  it('the shared route code never runs an unsigned action, whatever admit says (review of #122, L2)', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    try {
+      const open = agentRoutes(new Hono(), () => null, 'test');
+      const [, payload] = routes('pr-gate')[0];
+      const res = await open.request(
+        '/v1/act',
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(payload),
+        },
+        env,
+      );
+      expect(res.status).toBe(401);
+      expect(fetchSpy).not.toHaveBeenCalled();
+    } finally {
+      fetchSpy.mockRestore();
+    }
   });
 
   it('is what the Worker answers on its default export', async () => {

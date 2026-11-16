@@ -44,8 +44,8 @@ export interface AgentsEnv extends CustodesEnv {
   /**
    * Agent classes. Each is bound only in its own Worker (triage and its two specialists in
    * custodes-triage, triage-apply in custodes-triage-apply, pr-gate in custodes-pr-gate,
-   * cheatsheet-review in custodes-cheatsheet-review). Code checks before use where another Worker
-   * may lack it; the tests bind all of them (`vitest.config.ts`).
+   * cheatsheet-review in custodes-cheatsheet-review). Each entry point uses only its own; a missing
+   * binding throws (fails closed). The tests bind all of them (`vitest.config.ts`).
    */
   TriageAgent: DurableObjectNamespace<TriageAgent>;
   ImplementationCheckAgent: DurableObjectNamespace<ImplementationCheckAgent>;

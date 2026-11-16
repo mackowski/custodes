@@ -37,9 +37,9 @@ export const AgentPolicy = z
      */
     labels: z.array(z.string().min(1).max(50)).min(1).optional(),
     /**
-     * Moved to its own Worker (ADR 0018): the broker's default entrypoint refuses this agent, and
-     * only its caller entrypoint with a valid signature is accepted. `true` → `false` reopens the
-     * unsigned path: a widening that needs a linked ADR or issue (invariant 4).
+     * Moved to its own Worker (ADR 0018). Since every agent has moved, the broker's default
+     * entrypoint refuses every agent in code, whatever this says; the flag is kept as a record of
+     * the move (cutover-moves.test.ts reads it) until a later PR drops it.
      */
     isolated: z.boolean().default(false),
     /**
@@ -91,9 +91,8 @@ export const ReadPolicy = z.object({
   /** The only resources this agent may read. Explicit, so a new resource is never granted by default. */
   resources: z.array(ReadResource).min(1),
   /**
-   * Moved to its own Worker (ADR 0018): the broker's default entrypoint refuses this agent, and
-   * only its caller entrypoint with a valid signature is accepted. `true` → `false` is a widening
-   * (invariant 4).
+   * Moved to its own Worker (ADR 0018). A record of the move only: the default entrypoint refuses
+   * every agent in code (see `isolated` on agent policies).
    */
   isolated: z.boolean().default(false),
 });

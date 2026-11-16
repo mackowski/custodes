@@ -193,9 +193,10 @@ describe('entrypoints', () => {
       `/v1/approvals/token/${c.token}/decide`,
       '/v1/keys/cheatsheet-review/rotate',
     ])
-      expect((await call(agents, path)).status).toBe(404);
+      // The default entrypoint refuses everything (it serves no agent, ADR 0018).
+      expect((await call(agents, path)).status).toBe(403);
     for (const path of ['/v1/approvals', `/v1/approvals/token/${c.token}`, '/v1/attestations'])
-      expect((await agents.fetch(new Request(`https://broker.internal${path}`))).status).toBe(404);
+      expect((await agents.fetch(new Request(`https://broker.internal${path}`))).status).toBe(403);
     const after = await approvalByToken(testEnv, c.token);
     expect(after).toMatchObject({ ok: true, approval: { status: 'pending' } });
   });
