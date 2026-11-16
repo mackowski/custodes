@@ -30,7 +30,7 @@ and the transfer itself. All pass criteria must hold. If any fails, do not merge
 3. **Halt every id in the move** and say why: `POST /admin/agents/<id>/halt` with
    `{"reason":"cutover to <Worker>"}`. The workflow refuses to run otherwise.
 4. **Reject the agent's pending approvals** (`/admin/approvals`). They were created through the shared
-   Worker, and an approval is not checked against `isolated` when decided.
+   Worker, and an approval is not checked against the Worker that asked for it when decided.
 5. **Back up what cannot be rebuilt.**
    - pr-gate: `GET /agents/pr-gate-agent/owasp-cheatsheetseries/comparisons` (Clef vs Jev data, ADR 0015) saved to a file.
    - cheatsheet-review: nothing (each review is started again by the label).
@@ -76,8 +76,6 @@ PRs #114 and #115):
    - the gateway: the agent's webhook events to its queue, `/agents/<agent>-agent/*` routed to its
      Worker (`agentWorker` in `workers/gateway/src/index.ts`, with a case in its test), and its
      `KeyAdmin` bound as `KEYS_<AGENT>` (only the gateway may bind it, `bindings.test.ts`);
-   - `isolated: true` for the agent's ids in `policy.json` (`cutover-moves.test.ts` fails if a
-     finished move forgets one);
    - `AgentsEnv` types and the test bindings in `workers/agents/vitest.config.ts`;
    - for cheatsheet-review, which has no poll to catch up: the gateway must fail the delivery when
      its queue send fails (GitHub then shows the delivery as failed and it can be redelivered);
@@ -140,21 +138,21 @@ Once all three agents had moved, `custodes-agents` was reduced to a Worker that 
 
 Kept on purpose, for later PRs:
 
-- **The tombstones** (`transferred`, and `HelloAgent` `deleted`) in `workers/agents/wrangler.jsonc`.
-  The rehearsal for this PR (2026-11-16, steps F and G of `scripts/do-transfer-test/README.md`)
-  showed: with the class gone from the code, the `transferred` tombstone deploys with the notice
-  `stale_tombstone` ("Safe to remove from `exports`"), and a deploy without the tombstone is accepted
-  with the target's data untouched. So they can go in a later PR; the deploy guard reads the
-  `transferred` entries to know which moves are done (`agent-cutover-config.ts moved`), so change
-  it first.
+- ~~The tombstones~~ (`transferred`, and `HelloAgent` `deleted`) in `workers/agents/wrangler.jsonc`:
+  dropped 2026-11-16, after every production deploy reported them `stale_tombstone` ("Safe to
+  remove from `exports`") and the rehearsal (steps F and G of `scripts/do-transfer-test/README.md`)
+  showed a deploy without them leaves the target's data untouched. `exports` stays, empty (no way
+  back to `migrations`). `agent-cutover-config.ts moved` now counts a move as done when
+  `custodes-agents` no longer declares its classes live, so the deploy guard still checks that each
+  target owns its classes.
 - **`custodes-agents` itself stays** (operator's decision, 2026-11-16), for `/registry`. It must not
   get bindings, secrets or agent code again; a new agent gets its own Worker. Note: the
   Email Routing catch-all used to send every incoming message to this Worker, which has never had
   an `email()` handler; it now drops them (`infra/terraform/modules/email-routing`), so no routing
   rule depends on the Worker any more.
 - ~~The `custodes-inbound` queue and its DLQ in Terraform~~: removed in the #95/#104/#105 PR (apply after a green deploy of the gateway without `INBOUND`).
-- **The `isolated` flags in the policy.** They no longer decide anything (the default entrypoint
-  refuses every id); `cutover-moves.test.ts` still checks them.
+- ~~The `isolated` flags in the policy~~: dropped 2026-11-16 with the field in the policy schema.
+  The default entrypoint refuses every id in code since #122.
 
 ## If something is wrong after the move
 

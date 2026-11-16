@@ -5,8 +5,9 @@ import { CALLER_AGENTS, CallerName } from '@custodes/schema';
 
 /**
  * What a finished agent cutover leaves behind (ADR 0018, docs/runbooks/agent-cutover.md), derived
- * from scripts/agent-moves.json, so the next agent's follow-up cannot forget one of them (security
- * review of #111: `isolated` and the deploy guard were hand-kept lists).
+ * from scripts/agent-moves.json, so the deploy guard's list cannot drift from it (security review
+ * of #111). Every move is done; the tombstones and the policy's `isolated` flags that recorded the
+ * moves were dropped on 2026-11-16 (the default broker entrypoint refuses every agent in code).
  */
 interface Move {
   target: string;
@@ -35,13 +36,10 @@ const moves = Object.entries(JSON.parse(read('scripts/agent-moves.json')) as Rec
   .filter(([name]) => !name.startsWith('$'))
   .map(([name, m]) => ({ name, ...m }));
 const shared = jsonc('workers/agents/wrangler.jsonc');
-const policy = JSON.parse(read('workers/github-broker/policy/policy.json')) as {
-  agents: Record<string, { isolated?: boolean }>;
-  reads: Record<string, { isolated?: boolean }>;
-};
-const done = moves.filter((m) =>
-  m.classes.every((c) => shared.exports?.[c]?.state === 'transferred'),
-);
+const liveInShared = (c: string): boolean =>
+  (shared.exports !== undefined && c in shared.exports && shared.exports[c]?.state === undefined) ||
+  (shared.durable_objects?.bindings?.some((b) => b.class_name === c) ?? false);
+const done = moves.filter((m) => m.classes.every((c) => !liveInShared(c)));
 
 describe('agent moves (scripts/agent-moves.json)', () => {
   it('lists each class and each agent id once, and a Worker directory that exists', () => {
@@ -53,37 +51,26 @@ describe('agent moves (scripts/agent-moves.json)', () => {
   });
 
   it('names exactly the agent ids its Worker may serve (CALLER_AGENTS)', () => {
-    // An id served by the Worker but missing here would never be checked for `isolated` below,
-    // so the unsigned default entrypoint could keep serving it (Claude review of #111).
     for (const m of moves) {
       const caller = CallerName.parse(m.target);
       expect([...m.agentIds].sort(), m.name).toEqual([...CALLER_AGENTS[caller]].sort());
     }
   });
 
-  it('has at least one finished move to check (triage, 2026-11-12)', () => {
-    expect(done.map((m) => m.name)).toContain('triage');
+  it('has every move finished (all cutovers done by 2026-11-13)', () => {
+    expect(done.map((m) => m.name).sort()).toEqual(moves.map((m) => m.name).sort());
+  });
+
+  it('leaves custodes-agents with no Durable Object class at all, not even a tombstone', () => {
+    expect(shared.exports).toEqual({});
+    expect(shared.durable_objects?.bindings ?? []).toEqual([]);
   });
 
   it.each(done.map((m) => [m.name, m] as const))(
-    'after the cutover of %s: its ids are isolated, the shared Worker keeps no binding, the target owns the classes',
+    'after the cutover of %s: the target owns the classes',
     (_name, m) => {
-      for (const id of m.agentIds) {
-        const flags = [policy.agents[id]?.isolated, policy.reads[id]?.isolated].filter(
-          (f) => f !== undefined,
-        );
-        expect(flags.length, `${id} has a policy entry`).toBeGreaterThan(0);
-        // Without it the unsigned default entrypoint would still serve the agent's id.
-        expect(flags.every(Boolean), `${id} is isolated`).toBe(true);
-      }
       const target = jsonc(`${m.dir}/wrangler.jsonc`);
       for (const c of m.classes) {
-        expect(
-          // No `durable_objects` at all (every agent moved) also means no binding.
-          shared.durable_objects?.bindings?.some((b) => b.class_name === c) ?? false,
-          c,
-        ).toBe(false);
-        expect(shared.exports?.[c]?.transferred_to, c).toBe(m.target);
         expect(
           target.durable_objects?.bindings?.some((b) => b.class_name === c),
           c,
@@ -102,12 +89,5 @@ describe('agent moves (scripts/agent-moves.json)', () => {
     expect(out.trim().split('\n').filter(Boolean)).toEqual(
       done.map((m) => `${m.classes.join(',')} ${m.dir} ${m.target}`),
     );
-  });
-
-  it('does not isolate an agent whose cutover has not happened', () => {
-    // The reverse: `isolated` before the move would lock the agent out of the shared Worker.
-    for (const m of moves.filter((x) => !done.includes(x)))
-      for (const id of m.agentIds)
-        expect(policy.agents[id]?.isolated ?? policy.reads[id]?.isolated ?? false, id).toBe(false);
   });
 });

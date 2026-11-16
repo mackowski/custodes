@@ -14,8 +14,9 @@
 //   agent-cutover-config.ts classes
 //       Prints every class that has a move, comma-separated (for the deploy guard).
 //   agent-cutover-config.ts moved
-//       Prints `<Classes> <dir> <Worker>` for each move already done (its classes `transferred`
-//       in custodes-agents): the deploy guard checks each target still owns them.
+//       Prints `<Classes> <dir> <Worker>` for each move already done (none of its classes is live
+//       in custodes-agents: `transferred`, or gone once the tombstones were dropped): the deploy
+//       guard checks each target still owns them.
 import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -96,6 +97,15 @@ function withoutBindings(config: WranglerConfig, classes: string[]): WranglerCon
   return { ...config, durable_objects: { ...config.durable_objects, bindings } };
 }
 
+/** Whether a config runs the class itself: an `exports` entry without a `state`, or a binding. */
+function liveIn(config: WranglerConfig, className: string): boolean {
+  const e = config.exports?.[className] as { state?: string } | undefined;
+  return (
+    (e !== undefined && e.state === undefined) ||
+    (config.durable_objects?.bindings ?? []).some((b) => b.class_name === className)
+  );
+}
+
 function check(config: WranglerConfig, name: string, classes: string[]): void {
   if (config.name !== name) throw new Error(`expected ${name}, found ${config.name ?? '(none)'}`);
   if (config.migrations) throw new Error(`${name} still uses migrations; exports are required`);
@@ -143,14 +153,12 @@ function phaseConfig(move: Move, phase: string): { dir: string; config: Wrangler
 
 const [agent = '', what = ''] = process.argv.slice(2);
 if (agent === 'moved') {
-  // Moves whose classes are all `transferred` in custodes-agents: one line each,
-  // `<Class,Class> <dir> <Worker>`, for the deploy guard (the target must still own them).
+  // Moves none of whose classes custodes-agents still declares live (an `exports` entry without a
+  // `state`, or a binding): one line each, `<Class,Class> <dir> <Worker>`, for the deploy guard
+  // (the target must still own them). Since the tombstones were dropped, every move counts as done.
   const shared = readJsonc(join(root, 'workers/agents/wrangler.jsonc'));
   for (const m of Object.values(MOVES)) {
-    const done = m.classes.every((c) => {
-      const e = shared.exports?.[c] as { state?: string } | undefined;
-      return e?.state === 'transferred';
-    });
+    const done = m.classes.every((c) => !liveIn(shared, c));
     if (done) console.log(`${m.classes.join(',')} ${m.dir} ${m.target}`);
   }
   process.exit(0);

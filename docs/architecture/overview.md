@@ -43,7 +43,8 @@ signs every broker call with it; the broker accepts it only on that Worker's own
 agent ids it hosts, and its public key is pinned in `packages/schema/src/agent-keys.json`.
 
 `custodes-agents` (`workers/agents/wrangler.jsonc`) remains, running no agent: it serves the agent
-registry for the gateway's `/admin/agents` and keeps the Durable Object tombstones of the moves.
+registry for the gateway's `/admin/agents`; it declares no Durable Object class (its `exports` is
+empty since the tombstones were dropped, 2026-11-16).
 
 ### workers/github-broker
 

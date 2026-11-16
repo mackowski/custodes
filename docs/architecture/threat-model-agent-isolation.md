@@ -12,7 +12,8 @@ After the change ships, it is folded into that file.
   specialists) and `custodes-triage-apply` (ADR 0019): one Worker per agent, each with a
   `keyholder` Durable Object. `custodes-agents` runs no agent since 2026-11-16 (#122).
 - The broker's per-agent entrypoints, signature and nonce check, and its default entrypoint, which
-  refuses every agent (the `isolated` flag served the transition).
+  refuses every agent in code (the `isolated` policy flag served the transition and was dropped
+  on 2026-11-16).
 - `packages/schema/src/agent-keys.json` (built into the broker and the gateway).
 - The gateway's `/admin/agent-keys/page` and per-agent queues.
 - The rotation workflow.
