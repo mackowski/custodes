@@ -225,6 +225,32 @@ describe('bindings that carry approval authority', () => {
     expect(bound).toBeGreaterThan(0);
   });
 
+  it('keep custodes-agents empty: no binding, var, queue, cron or agent class (ADR 0018)', () => {
+    // It runs no agent and must not get one back quietly (review of #122, L1).
+    const shared = readWrangler('agents') as Bindings & Record<string, unknown>;
+    for (const key of [
+      'services',
+      'ai',
+      'kv_namespaces',
+      'd1_databases',
+      'r2_buckets',
+      'durable_objects',
+      'queues',
+      'send_email',
+      'vars',
+      'secrets_store_secrets',
+      'workflows',
+    ])
+      expect(shared[key], `custodes-agents has ${key}`).toBeUndefined();
+    expect((shared['triggers'] as { crons?: unknown[] } | undefined)?.crons).toEqual([]);
+    const exportsLive = Object.entries(
+      (shared['exports'] ?? {}) as Record<string, { state?: string }>,
+    ).filter(([, e]) => e.state === undefined);
+    expect(exportsLive, 'a live Durable Object class in custodes-agents').toEqual([]);
+    const index = readFileSync(new URL('agents/src/index.ts', WORKERS), 'utf8');
+    expect(index, 'custodes-agents exports a class').not.toMatch(/^export (\{|class)/m);
+  });
+
   it('give every queue one consumer Worker', () => {
     const consumers = workers.flatMap((w) =>
       (readWrangler(w).queues?.consumers ?? []).map((c) => c.queue),

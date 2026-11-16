@@ -219,6 +219,10 @@ jobs:
           api="https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/queues"
           auth="Authorization: Bearer $CLOUDFLARE_API_TOKEN"
           queues="$(curl -fsS -H "$auth" "$api?per_page=100")"
+          # One page only: fail rather than miss the queue on a later one (review of #122, L2).
+          if [ "$(jq -r '.result_info.total_count // 0' <<<"$queues")" -gt "$(jq -r '.result | length' <<<"$queues")" ]; then
+            echo "::error::more queues than one page; page through them before detaching"; exit 1
+          fi
           sel='.result[] | select(.queue_name == "custodes-inbound")'
           qid="$(jq -r "$sel | .queue_id" <<<"$queues")"
           if [ -z "$qid" ]; then echo "custodes-inbound does not exist; nothing to detach"; exit 0; fi
