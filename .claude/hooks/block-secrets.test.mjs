@@ -58,6 +58,9 @@ void test('refuses another spelling of the name and a link to the file', () => {
     /secret-bearing/,
   );
   assert.match(grep(root, { pattern: 'x', path: 'notes.txt' }) ?? '', /secret-bearing/);
+  // A walk finds the link too: with a glob that selects it, and without a glob.
+  assert.match(grep(root, { pattern: 'x', glob: '*.txt' }) ?? '', /notes\.txt/);
+  assert.match(grep(root, { pattern: 'x' }) ?? '', /notes\.txt/);
 });
 
 void test('refuses a Grep glob that selects a secret-bearing file without naming it', () => {
@@ -104,7 +107,7 @@ void test('outside the repository a Grep without a glob is checked too', () => {
     { tool_name: 'Grep', cwd: home, tool_input: { pattern: 'token' } },
     project,
   );
-  assert.match(outside ?? '', /outside the repository reaches a secret-bearing file/);
+  assert.match(outside ?? '', /reaches a secret-bearing file/);
   const inside = refusal(
     { tool_name: 'Grep', cwd: project, tool_input: { pattern: 'x' } },
     project,

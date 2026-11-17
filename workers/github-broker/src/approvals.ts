@@ -190,12 +190,18 @@ export async function readIssueThread(
     updated_at?: unknown;
   };
   if (data.pull_request !== undefined) return { ok: false, reason: 'not an issue' };
+  // `ghost` is GitHub's placeholder for a deleted account: nobody to assign or name, as the
+  // agents read it too.
   const login = (v: unknown) =>
-    typeof v === 'string' && GitHubLogin.safeParse(v).success ? v : null;
+    typeof v === 'string' && GitHubLogin.safeParse(v).success && v.toLowerCase() !== 'ghost'
+      ? v
+      : null;
   const author = login(data.user?.login);
   // A bot author often has a login we do not accept (`dependabot[bot]`): that is still a known
   // shape. It is never a person to assign or name; the commenters still are.
-  const botAuthor = data.user?.type === 'Bot';
+  const botAuthor =
+    data.user?.type === 'Bot' ||
+    (typeof data.user?.login === 'string' && data.user.login.toLowerCase() === 'ghost');
   if ((author === null && !botAuthor) || (data.state !== 'open' && data.state !== 'closed'))
     return { ok: false, reason: 'unexpected issue shape' };
   const labels = (data.labels ?? [])

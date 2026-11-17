@@ -787,6 +787,21 @@ describe('readIssueThread', () => {
       ),
     );
     expect(await read(13)).toMatchObject({ ok: true, people: [] });
+    // So is one from a deleted account (`ghost`): nobody to name; a commenter still is.
+    vi.restoreAllMocks();
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input) =>
+      Promise.resolve(
+        String(input instanceof Request ? input.url : input).includes('/comments')
+          ? Response.json([{ user: { login: 'ghost' } }, { user: { login: 'helper' } }])
+          : Response.json({
+              state: 'open',
+              user: { login: 'ghost' },
+              updated_at: '2026-11-10T10:00:00Z',
+              comments: 2,
+            }),
+      ),
+    );
+    expect(await read(14)).toMatchObject({ ok: true, people: ['helper'] });
     // An assignee with a login we do not accept is still an assignee: never read as unassigned.
     vi.restoreAllMocks();
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
