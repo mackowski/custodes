@@ -175,22 +175,6 @@ export interface PullRef {
   files: string[];
 }
 
-/** Pull requests in the same repository that reference the issue, from its timeline. */
-export function referencingPulls(
-  repo: string,
-  timeline: TimelineEvent[],
-): Omit<PullRef, 'files'>[] {
-  const seen = new Map<number, boolean>();
-  for (const e of timeline) {
-    const src = e.source?.issue;
-    if (e.event !== 'cross-referenced' || !src?.pull_request) continue;
-    if (src.repository?.full_name.toLowerCase() !== repo.toLowerCase()) continue;
-    const merged = typeof src.pull_request.merged_at === 'string';
-    seen.set(src.number, (seen.get(src.number) ?? false) || merged);
-  }
-  return [...seen].map(([number, merged]) => ({ number, merged }));
-}
-
 export interface LinkedPull {
   number: number;
   state: 'open' | 'merged' | 'closed';
@@ -207,8 +191,9 @@ export function linkedPulls(repo: string, timeline: TimelineEvent[]): LinkedPull
     const src = e.source?.issue;
     if (e.event !== 'cross-referenced' || !src?.pull_request) continue;
     if (src.repository?.full_name.toLowerCase() !== repo.toLowerCase()) continue;
+    // A PR is cross-referenced once per mention: one that says merged is not undone by another.
     const state =
-      typeof src.pull_request.merged_at === 'string'
+      typeof src.pull_request.merged_at === 'string' || out.get(src.number)?.state === 'merged'
         ? 'merged'
         : src.state === 'open'
           ? 'open'
@@ -402,11 +387,14 @@ export async function checkImplementation(
   const cheatSheets = offerableCheatSheets(allCheatSheets);
   const ackAt = labelAppliedAt(timeline, 'ACK_OBTAINED');
   const pulls: PullRef[] = [];
-  for (const p of referencingPulls(repo, timeline).slice(0, 10)) {
-    const withFiles = p.merged && pulls.filter((x) => x.files.length).length < MAX_PRS_WITH_FILES;
+  const linkedPrs = linkedPulls(repo, timeline);
+  for (const p of linkedPrs) {
+    const merged = p.state === 'merged';
+    const withFiles = merged && pulls.filter((x) => x.files.length).length < MAX_PRS_WITH_FILES;
     const files = withFiles ? await deps.reader.listPullFiles(repo, p.number) : [];
     pulls.push({
-      ...p,
+      number: p.number,
+      merged,
       files: files
         .filter((f) => f.startsWith('cheatsheets/'))
         .map((f) => f.slice('cheatsheets/'.length))
@@ -424,7 +412,6 @@ export async function checkImplementation(
   const assignees = (issue.assignees ?? [])
     .map((a) => safeLogin(a.login))
     .filter((l) => l !== 'unknown');
-  const linkedPrs = linkedPulls(repo, timeline);
   // The timeline has no PR activity date; read the open ones (bounded) for their updated_at.
   const openPrs: OpenLinkedPull[] = [];
   // Only PRs by an assignee count: anyone can open a fork PR that mentions the issue.

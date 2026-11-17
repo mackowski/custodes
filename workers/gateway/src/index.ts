@@ -1,6 +1,6 @@
 import { Hono, type Context } from 'hono';
 import { z } from 'zod';
-import { accessTokenOf, verifyRecord } from '@custodes/core';
+import { accessTokenOf, type PublicKeyInfo, verifyRecord } from '@custodes/core';
 import { verifyGitHubWebhookSignature } from '@custodes/github';
 import {
   AgentId,
@@ -13,7 +13,7 @@ import {
   type PublicKeyEntry,
   CallerName,
 } from '@custodes/schema';
-import { agentKeysPage, type HeldKey, keyAdminOf, listAgentKeys } from './agent-keys.js';
+import { agentKeysPage, keyAdminOf, listAgentKeys } from './agent-keys.js';
 import { AgentFlag, killSwitchPage } from './kill-switch-page.js';
 import { adminWriteAllowed, agentWriteAllowed, crossSiteWrite, verifyAccessJwt } from './access.js';
 import {
@@ -339,7 +339,7 @@ admin.post('/agent-keys/:caller/rotate', async (c) => {
   if (!caller.success) return c.json({ error: 'unknown caller' }, 404);
   const admin = keyAdminOf(c.env, caller.data);
   if (!admin) return c.json({ error: 'that Worker is not reachable yet' }, 409);
-  let next: HeldKey;
+  let next: PublicKeyInfo;
   try {
     next = await admin.rotate();
   } catch {

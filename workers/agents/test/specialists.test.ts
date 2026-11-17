@@ -15,7 +15,6 @@ import {
   threadState,
   linkedPulls,
   labelAppliedAt,
-  referencingPulls,
   validateImplementationCheck,
   type RawImplementationCheck,
 } from '../src/agents/specialists/implementation.js';
@@ -134,6 +133,7 @@ const proposalCtx = {
   labels: ['ACK_OBTAINED', 'ACK_WAITING', 'HELP_WANTED', 'NEW_CS'],
   current: ['ACK_WAITING'],
   people: ['gqlwriter', 'maint1'],
+  author: 'gqlwriter',
   files,
 };
 
@@ -433,10 +433,23 @@ describe('timeline helpers', () => {
   ];
 
   it('finds same-repo referencing PRs and their merge state', () => {
-    expect(referencingPulls(repo, timeline)).toEqual([
-      { number: 2196, merged: true },
-      { number: 2200, merged: false },
+    expect(linkedPulls(repo, timeline).map((p) => [p.number, p.state])).toEqual([
+      [2196, 'merged'],
+      [2200, 'closed'],
     ]);
+    // A second mention of a merged PR that does not say merged leaves it merged.
+    const again: TimelineEvent = {
+      event: 'cross-referenced',
+      source: {
+        issue: {
+          number: 2196,
+          state: 'closed',
+          pull_request: { merged_at: null },
+          repository: { full_name: 'OWASP/CheatSheetSeries' },
+        },
+      },
+    };
+    expect(linkedPulls(repo, [...timeline, again])[0]?.state).toBe('merged');
   });
 
   it('finds when a label was last applied', () => {

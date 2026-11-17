@@ -170,6 +170,11 @@ describe('BrokerGitHubReader', () => {
     );
     expect(full.issues.map((i) => i.number)).toEqual([1, 2]);
     expect(full.resumeAt).toBe(at(99));
+    // A full page that ends at the time asked for would be read again for ever: step past it.
+    const flat = await list(
+      Array.from({ length: 100 }, (_, n) => issue(n + 1, { updated_at: '2026-09-01T00:00:00Z' })),
+    );
+    expect(flat.resumeAt).toBe('2026-09-01T00:00:01.000Z');
     // A short page under the limit: everything was seen.
     expect((await list([issue(1)])).resumeAt).toBeNull();
   });

@@ -261,12 +261,14 @@ export class CheatsheetReviewAgent extends CustodesAgent<AgentsEnv, CheatsheetRe
       VALUES (${pull}, ${labelled.id}, ${headSha}, ${started}, 'running')`;
     // Longer than any real review (model calls are bounded by their timeouts): see checkInterrupted.
     await this.schedule(STALE_RUN_SECONDS, 'checkInterrupted', { pull, labelEvent: labelled.id });
+    // Only a row this run still holds: one reported as interrupted keeps that status.
     const finish = (status: string, extra: Partial<ReviewRow> = {}) => {
       this.sql`UPDATE reviews SET status = ${status}, finished_at = ${new Date().toISOString()},
         change_class = ${extra.change_class ?? null}, verdict = ${extra.verdict ?? null},
         event = ${extra.event ?? null}, models = ${extra.models ?? null},
         review_url = ${extra.review_url ?? null}
-        WHERE pull = ${pull} AND label_event = ${labelled.id ?? 0}`;
+        WHERE pull = ${pull} AND label_event = ${labelled.id ?? 0}
+          AND status IN ('running', 'posting')`;
     };
 
     try {

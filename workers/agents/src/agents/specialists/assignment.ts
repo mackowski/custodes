@@ -68,9 +68,9 @@ export interface AssignmentInput {
   people: string[];
   /**
    * The author's login, or null when a bot or a deleted account opened the issue: then nobody is
-   * "the author", and every entry of `people` is a commenter. Left out: the first of `people`.
+   * "the author", and every entry of `people` is a commenter.
    */
-  author?: string | null;
+  author: string | null;
   assignees: string[];
   reviewPr: number | null;
   asked: AskedAuthor | null;
@@ -101,7 +101,7 @@ export function chooseAssignee(i: AssignmentInput): Assignment {
     recheckAt,
     dropped,
   });
-  const author = i.author === undefined ? (i.people[0] ?? null) : i.author;
+  const author = i.author;
   const others = author === null ? i.people : i.people.slice(1);
   if (i.assignees.length > 0 || i.reviewPr !== null) return none();
   if (author === null && others.length === 0) return none();
@@ -144,10 +144,10 @@ export const ASK_AUTHOR = '{author}, would you like to work on this yourself?';
 export function fillPlaceholders(
   text: string,
   people: string[],
-  /** As in `AssignmentInput`: null when nobody is the author; left out, the first of `people`. */
-  authorLogin?: string | null,
+  /** As in `AssignmentInput`: null when nobody is the author. */
+  authorLogin: string | null,
 ): { ok: true; text: string; mentions: string[] } | { ok: false } {
-  const author = authorLogin === undefined ? people[0] : (authorLogin ?? undefined);
+  const author = authorLogin ?? undefined;
   const commenters = authorLogin === null ? people : people.slice(1);
   const mentions = new Set<string>();
   const seen = { bad: false };

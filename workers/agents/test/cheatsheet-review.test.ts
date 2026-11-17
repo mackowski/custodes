@@ -292,6 +292,8 @@ interface Options {
   mailFails?: boolean;
   /** Workers AI document conversion (#90); by default it fails. */
   toMarkdown?: ToMarkdown;
+  /** Runs once, inside the agent, at the first model call of a review. */
+  midRun?: (agent: CheatsheetReviewAgent) => Promise<void>;
 }
 
 const stub = () => getAgentByName(testEnv.CheatsheetReviewAgent, SANDBOX_INSTANCE);
@@ -299,7 +301,13 @@ const stub = () => getAgentByName(testEnv.CheatsheetReviewAgent, SANDBOX_INSTANC
 async function drive(opts: Options = {}): Promise<Run & { outs: ReviewOutcome[] }> {
   const sc = opts.scenario ?? scenario();
   const broker = fakeBroker(sc);
-  const models = fakeModels(opts.script ?? defaultScript(opts.judge ?? decisionJson()));
+  const script = opts.script ?? defaultScript(opts.judge ?? decisionJson());
+  let running: CheatsheetReviewAgent | undefined;
+  let mid: Promise<void> | undefined;
+  const models = fakeModels((role, req) => {
+    if (opts.midRun && running) mid ??= opts.midRun(running);
+    return script(role, req);
+  });
   const mail: Run['mail'] = [];
   const fetched: string[] = [];
   const email = {
@@ -311,6 +319,7 @@ async function drive(opts: Options = {}): Promise<Run & { outs: ReviewOutcome[] 
   };
   return runInDurableObject(await stub(), async (agent: CheatsheetReviewAgent) => {
     const i = agent as unknown as Internals;
+    running = agent;
     const original = i.env;
     i.env = Object.create(original, {
       BROKER: { value: withHaltState(broker) },
@@ -332,6 +341,7 @@ async function drive(opts: Options = {}): Promise<Run & { outs: ReviewOutcome[] 
     try {
       const outs: ReviewOutcome[] = [];
       for (let n = 0; n < (opts.runs ?? 1); n++) outs.push(await agent.runReview(PR));
+      await mid;
       const rows = i.sql<Run['rows'][number]>`SELECT status, verdict, event FROM reviews`;
       return { out: outs[0]!, outs, broker, models, mail, fetched, rows, logs: [] };
     } finally {
@@ -1265,6 +1275,24 @@ describe('cheatsheet-review: PR #75 review fixes', () => {
     const r = await drive({ scenario: scenario({ pullAfter: { labels: [] } }) });
     expect(r.out).toMatchObject({ ok: false, status: 'cancelled' });
     expect(r.broker.acts).toEqual([]);
+  });
+
+  it('publishes nothing when the run was reported as interrupted meanwhile', async () => {
+    const r = await drive({
+      midRun: (agent) => agent.checkInterrupted({ pull: PR, labelEvent: 501 }),
+    });
+    expect(r.out).toMatchObject({ ok: false, status: 'interrupted' });
+    expect(r.broker.acts).toEqual([]);
+    expect(r.rows).toMatchObject([{ status: 'interrupted' }]);
+  });
+
+  it('keeps the interrupted status when such a run ends without posting', async () => {
+    const r = await drive({
+      scenario: scenario({ pullAfter: { labels: [] } }),
+      midRun: (agent) => agent.checkInterrupted({ pull: PR, labelEvent: 501 }),
+    });
+    expect(r.out).toMatchObject({ ok: false, status: 'cancelled' });
+    expect(r.rows).toMatchObject([{ status: 'interrupted' }]);
   });
 
   it('publishes nothing when the author pushed during the review (L3)', async () => {

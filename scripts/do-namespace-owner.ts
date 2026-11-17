@@ -12,6 +12,7 @@
 // Needs CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID. Prints ids only, never the token.
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { isLive, mustRefuse, type WranglerConfig } from './do-namespace-rules.ts';
 
 interface Namespace {
   class?: string;
@@ -22,11 +23,6 @@ interface Page {
   result?: Namespace[];
   result_info?: { total_count?: number };
 }
-export interface WranglerConfig {
-  exports?: Record<string, { state?: string } | undefined>;
-  durable_objects?: { bindings?: { class_name: string; script_name?: string }[] };
-}
-
 const PER_PAGE = 100;
 const MAX_PAGES = 50;
 
@@ -58,25 +54,6 @@ async function ownersByClass(token: string, account: string): Promise<Map<string
   throw new Error(`more than ${MAX_PAGES} pages of namespaces`);
 }
 
-/**
- * Whether a Worker's config declares the class as its own live Durable Object: an export without a
- * tombstone state, or a binding without `script_name` (a binding with one points at another
- * Worker). Exported for the test: this decides what the deploy guard looks at.
- */
-export function isLive(config: WranglerConfig, className: string): boolean {
-  const exported = config.exports?.[className];
-  const liveExport = exported !== undefined && exported.state === undefined;
-  const ownBinding = (config.durable_objects?.bindings ?? []).some(
-    (b) => b.class_name === className && b.script_name === undefined,
-  );
-  return liveExport || ownBinding;
-}
-
-/** The guard's rule: a Worker may only declare a class live when the namespace is already its own. */
-export function mustRefuse(live: boolean, owner: string, script: string): boolean {
-  return live && owner !== script;
-}
-
 function declaresLive(dir: string, className: string): boolean {
   const text = readFileSync(join(dir, 'wrangler.jsonc'), 'utf8')
     .split('\n')
@@ -86,46 +63,43 @@ function declaresLive(dir: string, className: string): boolean {
   return isLive(JSON.parse(text) as WranglerConfig, className);
 }
 
-// Runs whenever the file is executed. Only the unit test, which imports the rules above, skips it:
-// a guard keyed on the script's file name would pass without checking anything if the file were
-// renamed or bundled.
-if (process.env['VITEST'] === undefined) {
-  const [classArg = '', flag, dir, script] = process.argv.slice(2);
-  const classes = classArg.split(',');
-  const token = process.env['CLOUDFLARE_API_TOKEN'];
-  const account = process.env['CLOUDFLARE_ACCOUNT_ID'];
-  const usage = 'usage: do-namespace-owner.ts <Class> | <Class,Class,...> --guard <dir> <script>';
-  if (!classes.every((c) => /^[A-Za-z][A-Za-z0-9]*$/.test(c)) || !token || !account) {
-    console.error(usage);
-    process.exit(2);
+// Runs whenever the file is executed, with no condition: the rules the unit test imports live in
+// do-namespace-rules.ts, so nothing here can be switched off by the environment.
+const [classArg = '', flag, dir, script] = process.argv.slice(2);
+const classes = classArg.split(',');
+const token = process.env['CLOUDFLARE_API_TOKEN'];
+const account = process.env['CLOUDFLARE_ACCOUNT_ID'];
+const usage = 'usage: do-namespace-owner.ts <Class> | <Class,Class,...> --guard <dir> <script>';
+if (!classes.every((c) => /^[A-Za-z][A-Za-z0-9]*$/.test(c)) || !token || !account) {
+  console.error(usage);
+  process.exit(2);
+}
+const all = await ownersByClass(token, account);
+const ownerOf = (c: string): string => {
+  const set = all.get(c) ?? new Set<string>();
+  if (set.size > 1) {
+    console.error(`more than one namespace for ${c}: ${[...set].join(', ')}`);
+    process.exit(1);
   }
-  const all = await ownersByClass(token, account);
-  const ownerOf = (c: string): string => {
-    const set = all.get(c) ?? new Set<string>();
-    if (set.size > 1) {
-      console.error(`more than one namespace for ${c}: ${[...set].join(', ')}`);
-      process.exit(1);
-    }
-    return [...set][0] ?? '';
-  };
+  return [...set][0] ?? '';
+};
 
-  if (flag === undefined && classes.length === 1) {
-    console.log(ownerOf(classes[0] ?? ''));
-  } else if (flag === '--guard' && dir && script) {
-    let refused = false;
-    for (const c of classes) {
-      const owner = ownerOf(c);
-      if (mustRefuse(declaresLive(dir, c), owner, script)) {
-        console.error(
-          `${dir} declares ${c} live, but its namespace belongs to '${owner || 'nobody'}', not ${script}. ` +
-            'After a cutover, merge its follow-up PR first (docs/runbooks/agent-cutover.md).',
-        );
-        refused = true;
-      } else console.log(`${c}: owner ${owner || '(none)'}, ok for ${script}`);
-    }
-    if (refused) process.exit(1);
-  } else {
-    console.error(usage);
-    process.exit(2);
+if (flag === undefined && classes.length === 1) {
+  console.log(ownerOf(classes[0] ?? ''));
+} else if (flag === '--guard' && dir && script) {
+  let refused = false;
+  for (const c of classes) {
+    const owner = ownerOf(c);
+    if (mustRefuse(declaresLive(dir, c), owner, script)) {
+      console.error(
+        `${dir} declares ${c} live, but its namespace belongs to '${owner || 'nobody'}', not ${script}. ` +
+          'After a cutover, merge its follow-up PR first (docs/runbooks/agent-cutover.md).',
+      );
+      refused = true;
+    } else console.log(`${c}: owner ${owner || '(none)'}, ok for ${script}`);
   }
+  if (refused) process.exit(1);
+} else {
+  console.error(usage);
+  process.exit(2);
 }

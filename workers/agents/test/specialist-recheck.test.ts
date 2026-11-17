@@ -57,6 +57,7 @@ function review(askedAt: Date | null, now: Date, over: { replied?: boolean } = {
       labels: [],
       current: [],
       people: ['author', 'bob'],
+      author: 'author',
       files: new Map(),
       now,
       ...(askedAt ? { asked: { at: askedAt.toISOString(), replied: over.replied ?? false } } : {}),

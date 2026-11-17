@@ -2,13 +2,8 @@ import { env } from 'cloudflare:workers';
 import { describe, expect, it, vi } from 'vitest';
 import worker, { AGENT_STRIPPED_HEADERS, agentWorker } from '../src/index.js';
 import { AgentKeys, type ApprovalRequest, type AuditRecord } from '@custodes/schema';
-import { toBase64Url } from '@custodes/core';
-import {
-  agentKeysPage,
-  listAgentKeys,
-  type HeldKey,
-  type KeyAdminLike,
-} from '../src/agent-keys.js';
+import { type PublicKeyInfo, toBase64Url } from '@custodes/core';
+import { agentKeysPage, listAgentKeys, type KeyAdminLike } from '../src/agent-keys.js';
 import {
   buildAuditRecord,
   generateAgentKeyPair,
@@ -648,7 +643,7 @@ describe('agent Worker keys page (ADR 0018)', () => {
     },
     retired: {},
   });
-  const admin = (keys: HeldKey[]): KeyAdminLike => ({
+  const admin = (keys: PublicKeyInfo[]): KeyAdminLike => ({
     publicKeys: () => Promise.resolve(keys),
     rotate: () => Promise.reject(new Error('not in this test')),
   });

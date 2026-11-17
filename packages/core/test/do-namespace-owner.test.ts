@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isLive, mustRefuse } from '../../../scripts/do-namespace-owner.js';
+import { isLive, mustRefuse } from '../../../scripts/do-namespace-rules.js';
 
 /**
  * The deploy guard (deploy-workers.yml): a Worker must not redeclare a Durable Object class whose

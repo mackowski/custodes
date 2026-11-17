@@ -338,8 +338,8 @@ export function validateProposalReview(
     labels: string[];
     current: string[];
     people: string[];
-    /** `threadAuthor`: null when nobody is the author. Left out: the first of `people`. */
-    author?: string | null;
+    /** `threadAuthor`: null when nobody is the author. */
+    author: string | null;
     files: ReadonlyMap<string, string>;
     /** Current assignees (valid logins). */
     assignees?: string[];
@@ -386,7 +386,7 @@ export function validateProposalReview(
     intent: raw.authorIntent,
     volunteers: raw.volunteers,
     people: ctx.people,
-    ...(ctx.author !== undefined ? { author: ctx.author } : {}),
+    author: ctx.author,
     assignees,
     reviewPr,
     asked,
@@ -403,7 +403,7 @@ export function validateProposalReview(
     assignees.length === 0 &&
     reviewPr === null &&
     // There must be an author to ask: a commenter is never asked in the author's place.
-    (ctx.author === undefined ? ctx.people.length > 0 : ctx.author !== null);
+    ctx.author !== null;
   let comment = sanitizeComment(raw.suggestedComment);
   if (ask && !comment.includes('{author}'))
     comment = comment ? `${comment}\n\n${ASK_AUTHOR}` : ASK_AUTHOR;

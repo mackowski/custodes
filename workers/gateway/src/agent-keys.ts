@@ -8,13 +8,10 @@ import type { PublicKeyInfo } from '@custodes/core';
 import { type AgentKeys, CallerName, PINNED_AGENT_KEYS, verificationKeys } from '@custodes/schema';
 import { escapeHtml, layout } from './approval-page.js';
 
-/** Public key info as a Keyholder reports it (the type `KeyAdmin` returns). */
-export type HeldKey = PublicKeyInfo;
-
 /** The part of a Worker's `KeyAdmin` entrypoint the gateway uses. */
 export interface KeyAdminLike {
-  publicKeys(): Promise<HeldKey[]>;
-  rotate(): Promise<HeldKey>;
+  publicKeys(): Promise<PublicKeyInfo[]>;
+  rotate(): Promise<PublicKeyInfo>;
 }
 
 /** Caller → the gateway binding of its KeyAdmin entrypoint (added once the Worker exists). */
@@ -30,7 +27,7 @@ export type PinState = 'pinned' | 'retired' | 'not pinned' | 'pinned, different 
 export interface AgentKeyRow {
   caller: CallerName;
   bound: boolean;
-  keys: (HeldKey & { pin: PinState; fingerprint: string })[];
+  keys: (PublicKeyInfo & { pin: PinState; fingerprint: string })[];
   /** Pinned kids the Keyholder no longer holds (rotated out): candidates to move to `retired`. */
   pinnedNotHeld: string[];
   error?: string;

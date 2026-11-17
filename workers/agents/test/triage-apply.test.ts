@@ -341,6 +341,7 @@ describe('automation trigger labels (review of #113)', () => {
         labels: ['ACK_OBTAINED', 'jules', 'custodes_cheatsheet_review'],
         current: [],
         people: ['author'],
+        author: 'author',
         files: new Map(),
       },
     );
@@ -435,6 +436,7 @@ describe('chooseAssignee', () => {
     intent: 'unclear',
     volunteers: [],
     people: ['author', 'bob', 'carol'],
+    author: 'author',
     assignees: [],
     reviewPr: null,
     asked: null,
@@ -455,7 +457,9 @@ describe('chooseAssignee', () => {
   it('assigns nobody when someone is assigned, a PR does the work or there is no author', () => {
     expect(chooseAssignee({ ...base, intent: 'offered', assignees: ['x'] }).assignTo).toBeNull();
     expect(chooseAssignee({ ...base, intent: 'offered', reviewPr: 5 }).assignTo).toBeNull();
-    expect(chooseAssignee({ ...base, intent: 'offered', people: [] }).assignTo).toBeNull();
+    expect(
+      chooseAssignee({ ...base, intent: 'offered', people: [], author: null }).assignTo,
+    ).toBeNull();
   });
 
   it('waits for the author while intent is unclear and a volunteer exists', () => {
@@ -530,14 +534,14 @@ describe('chooseAssignee', () => {
 describe('fillPlaceholders', () => {
   const people = ['author', 'bob', 'carol'];
   it('puts in the author and the N-th commenter, and lists each mention once', () => {
-    expect(fillPlaceholders('{author} and {commenter:2}, {author}!', people)).toEqual({
+    expect(fillPlaceholders('{author} and {commenter:2}, {author}!', people, 'author')).toEqual({
       ok: true,
       text: '@author and @carol, @author!',
       mentions: ['author', 'carol'],
     });
   });
   it('leaves text without placeholders alone', () => {
-    expect(fillPlaceholders('plain {1} text', people)).toEqual({
+    expect(fillPlaceholders('plain {1} text', people, 'author')).toEqual({
       ok: true,
       text: 'plain {1} text',
       mentions: [],
@@ -551,11 +555,11 @@ describe('fillPlaceholders', () => {
     '{author:1}',
     '{owner:1}',
   ])('rejects %s', (p) => {
-    expect(fillPlaceholders(`hi ${p}`, people)).toEqual({ ok: false });
+    expect(fillPlaceholders(`hi ${p}`, people, 'author')).toEqual({ ok: false });
   });
   it('rejects {author} when there is nobody, and a login that is not safe', () => {
-    expect(fillPlaceholders('{author}', [])).toEqual({ ok: false });
-    expect(fillPlaceholders('{author}', ['bad login'])).toEqual({ ok: false });
+    expect(fillPlaceholders('{author}', [], null)).toEqual({ ok: false });
+    expect(fillPlaceholders('{author}', ['bad login'], 'bad login')).toEqual({ ok: false });
   });
 });
 
@@ -566,6 +570,7 @@ describe('validateProposalReview: asking the author and the 48 hours', () => {
     labels: ['ACK_OBTAINED', 'ACK_WAITING', 'HELP_WANTED', 'NEW_CS'],
     current: ['ACK_WAITING'],
     people: ['author', 'bob'],
+    author: 'author',
     files: new Map<string, string>(),
     now: NOW,
   };
@@ -673,6 +678,7 @@ describe('digest apply block', () => {
     labels: ['ACK_OBTAINED', 'ACK_WAITING', 'NEW_CS'],
     current: ['ACK_WAITING'],
     people: ['author'],
+    author: 'author',
     files: new Map<string, string>(),
     now: NOW,
   };

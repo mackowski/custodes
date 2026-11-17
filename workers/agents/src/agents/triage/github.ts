@@ -200,9 +200,14 @@ export class BrokerGitHubReader {
       per_page: perPage,
     };
     const page = await this.read(repo, 'issues', q, z.array(PublicIssue));
+    const last = page.length >= perPage ? (page.at(-1)?.updated_at ?? null) : null;
+    // shortcut: a full page whose items all carry the time asked for would be read again for
+    // ever, so the next read starts one second later and items beyond the 100th with that same
+    // second are missed; page through them if a bulk edit of over 100 issues ever needs triage.
+    const stuck = last !== null && Date.parse(last) <= Date.parse(since);
     return {
       issues: page.filter((i) => i.pull_request === undefined),
-      resumeAt: page.length >= perPage ? (page.at(-1)?.updated_at ?? null) : null,
+      resumeAt: stuck ? new Date(Date.parse(since) + 1000).toISOString() : last,
     };
   }
 
