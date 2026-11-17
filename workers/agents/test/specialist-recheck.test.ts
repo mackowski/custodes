@@ -216,3 +216,75 @@ describe('specialists daily budget (operator, 2026-11-16)', () => {
     expect(e2eRunner).toContain(`const SPECIALIST_JOBS_PER_DAY = ${MAX_JOBS_PER_DAY_SANDBOX};`);
   });
 });
+
+describe('SpecialistAgent queue: giving up, the daily cap and versions', () => {
+  const updated = '2026-11-10T10:00:00.000Z';
+  const makeReady = (a: Internals, issue: number) =>
+    a.sql`UPDATE jobs SET enqueued_at = '2000-01-01T00:00:00.000Z' WHERE issue = ${issue}`;
+
+  it('parks a job after the last attempt, so the next prepare does not start it over', async () => {
+    const issue = 1000 + ++n;
+    await inAgent(async (a) => {
+      a.run = () => Promise.reject(new Error('boom'));
+      await a.enqueue([{ issue, issueUpdatedAt: updated }]);
+      for (let k = 0; k < 4; k++) {
+        makeReady(a, issue);
+        await a.workOne();
+      }
+      const parked = jobs(a).find((j) => j.issue === issue);
+      expect(parked?.attempts).toBe(4);
+      expect(Date.parse(parked?.enqueued_at ?? '')).toBeGreaterThan(Date.now() + 29 * 24 * HOUR);
+      // Triage sends the same version again on every prepare: the row stays parked.
+      let calls = 0;
+      a.run = () => {
+        calls++;
+        return Promise.resolve(null);
+      };
+      await a.enqueue([{ issue, issueUpdatedAt: updated }]);
+      expect(await a.workOne()).toBe(false);
+      expect(calls).toBe(0);
+      expect(jobs(a).find((j) => j.issue === issue)?.attempts).toBe(4);
+      // A newer version of the issue starts fresh and runs now.
+      await a.enqueue([{ issue, issueUpdatedAt: '2026-11-12T10:00:00.000Z' }]);
+      expect(jobs(a).find((j) => j.issue === issue)?.attempts).toBe(0);
+      await a.workOne();
+      expect(calls).toBe(1);
+    });
+  });
+
+  it('runs nothing once the daily cap is used', async () => {
+    const issue = 1000 + ++n;
+    await inAgent(async (a) => {
+      let calls = 0;
+      a.run = () => {
+        calls++;
+        return Promise.resolve(null);
+      };
+      await a.enqueue([{ issue, issueUpdatedAt: updated }]);
+      a.setState({
+        ...a.state,
+        day: new Date().toISOString().slice(0, 10),
+        jobsToday: MAX_JOBS_PER_DAY_SANDBOX,
+      });
+      expect(await a.workOne()).toBe(false);
+      expect(calls).toBe(0);
+      expect(jobs(a).some((j) => j.issue === issue)).toBe(true);
+    });
+  });
+
+  it('keeps a newer version that was enqueued while the old one was being worked', async () => {
+    const issue = 1000 + ++n;
+    const newer = '2026-11-12T10:00:00.000Z';
+    await inAgent(async (a) => {
+      a.run = async () => {
+        await a.enqueue([{ issue, issueUpdatedAt: newer }]);
+        return null;
+      };
+      await a.enqueue([{ issue, issueUpdatedAt: updated }]);
+      await a.workOne();
+      const row = jobs(a).find((j) => j.issue === issue);
+      expect(row?.issue_updated_at).toBe(newer);
+      expect(row?.attempts).toBe(0);
+    });
+  });
+});
