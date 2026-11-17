@@ -198,6 +198,9 @@ export abstract class CustodesAgent<
     triggeredBy: Trigger,
     opts: { turn?: Turn } = {},
   ): Promise<{ ok: true; created: ApprovalCreated } | { ok: false; status: number }> {
+    if (this.manifest.mode === 'readonly') {
+      throw new Error(`agent ${this.manifest.id} is read-only and cannot request side effects`);
+    }
     await this.guard();
     const request: BrokerRequest = {
       agentId: this.manifest.id,

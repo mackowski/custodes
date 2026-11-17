@@ -56,6 +56,14 @@ export async function verifyAttestation(
   const parsed = Attestation.safeParse(attestation);
   if (!parsed.success) return { valid: false, reason: 'malformed attestation' };
   const data = new TextEncoder().encode(canonicalJson(parsed.data.record));
-  const ok = await crypto.subtle.verify(ALG, publicKey, fromBase64Url(parsed.data.signature), data);
+  // The schema only requires a non-empty string: a corrupt row must read as invalid, not throw
+  // (the public /verify would answer 500).
+  let signature: Uint8Array<ArrayBuffer>;
+  try {
+    signature = fromBase64Url(parsed.data.signature);
+  } catch {
+    return { valid: false, reason: 'malformed attestation' };
+  }
+  const ok = await crypto.subtle.verify(ALG, publicKey, signature, data);
   return ok ? { valid: true, attestation: parsed.data } : { valid: false, reason: 'bad signature' };
 }

@@ -172,10 +172,14 @@ export class ApprovalStore {
     return parsed.success ? parsed.data : null;
   }
 
-  async listPending(limit: number): Promise<ApprovalRequest[]> {
+  /** Requests that can still be decided: pending and not expired, like `countPending`. */
+  async listPending(limit: number, now = new Date()): Promise<ApprovalRequest[]> {
     const { results } = await this.db
-      .prepare(`SELECT * FROM approvals WHERE status = 'pending' ORDER BY created_at DESC LIMIT ?1`)
-      .bind(limit)
+      .prepare(
+        `SELECT * FROM approvals WHERE status = 'pending' AND expires_at > ?2
+         ORDER BY created_at DESC LIMIT ?1`,
+      )
+      .bind(limit, now.toISOString())
       .all<ApprovalRow>();
     return results.map(toApproval);
   }
