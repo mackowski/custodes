@@ -33,6 +33,7 @@ on:
       - 'workers/agents/src/agents/cheatsheet-review/lineup.ts'
       - 'workers/agents/src/agents/cheatsheet-review/types.ts'
       - 'workers/agents/src/agents/cheatsheet-review/input.ts'
+      - 'workers/agents/src/agents/cheatsheet-review/claims.ts'
       - 'packages/llm/src/chat.ts'
       - 'packages/llm/src/structured.ts'
       - 'packages/llm/src/jev.ts'
