@@ -44,6 +44,12 @@ export class AuditStore {
     });
   }
 
+  /** A page size from a query string: 1 to 200, else 50. SQLite reads a negative LIMIT as "all". */
+  static listLimit(raw: string | undefined): number {
+    const n = Number(raw ?? 50);
+    return Number.isInteger(n) && n > 0 ? Math.min(n, 200) : 50;
+  }
+
   async list(agentId: string | undefined, limit: number): Promise<Attestation[]> {
     const stmt = agentId
       ? this.db

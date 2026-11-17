@@ -175,6 +175,16 @@ describe('broker act() when execution fails half way', () => {
   });
 });
 
+describe('audit list page size', () => {
+  it('is 1 to 200, and 50 for anything else (a negative LIMIT means no limit in SQLite)', () => {
+    expect(AuditStore.listLimit(undefined)).toBe(50);
+    expect(AuditStore.listLimit('10')).toBe(10);
+    expect(AuditStore.listLimit('5000')).toBe(200);
+    for (const bad of ['-1', '0', 'abc', '1.5', ''])
+      expect(AuditStore.listLimit(bad), bad).toBe(50);
+  });
+});
+
 describe('broker act() at the rate limit', () => {
   it('refuses the sixth close on one repository and still allows another repository', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation((_input, init) =>
