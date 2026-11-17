@@ -24,7 +24,6 @@ import {
 import {
   anchors,
   checkInternal,
-  extractLinks,
   fetchable,
   fetchLink,
   pageText,
@@ -430,33 +429,6 @@ describe('scope.fencedLines', () => {
 });
 
 // ---------- links ----------
-
-describe('links.extractLinks', () => {
-  const added = (text: string, n = 5) => [{ kind: '+' as const, newLine: n, text }];
-
-  it('finds markdown and bare links, each once, without trailing punctuation', () => {
-    const lines = [
-      ...added(
-        'See [a](https://a.example.com/x) and https://b.example.com/y, also https://b.example.com/y.',
-        3,
-      ),
-      ...added('Again [a](https://a.example.com/x "title") and [self](#heading).', 4),
-    ];
-    const links = extractLinks('cheatsheets/A.md', lines);
-    expect(links.map((l) => l.url)).toEqual([
-      'https://a.example.com/x',
-      'https://b.example.com/y',
-      '#heading',
-    ]);
-    expect(links[0]).toMatchObject({ file: 'cheatsheets/A.md', line: 3 });
-  });
-
-  it('ignores removed lines', () => {
-    expect(
-      extractLinks('f.md', [{ kind: '-' as const, text: 'https://gone.example.com' }]),
-    ).toEqual([]);
-  });
-});
 
 describe('links.pageText', () => {
   it('keeps visible text and drops comments, hidden blocks and tags', () => {
@@ -1168,6 +1140,15 @@ describe('render.checkSuggestions', () => {
     ]);
   });
 
+  it('rejects a suggestion whose escaped comment would not fit, never cutting its block', () => {
+    // 400 angle brackets escape to 1,600 characters; with a long replacement the body passes 3,900.
+    const out = check([sug({ rationale: '<'.repeat(400), replacement: 'x'.repeat(2_900) })]);
+    expect(out.comments).toEqual([]);
+    expect(out.rejected[0]?.why).toContain('too long');
+    const fits = check([sug({ rationale: 'short', replacement: 'x'.repeat(2_900) })]);
+    expect(fits.comments[0]?.body.endsWith('\n````')).toBe(true);
+  });
+
   it('rejects a replacement holding four backticks, which would close the fence', () => {
     const out = check([sug({ replacement: 'x\n````\n@everyone' })]);
     expect(out.comments).toEqual([]);
@@ -1347,7 +1328,6 @@ describe('email.lowQualityMail', () => {
     repo: 'mackowski/custodes-sandbox',
     pull: 9,
     author: 'x<script>alert(1)</script>',
-    title: 'T',
     decision: decision({
       verdict: 'CLOSE',
       lowQuality: true,
@@ -2679,12 +2659,6 @@ describe('links: reference definitions and HTML href/src (#95)', () => {
       'https://c.example/y',
     ]);
     expect(r.links.every((l) => l.markup === true)).toBe(true);
-    // extractLinks uses the same extractor.
-    expect(
-      extractLinks(SHEET, [{ kind: '+', text: '[x]: //evil.example/x', newLine: 1 }]).map(
-        (l) => l.url,
-      ),
-    ).toEqual(['//evil.example/x']);
   });
 
   it('keeps an entity-encoded scheme as written, so its form is refused', () => {

@@ -16,6 +16,8 @@ export const DOCS_URL =
 
 /** Upper bound for the review body: the broker allows 60 000 and appends a trailer. */
 const BODY_LIMIT = 55_000;
+/** `InlineReviewComment.body` in `@custodes/schema`: the broker refuses a longer comment. */
+const INLINE_BODY_MAX = 3_900;
 
 const URL_IN_TEXT = /https?:\/\/[^\s<>"'`)\]]+/gi;
 /** Placeholders for allowed URLs; inertText has already removed every control character. */
@@ -128,13 +130,20 @@ export function checkSuggestions(
       reject('another suggestion covers these lines');
       continue;
     }
+    const body = `${inertMarkdown(s.rationale, allowed, 400)}\n\n\`\`\`\`suggestion\n${s.replacement}\n\`\`\`\``;
+    // Escaping can grow the rationale fourfold. Cutting the body to fit would cut the suggestion
+    // block, and one click would then commit a truncated replacement.
+    if (body.length > INLINE_BODY_MAX) {
+      reject('too long for an inline comment; apply it by hand if it is right');
+      continue;
+    }
     taken.add(key);
     out.comments.push({
       path: s.file,
       line: s.line,
       ...(s.startLine !== undefined && s.startLine < s.line ? { startLine: s.startLine } : {}),
       side: 'RIGHT',
-      body: `${inertMarkdown(s.rationale, allowed, 400)}\n\n\`\`\`\`suggestion\n${s.replacement}\n\`\`\`\``,
+      body,
     });
     if (out.comments.length === 20) break;
   }

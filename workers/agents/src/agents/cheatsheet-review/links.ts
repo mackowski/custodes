@@ -5,7 +5,7 @@
  * never "broken".
  */
 import { cutWhole } from '@custodes/llm';
-import type { DiffLine, Hunk } from './diff.js';
+import type { Hunk } from './diff.js';
 
 export interface AddedLink {
   url: string;
@@ -316,22 +316,6 @@ export function scanLinks(
     }
   }
   return { links, targetOnlyLines, longLines };
-}
-
-/** Links in added lines, in order, each once. */
-export function extractLinks(file: string, added: readonly DiffLine[]): AddedLink[] {
-  const out: AddedLink[] = [];
-  const seen = new Set<string>();
-  for (const l of added) {
-    if (l.newLine === undefined) continue;
-    // The same extractor the pipeline uses (#95): one definition of what a link is.
-    for (const url of targets(l.text)) {
-      if (!url || seen.has(url)) continue;
-      seen.add(url);
-      out.push({ url, file, line: l.newLine, context: l.text.slice(0, 600) });
-    }
-  }
-  return out;
 }
 
 export function isExternal(url: string): boolean {

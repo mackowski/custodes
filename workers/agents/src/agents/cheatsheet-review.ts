@@ -364,7 +364,7 @@ export class CheatsheetReviewAgent extends CustodesAgent<AgentsEnv, CheatsheetRe
         line: c.line,
         ...(c.startLine !== undefined ? { startLine: c.startLine } : {}),
         side: c.side,
-        body: c.body.slice(0, 3_900),
+        body: c.body,
       })),
     };
     const posted: BrokerResponse = await this.act(review, runId, trig, { turn });
@@ -426,7 +426,6 @@ export class CheatsheetReviewAgent extends CustodesAgent<AgentsEnv, CheatsheetRe
             repo,
             pull,
             author: pr.user?.login ?? 'unknown',
-            title: pr.title,
             decision: d,
             reviewUrl: undefined,
             issues: snap.issues,
@@ -473,7 +472,6 @@ export class CheatsheetReviewAgent extends CustodesAgent<AgentsEnv, CheatsheetRe
           repo,
           pull,
           author: pr.user?.login ?? 'unknown',
-          title: pr.title,
           decision: d,
           reviewUrl,
           issues: snap.issues,

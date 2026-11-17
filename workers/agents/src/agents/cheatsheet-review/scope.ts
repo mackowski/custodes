@@ -226,26 +226,22 @@ export function classify(files: readonly ScopedFile[], unreviewedFiles = 0): Sco
   return { kind: 'ambiguous' };
 }
 
+/** The full lineup: changes to guidance and to code get the same reviewers. */
+const FULL_REVIEW: readonly ReviewerRole[] = [
+  'security-reviewer',
+  'security-second-voice',
+  'practicality-reviewer',
+  'link-auditor',
+  'duplication-checker',
+  'language-reviewer',
+];
+
 /** Which reviewers run for a class. Security never drops out of a change to guidance (MODELS.md). */
 export const REVIEWERS_FOR: Readonly<Record<ChangeClass, readonly ReviewerRole[]>> = {
   'links-only': ['link-auditor', 'language-reviewer'],
   'minor-prose': ['language-reviewer', 'link-auditor'],
-  content: [
-    'security-reviewer',
-    'security-second-voice',
-    'practicality-reviewer',
-    'link-auditor',
-    'duplication-checker',
-    'language-reviewer',
-  ],
-  code: [
-    'security-reviewer',
-    'security-second-voice',
-    'practicality-reviewer',
-    'link-auditor',
-    'duplication-checker',
-    'language-reviewer',
-  ],
+  content: FULL_REVIEW,
+  code: FULL_REVIEW,
   'out-of-scope': ['language-reviewer'],
 };
 
