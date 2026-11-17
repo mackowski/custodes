@@ -3,7 +3,7 @@ import { INLINE_COMMENT_MARKER } from '@custodes/schema';
 import { executeAction, GitHubRest } from '../src/api.js';
 import type { GitHubIdentity } from '../src/identity.js';
 
-const id: GitHubIdentity = { kind: 'pat', agentId: 'triage', token: () => Promise.resolve('tok') };
+const id: GitHubIdentity = { agentId: 'triage', token: () => Promise.resolve('tok') };
 
 describe('GitHubRest', () => {
   it('sends a bearer token and appends trailers to comments', async () => {

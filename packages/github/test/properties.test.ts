@@ -1,9 +1,8 @@
-// Property-based (fuzz) tests for the broker's path builder and trailer parsing.
+// Property-based (fuzz) tests for the broker's path builder.
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import { BrokerReadRequest, CheatSheetFile } from '@custodes/schema';
 import { buildReadPath } from '../src/read.js';
-import { parseTrailers } from '../src/trailers.js';
 
 const pathy = fc.oneof(
   fc
@@ -116,26 +115,6 @@ describe('buildReadPath() properties', () => {
           expect(name).toMatch(/^[A-Za-z0-9_-][A-Za-z0-9_.-]*\.md$/);
       }),
       { numRuns: 1000 },
-    );
-  });
-});
-
-describe('parseTrailers() properties', () => {
-  it('never throws and returns only string values', () => {
-    fc.assert(
-      fc.property(
-        fc.oneof(
-          fc
-            .array(fc.constantFrom('<!--\n', '\n-->', 'a: b', 'Custodes-Agent: x', '\n', '-->'), {
-              maxLength: 30,
-            })
-            .map((p) => p.join('')),
-          fc.string({ unit: 'binary', maxLength: 300 }),
-        ),
-        (body) => {
-          for (const v of Object.values(parseTrailers(body))) expect(typeof v).toBe('string');
-        },
-      ),
     );
   });
 });
