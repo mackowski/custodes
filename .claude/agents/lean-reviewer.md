@@ -1,7 +1,7 @@
 ---
 name: lean-reviewer
 description: Use through /lean-review. Read-only quality review of a change or audit of a folder - correctness, load, missing tests and what to delete. Reports findings; never edits and never runs code.
-tools: Read, Grep, Glob, Bash(git diff *), Bash(git log *), Bash(git show *), Bash(gh pr diff *), Bash(gh pr view *)
+tools: Read, Grep, Glob, Bash(git diff *), Bash(git log *), Bash(gh pr diff *), Bash(gh pr view *)
 model: opus
 effort: high
 permissionMode: plan

@@ -43,6 +43,11 @@ fi
 if printf '%s' "$cmd" | grep -Eq 'git[[:space:]]+push[[:space:]].*(--force|-f([[:space:]]|$))'; then
   deny "force pushes are not allowed"
 fi
+# git diff/log/show can write any file with --output; the read-only review subagents are granted
+# those commands and read untrusted diffs.
+if printf '%s' "$cmd" | grep -Eq '(^|[;&| ])git[[:space:]][^;&|]*--output'; then
+  deny "git --output writes files; redirect is not needed for a review"
+fi
 # Piping remote content into a shell.
 if printf '%s' "$cmd" | grep -Eq '(curl|wget)[^|]*\|[[:space:]]*(ba|z)?sh([[:space:]]|$)'; then
   deny "piping downloads into a shell is not allowed"
