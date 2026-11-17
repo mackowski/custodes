@@ -344,6 +344,25 @@ describe('triage agent wiring', () => {
     });
     for (const e of errors) expect(e).toContain('read-only');
   });
+
+  it('keeps agent state server-owned: a WebSocket client cannot overwrite it', async () => {
+    const stub = await getAgentByName(testEnv.TriageAgent, 'owasp-cheatsheetseries');
+    await runInDurableObject(stub, (agent) => {
+      const a = agent as unknown as {
+        validateStateChange(next: unknown, source: unknown): void;
+        shouldConnectionBeReadonly(): boolean;
+      };
+      // Any Access identity can open a WebSocket through the gateway; the SDK would otherwise
+      // apply its cf_agent_state frame (the cursor, daily counters, lastErrors).
+      expect(() => {
+        a.validateStateChange({ since: null }, { id: 'client' });
+      }).toThrow('server-owned');
+      expect(() => {
+        a.validateStateChange({ since: null }, 'server');
+      }).not.toThrow();
+      expect(a.shouldConnectionBeReadonly()).toBe(true);
+    });
+  });
 });
 
 describe('security review fixes', () => {

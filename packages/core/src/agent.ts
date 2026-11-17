@@ -62,6 +62,11 @@ export abstract class CustodesAgent<
     if (source !== 'server') throw new Error('agent state is server-owned');
   }
 
+  /** A second layer for the same rule: the SDK refuses a state frame from a read-only connection. */
+  override shouldConnectionBeReadonly(): boolean {
+    return true;
+  }
+
   /**
    * Workers custom spans; tests replace it with a recording fake. A namespace import, so a runtime
    * without `tracing` falls back to no spans instead of failing to load the Worker.
