@@ -99,7 +99,3 @@ export const BrokerActionType = z.enum(
   ],
 );
 export type BrokerActionType = z.infer<typeof BrokerActionType>;
-
-export function actionRepo(action: BrokerAction): string {
-  return action.repo;
-}

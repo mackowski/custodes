@@ -50,6 +50,10 @@ const lower = (s: string) => s.toLowerCase();
 /** The snapshot the broker compares against: sorted names, the comment count GitHub reports. */
 export function snapshotOf(issue: PublicIssue, commentsDigest: string): IssueSnapshot | null {
   if (issue.state !== 'open' && issue.state !== 'closed') return null;
+  const assignees = (issue.assignees ?? []).map((a) => a.login);
+  // An assignee whose login we do not accept is still an assignee: leaving it out would make the
+  // issue look unassigned and let a bundle assign a second person. No snapshot, as the broker does.
+  if (!assignees.every((l) => GitHubLogin.safeParse(l).success)) return null;
   return {
     updatedAt: issue.updated_at,
     commentsDigest,
@@ -57,10 +61,7 @@ export function snapshotOf(issue: PublicIssue, commentsDigest: string): IssueSna
     labels: issueLabels(issue)
       .filter((l) => l.length > 0)
       .sort(),
-    assignees: (issue.assignees ?? [])
-      .map((a) => a.login)
-      .filter((l) => GitHubLogin.safeParse(l).success)
-      .sort(),
+    assignees: assignees.sort(),
     comments: issue.comments,
   };
 }

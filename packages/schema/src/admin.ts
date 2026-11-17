@@ -1,13 +1,7 @@
 import { z } from 'zod';
-import { AgentId, AgentManifest, KillSwitchState, SemVer } from './agent.js';
+import { AgentId, SemVer } from './agent.js';
 import { Trigger } from './broker.js';
 import { BrokerAction, GitHubLogin } from './actions.js';
-
-export const AgentSummary = z.object({
-  manifest: AgentManifest,
-  killSwitch: KillSwitchState,
-});
-export type AgentSummary = z.infer<typeof AgentSummary>;
 
 export const ApprovalStatus = z.enum(['pending', 'approved', 'rejected', 'expired']);
 

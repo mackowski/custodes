@@ -196,10 +196,11 @@ export async function readIssueThread(
     .map((l) => (typeof l === 'string' ? l : typeof l.name === 'string' ? l.name : ''))
     .filter((l) => l.length > 0)
     .sort();
-  const assignees = (data.assignees ?? [])
-    .map((a) => login(a.login))
-    .filter((a): a is string => a !== null)
-    .sort();
+  const assigned = (data.assignees ?? []).map((a) => login(a.login));
+  // An assignee whose login we do not accept is still an assignee: dropping it would make the
+  // issue look unassigned and let a bundle assign a second person (ADR 0019).
+  if (assigned.includes(null)) return { ok: false, reason: 'unexpected issue shape' };
+  const assignees = assigned.filter((a): a is string => a !== null).sort();
   if (typeof data.updated_at !== 'string') return { ok: false, reason: 'unexpected issue shape' };
   const updatedAt = data.updated_at;
   // A bot author is not a person to assign or name either.

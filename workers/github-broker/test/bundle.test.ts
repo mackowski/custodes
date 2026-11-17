@@ -773,6 +773,17 @@ describe('readIssueThread', () => {
     vi.restoreAllMocks();
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json({ state: 'open', user: null }));
     expect(await read(11)).toEqual({ ok: false, reason: 'unexpected issue shape' });
+    // An assignee with a login we do not accept is still an assignee: never read as unassigned.
+    vi.restoreAllMocks();
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      Response.json({
+        state: 'open',
+        user: { login: 'author' },
+        updated_at: '2026-11-10T10:00:00Z',
+        assignees: [{ login: 'old-' }],
+      }),
+    );
+    expect(await read(12)).toEqual({ ok: false, reason: 'unexpected issue shape' });
   });
 
   it('does not read for an agent without read policy for the repo', async () => {

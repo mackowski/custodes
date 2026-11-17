@@ -223,12 +223,12 @@ describe('buildBundle', () => {
 });
 
 describe('triage-apply helpers', () => {
-  it('snapshots sorted labels and assignees, and drops invalid logins', () => {
+  it('snapshots sorted labels and assignees, and refuses an assignee it cannot name', () => {
     expect(
       snapshotOf(
         issue({
           labels: ['b', { name: 'a' }],
-          assignees: [{ login: 'zed' }, { login: 'not a login' }, { login: 'amy' }],
+          assignees: [{ login: 'zed' }, { login: 'amy' }],
           comments: 4,
         }),
       ),
@@ -240,6 +240,12 @@ describe('triage-apply helpers', () => {
       commentsDigest: DIGEST,
     });
     expect(snapshotOf(issue({ state: 'merged' }))).toBeNull();
+    // An assignee with a login we do not accept (old accounts end in a hyphen): no snapshot,
+    // never "unassigned".
+    expect(snapshotOf(issue({ assignees: [{ login: 'old-' }] }))).toBeNull();
+    expect(
+      snapshotOf(issue({ assignees: [{ login: 'amy' }, { login: 'not a login' }] })),
+    ).toBeNull();
   });
 
   it('lists the author first and every commenter once, ignoring invalid logins', () => {
