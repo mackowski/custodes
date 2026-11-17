@@ -374,15 +374,15 @@ describe('broker calls signed by the Worker keyholder (ADR 0018)', () => {
     for (const h of seen) expect(h.get('x-custodes-key-id')).toBe(kid);
   });
 
-  it('refuses to run half-configured instead of sending unsigned requests', async () => {
-    const { res, seen } = await pollWith({ CALLER_NAME: 'custodes-pr-gate' });
-    expect(res.ok).toBe(false);
-    expect(seen).toHaveLength(0);
-  });
-
-  it('stays unsigned on the shared Worker (neither is set)', async () => {
-    const { seen } = await pollWith({});
-    expect(seen.length).toBeGreaterThan(0);
-    for (const h of seen) expect(h.get('x-custodes-key-id')).toBeNull();
+  it('refuses to run without its Keyholder or caller name: no request is ever sent unsigned', async () => {
+    for (const missing of [
+      { KEYHOLDER: undefined },
+      { CALLER_NAME: undefined },
+      { KEYHOLDER: undefined, CALLER_NAME: undefined },
+    ]) {
+      const { res, seen } = await pollWith(missing);
+      expect(res.ok).toBe(false);
+      expect(seen).toHaveLength(0);
+    }
   });
 });

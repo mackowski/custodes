@@ -44,11 +44,14 @@ export default defineConfig({
           ProposalReviewAgent: { className: 'ProposalReviewAgent', useSQLite: true },
           PrGateAgent: { className: 'PrGateAgent', useSQLite: true },
           CheatsheetReviewAgent: { className: 'CheatsheetReviewAgent', useSQLite: true },
+          // As in every agent Worker: broker calls are signed by the Worker's Keyholder (ADR 0018).
+          KEYHOLDER: { className: 'Keyholder', useSQLite: true },
         },
         serviceBindings: { BROKER: 'custodes-github-broker' },
         // The vars every agent Worker sets in its own wrangler file, with the same values.
         bindings: {
           ENVIRONMENT: 'prod',
+          CALLER_NAME: 'custodes-pr-gate',
           AI_GATEWAY_ACCOUNT_ID: '5f62912564df344533c9563904c77662',
           AI_GATEWAY_ID: 'custodes',
           EMAIL_FROM: 'custodes@custodes.work',
