@@ -5,12 +5,10 @@
  */
 import { safeLogin } from '../triage/prompt.js';
 import type { IssueComment, PublicIssue } from '../triage/github.js';
+import { isMaintainer } from './implementation.js';
 
 /** How long the author has to answer our question before someone else who offered is proposed. */
 export const AUTHOR_SILENCE_MS = 48 * 3_600_000;
-
-/** Associations GitHub sets for people with write access to the repository. */
-const MAINTAINER_ASSOCIATIONS = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
 
 /**
  * The hidden trailer triage-apply comments carry (packages/github trailers, `visibility: hidden`).
@@ -45,7 +43,7 @@ export function askedAuthor(
     const body = c.body ?? '';
     if (
       c.user?.login.toLowerCase() === actor.toLowerCase() &&
-      MAINTAINER_ASSOCIATIONS.has(c.author_association ?? '') &&
+      isMaintainer(c) &&
       body.includes(OUR_TRAILER) &&
       namesAuthor.test(body) &&
       (at === null || c.created_at > at)
