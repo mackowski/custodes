@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { inertText } from '@custodes/llm';
+import { cutWhole, inertText } from '@custodes/llm';
 
 export const TriageKind = z.enum(['bug', 'new_cheat_sheet', 'update', 'question', 'spam', 'other']);
 
@@ -46,7 +46,7 @@ export function inertNoLinksWords(s: string, maxChars: number): string {
   const full = inertNoLinks(s, 100_000);
   if (full.length <= maxChars) return full;
   // Never end on half of a surrogate pair (an emoji cut in two is invalid UTF-16).
-  const cut = full.slice(0, maxChars - 1).replace(/[\uD800-\uDBFF]$/, '');
+  const cut = cutWhole(full, maxChars - 1);
   const space = cut.lastIndexOf(' ');
   return `${(space > maxChars * 0.6 ? cut.slice(0, space) : cut).replace(/[\s.,;:]+$/, '')}…`;
 }

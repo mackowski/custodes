@@ -499,6 +499,11 @@ describe('decide', () => {
     });
     const r = await decide(REPO, { ...pr, body }, d);
     expect(r).toMatchObject({ outcome: 'flag', reason: 'too_many_refs' });
+    // Its own number plus exactly five issues: all five are read, so this is not an overflow.
+    const five = body.replace(' #6', '');
+    const read = await decide(REPO, { ...pr, body: five }, d);
+    expect(read).not.toMatchObject({ reason: 'too_many_refs' });
+    expect(d.getIssue).toHaveBeenCalledWith(5);
   });
 
   it('still skips an overflowing body when an approved issue assigned to the author is read', async () => {

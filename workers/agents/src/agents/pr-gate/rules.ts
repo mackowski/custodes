@@ -58,15 +58,21 @@ export const MAX_LINKED = 5;
 /**
  * Issue numbers the PR body points at: `#123` and links to this repository's issues. At most
  * MAX_LINKED + 1 distinct ones, so a caller can tell that there were more. Pull requests among
- * them are filtered later (an issue read says so).
+ * them are filtered later (an issue read says so). `exclude` (a pull request's own number) is
+ * dropped before the cut, so it never takes the place of a real reference.
  * Code blocks, longer code spans and escaped `\#` are ignored (pasted lint output is full of
  * `#9`), but a code span holding only a reference counts: ``#`123` `` and `` `#123` ``.
  */
-export function linkedIssueNumbers(body: string | null | undefined, repo: string): number[] {
+export function linkedIssueNumbers(
+  body: string | null | undefined,
+  repo: string,
+  exclude?: number,
+): number[] {
   const raw = (body ?? '').slice(0, MAX_BODY_SCAN);
   const out: number[] = [];
   const add = (s: string | undefined) => {
     const n = Number(s);
+    if (n === exclude) return;
     if (Number.isSafeInteger(n) && n > 0 && n < 1_000_000 && !out.includes(n)) out.push(n);
   };
   const unfenced = raw.replace(/```[\s\S]*?(```|$)/g, ' ');

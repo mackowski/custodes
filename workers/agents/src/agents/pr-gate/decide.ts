@@ -93,13 +93,12 @@ export async function decide(
   const softFlag = disc === 'multiple';
 
   const author = pr.user?.login ?? '';
-  const found = linkedIssueNumbers(pr.body, repo);
+  // The PR's own number is left out before the list is cut: filtered afterwards, it used up one
+  // of the MAX_LINKED + 1 places and hid that a further reference was cut.
+  const refs = linkedIssueNumbers(pr.body, repo, pr.number);
   // More references than we read: the PR's own issue may be among the unread ones, so a missing
-  // approval below is not proof. Such a PR can still be skipped, but never closed. Counted before
-  // the PR's own number is dropped: `found` is already cut to MAX_LINKED + 1, so a self-reference
-  // among them would hide one more that was cut.
-  const overflow = found.length > MAX_LINKED;
-  const refs = found.filter((n) => n !== pr.number);
+  // approval below is not proof. Such a PR can still be skipped, but never closed.
+  const overflow = refs.length > MAX_LINKED;
   const linked = refs.slice(0, MAX_LINKED);
   const issues: PublicIssue[] = [];
   let files: PullFile[] | undefined;
