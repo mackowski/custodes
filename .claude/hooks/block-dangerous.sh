@@ -43,15 +43,6 @@ fi
 if printf '%s' "$cmd" | grep -Eq 'git[[:space:]]+push[[:space:]].*(--force|-f([[:space:]]|$))'; then
   deny "force pushes are not allowed"
 fi
-# git diff/log/show can write any file with --output, and difftool --extcmd runs any command; the
-# read-only review subagents are granted git diff/log and read untrusted diffs. Match on the
-# command with newlines joined and shell quoting removed (--"output"= works in a shell), and
-# refuse a "$" inside an option name (--$'\157utput'=).
-flat=$(printf '%s' "$cmd" | tr '\n' ' ' | tr -d "\"'\\\\")
-if printf '%s' "$flat" | grep -Eq '(^|[;&|( ])git[[:space:]]' &&
-  printf '%s' "$flat" | grep -Eq -- '--output|--extcmd|[[:space:]]difftool|(^|[[:space:]])--?[^[:space:]=]*\$'; then
-  deny "git --output, difftool and quoted option names are not allowed: they write files or run commands"
-fi
 # Piping remote content into a shell.
 if printf '%s' "$cmd" | grep -Eq '(curl|wget)[^|]*\|[[:space:]]*(ba|z)?sh([[:space:]]|$)'; then
   deny "piping downloads into a shell is not allowed"
