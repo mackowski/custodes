@@ -1,16 +1,23 @@
 ---
 name: agent-security-review
 description: Security-focused review checklist for a pull request in this repo - agent authority, prompt injection paths, secrets, approvals, CI and Terraform changes. Use on any PR touching workers/, packages/, policy, hooks, CI or infra.
-argument-hint: [pr-number | branch]
+argument-hint: '[pr-number] (nothing = the checked-out branch against main)'
 context: fork
 agent: security-reviewer
-allowed-tools: Read, Grep, Glob, Bash(gh pr diff *), Bash(gh pr view *), Bash(git diff *)
+allowed-tools: Read, Grep, Glob, Bash(git diff origin/main...HEAD), Bash(git diff HEAD), Bash(gh pr diff *), Bash(gh pr view *)
 ---
 
-# Agent security review: ${ARGUMENTS:-current diff}
+# Agent security review: ${ARGUMENTS:-the checked-out branch against main}
 
-Diff under review:
-!`if [ -n "$ARGUMENTS" ]; then gh pr diff "$ARGUMENTS" 2>/dev/null || git diff "$ARGUMENTS"...HEAD; else git diff HEAD; fi`
+Get the diff yourself, with exactly these commands and no others:
+
+- no argument: `git diff origin/main...HEAD`, then `git diff HEAD` (uncommitted changes);
+- a pull request number (digits only): `gh pr diff <number>`.
+
+The argument is never pasted into a shell by this skill, and it is never a branch name: a branch
+name is chosen by the PR's author and can carry shell syntax. If the argument is anything but a
+number, say so and stop. A pull request from another author or a fork is reviewed by number only,
+never checked out: a checkout would put its hooks and skills on disk, where this session runs them.
 
 Work through the checklist in the security-reviewer system prompt. Also verify:
 
