@@ -860,9 +860,9 @@ describe('bundle approval page (ADR 0019)', () => {
 
 describe('bundle result page', () => {
   const steps = [
-    { type: 'issue.assign', outcome: 'done' as const },
-    { type: 'issue.label.add', outcome: 'failed' as const, code: 'github_error' },
-    { type: 'issue.comment', outcome: 'not_run' as const },
+    { type: 'issue.assign' as const, outcome: 'done' as const },
+    { type: 'issue.label.add' as const, outcome: 'failed' as const, code: 'github_error' },
+    { type: 'issue.comment' as const, outcome: 'not_run' as const },
   ];
   const failed = { ok: false as const, code: 'github_error' as const, reason: 'x' };
 
@@ -878,10 +878,11 @@ describe('bundle result page', () => {
     const html = resultPage({
       result: 'ok',
       decision: 'approved',
+      executed: failed,
       steps: [
         { type: 'issue.comment', outcome: 'done', githubUrl: 'https://github.com/o/r/issues/1#c' },
-        { type: '<b>x</b>', outcome: 'done', githubUrl: 'https://evil.example.com/x' },
-        { type: 'issue.assign', outcome: 'failed', code: '<script>' },
+        { type: 'issue.label.add', outcome: 'done', githubUrl: 'https://evil.example.com/x' },
+        { type: 'issue.assign', outcome: 'failed', code: '<b>x</b><script>' },
       ],
     });
     expect(html).toContain('<a href="https://github.com/o/r/issues/1#c">');

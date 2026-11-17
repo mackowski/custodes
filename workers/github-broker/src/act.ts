@@ -143,8 +143,7 @@ export async function act(
       return deny('approval_invalid', 'approval already used');
   }
 
-  const hourAgo = new Date(now.getTime() - 3600_000).toISOString();
-  const used = await audit.countAllowedSince(req.agentId, req.action.repo, hourAgo);
+  const used = await audit.usedThisHour(req.agentId, req.action.repo, now);
   if (used >= agentPolicy.rateLimitPerHour) {
     return deny(
       'policy_denied',

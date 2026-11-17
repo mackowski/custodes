@@ -6,6 +6,7 @@
 import { z } from 'zod';
 import {
   type ApprovalBundle,
+  ApprovalToken,
   type BrokerAction,
   BrokerActionType,
   GitHubLogin,
@@ -36,7 +37,7 @@ export type ProposalInput = z.infer<typeof ProposalInput>;
 export const ProposeResult = z.discriminatedUnion('ok', [
   z.object({
     ok: z.literal(true),
-    token: z.string().regex(/^[0-9a-f-]{36}\.\d{1,12}\.[A-Za-z0-9_-]{20,100}$/),
+    token: ApprovalToken,
     expiresAt: z.iso.datetime(),
     actions: z.array(BrokerActionType).min(1).max(4),
     dropped: z.array(z.string().max(100)).max(10),

@@ -4,16 +4,12 @@
  * Access; each agent Worker is bound with its `KeyAdmin` entrypoint, which returns public keys and
  * rotates, nothing else. A Worker not bound yet (before its cutover) is listed as such.
  */
+import type { PublicKeyInfo } from '@custodes/core';
 import { type AgentKeys, CallerName, PINNED_AGENT_KEYS, verificationKeys } from '@custodes/schema';
 import { escapeHtml, layout } from './approval-page.js';
 
-/** Public key info as a Keyholder reports it. */
-export interface HeldKey {
-  kid: string;
-  x: string;
-  state: 'active' | 'next';
-  createdAt: string;
-}
+/** Public key info as a Keyholder reports it (the type `KeyAdmin` returns). */
+export type HeldKey = PublicKeyInfo;
 
 /** The part of a Worker's `KeyAdmin` entrypoint the gateway uses. */
 export interface KeyAdminLike {

@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { AgentId, SemVer } from './agent.js';
-import { Trigger } from './broker.js';
-import { BrokerAction, GitHubLogin } from './actions.js';
+import { BrokerResponse, Trigger } from './broker.js';
+import { BrokerAction, BrokerActionType, GitHubLogin } from './actions.js';
 
 export const ApprovalStatus = z.enum(['pending', 'approved', 'rejected', 'expired']);
 
@@ -97,13 +97,41 @@ export const ApprovalRequest = z.object({
 });
 export type ApprovalRequest = z.infer<typeof ApprovalRequest>;
 
+/** `<approval id>.<expiry>.<mac>`: the token in an approval link. One definition for every check. */
+export const ApprovalToken = z.string().regex(/^[0-9a-f-]{36}\.\d{1,12}\.[A-Za-z0-9_-]{20,100}$/);
+
 /** The broker's answer to an agent asking for an approval: the request and its link token. */
 export const ApprovalCreated = z.object({
   approval: ApprovalRequest,
   /** `<approvalId>.<exp>.<hmac>`, bound to this approval's exact action (ADR 0017 amendment). */
-  token: z.string().regex(/^[0-9a-f-]{36}\.\d{1,12}\.[A-Za-z0-9_-]{20,100}$/),
+  token: ApprovalToken,
 });
 export type ApprovalCreated = z.infer<typeof ApprovalCreated>;
+
+/** One action of an approved bundle, as it ran (or did not). */
+export const BundleStep = z.object({
+  type: BrokerActionType,
+  outcome: z.enum(['done', 'failed', 'not_run']),
+  code: z.string().optional(),
+  githubUrl: z.string().optional(),
+});
+export type BundleStep = z.infer<typeof BundleStep>;
+
+/**
+ * The broker's answer to a decision on an approval (the link page and the CLI's reject). The
+ * gateway parses it: a reply that is not one of these is an unknown outcome, never "nothing done".
+ */
+export const DecideOutcome = z.union([
+  z.object({ result: z.enum(['not_found', 'not_pending', 'expired', 'rate_limited']) }),
+  z.object({ result: z.literal('ok'), decision: z.literal('rejected') }),
+  z.object({
+    result: z.literal('ok'),
+    decision: z.literal('approved'),
+    executed: BrokerResponse,
+    steps: z.array(BundleStep).optional(),
+  }),
+]);
+export type DecideOutcome = z.infer<typeof DecideOutcome>;
 
 export const HaltRequest = z.object({ reason: z.string().min(3).max(500) });
 

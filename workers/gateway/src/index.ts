@@ -6,6 +6,7 @@ import {
   AgentId,
   ApprovalRequest,
   GitHubWebhookEnvelope,
+  DecideOutcome,
   HaltRequest,
   type AdminActor,
   type InboundEvent,
@@ -21,7 +22,6 @@ import {
   isApprover,
   PAGE_HEADERS,
   resultPage,
-  type DecideResult,
   refusedPage,
   unknownOutcomePage,
 } from './approval-page.js';
@@ -295,7 +295,14 @@ admin.post('/approvals/link/:token', async (c) => {
       PAGE_HEADERS,
     );
   }
-  const out = await res.json<DecideResult>();
+  // A reply that is not a decision outcome (the broker and the gateway out of step, a body cut
+  // short) is an unknown outcome too.
+  const parsed = DecideOutcome.safeParse(await res.json().catch(() => null));
+  if (!parsed.success) {
+    console.log(JSON.stringify({ event: 'admin.approval.link.failed', status: res.status }));
+    return c.body(unknownOutcomePage(), 502, PAGE_HEADERS);
+  }
+  const out = parsed.data;
   console.log(
     JSON.stringify({ event: 'admin.approval.link', decision: choice, result: out.result }),
   );

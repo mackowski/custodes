@@ -12,6 +12,8 @@ import {
   type BrokerRequest,
   type BrokerResponse,
   type BundleApprovalAsk,
+  type BundleStep,
+  type DecideOutcome,
   GitHubLogin,
   type IssueSnapshot,
 } from '@custodes/schema';
@@ -341,19 +343,6 @@ export async function approvalByToken(
   return { ok: true, approval: { ...approval, action: request.action } };
 }
 
-/** One action of an approved bundle, as it ran (or did not). */
-export interface BundleStep {
-  type: BrokerRequest['action']['type'];
-  outcome: 'done' | 'failed' | 'not_run';
-  code?: string;
-  githubUrl?: string;
-}
-
-export type DecideOutcome =
-  | { result: 'not_found' | 'not_pending' | 'expired' | 'rate_limited' }
-  | { result: 'ok'; decision: 'rejected' }
-  | { result: 'ok'; decision: 'approved'; executed: BrokerResponse; steps?: BundleStep[] };
-
 /** Records the decision; on approval runs the stored request once, through the full pipeline. */
 export async function decideApproval(
   env: BrokerEnv,
@@ -370,11 +359,10 @@ export async function decideApproval(
     const pending = await store.get(id);
     const agentPolicy = pending ? policy.agents[pending.agentId] : undefined;
     if (pending?.bundle && agentPolicy) {
-      const hourAgo = new Date(now.getTime() - 3_600_000).toISOString();
-      const used = await new AuditStore(env.AUDIT).countAllowedSince(
+      const used = await new AuditStore(env.AUDIT).usedThisHour(
         pending.agentId,
         pending.action.repo,
-        hourAgo,
+        now,
       );
       if (used + pending.bundle.actions.length > agentPolicy.rateLimitPerHour)
         return { result: 'rate_limited' };

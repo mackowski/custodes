@@ -78,6 +78,14 @@ export class AuditStore {
    * Side effects attempted on one repository: allowed ones plus those whose execution started and
    * then failed. Per repository, so test runs on a sandbox never use up a real repository's budget.
    */
+  /**
+   * What the hourly rate limit counts for an agent on a repository. One definition of the window:
+   * `act()` and the bundle pre-check must agree, or a bundle passes the check and stops half-way.
+   */
+  usedThisHour(agentId: string, repo: string, now: Date): Promise<number> {
+    return this.countAllowedSince(agentId, repo, new Date(now.getTime() - 3_600_000).toISOString());
+  }
+
   async countAllowedSince(agentId: string, repo: string, sinceIso: string): Promise<number> {
     const row = await this.db
       .prepare(
