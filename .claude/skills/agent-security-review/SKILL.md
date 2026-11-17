@@ -15,7 +15,11 @@ uncommitted changes):
 
 That command runs in the session that started this skill, with that session's rights; you, the
 reviewer, have no shell at all. The argument is a pull request number, never a branch name (a
-branch name is chosen by the PR's author and can carry shell syntax). A pull request from another
+branch name is chosen by the PR's author and can carry shell syntax). The argument is pasted into
+that command as text; what stops shell syntax in it is Claude Code's permission check, which
+refuses the command ("Quoted text in this command can't be checked before it runs"; tried with
+`1$(touch x)` on 2026-11-17, nothing ran). Keep the command this simple: a form the check cannot
+read is refused for every argument. A pull request from another
 author or a fork is reviewed by number only, never checked out: a checkout would put its hooks and
 skills on disk, where the session runs them. To read a file as the pull request has it, use the
 diff above; Read shows the checked-out tree.

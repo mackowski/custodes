@@ -18,6 +18,7 @@ import {
   isExternal,
   knownTargetForm,
   maskedLine,
+  citeAgain,
   scanLinks,
   type AddedLink,
   MAX_EXTERNAL_LINKS,
@@ -150,9 +151,10 @@ async function linkStage(snap: Snapshot, deps: PipelineDeps): Promise<LinkStage>
         continue;
       }
       if (isExternal(link.url)) {
-        // One fetch and one verdict per URL, at its first place. scanLinks dedupes within a file
-        // only; the auditor answers by URL, so the same URL in two sheets got both answers on the
-        // first one and used two of the MAX_EXTERNAL_LINKS places.
+        // One fetch and one verdict per URL, at its first place, for every sentence that cites it
+        // (citeAgain). scanLinks dedupes within a file only; the auditor answers by URL, so the
+        // same URL in two sheets got both answers on the first one and used two of the
+        // MAX_EXTERNAL_LINKS places.
         const prior = externalByUrl.get(link.url);
         if (prior === undefined) {
           const entry = { link };
@@ -163,7 +165,7 @@ async function linkStage(snap: Snapshot, deps: PipelineDeps): Promise<LinkStage>
           // file): the auditor must check that the page supports the claim, not just that it is
           // the same resource as before.
           prior.link = link;
-        }
+        } else citeAgain(prior.link, link);
         continue;
       }
       // javascript:, data:, mailto: and other schemes are never fetched; a person has to look.

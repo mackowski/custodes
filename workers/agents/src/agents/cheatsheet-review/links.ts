@@ -22,6 +22,21 @@ export interface AddedLink {
   markup?: true;
 }
 
+/** Sentences audited for one URL: the first place and this many more that cite it again. */
+const MAX_EXTRA_CITATIONS = 2;
+
+/**
+ * The same URL cited again for new text, in this file or another: the auditor answers once per
+ * URL, so the further sentence joins the first one's and is judged with it. Without this a true
+ * sentence at the first place would cover a false claim at the second.
+ */
+export function citeAgain(prior: AddedLink, link: AddedLink): void {
+  if (link.previous !== undefined || link.markup || prior.previous !== undefined) return;
+  if (prior.context.includes(link.context)) return;
+  if (prior.context.split('\nAlso cited in ').length > MAX_EXTRA_CITATIONS) return;
+  prior.context += `\nAlso cited in ${link.file} line ${link.line}: ${link.context}`;
+}
+
 export type FetchedLink =
   | { kind: 'page'; status: number; finalUrl: string; title: string; excerpt: string }
   | { kind: 'broken'; status: number }
@@ -225,7 +240,7 @@ export function scanLinks(
         delete prior.markup;
         prior.line = link.line;
         prior.context = link.context;
-      }
+      } else if (prior) citeAgain(prior, link);
       return;
     }
     seen.add(link.url);

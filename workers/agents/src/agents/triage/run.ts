@@ -44,6 +44,23 @@ export const MAX_ATTEMPTS = 3;
 export const MAX_CONSECUTIVE_INFRA_FAILURES = 3;
 
 /**
+ * A fixed, harmless issue. When a run assessed nothing and requests were refused, it goes through
+ * the same request as a real one: an answer means the path works and the refusals were about those
+ * issues; a failure means an outage (or a request the provider rejects whatever the text).
+ */
+const PROBE: PublicIssue = {
+  number: 0,
+  title: 'Connectivity check',
+  body: 'This is a fixed test message, not a real issue.',
+  html_url: 'https://github.com/',
+  user: null,
+  labels: [],
+  created_at: '1970-01-01T00:00:00Z',
+  updated_at: '1970-01-01T00:00:00Z',
+  comments: 0,
+};
+
+/**
  * One triage pass: read public data, assess changed issues, store validated results.
  * Pure orchestration; all I/O is injected so it is tested without network access.
  */
@@ -135,17 +152,29 @@ export async function runTriage(
       }
     }
   }
-  // A refused request (a 4xx that is not a timeout or a rate limit) in a run where other issues
-  // were assessed is about that issue (a guardrail block, a provider 400 on its text), not an
-  // outage: count it, so it cannot hold the cursor and cost a model call on every poll for ever.
-  // In an outage nothing is assessed and nothing is counted; a 429, a 5xx or a timeout is never
-  // counted, or a flood of issues could push real ones out of triage.
-  if (assessed > 0)
+  // A refused request (a 4xx that is not a timeout or a rate limit) while the model path works is
+  // about that issue (a guardrail block, a provider 400 on its text), not an outage: count it, so
+  // it cannot hold the cursor and cost a model call on every poll for ever. The path works when
+  // another issue was assessed in this run or, failing that, when the probe gets an answer: three
+  // refused issues at the front of every run would otherwise stop triage for good. In an outage
+  // the probe fails too and nothing is counted; a 429, a 5xx or a timeout is never counted, or a
+  // flood of issues could push real ones out of triage.
+  let pathWorks = assessed > 0;
+  if (!pathWorks && infraFailed.length > 0)
+    try {
+      await deps.complete(SYSTEM_PROMPT, buildUserMessage(PROBE, ctx), PROBE.number);
+      pathWorks = true;
+    } catch (err) {
+      if (err instanceof AgentHaltedError) throw err;
+      // An unusable answer is still an answer.
+      pathWorks = isInputSpecific(err);
+    }
+  if (pathWorks)
     for (const issue of infraFailed) {
       const attempts = deps.store.recordFailure(issue.number, issue.updated_at);
       if (attempts >= MAX_ATTEMPTS)
         errors.push(
-          `#${issue.number}: gave up after ${attempts} attempts (failed while other issues were assessed)`,
+          `#${issue.number}: gave up after ${attempts} attempts (refused while other requests were answered)`,
         );
     }
   // Issues arrive oldest update first. If the reader did not see everything, resume where it

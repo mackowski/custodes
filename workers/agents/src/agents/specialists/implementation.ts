@@ -205,7 +205,13 @@ export function linkedPulls(repo: string, timeline: TimelineEvent[]): LinkedPull
       title: clip(src.title ?? '', 150),
     });
   }
-  return [...out.values()].slice(0, 10);
+  // Ten at most, in timeline order, and a merged one is never among those left out: anyone can
+  // open pull requests that mention an issue, and ten of those must not hide the one that did
+  // the work.
+  const all = [...out.values()];
+  const merged = all.filter((p) => p.state === 'merged').slice(0, 10);
+  const rest = all.filter((p) => p.state !== 'merged').slice(0, 10 - merged.length);
+  return all.filter((p) => merged.includes(p) || rest.includes(p));
 }
 
 /** When the label was last applied, from the timeline; null when the timeline does not show it. */

@@ -450,6 +450,24 @@ describe('timeline helpers', () => {
       },
     };
     expect(linkedPulls(repo, [...timeline, again])[0]?.state).toBe('merged');
+    // Ten open pull requests that mention the issue first do not push a merged one out.
+    const mention = (number: number, mergedAt: string | null): TimelineEvent => ({
+      event: 'cross-referenced',
+      source: {
+        issue: {
+          number,
+          state: mergedAt === null ? 'open' : 'closed',
+          pull_request: { merged_at: mergedAt },
+          repository: { full_name: 'OWASP/CheatSheetSeries' },
+        },
+      },
+    });
+    const crowded = linkedPulls(repo, [
+      ...Array.from({ length: 12 }, (_, n) => mention(100 + n, null)),
+      mention(999, '2026-10-01T00:00:00Z'),
+    ]);
+    expect(crowded).toHaveLength(10);
+    expect(crowded.at(-1)).toMatchObject({ number: 999, state: 'merged' });
   });
 
   it('finds when a label was last applied', () => {

@@ -1941,6 +1941,27 @@ describe('links.scanLinks', () => {
     expect([...r.targetOnlyLines]).toEqual([]);
   });
 
+  it('audits every sentence that cites one URL, up to two more than the first', () => {
+    const r = scanLinks(
+      SHEET,
+      parsePatch(
+        [
+          '@@ -1,0 +1,4 @@',
+          '+True claim, see [d](https://new.example/a).',
+          '+False claim, see [d](https://new.example/a).',
+          '+Third claim, see [d](https://new.example/a).',
+          '+Fourth claim, see [d](https://new.example/a).',
+        ].join('\n'),
+      ),
+    );
+    expect(r.links).toHaveLength(1);
+    const context = r.links[0]?.context ?? '';
+    expect(context).toContain('True claim');
+    expect(context).toContain(`Also cited in ${SHEET} line 2: False claim`);
+    expect(context).toContain('Third claim');
+    expect(context).not.toContain('Fourth claim');
+  });
+
   it('does not pair across a context line inside one hunk', () => {
     const r = scanLinks(
       SHEET,

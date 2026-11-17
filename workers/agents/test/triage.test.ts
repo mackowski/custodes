@@ -485,7 +485,8 @@ describe('failure handling (the 2026-09-29 outage)', () => {
       '2026-09-21T00:00:00Z',
       deps({ complete: calls }, many),
     );
-    expect(calls).toHaveBeenCalledTimes(MAX_CONSECUTIVE_INFRA_FAILURES);
+    // Three issues, then one probe to tell an outage from refused issues.
+    expect(calls).toHaveBeenCalledTimes(MAX_CONSECUTIVE_INFRA_FAILURES + 1);
     expect(r.errors.at(-1)).toBe('stopped after 3 consecutive infrastructure failures');
     // infrastructure failures hold the cursor at the first failed issue so nothing is skipped
     expect(r.nextSince).toBe('2026-09-22T10:00:00Z');
@@ -513,12 +514,28 @@ describe('failure handling (the 2026-09-29 outage)', () => {
     const runs = [await run(6), await run(7), await run(8), await run(9)];
     expect(runs[0]?.nextSince).toBe(poison.updated_at);
     expect(runs[2]?.errors.at(-1)).toBe(
-      '#5: gave up after 3 attempts (failed while other issues were assessed)',
+      '#5: gave up after 3 attempts (refused while other requests were answered)',
     );
     expect(store.failures(5, poison.updated_at)).toBe(3);
     // Skipped from now on, so the cursor moves past it.
     expect(runs[3]?.errors).toEqual([]);
     expect(runs[3]?.nextSince).not.toBe(poison.updated_at);
+  });
+
+  it('counts refused issues when nothing was assessed but the probe is answered', async () => {
+    const store = memStore([]);
+    const three = [1, 2, 3].map((n) => issue(n, { updated_at: `2026-09-22T10:0${n}:00Z` }));
+    // Every real issue is refused; the fixed probe (issue 0) gets an answer.
+    const complete = (_s: string, _u: string, n: number) =>
+      n === 0 ? Promise.resolve('anything') : badRequest();
+    const run = () =>
+      runTriage('OWASP/CheatSheetSeries', '2026-09-21T00:00:00Z', deps({ complete, store }, three));
+    const runs = [await run(), await run(), await run(), await run()];
+    expect(runs[0]?.nextSince).toBe('2026-09-22T10:01:00Z');
+    expect(store.failures(1, '2026-09-22T10:01:00Z')).toBe(3);
+    // All three are skipped from now on: the cursor is free and no model call is made.
+    expect(runs[3]).toMatchObject({ assessed: 0, skipped: 3, errors: [] });
+    expect(runs[3]?.nextSince).not.toBe('2026-09-22T10:01:00Z');
   });
 
   it('never counts a rate limit, a server error or a timeout against an issue, even when others were assessed', async () => {
