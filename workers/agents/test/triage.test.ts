@@ -22,6 +22,7 @@ import { buildUserMessage, SYSTEM_PROMPT } from '../src/agents/triage/prompt.js'
 import { GatewayError } from '@custodes/llm';
 import {
   MAX_CONSECUTIVE_INFRA_FAILURES,
+  MAX_PER_RUN,
   runTriage,
   type TriageDeps,
 } from '../src/agents/triage/run.js';
@@ -146,7 +147,7 @@ describe('renderDigest', () => {
 describe('BrokerGitHubReader', () => {
   const runId = '9d7c1e9e-2b1a-4b6e-9a2e-1f7d1c2b3a44';
 
-  it('says where to resume when issues were cut, or a full page may hide more behind pull requests', async () => {
+  it('says where to resume when a full page may hide more behind pull requests', async () => {
     const at = (n: number) =>
       `2026-09-22T10:${String(n % 60).padStart(2, '0')}:${String(Math.floor(n / 60)).padStart(2, '0')}Z`;
     const list = (data: unknown[]) =>
@@ -154,11 +155,11 @@ describe('BrokerGitHubReader', () => {
         { fetch: () => Promise.resolve(Response.json({ ok: true, data })) },
         'triage',
         runId,
-      ).listUpdatedIssues('OWASP/CheatSheetSeries', '2026-09-01T00:00:00Z', 3);
-    // More issues than the limit: resume from the last one returned.
+      ).listUpdatedIssues('OWASP/CheatSheetSeries', '2026-09-01T00:00:00Z');
+    // A short page: every issue on it, and nothing more to resume.
     const many = await list([1, 2, 3, 4, 5].map((n) => issue(n, { updated_at: at(n) })));
-    expect(many.issues.map((i) => i.number)).toEqual([1, 2, 3]);
-    expect(many.resumeAt).toBe(at(3));
+    expect(many.issues.map((i) => i.number)).toEqual([1, 2, 3, 4, 5]);
+    expect(many.resumeAt).toBeNull();
     // A full page of 100 with two issues among pull requests: more may follow the last item.
     const full = await list(
       Array.from({ length: 100 }, (_, n) =>
@@ -183,7 +184,6 @@ describe('BrokerGitHubReader', () => {
     const { issues, resumeAt } = await reader.listUpdatedIssues(
       'OWASP/CheatSheetSeries',
       '2026-09-01T00:00:00Z',
-      10,
     );
     expect(issues.map((i) => i.number)).toEqual([1]);
     expect(resumeAt).toBeNull();
@@ -290,6 +290,26 @@ describe('runTriage', () => {
     expect(r.errors).toEqual(['#5: StructuredOutputError']);
     expect(JSON.stringify(r.errors)).not.toContain('SECRET');
     expect(d.saved).toEqual([]);
+  });
+
+  it('caps the issues it works on, not the ones it skips: a batch sharing one timestamp cannot block the cursor', async () => {
+    // A bulk label gives 20 issues the same updated_at. Run 1 takes 15 and resumes at that time;
+    // run 2 gets the same list, skips the 15 it has, and must reach the other 5.
+    const same = '2026-09-22T10:00:00Z';
+    const batch = Array.from({ length: 20 }, (_, i) => issue(i + 1, { updated_at: same }));
+    const done = new Set<number>();
+    const store = {
+      ...memStore([]),
+      isCurrent: (n: number) => done.has(n),
+      save: (i: PublicIssue) => void done.add(i.number),
+    };
+    const first = await runTriage('OWASP/CheatSheetSeries', 'x', deps({ store }, batch));
+    expect(first.assessed).toBe(MAX_PER_RUN);
+    expect(first.nextSince).toBe(same);
+    const second = await runTriage('OWASP/CheatSheetSeries', same, deps({ store }, batch));
+    expect(second.assessed).toBe(20 - MAX_PER_RUN);
+    expect(done.size).toBe(20);
+    expect(second.nextSince).not.toBe(same);
   });
 
   it('resumes where the reader stopped when it did not see everything', async () => {

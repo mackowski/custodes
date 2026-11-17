@@ -57,7 +57,7 @@ export async function runTriage(
     deps.reader.listLabels(repo),
     deps.reader.listCheatSheets(repo),
     deps.reader.listRecentIssueTitles(repo, 50),
-    deps.reader.listUpdatedIssues(repo, since, MAX_PER_RUN),
+    deps.reader.listUpdatedIssues(repo, since),
   ]);
   // Only names that pass the prompt's safe charset unchanged are offered and accepted, so the model
   // sees exactly the list it is validated against.
@@ -70,6 +70,9 @@ export async function runTriage(
   let skipped = 0;
   let consecutiveInfra = 0;
   const infraFailed: PublicIssue[] = [];
+  let attempted = 0;
+  /** Where the run stopped at its cap: the first issue it did not get to. */
+  let cutAt: string | null = null;
   for (const issue of issues) {
     if (
       deps.store.isCurrent(issue.number, issue.updated_at) ||
@@ -78,6 +81,14 @@ export async function runTriage(
       skipped++;
       continue;
     }
+    // The cap counts issues that need work, not the ones skipped above: otherwise 15 assessed
+    // issues sharing one timestamp (a bulk label) would fill every run and nothing after them
+    // would ever be reached.
+    if (attempted >= MAX_PER_RUN) {
+      cutAt = issue.updated_at;
+      break;
+    }
+    attempted++;
     try {
       const turn = deps.turn?.(issue.number);
       const assessment = await invokeAgent(turn, async (span) => {
@@ -141,6 +152,6 @@ export async function runTriage(
   // stopped (an issue already assessed is skipped next time as current); otherwise everything up
   // to now is covered. A failed issue (model or gateway error) is retried next run: never move the
   // cursor past it.
-  const nextSince = firstFailedUpdate ?? resumeAt ?? startedAt.toISOString();
+  const nextSince = firstFailedUpdate ?? cutAt ?? resumeAt ?? startedAt.toISOString();
   return { assessed, skipped, errors, nextSince };
 }

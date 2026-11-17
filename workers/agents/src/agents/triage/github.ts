@@ -180,16 +180,16 @@ export class BrokerGitHubReader {
   }
 
   /**
-   * Open issues (not PRs) updated since `since`, oldest update first, at most `limit`.
-   * `resumeAt` is where the next run must start when this one did not see everything: the last
-   * issue returned when more issues were cut, or the last item of a full page (GitHub lists pull
-   * requests on the same endpoint, so a full page can hold few issues and still hide more behind
-   * it). Null means everything updated since `since` was seen.
+   * Open issues (not PRs) updated since `since`, oldest update first: one page of 100 items.
+   * `resumeAt` is set when the page was full, to its last item's time: GitHub lists pull requests
+   * on the same endpoint, so a full page can hold few issues and still hide more behind it. Null
+   * means everything updated since `since` was seen. How many of them one run handles is the
+   * caller's limit: it knows which are already assessed, and a cut made here before that could
+   * return the same already-assessed issues for ever when many share one timestamp.
    */
   async listUpdatedIssues(
     repo: string,
     since: string,
-    limit: number,
   ): Promise<{ issues: PublicIssue[]; resumeAt: string | null }> {
     const perPage = 100;
     const q: ReadQuery = {
@@ -200,11 +200,10 @@ export class BrokerGitHubReader {
       per_page: perPage,
     };
     const page = await this.read(repo, 'issues', q, z.array(PublicIssue));
-    const all = page.filter((i) => i.pull_request === undefined);
-    const issues = all.slice(0, limit);
-    const cut =
-      all.length > limit ? issues.at(-1) : page.length >= perPage ? page.at(-1) : undefined;
-    return { issues, resumeAt: cut?.updated_at ?? null };
+    return {
+      issues: page.filter((i) => i.pull_request === undefined),
+      resumeAt: page.length >= perPage ? (page.at(-1)?.updated_at ?? null) : null,
+    };
   }
 
   /** Recently created open issues, as candidates for duplicate detection. */
