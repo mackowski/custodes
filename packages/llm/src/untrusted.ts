@@ -19,10 +19,19 @@ export function untrusted(source: string, content: string): string {
   return `<untrusted source="${safeSource}">\n${safeContent}\n</untrusted>`;
 }
 
+/**
+ * The first `maxChars` UTF-16 units, minus a trailing half of a surrogate pair: an emoji cut in two
+ * is invalid UTF-16, and a provider may refuse the whole request for it.
+ */
+function cutWhole(s: string, maxChars: number): string {
+  return s.slice(0, maxChars).replace(/[\uD800-\uDBFF]$/, '');
+}
+
 /** Truncates long inputs deterministically so prompts stay within a budget. */
 export function clip(content: string, maxChars: number): string {
   if (content.length <= maxChars) return content;
-  return `${content.slice(0, maxChars)}\n[... ${content.length - maxChars} characters truncated ...]`;
+  const kept = cutWhole(content, maxChars);
+  return `${kept}\n[... ${content.length - kept.length} characters truncated ...]`;
 }
 
 /**
@@ -34,5 +43,5 @@ const INVISIBLE = new RegExp('[\\p{Cc}\\p{Cf}]', 'gu');
 
 /** Makes untrusted or model-generated text inert for plain-text display: one line, no hidden chars. */
 export function inertText(s: string, maxChars: number): string {
-  return s.replace(INVISIBLE, ' ').replace(/\s+/g, ' ').trim().slice(0, maxChars);
+  return cutWhole(s.replace(INVISIBLE, ' ').replace(/\s+/g, ' ').trim(), maxChars);
 }
