@@ -161,7 +161,7 @@ export const ProposalReview = z.object({
   assignTo: z.string().nullable(),
   /** Why `assignTo` was chosen (older stored results have none). */
   assignWhy: z
-    .enum(['author offered', 'author declined', 'author silent 2 days'])
+    .enum(['author offered', 'author declined', 'author silent 2 days', 'no author to ask'])
     .nullable()
     .default(null),
   /** Logins the suggested comment names, put in by code from GitHub-set fields (ADR 0019). */
@@ -224,19 +224,30 @@ export interface ReferencedIssue {
   via: string;
 }
 
+/** The author's login, or null when a bot, a deleted account or an unusable login opened the issue. */
+export function threadAuthor(issue: PublicIssue): string | null {
+  const login = safeLogin(issue.user?.login);
+  return issue.user?.['type'] === 'Bot' || login === 'unknown' ? null : login;
+}
+
 /**
- * Distinct, valid logins of the author and commenters, author first. Callers read the first entry
- * as the author (`{author}`, "author offered"), so without a usable author (a bot, a deleted
- * account, a login we do not accept) there is no list: the first commenter must not take that place.
+ * Distinct, valid logins of the author (when `threadAuthor` gives one) and the commenters, author
+ * first. Without an author the list holds commenters only: pass `threadAuthor` along with it, so
+ * that nobody reads the first commenter as the author (`{author}`, "author offered").
  */
 export function threadPeople(issue: PublicIssue, comments: IssueComment[]): string[] {
-  if (issue.user?.['type'] === 'Bot' || safeLogin(issue.user?.login) === 'unknown') return [];
   // Bot commenters are never people to assign or name (ADR 0019; security review of #113).
   const all = [
-    issue.user?.login,
+    threadAuthor(issue) ?? undefined,
     ...comments.filter((c) => c.user?.type !== 'Bot').map((c) => c.user?.login),
   ];
   return [...new Set(all.map(safeLogin).filter((l) => l !== 'unknown'))];
+}
+
+/** The commenters of `threadPeople`: everyone but the author. */
+function threadCommenters(issue: PublicIssue, comments: IssueComment[]): string[] {
+  const people = threadPeople(issue, comments);
+  return threadAuthor(issue) === null ? people : people.slice(1);
 }
 
 /** Code-built: whether and when we asked the author, and whether they answered. */
@@ -270,8 +281,7 @@ export function buildProposalMessage(
     `Known labels: ${labels.join(', ')}`,
     `People in this thread: ${threadPeople(issue, comments).join(', ') || '(none)'}`,
     `Commenters: ${
-      threadPeople(issue, comments)
-        .slice(1)
+      threadCommenters(issue, comments)
         .map((p, i) => `${i + 1}. ${p}`)
         .join(', ') || '(none)'
     }`,
@@ -325,6 +335,8 @@ export function validateProposalReview(
     labels: string[];
     current: string[];
     people: string[];
+    /** `threadAuthor`: null when nobody is the author. Left out: the first of `people`. */
+    author?: string | null;
     files: ReadonlyMap<string, string>;
     /** Current assignees (valid logins). */
     assignees?: string[];
@@ -371,6 +383,7 @@ export function validateProposalReview(
     intent: raw.authorIntent,
     volunteers: raw.volunteers,
     people: ctx.people,
+    ...(ctx.author !== undefined ? { author: ctx.author } : {}),
     assignees,
     reviewPr,
     asked,
@@ -386,11 +399,12 @@ export function validateProposalReview(
     assignTo === null &&
     assignees.length === 0 &&
     reviewPr === null &&
-    ctx.people.length > 0;
+    // There must be an author to ask: a commenter is never asked in the author's place.
+    (ctx.author === undefined ? ctx.people.length > 0 : ctx.author !== null);
   let comment = sanitizeComment(raw.suggestedComment);
   if (ask && !comment.includes('{author}'))
     comment = comment ? `${comment}\n\n${ASK_AUTHOR}` : ASK_AUTHOR;
-  const filled = fillPlaceholders(comment, ctx.people);
+  const filled = fillPlaceholders(comment, ctx.people, ctx.author);
   if (!filled.ok) dropped.push('comment (bad placeholder)');
   // The appended question and filled placeholders can take the comment past what triage-apply
   // accepts; then the whole one-click link would be refused. Drop the comment, keep the rest.
@@ -552,6 +566,7 @@ export async function reviewProposal(
     labels,
     current: issueLabels(issue),
     people: threadPeople(issue, comments),
+    author: threadAuthor(issue),
     files,
     assignees,
     linkedPrs,

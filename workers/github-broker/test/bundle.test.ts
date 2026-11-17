@@ -772,6 +772,21 @@ describe('readIssueThread', () => {
     vi.restoreAllMocks();
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json({ state: 'open', user: null }));
     expect(await read(11)).toEqual({ ok: false, reason: 'unexpected issue shape' });
+    // An issue a bot opened is a known shape, whatever its login: the bot is not among the people.
+    vi.restoreAllMocks();
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input) =>
+      Promise.resolve(
+        String(input instanceof Request ? input.url : input).includes('/comments')
+          ? Response.json([])
+          : Response.json({
+              state: 'open',
+              user: { login: 'dependabot[bot]', type: 'Bot' },
+              updated_at: '2026-11-10T10:00:00Z',
+              comments: 0,
+            }),
+      ),
+    );
+    expect(await read(13)).toMatchObject({ ok: true, people: [] });
     // An assignee with a login we do not accept is still an assignee: never read as unassigned.
     vi.restoreAllMocks();
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(

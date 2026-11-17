@@ -64,8 +64,13 @@ export interface AssignmentInput {
   intent: AuthorIntent;
   /** Logins the model says offered in their own comment; checked against the thread here. */
   volunteers: string[];
-  /** The issue author and every commenter, author first (GitHub-set). */
+  /** The issue author (when there is a usable one) and every commenter, author first (GitHub-set). */
   people: string[];
+  /**
+   * The author's login, or null when a bot or a deleted account opened the issue: then nobody is
+   * "the author", and every entry of `people` is a commenter. Left out: the first of `people`.
+   */
+  author?: string | null;
   assignees: string[];
   reviewPr: number | null;
   asked: AskedAuthor | null;
@@ -75,7 +80,7 @@ export interface AssignmentInput {
 export interface Assignment {
   assignTo: string | null;
   /** Why, for the digest; null when nobody is proposed. */
-  why: 'author offered' | 'author declined' | 'author silent 2 days' | null;
+  why: 'author offered' | 'author declined' | 'author silent 2 days' | 'no author to ask' | null;
   /** When the proposal should be reviewed again (the 2 days end); null when nothing is pending. */
   recheckAt: string | null;
   dropped: string[];
@@ -84,7 +89,9 @@ export interface Assignment {
 /**
  * (a) the author offered: the author; (b) unclear: nobody, the comment asks the author; (c) the
  * author declined, or stayed silent 2 full days after our question: the first other person who
- * offered, in thread order. Nobody when someone is assigned or an open PR does the work.
+ * offered, in thread order; (d) there is no author to ask (a bot or a deleted account opened the
+ * issue): the first person who offered. A commenter is never treated as the author. Nobody when
+ * someone is assigned or an open PR does the work.
  */
 export function chooseAssignee(i: AssignmentInput): Assignment {
   const dropped: string[] = [];
@@ -94,25 +101,33 @@ export function chooseAssignee(i: AssignmentInput): Assignment {
     recheckAt,
     dropped,
   });
-  const author = i.people[0];
-  if (i.assignees.length > 0 || i.reviewPr !== null || author === undefined) return none();
-  if (i.intent === 'offered')
+  const author = i.author === undefined ? (i.people[0] ?? null) : i.author;
+  const others = author === null ? i.people : i.people.slice(1);
+  if (i.assignees.length > 0 || i.reviewPr !== null) return none();
+  if (author === null && others.length === 0) return none();
+  if (author !== null && i.intent === 'offered')
     return { assignTo: author, why: 'author offered', recheckAt: null, dropped };
   const silentUntil =
     i.asked && !i.asked.replied ? Date.parse(i.asked.at) + AUTHOR_SILENCE_MS : NaN;
   const silent = !Number.isNaN(silentUntil) && i.now.getTime() >= silentUntil;
-  if (i.intent !== 'declined' && !silent)
+  // With an author, others come in only once the author declined or stayed silent.
+  if (author !== null && i.intent !== 'declined' && !silent)
     return none(Number.isNaN(silentUntil) ? null : new Date(silentUntil).toISOString());
   const lower = (s: string) => s.toLowerCase();
   const offered = new Set(i.volunteers.map((v) => lower(v.replace(/^@/, ''))));
   for (const v of offered)
     if (!i.people.some((p) => lower(p) === v)) dropped.push('volunteer not in the thread');
   // Thread order, author excluded: the first to comment among those who offered.
-  const pick = i.people.slice(1).find((p) => offered.has(lower(p)));
+  const pick = others.find((p) => offered.has(lower(p)));
   if (pick === undefined) return none();
   return {
     assignTo: pick,
-    why: i.intent === 'declined' ? 'author declined' : 'author silent 2 days',
+    why:
+      author === null
+        ? 'no author to ask'
+        : i.intent === 'declined'
+          ? 'author declined'
+          : 'author silent 2 days',
     recheckAt: null,
     dropped,
   };
@@ -129,9 +144,11 @@ export const ASK_AUTHOR = '{author}, would you like to work on this yourself?';
 export function fillPlaceholders(
   text: string,
   people: string[],
+  /** As in `AssignmentInput`: null when nobody is the author; left out, the first of `people`. */
+  authorLogin?: string | null,
 ): { ok: true; text: string; mentions: string[] } | { ok: false } {
-  const author = people[0];
-  const commenters = people.slice(1);
+  const author = authorLogin === undefined ? people[0] : (authorLogin ?? undefined);
+  const commenters = authorLogin === null ? people : people.slice(1);
   const mentions = new Set<string>();
   const seen = { bad: false };
   const out = text.replace(/\{([A-Za-z_]+)(?::(\d{1,3}))?\}/g, (_m, name: string, n?: string) => {

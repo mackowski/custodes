@@ -193,7 +193,10 @@ export async function readIssueThread(
   const login = (v: unknown) =>
     typeof v === 'string' && GitHubLogin.safeParse(v).success ? v : null;
   const author = login(data.user?.login);
-  if (author === null || (data.state !== 'open' && data.state !== 'closed'))
+  // A bot author often has a login we do not accept (`dependabot[bot]`): that is still a known
+  // shape. It is never a person to assign or name; the commenters still are.
+  const botAuthor = data.user?.type === 'Bot';
+  if ((author === null && !botAuthor) || (data.state !== 'open' && data.state !== 'closed'))
     return { ok: false, reason: 'unexpected issue shape' };
   const labels = (data.labels ?? [])
     .map((l) => (typeof l === 'string' ? l : typeof l.name === 'string' ? l.name : ''))
@@ -206,8 +209,7 @@ export async function readIssueThread(
   const assignees = assigned.filter((a): a is string => a !== null).sort();
   if (typeof data.updated_at !== 'string') return { ok: false, reason: 'unexpected issue shape' };
   const updatedAt = data.updated_at;
-  // A bot author is not a person to assign or name either.
-  const people = data.user?.type === 'Bot' ? [] : [author];
+  const people = botAuthor || author === null ? [] : [author];
   const all: unknown[] = [];
   let count = 0;
   for (let page = 1; page <= MAX_COMMENT_PAGES; page++) {

@@ -27,6 +27,7 @@ import {
   PROPOSAL_PROMPT,
   readReferencedIssues,
   reviewProposal,
+  threadAuthor,
   threadPeople as proposalThreadPeople,
   validateProposalReview,
 } from '../src/agents/specialists/proposal.js';
@@ -300,17 +301,48 @@ describe('validateProposalReview', () => {
     expect(stranger.dropped).toContain('volunteer not in the thread');
   });
 
-  it('names nobody when a bot or a deleted account opened the issue', () => {
+  it('keeps the commenters when a bot or a deleted account opened the issue, with nobody as the author', () => {
     const c = cmt('first-commenter', '2026-10-02T00:00:00Z', 'NONE');
-    // The first entry is read as the author: a commenter must never take that place.
-    expect(
-      proposalThreadPeople(issue(1, { user: { login: 'github-actions[bot]', type: 'Bot' } }), [c]),
-    ).toEqual([]);
-    expect(proposalThreadPeople(issue(1, { user: null }), [c])).toEqual([]);
+    const bot = issue(1, { user: { login: 'github-actions[bot]', type: 'Bot' } });
+    expect(threadAuthor(bot)).toBeNull();
+    expect(proposalThreadPeople(bot, [c])).toEqual(['first-commenter']);
+    expect(threadAuthor(issue(1, { user: null }))).toBeNull();
+    expect(proposalThreadPeople(issue(1, { user: null }), [c])).toEqual(['first-commenter']);
+    expect(threadAuthor(issue(1, { user: { login: 'author' } }))).toBe('author');
     expect(proposalThreadPeople(issue(1, { user: { login: 'author' } }), [c])).toEqual([
       'author',
       'first-commenter',
     ]);
+  });
+
+  it('proposes the volunteer on a bot-opened issue, and never reads a commenter as the author', () => {
+    const ctx = { ...proposalCtx, people: ['helper', 'maint1'], author: null };
+    // The model calls the first commenter "the author who offered": that is not an author.
+    const offered = validateProposalReview(
+      rawProposal({ authorIntent: 'offered', volunteers: ['helper'] }),
+      ctx,
+    );
+    expect(offered).toMatchObject({ assignTo: 'helper', assignWhy: 'no author to ask' });
+    // Nobody offered: nobody is assigned, and nobody is asked in the author's place.
+    const nobody = validateProposalReview(
+      rawProposal({ authorIntent: 'unclear', askAuthor: true, suggestedComment: 'Thanks.' }),
+      ctx,
+    );
+    expect(nobody.assignTo).toBeNull();
+    expect(nobody.suggestedComment).not.toContain('@');
+    // {author} has nobody to name: the comment is dropped, not pointed at a commenter.
+    const named = validateProposalReview(
+      rawProposal({ suggestedComment: 'Thanks {author} and {commenter:1}.' }),
+      ctx,
+    );
+    expect(named.suggestedComment).toBe('');
+    expect(named.dropped).toContain('comment (bad placeholder)');
+    // A commenter can still be named.
+    const helper = validateProposalReview(
+      rawProposal({ suggestedComment: 'Thanks {commenter:1}.' }),
+      ctx,
+    );
+    expect(helper.suggestedComment).toBe('Thanks @helper.');
   });
 
   it('drops a comment that the appended question takes past the limit, keeping the rest', () => {
