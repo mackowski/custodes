@@ -372,3 +372,25 @@ describe('AnthropicGateway timeout', () => {
     ).rejects.toBeInstanceOf(ChatTimeoutError);
   });
 });
+
+describe('AnthropicGateway metadata', () => {
+  it('refuses free text in gateway metadata before any request', async () => {
+    const fetchImpl = vi.fn(() => Promise.resolve(Response.json({})));
+    const gw = new AnthropicGateway({
+      accountId: 'acc',
+      gatewayId: 'metadata-test',
+      gatewayToken: 'tok',
+      fetchImpl: fetchImpl,
+    });
+    await expect(
+      gw.messages({
+        model: 'claude-sonnet-5',
+        system: 's',
+        messages: [{ role: 'user', content: 'u' }],
+        max_tokens: 10,
+        metadata: { agentId: 'triage', runId: 'r', title: 'free text from an issue' },
+      }),
+    ).rejects.toThrow('gateway metadata');
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+});

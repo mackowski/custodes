@@ -24,8 +24,7 @@ import {
 const testEnv = env as AgentsEnv;
 const GW = 'CANARY-GW-4a1e';
 const OR = 'CANARY-OR-c07d';
-const ANT = 'CANARY-ANT-88b2';
-const canaries = [GW, OR, ANT];
+const canaries = [GW, OR];
 const REPO = 'OWASP/CheatSheetSeries';
 const PAYLOAD_KEYS = [
   'gen_ai.input.messages',
@@ -88,7 +87,6 @@ function triageDeps(
     accountId: 'a',
     gatewayId: 'g',
     gatewayToken: GW,
-    anthropicApiKey: ANT,
     fetchImpl,
   });
   const turnFor = (n: number): Turn => ({

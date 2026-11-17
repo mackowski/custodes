@@ -14,7 +14,8 @@
  */
 import { z } from 'zod';
 import { chat, type OperationSpan, type Turn } from '@custodes/core';
-import { GatewayError } from './gateway.js';
+import { GatewayError, openRouterCode } from './gateway.js';
+import { gatewayMetadata } from './metadata.js';
 import { withTimeout } from './timeout.js';
 import { clip, untrusted } from './untrusted.js';
 
@@ -60,8 +61,7 @@ export function jevState(source: string, content: string): JevState {
 
 export type JevQuestion =
   | { type: 'noul'; instructions: string; criteria: { true: string; false: string } }
-  | { type: 'choice'; instructions: string; criteria: Record<string, string> }
-  | { type: 'score'; instructions: string; criteria: string[] };
+  | { type: 'choice'; instructions: string; criteria: Record<string, string> };
 
 export interface JevRequest<Q extends Record<string, JevQuestion>> {
   model: string;
@@ -79,18 +79,7 @@ export const JevChoiceAnswer = z.object({
   confidence: Probability,
   probabilities: z.record(z.string(), Probability),
 });
-export const JevScoreAnswer = z.object({
-  type: z.literal('score'),
-  score: z.number(),
-  confidence: Probability,
-  probabilities: z.record(z.string(), Probability),
-  legend: z.record(z.string(), z.string()).optional(),
-});
-export const JevAnswer = z.discriminatedUnion('type', [
-  JevNoulAnswer,
-  JevChoiceAnswer,
-  JevScoreAnswer,
-]);
+export const JevAnswer = z.discriminatedUnion('type', [JevNoulAnswer, JevChoiceAnswer]);
 export type JevAnswer = z.infer<typeof JevAnswer>;
 
 export const JevResponse = z.object({
@@ -108,9 +97,7 @@ export const JevResponse = z.object({
 
 type AnswerFor<Q extends JevQuestion> = Q['type'] extends 'noul'
   ? z.infer<typeof JevNoulAnswer>
-  : Q['type'] extends 'choice'
-    ? z.infer<typeof JevChoiceAnswer>
-    : z.infer<typeof JevScoreAnswer>;
+  : z.infer<typeof JevChoiceAnswer>;
 
 export interface JevResult<Q extends Record<string, JevQuestion>> {
   id: string;
@@ -124,18 +111,6 @@ export class JevOutputError extends Error {
   constructor(readonly question: string) {
     super(`jev answer missing or mistyped: ${question}`);
     this.name = 'JevOutputError';
-  }
-}
-
-/** OpenRouter's error code, without keeping any message text. */
-function openRouterCode(body: string): string | undefined {
-  try {
-    const parsed: unknown = JSON.parse(body);
-    const c = (parsed as { error?: { code?: unknown } }).error?.code;
-    if (typeof c === 'number') return String(c);
-    return typeof c === 'string' && /^[a-z0-9_]{1,60}$/i.test(c) ? c : undefined;
-  } catch {
-    return undefined;
   }
 }
 
@@ -166,7 +141,7 @@ export class JevClient {
     };
     if (t.kind === 'gateway') {
       headers['cf-aig-authorization'] = `Bearer ${t.gatewayToken}`;
-      headers['cf-aig-metadata'] = JSON.stringify(req.metadata);
+      headers['cf-aig-metadata'] = JSON.stringify(gatewayMetadata(req.metadata));
     } else {
       headers['authorization'] = `Bearer ${t.apiKey}`;
       body['trace'] = { trace_id: req.metadata.runId, trace_name: req.metadata.agentId };

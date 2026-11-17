@@ -216,3 +216,14 @@ describe('JevClient timeout', () => {
     await expect(client.decide(req)).rejects.toBeInstanceOf(ChatTimeoutError);
   });
 });
+
+describe('JevClient gateway metadata', () => {
+  it('refuses free text in gateway metadata before any request', async () => {
+    const fetchImpl = ok();
+    const bad = { ...req, metadata: { ...req.metadata, title: 'free text' } };
+    await expect(new JevClient({ transport: gateway, fetchImpl }).decide(bad)).rejects.toThrow(
+      'gateway metadata',
+    );
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+});

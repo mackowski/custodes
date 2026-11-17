@@ -6,17 +6,18 @@ export class ChatTimeoutError extends Error {
   }
 }
 
-/** Runs `work` with an abort signal and rejects with `ChatTimeoutError` after `ms`. */
+/** Runs `work` with an abort signal and rejects with `timedOut()` (a `ChatTimeoutError`) after `ms`. */
 export async function withTimeout<T>(
   ms: number,
   work: (signal: AbortSignal) => Promise<T>,
+  timedOut: () => Error = () => new ChatTimeoutError(),
 ): Promise<T> {
   const ac = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {
       // Reject first: aborting can make the work reject synchronously and win the race.
-      reject(new ChatTimeoutError());
+      reject(timedOut());
       ac.abort();
     }, ms);
   });

@@ -12,14 +12,17 @@
  */
 import { chat, type OperationSpan, type Turn } from '@custodes/core';
 import type { AiRunner } from './clef.js';
+import { gatewayMetadata } from './metadata.js';
 import { withTimeout } from './timeout.js';
+
+export { gatewayMetadata };
 import {
   AnthropicGateway,
   clipPayload,
   errorTypeOf,
+  openRouterCode,
   GatewayError,
   ModelOutputError,
-  type MessagesRequest,
 } from './gateway.js';
 
 export interface ChatRequest {
@@ -51,23 +54,6 @@ export interface ChatModel {
   /** OpenTelemetry `gen_ai.provider.name`. */
   readonly provider: string;
   complete(req: ChatRequest, turn?: Turn): Promise<ChatResult>;
-}
-
-const METADATA_KEY = /^[A-Za-z]{1,30}$/;
-const METADATA_VALUE = /^[A-Za-z0-9_.:/#-]{1,100}$/;
-
-/**
- * AI Gateway logs keep metadata outside the `TRACE_PAYLOADS` switch, and allow at most 5 entries:
- * refuse anything but a few id-like values, so no untrusted text can end up there.
- */
-export function gatewayMetadata(m: ChatRequest['metadata']): Record<string, string> {
-  const entries = Object.entries(m);
-  if (
-    entries.length > 5 ||
-    !entries.every(([k, v]) => METADATA_KEY.test(k) && METADATA_VALUE.test(v))
-  )
-    throw new Error('gateway metadata must be at most 5 id-like entries');
-  return Object.fromEntries(entries);
 }
 
 const DEFAULT_TIMEOUT_MS = 180_000;
@@ -205,7 +191,11 @@ export class OpenRouterGateway implements ChatModel {
       );
       if (!res.ok) {
         const text = await res.text();
-        throw new GatewayError(res.status, text.slice(0, 500), errorTypeOf(text));
+        throw new GatewayError(
+          res.status,
+          text.slice(0, 500),
+          errorTypeOf(text) ?? openRouterCode(text),
+        );
       }
       const { out, finish } = readCompletion(await res.json(), req.model);
       resultAttributes(span, out, finish);
@@ -260,11 +250,8 @@ export class WorkersAiChat implements ChatModel {
 export class AnthropicChat implements ChatModel {
   readonly provider = 'anthropic';
 
-  constructor(
-    private readonly gateway: AnthropicGateway,
-    /** Omitted by default: Opus 5.5 rejects `disabled`, and the model's default applies. */
-    private readonly thinking?: MessagesRequest['thinking'],
-  ) {}
+  // No `thinking` is sent: Opus 5.5 rejects `disabled`, and the model's default applies.
+  constructor(private readonly gateway: AnthropicGateway) {}
 
   async complete(req: ChatRequest, turn?: Turn): Promise<ChatResult> {
     const res = await this.gateway.messages(
@@ -273,7 +260,6 @@ export class AnthropicChat implements ChatModel {
         system: req.system,
         messages: [{ role: 'user', content: req.user }],
         max_tokens: req.max_tokens,
-        ...(this.thinking ? { thinking: this.thinking } : {}),
         metadata: req.metadata,
       },
       turn,

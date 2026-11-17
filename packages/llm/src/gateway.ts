@@ -13,6 +13,7 @@
  * - Inside a turn, each call is a `chat` span (ADR 0016).
  */
 import { chat, type OperationSpan, type Turn } from '@custodes/core';
+import { gatewayMetadata } from './metadata.js';
 import { withTimeout } from './timeout.js';
 
 export interface GatewayConfig {
@@ -20,8 +21,6 @@ export interface GatewayConfig {
   gatewayId: string;
   /** Token for an authenticated gateway. */
   gatewayToken: string;
-  /** Only for local development against a non-BYOK gateway. Never set in production. */
-  anthropicApiKey?: string;
   fetchImpl?: typeof fetch;
   /** Bound on one call, alias retry and body read included. Default `ANTHROPIC_TIMEOUT_MS`. */
   timeoutMs?: number;
@@ -84,6 +83,18 @@ export class ModelOutputError extends Error {
   constructor(readonly reason: 'refusal' | 'max_tokens') {
     super(`model output unusable: ${reason}`);
     this.name = 'ModelOutputError';
+  }
+}
+
+/** OpenRouter's `error.code` (a number or a short code), without keeping any message text. */
+export function openRouterCode(body: string): string | undefined {
+  try {
+    const parsed: unknown = JSON.parse(body);
+    const c = (parsed as { error?: { code?: unknown } }).error?.code;
+    if (typeof c === 'number') return String(c);
+    return typeof c === 'string' && /^[a-z0-9_]{1,60}$/i.test(c) ? c : undefined;
+  } catch {
+    return undefined;
   }
 }
 
@@ -203,12 +214,11 @@ export class AnthropicGateway {
       'content-type': 'application/json',
       'anthropic-version': '2023-06-01',
       'cf-aig-authorization': `Bearer ${this.cfg.gatewayToken}`,
-      'cf-aig-metadata': JSON.stringify(metadata),
+      'cf-aig-metadata': JSON.stringify(gatewayMetadata(metadata)),
       // Use only our stored (BYOK) key; if it is missing, fail instead of silently falling back
       // to Cloudflare Unified Billing credentials.
       'cf-aig-no-wholesale': 'true',
     };
-    if (this.cfg.anthropicApiKey) headers['x-api-key'] = this.cfg.anthropicApiKey;
     return chat(turn, { provider: 'anthropic', model: req.model }, async (span) => {
       span.set('gen_ai.request.max_tokens', req.max_tokens);
       span.payload('gen_ai.system_instructions', [

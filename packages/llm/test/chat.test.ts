@@ -87,6 +87,19 @@ describe('OpenRouterGateway', () => {
     await expect(p).rejects.toMatchObject({ status: 400, errorType: 'invalid_request_error' });
   });
 
+  it("keeps OpenRouter's own error code, which has no error.type", async () => {
+    const fetchImpl = (() =>
+      Promise.resolve(
+        new Response(JSON.stringify({ error: { code: 429, message: 'slow down' } }), {
+          status: 429,
+        }),
+      )) as unknown as typeof fetch;
+    await expect(openRouter(fetchImpl).complete(req)).rejects.toMatchObject({
+      status: 429,
+      errorType: '429',
+    });
+  });
+
   it('times out instead of hanging', async () => {
     const fetchImpl = ((_u: RequestInfo | URL, init?: RequestInit) =>
       new Promise((_, reject) => {
