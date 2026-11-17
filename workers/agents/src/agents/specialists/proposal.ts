@@ -102,6 +102,10 @@ Respond with exactly one JSON object and nothing else:
  "priorDecision": {"issue": number, "summary": string} | null,
  "explanation": string, "suggestedComment": string, "injectionDetected": boolean, "confidence": number}`;
 
+/** What triage-apply's `ProposalInput` accepts; a proposal over them gets no one-click link. */
+const MAX_ADD_LABELS = 6;
+const MAX_COMMENT_CHARS = 3_000;
+
 export const RawProposalReview = z.object({
   verdict: z.enum([
     'real_gap',
@@ -112,7 +116,7 @@ export const RawProposalReview = z.object({
   ]),
   makesSense: z.boolean(),
   evidence: list(RawEvidence, 8),
-  addLabels: list(text(60), 6),
+  addLabels: list(text(60), MAX_ADD_LABELS),
   removeLabels: list(text(60), 6),
   // Lenient: an answer without these (or an unknown intent) counts as "unclear", nobody offered.
   authorIntent: z.enum(['offered', 'declined', 'unclear']).catch('unclear').default('unclear'),
@@ -142,7 +146,7 @@ export const RawProposalReview = z.object({
         : null;
     }),
   explanation: text(1500),
-  suggestedComment: text(3000),
+  suggestedComment: text(MAX_COMMENT_CHARS),
   injectionDetected: z.boolean(),
   confidence: unit,
 });
@@ -223,8 +227,13 @@ export interface ReferencedIssue {
   via: string;
 }
 
-/** Distinct, valid logins of the author and commenters, author first. */
+/**
+ * Distinct, valid logins of the author and commenters, author first. Callers read the first entry
+ * as the author (`{author}`, "author offered"), so without a usable author (a bot, a deleted
+ * account, a login we do not accept) there is no list: the first commenter must not take that place.
+ */
 export function threadPeople(issue: PublicIssue, comments: IssueComment[]): string[] {
+  if (issue.user?.['type'] === 'Bot' || safeLogin(issue.user?.login) === 'unknown') return [];
   // Bot commenters are never people to assign or name (ADR 0019; security review of #113).
   const all = [
     issue.user?.login,
@@ -386,8 +395,12 @@ export function validateProposalReview(
     comment = comment ? `${comment}\n\n${ASK_AUTHOR}` : ASK_AUTHOR;
   const filled = fillPlaceholders(comment, ctx.people);
   if (!filled.ok) dropped.push('comment (bad placeholder)');
-  const suggestedComment = filled.ok ? filled.text : '';
-  const mentions = filled.ok ? filled.mentions : [];
+  // The appended question and filled placeholders can take the comment past what triage-apply
+  // accepts; then the whole one-click link would be refused. Drop the comment, keep the rest.
+  const tooLong = filled.ok && filled.text.length > MAX_COMMENT_CHARS;
+  if (tooLong) dropped.push('comment (too long)');
+  const suggestedComment = filled.ok && !tooLong ? filled.text : '';
+  const mentions = filled.ok && !tooLong ? filled.mentions : [];
   // Nobody is needed when someone is assigned, already assigned, or a PR does the work.
   const helpWanted =
     raw.helpWanted && assignTo === null && assignees.length === 0 && reviewPr === null;
@@ -401,7 +414,8 @@ export function validateProposalReview(
     helpWanted &&
     helpLabel &&
     !current.has(helpLabel.toLowerCase()) &&
-    !addLabels.includes(helpLabel)
+    !addLabels.includes(helpLabel) &&
+    addLabels.length < MAX_ADD_LABELS
   )
     addLabels.push(helpLabel);
   let priorDecision: ProposalReview['priorDecision'] = null;

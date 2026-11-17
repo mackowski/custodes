@@ -27,6 +27,7 @@ import {
   PROPOSAL_PROMPT,
   readReferencedIssues,
   reviewProposal,
+  threadPeople as proposalThreadPeople,
   validateProposalReview,
 } from '../src/agents/specialists/proposal.js';
 import { lockHeld } from '../src/agents/specialists/agent.js';
@@ -297,6 +298,29 @@ describe('validateProposalReview', () => {
     );
     expect(stranger.assignTo).toBeNull();
     expect(stranger.dropped).toContain('volunteer not in the thread');
+  });
+
+  it('names nobody when a bot or a deleted account opened the issue', () => {
+    const c = cmt('first-commenter', '2026-10-02T00:00:00Z', 'NONE');
+    // The first entry is read as the author: a commenter must never take that place.
+    expect(
+      proposalThreadPeople(issue(1, { user: { login: 'github-actions[bot]', type: 'Bot' } }), [c]),
+    ).toEqual([]);
+    expect(proposalThreadPeople(issue(1, { user: null }), [c])).toEqual([]);
+    expect(proposalThreadPeople(issue(1, { user: { login: 'author' } }), [c])).toEqual([
+      'author',
+      'first-commenter',
+    ]);
+  });
+
+  it('drops a comment that the appended question takes past the limit, keeping the rest', () => {
+    const r = validateProposalReview(
+      rawProposal({ suggestedComment: 'x'.repeat(3_000), askAuthor: true }),
+      proposalCtx,
+    );
+    if (r.suggestedComment !== '') expect(r.suggestedComment.length).toBeLessThanOrEqual(3_000);
+    else expect(r.dropped).toContain('comment (too long)');
+    expect(r.addLabels.length).toBeLessThanOrEqual(6);
   });
 
   it('adds HELP_WANTED when nobody volunteered, never alongside an assignee', () => {
