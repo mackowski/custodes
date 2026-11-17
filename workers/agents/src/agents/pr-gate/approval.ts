@@ -4,7 +4,7 @@
 // the repository, so not the author's words) and the maintainers' own words; never the PR title or
 // body. Only a confident "no" lets the close go ahead.
 import { decided, undecided, verdict, type LadderStep, type StepResult } from '@custodes/core';
-import { jevState, type JevQuestion, type JevResult } from '@custodes/llm';
+import { cutWhole, jevState, type JevQuestion, type JevResult } from '@custodes/llm';
 import type { PullFile } from '../triage/github.js';
 import { CONTENT_PATH, type MaintainerComment } from './rules.js';
 
@@ -75,7 +75,7 @@ export function approvalState(
       .slice(0, MAX_APPROVAL_COMMENTS)
       .map(
         (c) =>
-          `Comment by maintainer @${c.login} in #${c.thread}:\n${c.body.slice(0, MAX_COMMENT_CHARS)}\n---`,
+          `Comment by maintainer @${c.login} in #${c.thread}:\n${cutWhole(c.body, MAX_COMMENT_CHARS)}\n---`,
       ),
   ];
   return parts.join('\n');

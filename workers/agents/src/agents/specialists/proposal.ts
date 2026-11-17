@@ -244,7 +244,10 @@ export function threadPeople(issue: PublicIssue, comments: IssueComment[]): stri
     threadAuthor(issue) ?? undefined,
     ...comments.filter((c) => c.user?.type !== 'Bot').map((c) => c.user?.login),
   ];
-  return [...new Set(all.map(safeLogin).filter((l) => l !== 'unknown'))];
+  // `ghost` (a deleted account) is nobody to assign or name, as author or as commenter.
+  return [
+    ...new Set(all.map(safeLogin).filter((l) => l !== 'unknown' && l.toLowerCase() !== 'ghost')),
+  ];
 }
 
 /** The commenters of `threadPeople`: everyone but the author. */

@@ -525,6 +525,22 @@ describe('failure handling (the 2026-09-29 outage)', () => {
     expect(runs[3]?.nextSince).not.toBe(poison.updated_at);
   });
 
+  it('counts nothing when an outage starts after a success in the same run', async () => {
+    const store = memStore([]);
+    let call = 0;
+    // The first issue is assessed; from then on every request, the probe included, is refused.
+    const complete = () => (++call === 1 ? Promise.resolve(JSON.stringify(raw())) : badRequest());
+    const four = [1, 2, 3, 4].map((n) => issue(n, { updated_at: `2026-09-22T10:0${n}:00Z` }));
+    const r = await runTriage(
+      'OWASP/CheatSheetSeries',
+      '2026-09-21T00:00:00Z',
+      deps({ complete, store }, four),
+    );
+    expect(r.assessed).toBe(1);
+    expect(r.errors.at(-1)).toBe('probe refused too (GatewayError 400 invalid_request_error)');
+    for (const n of [2, 3, 4]) expect(store.failures(n, `2026-09-22T10:0${n}:00Z`)).toBe(0);
+  });
+
   it('counts refused issues when nothing was assessed but the probe is answered', async () => {
     const store = memStore([]);
     const three = [1, 2, 3].map((n) => issue(n, { updated_at: `2026-09-22T10:0${n}:00Z` }));

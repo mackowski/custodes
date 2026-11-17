@@ -7,6 +7,7 @@ import {
   MAX_CLOSES_PER_DAY,
   MAX_EVALUATIONS_PER_DAY,
   MAX_EVALUATIONS_PER_PR_PER_DAY,
+  POLL_BUDGET_MS,
   POLL_LOCK_MS,
   type PrGateAgent,
 } from '../src/agents/pr-gate.js';
@@ -59,6 +60,7 @@ const fakeBroker = (
 interface Internals {
   env: AgentsEnv;
   pollingSince: number | null;
+  pollBudgetMs: number;
   ensureSchema(): void;
   sql<T>(strings: TemplateStringsArray, ...values: unknown[]): T[];
 }
@@ -292,6 +294,20 @@ describe('pr-gate poll lock', () => {
     });
     expect(r.res.ok).toBe(false);
     expect(r.res.detail).toMatch(/^poll in progress; again at /);
+    expect(r.schedules).toHaveLength(1);
+  });
+
+  it('stops starting evaluations at its time budget, well inside the lock', async () => {
+    expect(POLL_BUDGET_MS).toBeLessThanOrEqual(POLL_LOCK_MS - 2 * 60_000);
+    const r = await inAgent([pull(9162), pull(9163)], async (agent, i) => {
+      i.pollBudgetMs = -1;
+      try {
+        return { res: await agent.poll(), schedules: await wakes(agent) };
+      } finally {
+        i.pollBudgetMs = POLL_BUDGET_MS;
+      }
+    });
+    expect(r.res.detail).toBe('2 open, 0 evaluated, 0 close attempt(s)');
     expect(r.schedules).toHaveLength(1);
   });
 
