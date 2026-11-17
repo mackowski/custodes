@@ -70,6 +70,20 @@ workers/* ─┼─> packages/{github,llm,email} ─> packages/core ─> package
 - Agent ids are kebab-case (`triage`); Durable Object classes are `PascalCase` + `Agent`
   (`TriageAgent`); SDK routes are `/agents/triage-agent/<instance>`.
 
+## Smallest complete change
+
+Ranks below the `CLAUDE.md` invariants and every section above: a security control is never the
+code to save (`/lean-review` lists what is never cut).
+
+- Before writing, take the first that fully works: it does not need to exist → the repo already
+  has it → the platform (standard library, Workers runtime, Agents SDK) has it → an installed
+  dependency has it → the minimum new code.
+- Finish the whole change: every caller, test, fixture, config and doc it reaches. Before fixing a
+  bug, grep every caller and fix the root cause once in shared code.
+- No options, abstractions, wrappers or config that nobody asked for. Deletion beats addition.
+- Moved or merged code keeps its validation and error handling.
+- A known limit gets a comment: `shortcut: <the limit>, <when to upgrade>`.
+
 ## Docs that must change with code
 
 | Change                | Update                                                                                    |

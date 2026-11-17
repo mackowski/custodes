@@ -5,16 +5,16 @@ approvers. The repository encodes how that works so every session behaves the sa
 
 ## Building blocks
 
-| Mechanism         | Where                                      | Purpose                                                                                                                                                                                                                     |
-| ----------------- | ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `CLAUDE.md`       | repo root                                  | short always-on map and invariants                                                                                                                                                                                          |
-| Skills            | `.claude/skills/*`                         | repeatable procedures: `/grill-plan`, `/new-agent`, `/new-tool`, `/threat-model`, `/agent-security-review`, `/adr`, `/eval`, `/ship`, `/preview`, `/release`; background knowledge: `custodes-conventions`, `cf-agents-sdk` |
-| Subagents         | `.claude/agents/*`                         | `security-reviewer` (read-only, high effort), `cloudflare-researcher` (docs lookups), `test-writer`                                                                                                                         |
-| Hooks             | `.claude/settings.json`, `.claude/hooks/*` | deny deploys/secret access from sessions, mark Cloudflare MCP results as untrusted, format on edit, typecheck on stop                                                                                                       |
-| Permissions       | `.claude/settings.json`                    | allow the routine, deny the dangerous                                                                                                                                                                                       |
-| Agent memory      | `.claude/agent-memory/*`                   | committed learnings for subagents                                                                                                                                                                                           |
-| Cloudflare plugin | `.claude/settings.json` → `enabledPlugins` | official `cloudflare` skills (Agents SDK, Wrangler, Access, Email, Durable Objects) and the Cloudflare MCP server, installed per https://developers.cloudflare.com/agent-setup/                                             |
-| GitHub Actions    | `.github/workflows/*`                      | CI, security scans, evals, Claude review, reviewer-gated deploys                                                                                                                                                            |
+| Mechanism         | Where                                      | Purpose                                                                                                                                                                                                                                     |
+| ----------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `CLAUDE.md`       | repo root                                  | short always-on map and invariants                                                                                                                                                                                                          |
+| Skills            | `.claude/skills/*`                         | repeatable procedures: `/grill-plan`, `/new-agent`, `/new-tool`, `/threat-model`, `/agent-security-review`, `/lean-review`, `/adr`, `/eval`, `/ship`, `/preview`, `/release`; background knowledge: `custodes-conventions`, `cf-agents-sdk` |
+| Subagents         | `.claude/agents/*`                         | `security-reviewer` (read-only, high effort), `cloudflare-researcher` (docs lookups), `test-writer`                                                                                                                                         |
+| Hooks             | `.claude/settings.json`, `.claude/hooks/*` | deny deploys/secret access from sessions, mark Cloudflare MCP results as untrusted, format on edit, typecheck on stop                                                                                                                       |
+| Permissions       | `.claude/settings.json`                    | allow the routine, deny the dangerous                                                                                                                                                                                                       |
+| Agent memory      | `.claude/agent-memory/*`                   | committed learnings for subagents                                                                                                                                                                                                           |
+| Cloudflare plugin | `.claude/settings.json` → `enabledPlugins` | official `cloudflare` skills (Agents SDK, Wrangler, Access, Email, Durable Objects) and the Cloudflare MCP server, installed per https://developers.cloudflare.com/agent-setup/                                                             |
+| GitHub Actions    | `.github/workflows/*`                      | CI, security scans, evals, Claude review, reviewer-gated deploys                                                                                                                                                                            |
 
 ## The loop for a change
 
@@ -30,8 +30,11 @@ approvers. The repository encodes how that works so every session behaves the sa
    skill ends by listing every file touched.
 5. **Verify locally**: hooks typecheck on stop (after changing `untrusted-mcp.mjs`, call `mcp__plugin_cloudflare_cloudflare__whoami` once and check the result arrives in an `<untrusted source="cloudflare-mcp">` envelope with the notice); run `pnpm check`; `/eval <agent> --run` when a
    prompt or schema changed.
-6. **Review**: `/agent-security-review` (delegates to `security-reviewer`), fix, then open the PR
-   with the template's security-impact section filled in.
+6. **Review**: `/agent-security-review` (delegates to `security-reviewer`) and, when the change
+   touches code, `/lean-review` (correctness, load, missing tests and what to delete; it reports
+   and never edits). Fix, then open the PR with the template's security-impact section filled in.
+   `/lean-review` runs only locally: there is no CI step for it. `/lean-review repo` audits the
+   whole repository on request.
 7. **Ship**: `/ship` updates every doc the change touches (`docs/architecture/data-flow.md` first)
    and writes the PR's "Architecture and data flow" section: Mermaid diagrams of the touched part
    before and after, changes marked, security facts on the diagram, a security table and the docs
