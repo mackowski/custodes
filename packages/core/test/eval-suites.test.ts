@@ -1,6 +1,6 @@
-import { readdirSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { selectSuites, SUITE_PATHS } from '../../../evals/select-suites.js';
+import { selectSuites, SHARED_PATHS, SUITE_PATHS } from '../../../evals/select-suites.js';
 
 const all = readdirSync(new URL('../../../evals/agents/', import.meta.url), { withFileTypes: true })
   .filter((d) => d.isDirectory())
@@ -22,6 +22,26 @@ describe('eval suite selection', () => {
       'cheatsheet-review-judge',
       'cheatsheet-review-verifier',
     ]);
+  });
+
+  it('gives a new shared security case to both security voices', () => {
+    expect(selectSuites(['evals/agents/cheatsheet-review-security/cases.yaml'], all)).toEqual([
+      'cheatsheet-review-security',
+      'cheatsheet-review-security-2',
+    ]);
+  });
+
+  it('starts the workflow for every path the selection knows (its `paths:` is a second list)', () => {
+    const workflow = readFileSync(
+      new URL('../../../.github/workflows/evals.yml', import.meta.url),
+      'utf8',
+    );
+    const known = [...SHARED_PATHS, ...Object.values(SUITE_PATHS).flat()];
+    // Everything under evals/ is covered by the `evals/**` entry.
+    const missing = [...new Set(known)].filter(
+      (p) => !p.startsWith('evals/') && !workflow.includes(`- '${p}'`),
+    );
+    expect(missing).toEqual([]);
   });
 
   it('runs every suite for shared plumbing and none for unrelated files', () => {

@@ -12,6 +12,8 @@ coverage/
 !*.tfvars.example
 *.pem
 *.key
+backend.hcl
+.cloudflared/
 .env
 .env.*
 **/secrets/

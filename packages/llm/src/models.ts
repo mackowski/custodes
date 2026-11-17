@@ -15,7 +15,6 @@ export const MODELS = {
    */
   decisionShadow: '@cf/cloudflare/clef',
 } as const;
-export type ModelTier = keyof typeof MODELS;
 
 /** How a review model is reached; every transport goes through the one AI Gateway (ADR 0015). */
 export type ReviewTransport = 'anthropic' | 'openrouter' | 'workers-ai';

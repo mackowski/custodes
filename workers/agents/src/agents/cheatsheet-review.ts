@@ -18,7 +18,7 @@ import {
 } from '@custodes/llm';
 import type { BrokerAction, BrokerResponse, Trigger } from '@custodes/schema';
 import type { AgentsEnv } from '../env.js';
-import { instanceOf, UnknownInstanceError, unknownInstance } from '../instances.js';
+import { instanceOf, noSuchAction, UnknownInstanceError, unknownInstance } from '../instances.js';
 import {
   approvalMail,
   partialReviewMail,
@@ -54,6 +54,8 @@ import { CHEATSHEET_REVIEW_MANIFEST } from '../manifests.js';
 
 /** At most this many model calls at once: AI Gateway's rate limit is shared by every agent. */
 const MAX_CONCURRENT_CALLS = 4;
+/** After this long a review still marked `running` was interrupted (operator decision, #127). */
+const STALE_RUN_SECONDS = 30 * 60;
 /** Changed cheat sheets read in full; a larger PR is still reviewed from its diff. */
 const MAX_FULL_FILES = 5;
 
@@ -126,6 +128,37 @@ export class CheatsheetReviewAgent extends CustodesAgent<AgentsEnv, CheatsheetRe
   async notify(pull: number): Promise<{ id: string; at: string }> {
     const s = await this.schedule(1, 'review', { pull }, { idempotent: true });
     return { id: s.id, at: new Date(Date.now() + 1_000).toISOString() };
+  }
+
+  /**
+   * Alarm callback, set when a review starts. A run whose isolate is killed (CPU limit, memory)
+   * never reaches its `catch`: the row stays `running`, which also blocks a second run for the
+   * same label event, and nobody is told. This marks such a row and tells the operator. It never
+   * starts the review again: the `running` row is the lock against two reviews at once.
+   */
+  async checkInterrupted(payload: { pull: number; labelEvent: number }): Promise<void> {
+    const { pull, labelEvent } = payload;
+    this.ensureSchema();
+    const row = this.sql<{ status: string }>`SELECT status FROM reviews
+      WHERE pull = ${pull} AND label_event = ${labelEvent}`[0];
+    // `posting`: the run claimed its row and died before recording the outcome.
+    if (row?.status !== 'running' && row?.status !== 'posting') return;
+    const wasPosting = row.status === 'posting';
+    this.sql`UPDATE reviews SET status = 'interrupted', finished_at = ${new Date().toISOString()}
+      WHERE pull = ${pull} AND label_event = ${labelEvent} AND status IN ('running', 'posting')`;
+    const why = wasPosting
+      ? 'the run was interrupted while posting: check the pull request for a review before adding the label again'
+      : 'the run was interrupted and did not finish; remove and add the label again to review it';
+    this.setState({
+      ...this.state,
+      lastErrors: [`#${pull}: interrupted`, ...this.state.lastErrors].slice(0, 20),
+    });
+    console.warn(
+      JSON.stringify({ event: 'cheatsheet-review.interrupted', instance: this.name, pull }),
+    );
+    await this.mail(
+      partialReviewMail({ repo: this.repo, pull, why, outcomes: [], decision: undefined }),
+    );
   }
 
   /** Alarm callback. */
@@ -226,12 +259,16 @@ export class CheatsheetReviewAgent extends CustodesAgent<AgentsEnv, CheatsheetRe
     const started = new Date().toISOString();
     this.sql`INSERT INTO reviews (pull, label_event, head_sha, started_at, status)
       VALUES (${pull}, ${labelled.id}, ${headSha}, ${started}, 'running')`;
+    // Longer than any real review (model calls are bounded by their timeouts): see checkInterrupted.
+    await this.schedule(STALE_RUN_SECONDS, 'checkInterrupted', { pull, labelEvent: labelled.id });
+    // Only a row this run still holds: one reported as interrupted keeps that status.
     const finish = (status: string, extra: Partial<ReviewRow> = {}) => {
       this.sql`UPDATE reviews SET status = ${status}, finished_at = ${new Date().toISOString()},
         change_class = ${extra.change_class ?? null}, verdict = ${extra.verdict ?? null},
         event = ${extra.event ?? null}, models = ${extra.models ?? null},
         review_url = ${extra.review_url ?? null}
-        WHERE pull = ${pull} AND label_event = ${labelled.id ?? 0}`;
+        WHERE pull = ${pull} AND label_event = ${labelled.id ?? 0}
+          AND status IN ('running', 'posting')`;
     };
 
     try {
@@ -320,14 +357,7 @@ export class CheatsheetReviewAgent extends CustodesAgent<AgentsEnv, CheatsheetRe
     const hunks = new Map(snap.files.map((f) => [f.file.filename, f.hunks]));
     const checked = checkSuggestions(d.suggestions, hunks, result.allowed);
     const ownPull = pr.user?.login.toLowerCase() === trigger.actor.toLowerCase();
-    const confirmed = new Set<'Security' | 'Links & sources'>();
-    for (const x of result.reports) {
-      if (x.report.verdict !== 'BLOCK') continue;
-      if (x.role === 'security-reviewer' || x.role === 'security-second-voice')
-        confirmed.add('Security');
-      if (x.role === 'link-auditor') confirmed.add('Links & sources');
-    }
-    const event = reviewEvent(d, ownPull, confirmed);
+    const event = reviewEvent(d, ownPull, result.blockedBy);
     const body = reviewBody({
       decision: d,
       outcomes: result.outcomes,
@@ -352,6 +382,16 @@ export class CheatsheetReviewAgent extends CustodesAgent<AgentsEnv, CheatsheetRe
       finish('stale', { change_class: result.changeClass, verdict: d.verdict, models });
       return { ok: false, status: 'stale', detail: 'pull request changed during the review' };
     }
+    // A run slower than the interrupted-run check was reported to the operator as interrupted,
+    // who may have asked for a new review: this one must not post as well. The claim (`posting`)
+    // does not stop that check: a run that dies while posting is reported with "check the pull
+    // request for a review first", since the review may already be there.
+    const row = this.sql<{ status: string }>`SELECT status FROM reviews
+      WHERE pull = ${pull} AND label_event = ${labelEvent}`[0];
+    if (row?.status !== 'running')
+      return { ok: false, status: 'interrupted', detail: 'reported as interrupted; not posted' };
+    this.sql`UPDATE reviews SET status = 'posting'
+      WHERE pull = ${pull} AND label_event = ${labelEvent} AND status = 'running'`;
     const review: BrokerAction = {
       type: 'pr.review.inline',
       repo,
@@ -364,7 +404,7 @@ export class CheatsheetReviewAgent extends CustodesAgent<AgentsEnv, CheatsheetRe
         line: c.line,
         ...(c.startLine !== undefined ? { startLine: c.startLine } : {}),
         side: c.side,
-        body: c.body.slice(0, 3_900),
+        body: c.body,
       })),
     };
     const posted: BrokerResponse = await this.act(review, runId, trig, { turn });
@@ -426,7 +466,6 @@ export class CheatsheetReviewAgent extends CustodesAgent<AgentsEnv, CheatsheetRe
             repo,
             pull,
             author: pr.user?.login ?? 'unknown',
-            title: pr.title,
             decision: d,
             reviewUrl: undefined,
             issues: snap.issues,
@@ -473,7 +512,6 @@ export class CheatsheetReviewAgent extends CustodesAgent<AgentsEnv, CheatsheetRe
           repo,
           pull,
           author: pr.user?.login ?? 'unknown',
-          title: pr.title,
           decision: d,
           reviewUrl,
           issues: snap.issues,
@@ -514,7 +552,7 @@ export class CheatsheetReviewAgent extends CustodesAgent<AgentsEnv, CheatsheetRe
       related.set(name, await reader.getCheatSheet(repo, name));
     const author = pr.user?.login ?? '';
     const issues: IssueFacts[] = [];
-    for (const n of reviewIssueRefs(pr.body, repo)) {
+    for (const n of reviewIssueRefs(pr.body, repo, pr.number)) {
       try {
         const issue = await reader.getIssue(repo, n);
         if (issue.pull_request !== undefined) continue;
@@ -642,7 +680,9 @@ export class CheatsheetReviewAgent extends CustodesAgent<AgentsEnv, CheatsheetRe
   }
 
   /** Status for operators through the Access-protected gateway: ids and outcomes only. */
-  override async onRequest(_request: Request): Promise<Response> {
+  override async onRequest(request: Request): Promise<Response> {
+    const refused = noSuchAction(request);
+    if (refused) return refused;
     try {
       instanceOf(this.name);
     } catch (err) {

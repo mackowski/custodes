@@ -24,8 +24,7 @@ import {
 const testEnv = env as AgentsEnv;
 const GW = 'CANARY-GW-4a1e';
 const OR = 'CANARY-OR-c07d';
-const ANT = 'CANARY-ANT-88b2';
-const canaries = [GW, OR, ANT];
+const canaries = [GW, OR];
 const REPO = 'OWASP/CheatSheetSeries';
 const PAYLOAD_KEYS = [
   'gen_ai.input.messages',
@@ -88,7 +87,6 @@ function triageDeps(
     accountId: 'a',
     gatewayId: 'g',
     gatewayToken: GW,
-    anthropicApiKey: ANT,
     fetchImpl,
   });
   const turnFor = (n: number): Turn => ({
@@ -101,7 +99,7 @@ function triageDeps(
       listLabels: () => Promise.resolve(['bug', 'enhancement']),
       listCheatSheets: () => Promise.resolve(['Cross_Site_Scripting_Prevention_Cheat_Sheet.md']),
       listRecentIssueTitles: () => Promise.resolve([{ number: 3, title: 'older' }]),
-      listUpdatedIssues: () => Promise.resolve(issues),
+      listUpdatedIssues: () => Promise.resolve({ issues, resumeAt: null }),
     },
     complete: async (system, user, n, turn) =>
       AnthropicGateway.text(

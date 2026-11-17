@@ -27,8 +27,8 @@ https://developers.cloudflare.com/agents/api-reference/agents-api/, then the
 State: `this.state`, `this.setState(next)`, `initialState`. SQL: `this.sql\`...\``.
 Scheduling: `this.schedule(when, 'method', payload)`, `this.scheduleEvery(seconds, 'method', payload)`.
 Workflows: `this.runWorkflow('BINDING', params)`, `waitForApproval`, `approveWorkflow(id)`, `rejectWorkflow(id)`.
-Email: `sendEmail`/`replyToEmail`(Custodes wraps these in`@custodes/email`).
-RPC: `@callable()` methods are reachable from clients over WebSocket; treat inputs as untrusted.
+Email: `sendEmail`/`replyToEmail`(Custodes sends through the`EMAIL`binding and refuses all inbound mail in the gateway).
+RPC:`@callable()` methods are reachable from clients over WebSocket; treat inputs as untrusted.
 
 ## Routing
 

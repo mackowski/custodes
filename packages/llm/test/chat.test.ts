@@ -1,15 +1,15 @@
 import { invokeAgent, invokeSubAgent } from '@custodes/core';
 import { describe, expect, it, vi } from 'vitest';
 import {
-  gatewayMetadata,
   AnthropicChat,
-  ChatTimeoutError,
   OpenRouterGateway,
   readCompletion,
   WorkersAiChat,
   type ChatRequest,
 } from '../src/chat.js';
 import type { AiRunner } from '../src/clef.js';
+import { gatewayMetadata } from '../src/metadata.js';
+import { ChatTimeoutError } from '../src/timeout.js';
 import {
   AnthropicGateway,
   clipPayload,
@@ -85,6 +85,19 @@ describe('OpenRouterGateway', () => {
     const p = openRouter(fetchImpl).complete(req);
     await expect(p).rejects.toBeInstanceOf(GatewayError);
     await expect(p).rejects.toMatchObject({ status: 400, errorType: 'invalid_request_error' });
+  });
+
+  it("keeps OpenRouter's own error code, which has no error.type", async () => {
+    const fetchImpl = (() =>
+      Promise.resolve(
+        new Response(JSON.stringify({ error: { code: 429, message: 'slow down' } }), {
+          status: 429,
+        }),
+      )) as unknown as typeof fetch;
+    await expect(openRouter(fetchImpl).complete(req)).rejects.toMatchObject({
+      status: 429,
+      errorType: '429',
+    });
   });
 
   it('times out instead of hanging', async () => {

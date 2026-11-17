@@ -14,7 +14,8 @@ function logins(names: readonly string[]): string {
   return ok.length ? ok.map((n) => `\`${n}\``).join(', ') : 'someone else';
 }
 
-const issueRefs = (ns: readonly number[]) =>
+/** "#2770, #2771" from validated numbers only, at most five. */
+export const issueRefs = (ns: readonly number[]) =>
   ns
     .filter((n) => Number.isSafeInteger(n) && n > 0)
     .slice(0, 5)

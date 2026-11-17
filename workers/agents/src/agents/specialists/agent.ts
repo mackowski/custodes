@@ -3,8 +3,8 @@ import { invokeAgent, type Turn } from '@custodes/core';
 import { AgentHaltedError, CustodesAgent } from '@custodes/core/agent';
 import { AnthropicGateway } from '@custodes/llm';
 import type { AgentsEnv } from '../../env.js';
-import { instanceOf } from '../../instances.js';
-import { describeError } from '../triage/errors.js';
+import { instanceOf, noSuchAction } from '../../instances.js';
+import { describeError, isInputSpecific } from '../triage/errors.js';
 import { BrokerGitHubReader } from '../triage/github.js';
 import { assessRequest, selectRequest } from './model.js';
 import type { SpecialistDeps } from './run.js';
@@ -52,8 +52,23 @@ export const MAX_JOBS_PER_DAY = 10;
  * the CI service token); the cap bounds spend at 40 fast + 40 reasoning calls per specialist a day.
  */
 export const MAX_JOBS_PER_DAY_SANDBOX = 40;
-/** A job that fails this many times is dropped (triage re-enqueues it when the issue changes). */
+/**
+ * A job whose model answer is unusable this many times is parked for PARK_MS. It is not deleted:
+ * triage sends every stale accepted issue again on each prepare, and a deleted job came back with
+ * attempts 0, so giving up never held. A newer version of the issue resets the row and runs at once.
+ */
 export const MAX_ATTEMPTS = 4;
+/**
+ * Any other failure (gateway, GitHub, network) parks the job only after this many. The queue wakes
+ * at triage's daily preparation, so that is about twelve days: an outage heals by itself, but an
+ * issue whose text makes an
+ * "infrastructure" failure every time (a guardrail block, a provider 400) cannot use up the daily
+ * job budget for ever.
+ */
+export const MAX_FAILURES = 12;
+/** `jobs.attempts` holds a weight: an unusable answer counts this much, any other failure 1. */
+const UNUSABLE_WEIGHT = MAX_FAILURES / MAX_ATTEMPTS;
+const PARK_MS = 30 * 86_400_000;
 const MAX_ENQUEUE = 100;
 /**
  * A failed job waits this long before it is tried again (it never retries in the same run, which
@@ -89,10 +104,6 @@ function parseStored(json: string): unknown {
   } catch {
     return { unreadable: true };
   }
-}
-
-function isInputSpecific(err: unknown): boolean {
-  return err instanceof Error && ['StructuredOutputError', 'ModelOutputError'].includes(err.name);
 }
 
 /**
@@ -151,7 +162,7 @@ export abstract class SpecialistAgent extends CustodesAgent<AgentsEnv, Specialis
   }
 
   /**
-   * Called by triage over RPC on every poll, with new jobs or an empty list: either way it wakes the
+   * Called by triage over RPC at its daily preparation, with new jobs or an empty list: either way it wakes the
    * queue, so jobs left over (daily cap, infrastructure failure) resume without new work arriving.
    * Input is re-validated: an RPC caller is still another component.
    */
@@ -236,13 +247,16 @@ export abstract class SpecialistAgent extends CustodesAgent<AgentsEnv, Specialis
           VALUES (${job.issue}, ${job.issue_updated_at}, ${JSON.stringify(result)}, ${now.toISOString()}, NULL)
           ON CONFLICT(issue) DO UPDATE SET issue_updated_at = excluded.issue_updated_at,
             result = excluded.result, checked_at = excluded.checked_at, reported_at = NULL`;
-      this.sql`DELETE FROM jobs WHERE issue = ${job.issue}`;
+      // Only this version's row: a newer version enqueued during the model call stays queued.
+      this.sql`DELETE FROM jobs WHERE issue = ${job.issue}
+        AND issue_updated_at = ${job.issue_updated_at}`;
       const recheck = result === null ? null : this.recheckAt(result);
       // Bounded: a recheck is at least a minute ahead and at most 30 days, whatever the result says.
       const at = recheck === null ? NaN : Date.parse(recheck);
       if (!Number.isNaN(at) && at > now.getTime() + 60_000 && at < now.getTime() + 30 * 86_400_000)
         this.sql`INSERT INTO jobs (issue, issue_updated_at, enqueued_at, attempts)
-          VALUES (${job.issue}, ${job.issue_updated_at}, ${new Date(at).toISOString()}, 0)`;
+          VALUES (${job.issue}, ${job.issue_updated_at}, ${new Date(at).toISOString()}, 0)
+          ON CONFLICT(issue) DO NOTHING`;
       console.log(
         JSON.stringify({
           event: `${this.manifest.id}.job`,
@@ -257,16 +271,20 @@ export abstract class SpecialistAgent extends CustodesAgent<AgentsEnv, Specialis
       if (err instanceof AgentHaltedError) return false;
       // Class, status and error type only: never model output or issue text.
       const what = describeError(err);
-      const attempts = job.attempts + 1;
-      if (attempts >= MAX_ATTEMPTS) {
-        this.sql`DELETE FROM jobs WHERE issue = ${job.issue}`;
-        this.recordError(`#${job.issue}: gave up after ${attempts} attempts (${what})`);
+      // An unusable answer about this issue weighs UNUSABLE_WEIGHT, any other failure 1: four bad
+      // answers park the job, an outage does not until it has failed MAX_FAILURES times.
+      const attempts = job.attempts + (isInputSpecific(err) ? UNUSABLE_WEIGHT : 1);
+      if (attempts >= MAX_FAILURES) {
+        const parkedUntil = new Date(now.getTime() + PARK_MS).toISOString();
+        this.sql`UPDATE jobs SET attempts = ${attempts}, enqueued_at = ${parkedUntil}
+          WHERE issue = ${job.issue} AND issue_updated_at = ${job.issue_updated_at}`;
+        this.recordError(`#${job.issue}: gave up for 30 days after repeated failures (${what})`);
       } else {
         // Not before RETRY_AFTER_MS, so one failing issue neither blocks the others nor burns
         // repeated model calls in the same run.
         const notBefore = new Date(now.getTime() + RETRY_AFTER_MS).toISOString();
         this.sql`UPDATE jobs SET attempts = ${attempts}, enqueued_at = ${notBefore}
-          WHERE issue = ${job.issue}`;
+          WHERE issue = ${job.issue} AND issue_updated_at = ${job.issue_updated_at}`;
         this.recordError(`#${job.issue}: ${what}`);
       }
       // Infrastructure failures stop the chain (the path is broken for every job); an unusable
@@ -319,13 +337,18 @@ export abstract class SpecialistAgent extends CustodesAgent<AgentsEnv, Specialis
     this.setState({ ...this.state, lastErrors: [] });
   }
 
-  override async onRequest(): Promise<Response> {
+  override async onRequest(request: Request): Promise<Response> {
+    const refused = noSuchAction(request);
+    if (refused) return refused;
     this.ensureSchema();
+    const ready = this.readyJobs(new Date());
     return Response.json({
       manifest: this.manifest,
       state: this.state,
       killSwitch: await this.haltState(),
-      queued: this.sql<{ n: number }>`SELECT COUNT(*) AS n FROM jobs`[0]?.n ?? 0,
+      // Jobs that can run now. Rechecks, retries and parked jobs wait for their time (`waiting`).
+      queued: ready,
+      waiting: (this.sql<{ n: number }>`SELECT COUNT(*) AS n FROM jobs`[0]?.n ?? 0) - ready,
       // Validated, sanitised results (the digest shows the same); operators only, through Access.
       recent: this.sql<{ issue: number; checked_at: string; result: string }>`SELECT issue,
         checked_at, result FROM results ORDER BY checked_at DESC LIMIT 20`.map((r) => ({

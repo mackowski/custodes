@@ -7,7 +7,16 @@ export const WAITING_UPDATE_LABEL = 'WAITING_UPDATE';
 
 /** Authors who are never gated: dependabot first (the operator's explicit rule), then any bot. */
 export const DEPENDABOT = 'dependabot[bot]';
-const TRUSTED_ASSOCIATIONS = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
+/**
+ * `author_association` values that make someone a maintainer (ADR 0013): write access or
+ * organisation membership. One set for every agent: pr-gate's exemption, cheatsheet-review's
+ * maintainer requests and the specialists' maintainer comments must not drift apart.
+ */
+export const MAINTAINER_ASSOCIATIONS: ReadonlySet<string> = new Set([
+  'OWNER',
+  'MEMBER',
+  'COLLABORATOR',
+]);
 
 export type CloseRule = 'ai_disclosure' | 'assigned_to_other' | 'no_approved_issue';
 
@@ -25,7 +34,7 @@ export function exemption(
   if (login.toLowerCase() === DEPENDABOT) return 'dependabot';
   if (pr.user?.type === 'Bot' || login.endsWith('[bot]')) return 'bot';
   if (pr.draft === true) return 'draft';
-  if (!opts.gateMaintainers && TRUSTED_ASSOCIATIONS.has(pr.author_association ?? ''))
+  if (!opts.gateMaintainers && MAINTAINER_ASSOCIATIONS.has(pr.author_association ?? ''))
     return 'maintainer';
   if (pr.labels.some((l) => l.name === WAITING_UPDATE_LABEL)) return 'waiting_update';
   return null;
@@ -58,15 +67,21 @@ export const MAX_LINKED = 5;
 /**
  * Issue numbers the PR body points at: `#123` and links to this repository's issues. At most
  * MAX_LINKED + 1 distinct ones, so a caller can tell that there were more. Pull requests among
- * them are filtered later (an issue read says so).
+ * them are filtered later (an issue read says so). `exclude` (a pull request's own number) is
+ * dropped before the cut, so it never takes the place of a real reference.
  * Code blocks, longer code spans and escaped `\#` are ignored (pasted lint output is full of
  * `#9`), but a code span holding only a reference counts: ``#`123` `` and `` `#123` ``.
  */
-export function linkedIssueNumbers(body: string | null | undefined, repo: string): number[] {
+export function linkedIssueNumbers(
+  body: string | null | undefined,
+  repo: string,
+  exclude?: number,
+): number[] {
   const raw = (body ?? '').slice(0, MAX_BODY_SCAN);
   const out: number[] = [];
   const add = (s: string | undefined) => {
     const n = Number(s);
+    if (n === exclude) return;
     if (Number.isSafeInteger(n) && n > 0 && n < 1_000_000 && !out.includes(n)) out.push(n);
   };
   const unfenced = raw.replace(/```[\s\S]*?(```|$)/g, ' ');
@@ -153,7 +168,7 @@ export function maintainerComments(
       const login = c.user?.login ?? '';
       if (!login || login.toLowerCase() === me) continue;
       if (c.user?.type === 'Bot' || login.endsWith('[bot]')) continue;
-      if (!TRUSTED_ASSOCIATIONS.has(c.author_association ?? '')) continue;
+      if (!MAINTAINER_ASSOCIATIONS.has(c.author_association ?? '')) continue;
       const unquoted = (c.body ?? '')
         .split(/\r?\n/)
         .filter((l) => !/^\s*>/.test(l))

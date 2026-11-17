@@ -4,7 +4,7 @@
  * URL. Everything shown can hold model output or third-party text: it is HTML-escaped, never
  * linked or rendered as Markdown, and the page has no script. It cannot be framed (clickjacking).
  */
-import type { ApprovalRequest, BrokerResponse } from '@custodes/schema';
+import type { ApprovalRequest, BundleStep, DecideOutcome } from '@custodes/schema';
 
 export const PAGE_HEADERS = {
   'content-type': 'text/html; charset=utf-8',
@@ -122,20 +122,7 @@ ${buttons}`,
   );
 }
 
-export interface DecideResult {
-  result: string;
-  decision?: 'approved' | 'rejected';
-  executed?: BrokerResponse;
-  /** A bundle's actions as they ran (ADR 0019). */
-  steps?: {
-    type: string;
-    outcome: 'done' | 'failed' | 'not_run';
-    code?: string;
-    githubUrl?: string;
-  }[];
-}
-
-function stepsList(steps: NonNullable<DecideResult['steps']>): string {
+function stepsList(steps: readonly BundleStep[]): string {
   const rows = steps.map((s) => {
     const url = s.githubUrl?.startsWith('https://github.com/')
       ? ` <a href="${escapeHtml(s.githubUrl)}">${escapeHtml(s.githubUrl)}</a>`
@@ -147,7 +134,7 @@ function stepsList(steps: NonNullable<DecideResult['steps']>): string {
 }
 
 /** What happened after the click. Only a GitHub URL the broker returned becomes a link. */
-export function resultPage(out: DecideResult): string {
+export function resultPage(out: DecideOutcome): string {
   let msg: string;
   if (out.result === 'rate_limited')
     msg =
@@ -157,18 +144,33 @@ export function resultPage(out: DecideResult): string {
   else if (out.steps !== undefined) {
     const ran = out.steps.filter((s) => s.outcome === 'done').length;
     const why =
-      out.executed?.ok === false && ran === 0 && !out.steps.some((s) => s.outcome === 'failed')
+      !out.executed.ok && ran === 0 && !out.steps.some((s) => s.outcome === 'failed')
         ? `: ${escapeHtml(out.executed.reason.slice(0, 200))}`
         : '';
     msg = `${ran} of ${out.steps.length} step(s) done${why}.${stepsList(out.steps)}`;
-  } else if (out.executed?.ok) {
+  } else if (out.executed.ok) {
     const url = out.executed.githubUrl;
     msg = url?.startsWith('https://github.com/')
       ? `Posted: <a href="${escapeHtml(url)}">${escapeHtml(url)}</a>`
       : 'Posted.';
-  } else
-    msg = `Approved, but the broker did not post it: ${escapeHtml(out.executed?.ok === false ? out.executed.code : 'unknown')}.`;
+  } else msg = `Approved, but the broker did not post it: ${escapeHtml(out.executed.code)}.`;
   return layout('Approval', `<h1>Approval</h1><p>${msg}</p>`);
+}
+
+/** The broker refused the request before deciding anything. */
+export function refusedPage(): string {
+  return layout(
+    'Approval',
+    '<h1>The decision was refused</h1><p>The broker did not accept this request. Nothing was decided and nothing was posted. The request is still pending.</p>',
+  );
+}
+
+/** The broker did not return a decision result: the action may or may not have run. */
+export function unknownOutcomePage(): string {
+  return layout(
+    'Approval',
+    '<h1>The outcome is not known</h1><p>The broker did not confirm the decision. Something may have been posted. Check the audit log (<code>custodes audit</code>) before using the link again.</p>',
+  );
 }
 
 /** An unusable link: never says which check failed beyond a generic reason. */

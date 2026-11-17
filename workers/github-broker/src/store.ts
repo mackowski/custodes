@@ -44,6 +44,12 @@ export class AuditStore {
     });
   }
 
+  /** A page size from a query string: 1 to 200, else 50. SQLite reads a negative LIMIT as "all". */
+  static listLimit(raw: string | undefined): number {
+    const n = Number(raw ?? 50);
+    return Number.isInteger(n) && n > 0 ? Math.min(n, 200) : 50;
+  }
+
   async list(agentId: string | undefined, limit: number): Promise<Attestation[]> {
     const stmt = agentId
       ? this.db
@@ -66,6 +72,14 @@ export class AuditStore {
         signature: row.signature,
       }),
     );
+  }
+
+  /**
+   * What the hourly rate limit counts for an agent on a repository. One definition of the window:
+   * `act()` and the bundle pre-check must agree, or a bundle passes the check and stops half-way.
+   */
+  usedThisHour(agentId: string, repo: string, now: Date): Promise<number> {
+    return this.countAllowedSince(agentId, repo, new Date(now.getTime() - 3_600_000).toISOString());
   }
 
   /**
@@ -166,10 +180,14 @@ export class ApprovalStore {
     return parsed.success ? parsed.data : null;
   }
 
-  async listPending(limit: number): Promise<ApprovalRequest[]> {
+  /** Requests that can still be decided: pending and not expired, like `countPending`. */
+  async listPending(limit: number, now = new Date()): Promise<ApprovalRequest[]> {
     const { results } = await this.db
-      .prepare(`SELECT * FROM approvals WHERE status = 'pending' ORDER BY created_at DESC LIMIT ?1`)
-      .bind(limit)
+      .prepare(
+        `SELECT * FROM approvals WHERE status = 'pending' AND expires_at > ?2
+         ORDER BY created_at DESC LIMIT ?1`,
+      )
+      .bind(limit, now.toISOString())
       .all<ApprovalRow>();
     return results.map(toApproval);
   }

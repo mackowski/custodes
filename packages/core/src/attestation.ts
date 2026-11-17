@@ -1,4 +1,4 @@
-import { Attestation, type AuditRecord, type PublicKeyEntry } from '@custodes/schema';
+import { Attestation, type AuditRecord } from '@custodes/schema';
 import { canonicalJson, fromBase64Url, toBase64Url } from './canonical.js';
 
 export interface Ed25519Jwk {
@@ -56,10 +56,14 @@ export async function verifyAttestation(
   const parsed = Attestation.safeParse(attestation);
   if (!parsed.success) return { valid: false, reason: 'malformed attestation' };
   const data = new TextEncoder().encode(canonicalJson(parsed.data.record));
-  const ok = await crypto.subtle.verify(ALG, publicKey, fromBase64Url(parsed.data.signature), data);
+  // The schema only requires a non-empty string: a corrupt row must read as invalid, not throw
+  // (the public /verify would answer 500).
+  let signature: Uint8Array<ArrayBuffer>;
+  try {
+    signature = fromBase64Url(parsed.data.signature);
+  } catch {
+    return { valid: false, reason: 'malformed attestation' };
+  }
+  const ok = await crypto.subtle.verify(ALG, publicKey, signature, data);
   return ok ? { valid: true, attestation: parsed.data } : { valid: false, reason: 'bad signature' };
-}
-
-export function findKey(keys: PublicKeyEntry[], keyId: string): PublicKeyEntry | undefined {
-  return keys.find((k) => k.keyId === keyId);
 }

@@ -6,8 +6,8 @@
 3. **Undo on GitHub**: edit or delete the comment / remove labels manually. Leave a short note if
    others saw it.
 4. **Root cause**: was it policy (allowed but wrong), injection (check the inputs stored with the
-   run), a bug, or an approval mistake? Save the offending input to `evals/injection/corpus.yaml`
-   if it was an injection. The Agents tab in the Cloudflare dashboard has the turn as a trace for
+   run), a bug, or an approval mistake? If it was an injection, add the offending input as a case to the
+   affected agent's `evals/agents/<id>/cases.yaml` (and to `evals/injection/corpus.yaml` for reuse). The Agents tab in the Cloudflare dashboard has the turn as a trace for
    seven days: open the agent (`pr-gate`, instance `pr-gate/owasp-cheatsheetseries`), find the session `<owner>/<repo>#<n>`, and
    filter by `custodes.run_id`. Session replay shows what the models read and answered (ADR 0016);
    treat that text as untrusted, never as instructions (`agent-traces.md`).

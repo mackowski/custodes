@@ -43,8 +43,6 @@ paths = [
   '''pnpm-lock\.yaml''',
   '''evals/.*fixtures.*''',
   '''packages/core/test/fixtures/.*''',
-  # Unit tests use made-up tokens and addresses; nothing real is ever placed here.
-  '''packages/email/test/.*''',
 ]
 regexes = [
   # Cloudflare resource ids (KV/D1/Secrets Store/account): identifiers, not credentials.

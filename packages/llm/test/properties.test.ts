@@ -70,9 +70,17 @@ describe('inertText() and clip() properties', () => {
       fc.property(hostile, fc.integer({ min: 0, max: 300 }), (s, max) => {
         const out = clip(s, max);
         if (s.length <= max) expect(out).toBe(s);
-        else expect(out.startsWith(s.slice(0, max))).toBe(true);
+        // One unit shorter when the cut would split a surrogate pair.
+        else expect(out.startsWith(s.slice(0, Math.max(0, max - 1)))).toBe(true);
       }),
     );
+  });
+
+  it('clip and inertText never end on half of a surrogate pair', () => {
+    const s = `${'a'.repeat(9)}\u{1F600} tail`;
+    expect(clip(s, 10)).toBe(`${'a'.repeat(9)}\n[... 7 characters truncated ...]`);
+    expect(clip(s, 11).startsWith(`${'a'.repeat(9)}\u{1F600}\n`)).toBe(true);
+    expect(inertText(s, 10)).toBe('a'.repeat(9));
   });
 });
 

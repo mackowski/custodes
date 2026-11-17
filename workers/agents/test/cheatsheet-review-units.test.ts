@@ -24,10 +24,12 @@ import {
 import {
   anchors,
   checkInternal,
-  extractLinks,
   fetchable,
   fetchLink,
+  pageText,
   maskedLine,
+  mergeCitation,
+  citedText,
   scanLinks,
   knownTargetForm,
   sameSite,
@@ -430,30 +432,37 @@ describe('scope.fencedLines', () => {
 
 // ---------- links ----------
 
-describe('links.extractLinks', () => {
-  const added = (text: string, n = 5) => [{ kind: '+' as const, newLine: n, text }];
-
-  it('finds markdown and bare links, each once, without trailing punctuation', () => {
-    const lines = [
-      ...added(
-        'See [a](https://a.example.com/x) and https://b.example.com/y, also https://b.example.com/y.',
-        3,
-      ),
-      ...added('Again [a](https://a.example.com/x "title") and [self](#heading).', 4),
-    ];
-    const links = extractLinks('cheatsheets/A.md', lines);
-    expect(links.map((l) => l.url)).toEqual([
-      'https://a.example.com/x',
-      'https://b.example.com/y',
-      '#heading',
-    ]);
-    expect(links[0]).toMatchObject({ file: 'cheatsheets/A.md', line: 3 });
+describe('links.pageText', () => {
+  it('keeps visible text and drops comments, hidden blocks and tags', () => {
+    const html =
+      '<html><head><TITLE lang="en">A &amp; B</TITLE><style>p{}</style></head><body>' +
+      '<!-- note --><p class="x">Hello <b>world</b></p><script>alert(1)</SCRIPT> 1 <> 2 &lt;ok&gt;</body></html>';
+    expect(pageText(html)).toEqual({ title: 'A & B', text: 'A & B Hello world 1 <> 2 <ok>' });
   });
 
-  it('ignores removed lines', () => {
+  it('drops the rest after an unclosed comment or hidden block, and keeps text after a lone "<"', () => {
+    expect(pageText('before <script>var x = 1;').text).toBe('before');
+    expect(pageText('before <!-- never closed').text).toBe('before');
+    expect(pageText('a < b and c').text).toBe('a < b and c');
+  });
+
+  it('treats a custom element whose name starts like a hidden block as an ordinary tag', () => {
     expect(
-      extractLinks('f.md', [{ kind: '-' as const, text: 'https://gone.example.com' }]),
-    ).toEqual([]);
+      pageText('a <svg-icon name="x"></svg-icon> b <template-row>c</template-row> d').text,
+    ).toBe('a b c d');
+  });
+
+  it('never ends the title on half of a surrogate pair', () => {
+    const title = `${'t'.repeat(199)}\u{1F600}`;
+    expect(pageText(`<title>${title}</title>`).title).toBe('t'.repeat(199));
+  });
+
+  it('stays fast on a page built to make a regex rescan (author-chosen URL)', () => {
+    for (const unit of ['<svg ', '<!-- ', '< ', '<title ', '<title>']) {
+      const started = Date.now();
+      pageText(unit.repeat(400_000));
+      expect(Date.now() - started, unit).toBeLessThan(1_000);
+    }
   });
 });
 
@@ -1133,6 +1142,15 @@ describe('render.checkSuggestions', () => {
     ]);
   });
 
+  it('rejects a suggestion whose escaped comment would not fit, never cutting its block', () => {
+    // 400 angle brackets escape to 1,600 characters; with a long replacement the body passes 3,900.
+    const out = check([sug({ rationale: '<'.repeat(400), replacement: 'x'.repeat(2_900) })]);
+    expect(out.comments).toEqual([]);
+    expect(out.rejected[0]?.why).toContain('too long');
+    const fits = check([sug({ rationale: 'short', replacement: 'x'.repeat(2_900) })]);
+    expect(fits.comments[0]?.body.endsWith('\n````')).toBe(true);
+  });
+
   it('rejects a replacement holding four backticks, which would close the fence', () => {
     const out = check([sug({ replacement: 'x\n````\n@everyone' })]);
     expect(out.comments).toEqual([]);
@@ -1312,7 +1330,6 @@ describe('email.lowQualityMail', () => {
     repo: 'mackowski/custodes-sandbox',
     pull: 9,
     author: 'x<script>alert(1)</script>',
-    title: 'T',
     decision: decision({
       verdict: 'CLOSE',
       lowQuality: true,
@@ -1695,6 +1712,11 @@ describe('refs.reviewIssueRefs', () => {
     expect(refs('related to issues 12')).toEqual([12]);
   });
 
+  it("does not give one of its three places to the pull request's own number", () => {
+    const body = 'Closes #2850. This PR #2860 fixes #2851 and #2852';
+    expect(reviewIssueRefs(body, 'OWASP/CheatSheetSeries', 2860)).toEqual([2850, 2851, 2852]);
+  });
+
   it('never takes a bare number or another repository issue URL', () => {
     expect(refs('Version 2815 of the 100 things; PR 44')).toEqual([]);
     expect(refs('https://github.com/other/repo/issues/9')).toEqual([]);
@@ -1919,6 +1941,102 @@ describe('links.scanLinks', () => {
     expect(r.links.map((l) => l.url)).toEqual(['https://a.example.com/x']);
     expect(r.links[0]).not.toHaveProperty('previous');
     expect([...r.targetOnlyLines]).toEqual([]);
+  });
+
+  it('audits every sentence that cites one URL, up to two more than the first', () => {
+    const r = scanLinks(
+      SHEET,
+      parsePatch(
+        [
+          '@@ -1,0 +1,4 @@',
+          '+True claim, see [d](https://new.example/a).',
+          '+False claim, see [d](https://new.example/a).',
+          '+Third claim, see [d](https://new.example/a).',
+          '+Fourth claim, see [d](https://new.example/a).',
+        ].join('\n'),
+      ),
+    );
+    expect(r.links).toHaveLength(1);
+    const [link] = r.links;
+    if (!link) throw new Error('fixture');
+    const text = citedText(link);
+    expect(text).toContain('True claim');
+    expect(text).toContain(`Also cited in ${SHEET} line 2: False claim`);
+    expect(text).toContain('Third claim');
+    // Past the limit a sentence is counted, never dropped without a word.
+    expect(text).not.toContain('Fourth claim');
+    expect(link.unaudited).toEqual([{ file: SHEET, line: 4 }]);
+    // A sentence that merely contains an audited one is a different claim.
+    const short = { ...link, line: 9, context: 'claim, see [d](https://new.example/a).' };
+    delete short.more;
+    delete short.unaudited;
+    mergeCitation(link, short);
+    expect(link.unaudited).toHaveLength(2);
+    // The same URL as a mere retarget elsewhere: kept for the review, never judged as new text.
+    mergeCitation(link, { ...short, file: 'other.md', line: 3, previous: 'https://old.example/a' });
+    expect(link.movedAt).toEqual([
+      { file: 'other.md', line: 3, previous: 'https://old.example/a' },
+    ]);
+    // A move seen first, then the URL in new text: audited as new, and the move is kept.
+    const moved = {
+      url: 'https://u.example/',
+      file: 'a.md',
+      line: 3,
+      context: 'Old.',
+      previous: 'https://nist.example/',
+    };
+    mergeCitation(moved, {
+      url: 'https://u.example/',
+      file: 'b.md',
+      line: 7,
+      context: 'New claim.',
+    });
+    expect(moved).toEqual({
+      url: 'https://u.example/',
+      file: 'b.md',
+      line: 7,
+      context: 'New claim.',
+      movedAt: [{ file: 'a.md', line: 3, previous: 'https://nist.example/' }],
+    });
+    // Two moves to one URL from different targets: the second is kept as well.
+    const first = {
+      url: 'https://u.example/',
+      file: 'a.md',
+      line: 3,
+      context: 'Old.',
+      previous: 'https://x.example/',
+    };
+    mergeCitation(first, {
+      url: 'https://u.example/',
+      file: 'b.md',
+      line: 9,
+      context: 'Other.',
+      previous: 'https://y.example/',
+    });
+    expect(first.previous).toBe('https://x.example/');
+    expect(first).toHaveProperty('movedAt', [
+      { file: 'b.md', line: 9, previous: 'https://y.example/' },
+    ]);
+    // Across sheets as within one: a sentence wins over a reference definition.
+    const definition = {
+      url: 'https://x.example/',
+      file: 'a.md',
+      line: 3,
+      context: '[1]: x',
+      markup: true as const,
+    };
+    mergeCitation(definition, {
+      url: 'https://x.example/',
+      file: 'b.md',
+      line: 7,
+      context: 'A claim.',
+    });
+    expect(definition).toEqual({
+      url: 'https://x.example/',
+      file: 'b.md',
+      line: 7,
+      context: 'A claim.',
+    });
   });
 
   it('does not pair across a context line inside one hunk', () => {
@@ -2644,12 +2762,6 @@ describe('links: reference definitions and HTML href/src (#95)', () => {
       'https://c.example/y',
     ]);
     expect(r.links.every((l) => l.markup === true)).toBe(true);
-    // extractLinks uses the same extractor.
-    expect(
-      extractLinks(SHEET, [{ kind: '+', text: '[x]: //evil.example/x', newLine: 1 }]).map(
-        (l) => l.url,
-      ),
-    ).toEqual(['//evil.example/x']);
   });
 
   it('keeps an entity-encoded scheme as written, so its form is refused', () => {

@@ -23,7 +23,7 @@ skills in `.claude/skills/`, then reviewed by humans and by automated review. Re
 ## Local setup
 
 ```bash
-./scripts/bootstrap.sh     # checks node, pnpm, wrangler, terraform, cloudflared
+./scripts/bootstrap.sh     # checks node, pnpm, terraform, cloudflared
 pnpm install
 pnpm check                 # format, lint, typecheck, test
 ```

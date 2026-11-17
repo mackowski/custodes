@@ -5,7 +5,11 @@ import { describe, expect, it } from 'vitest';
 import { validateProposalReview } from '../src/agents/specialists/proposal.js';
 import type { AgentsEnv } from '../src/env.js';
 import { OWASP_INSTANCE, SANDBOX_INSTANCE } from '../src/instances.js';
-import { MAX_JOBS_PER_DAY, MAX_JOBS_PER_DAY_SANDBOX } from '../src/agents/specialists/agent.js';
+import {
+  MAX_FAILURES,
+  MAX_JOBS_PER_DAY,
+  MAX_JOBS_PER_DAY_SANDBOX,
+} from '../src/agents/specialists/agent.js';
 import e2eRunner from '../../../e2e/sandbox/run.ts?raw';
 
 const testEnv = env as unknown as AgentsEnv;
@@ -53,6 +57,7 @@ function review(askedAt: Date | null, now: Date, over: { replied?: boolean } = {
       labels: [],
       current: [],
       people: ['author', 'bob'],
+      author: 'author',
       files: new Map(),
       now,
       ...(askedAt ? { asked: { at: askedAt.toISOString(), replied: over.replied ?? false } } : {}),
@@ -182,11 +187,13 @@ describe('SpecialistAgent recheck (ADR 0019)', () => {
   it('a newer version also pulls a failed job out of its retry delay, but the same version does not', async () => {
     const issue = 1000 + ++n;
     await inAgent(async (a) => {
-      a.run = () => Promise.reject(new Error('boom'));
+      // An unusable answer about this issue: it weighs a quarter of the limit, other failures 1/12.
+      a.run = () =>
+        Promise.reject(Object.assign(new Error('bad output'), { name: 'StructuredOutputError' }));
       await a.enqueue([{ issue, issueUpdatedAt: '2026-11-10T10:00:00.000Z' }]);
       await a.workOne();
       const delayed = jobs(a).find((j) => j.issue === issue)!;
-      expect(delayed.attempts).toBe(1);
+      expect(delayed.attempts).toBe(MAX_FAILURES / 4);
       expect(Date.parse(delayed.enqueued_at)).toBeGreaterThan(Date.now() + 5 * HOUR);
 
       await a.enqueue([{ issue, issueUpdatedAt: '2026-11-10T10:00:00.000Z' }]);
@@ -214,5 +221,102 @@ describe('specialists daily budget (operator, 2026-11-16)', () => {
   it('is mirrored by the sandbox e2e runner, which stops waiting at the cap', () => {
     // A stale mirror made the 2026-11-16 e2e send its digest before the specialists finished.
     expect(e2eRunner).toContain(`const SPECIALIST_JOBS_PER_DAY = ${MAX_JOBS_PER_DAY_SANDBOX};`);
+  });
+});
+
+describe('SpecialistAgent queue: giving up, the daily cap and versions', () => {
+  const updated = '2026-11-10T10:00:00.000Z';
+  const makeReady = (a: Internals, issue: number) =>
+    a.sql`UPDATE jobs SET enqueued_at = '2000-01-01T00:00:00.000Z' WHERE issue = ${issue}`;
+
+  // An unusable answer about this issue (input-specific), as the model clients throw it.
+  const unusable = () => Object.assign(new Error('bad output'), { name: 'StructuredOutputError' });
+
+  it('does not park a job for a few infrastructure failures: an outage heals by itself', async () => {
+    const issue = 1000 + ++n;
+    await inAgent(async (a) => {
+      a.run = () => Promise.reject(new Error('gateway down'));
+      await a.enqueue([{ issue, issueUpdatedAt: updated }]);
+      const failTimes = async (times: number) => {
+        for (let k = 0; k < times; k++) {
+          makeReady(a, issue);
+          await a.workOne();
+        }
+        return jobs(a).find((j) => j.issue === issue);
+      };
+      // Six failures (six daily preparations during an outage): still waiting for the retry delay.
+      const waiting = await failTimes(6);
+      expect(Date.parse(waiting?.enqueued_at ?? '')).toBeLessThan(Date.now() + 7 * HOUR);
+      // An issue that fails this way every time is parked in the end, so it cannot use up the
+      // daily budget for ever.
+      const parked = await failTimes(MAX_FAILURES - 6);
+      expect(Date.parse(parked?.enqueued_at ?? '')).toBeGreaterThan(Date.now() + 29 * 24 * HOUR);
+    });
+  });
+
+  it('parks a job after the last attempt, so the next prepare does not start it over', async () => {
+    const issue = 1000 + ++n;
+    await inAgent(async (a) => {
+      a.run = () => Promise.reject(unusable());
+      await a.enqueue([{ issue, issueUpdatedAt: updated }]);
+      for (let k = 0; k < 4; k++) {
+        makeReady(a, issue);
+        await a.workOne();
+      }
+      const parked = jobs(a).find((j) => j.issue === issue);
+      expect(parked?.attempts).toBe(MAX_FAILURES);
+      expect(Date.parse(parked?.enqueued_at ?? '')).toBeGreaterThan(Date.now() + 29 * 24 * HOUR);
+      // Triage sends the same version again on every prepare: the row stays parked.
+      let calls = 0;
+      a.run = () => {
+        calls++;
+        return Promise.resolve(null);
+      };
+      await a.enqueue([{ issue, issueUpdatedAt: updated }]);
+      expect(await a.workOne()).toBe(false);
+      expect(calls).toBe(0);
+      expect(jobs(a).find((j) => j.issue === issue)?.attempts).toBe(MAX_FAILURES);
+      // A newer version of the issue starts fresh and runs now.
+      await a.enqueue([{ issue, issueUpdatedAt: '2026-11-12T10:00:00.000Z' }]);
+      expect(jobs(a).find((j) => j.issue === issue)?.attempts).toBe(0);
+      await a.workOne();
+      expect(calls).toBe(1);
+    });
+  });
+
+  it('runs nothing once the daily cap is used', async () => {
+    const issue = 1000 + ++n;
+    await inAgent(async (a) => {
+      let calls = 0;
+      a.run = () => {
+        calls++;
+        return Promise.resolve(null);
+      };
+      await a.enqueue([{ issue, issueUpdatedAt: updated }]);
+      a.setState({
+        ...a.state,
+        day: new Date().toISOString().slice(0, 10),
+        jobsToday: MAX_JOBS_PER_DAY_SANDBOX,
+      });
+      expect(await a.workOne()).toBe(false);
+      expect(calls).toBe(0);
+      expect(jobs(a).some((j) => j.issue === issue)).toBe(true);
+    });
+  });
+
+  it('keeps a newer version that was enqueued while the old one was being worked', async () => {
+    const issue = 1000 + ++n;
+    const newer = '2026-11-12T10:00:00.000Z';
+    await inAgent(async (a) => {
+      a.run = async () => {
+        await a.enqueue([{ issue, issueUpdatedAt: newer }]);
+        return null;
+      };
+      await a.enqueue([{ issue, issueUpdatedAt: updated }]);
+      await a.workOne();
+      const row = jobs(a).find((j) => j.issue === issue);
+      expect(row?.issue_updated_at).toBe(newer);
+      expect(row?.attempts).toBe(0);
+    });
   });
 });

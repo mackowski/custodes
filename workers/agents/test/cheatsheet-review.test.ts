@@ -292,6 +292,8 @@ interface Options {
   mailFails?: boolean;
   /** Workers AI document conversion (#90); by default it fails. */
   toMarkdown?: ToMarkdown;
+  /** Runs once, inside the agent, at the first model call of a review. */
+  midRun?: (agent: CheatsheetReviewAgent) => Promise<void>;
 }
 
 const stub = () => getAgentByName(testEnv.CheatsheetReviewAgent, SANDBOX_INSTANCE);
@@ -299,7 +301,13 @@ const stub = () => getAgentByName(testEnv.CheatsheetReviewAgent, SANDBOX_INSTANC
 async function drive(opts: Options = {}): Promise<Run & { outs: ReviewOutcome[] }> {
   const sc = opts.scenario ?? scenario();
   const broker = fakeBroker(sc);
-  const models = fakeModels(opts.script ?? defaultScript(opts.judge ?? decisionJson()));
+  const script = opts.script ?? defaultScript(opts.judge ?? decisionJson());
+  let running: CheatsheetReviewAgent | undefined;
+  let mid: Promise<void> | undefined;
+  const models = fakeModels((role, req) => {
+    if (opts.midRun && running) mid ??= opts.midRun(running);
+    return script(role, req);
+  });
   const mail: Run['mail'] = [];
   const fetched: string[] = [];
   const email = {
@@ -311,6 +319,7 @@ async function drive(opts: Options = {}): Promise<Run & { outs: ReviewOutcome[] 
   };
   return runInDurableObject(await stub(), async (agent: CheatsheetReviewAgent) => {
     const i = agent as unknown as Internals;
+    running = agent;
     const original = i.env;
     i.env = Object.create(original, {
       BROKER: { value: withHaltState(broker) },
@@ -332,6 +341,7 @@ async function drive(opts: Options = {}): Promise<Run & { outs: ReviewOutcome[] 
     try {
       const outs: ReviewOutcome[] = [];
       for (let n = 0; n < (opts.runs ?? 1); n++) outs.push(await agent.runReview(PR));
+      await mid;
       const rows = i.sql<Run['rows'][number]>`SELECT status, verdict, event FROM reviews`;
       return { out: outs[0]!, outs, broker, models, mail, fetched, rows, logs: [] };
     } finally {
@@ -433,6 +443,62 @@ describe('cheatsheet-review: refusing to run', () => {
     const again = await drive({ scenario: scenario({ timeline: [labeledBy('mackowski', 502)] }) });
     expect(again.out).toMatchObject({ status: 'posted' });
     expect(reviewActs(again)).toHaveLength(1);
+  });
+});
+
+describe('cheatsheet-review: an interrupted run', () => {
+  it('marks a review still running at the check as interrupted and e-mails the operator', async () => {
+    const sent: { subject: string; text: string }[] = [];
+    const out = await runInDurableObject(await stub(), async (agent: CheatsheetReviewAgent) => {
+      const i = agent as unknown as Internals & {
+        ensureSchema(): void;
+        sql<T>(strings: TemplateStringsArray, ...values: unknown[]): T[];
+      };
+      const original = i.env;
+      i.env = Object.create(original, {
+        BROKER: { value: withHaltState(fakeBroker(scenario())) },
+        EMAIL: {
+          value: {
+            send: (m: { subject: string; text: string }) => {
+              sent.push(m);
+              return Promise.resolve();
+            },
+          },
+        },
+      }) as AgentsEnv;
+      try {
+        i.ensureSchema();
+        i.sql`DELETE FROM reviews WHERE pull = 77`;
+        i.sql`INSERT INTO reviews (pull, label_event, head_sha, started_at, status)
+          VALUES (77, 9001, 'abc', '2026-11-17T10:00:00.000Z', 'running')`;
+        i.sql`INSERT INTO reviews (pull, label_event, head_sha, started_at, status)
+          VALUES (77, 9002, 'abc', '2026-11-17T10:00:00.000Z', 'posted')`;
+        i.sql`INSERT INTO reviews (pull, label_event, head_sha, started_at, status)
+          VALUES (77, 9003, 'abc', '2026-11-17T10:00:00.000Z', 'posting')`;
+        await agent.checkInterrupted({ pull: 77, labelEvent: 9001 });
+        // A finished review is left alone.
+        await agent.checkInterrupted({ pull: 77, labelEvent: 9002 });
+        // A run that died after claiming its row: the review may be on the pull request already.
+        await agent.checkInterrupted({ pull: 77, labelEvent: 9003 });
+        return {
+          rows: i.sql<{ label_event: number; status: string }>`SELECT label_event, status
+            FROM reviews WHERE pull = 77 ORDER BY label_event`,
+          errors: agent.state.lastErrors,
+        };
+      } finally {
+        i.sql`DELETE FROM reviews WHERE pull = 77`;
+        i.env = original;
+      }
+    });
+    expect(out.rows).toEqual([
+      { label_event: 9001, status: 'interrupted' },
+      { label_event: 9002, status: 'posted' },
+      { label_event: 9003, status: 'interrupted' },
+    ]);
+    expect(out.errors[0]).toBe('#77: interrupted');
+    expect(sent).toHaveLength(2);
+    expect(sent[0]?.text).toContain('remove and add the label again');
+    expect(sent[1]?.text).toContain('interrupted while posting: check the pull request');
   });
 });
 
@@ -854,6 +920,65 @@ describe('cheatsheet-review: external links', () => {
     expect(reviewActs(r)[0]?.body).toContain('<https://example.com/doc>');
   });
 
+  it('fetches and audits a URL once when two sheets cite it', async () => {
+    const one = withLink();
+    const [file] = one.files;
+    if (!file) throw new Error('fixture');
+    const fetched: string[] = [];
+    const r = await drive({
+      scenario: {
+        ...one,
+        files: [file, { ...file, filename: 'cheatsheets/Other_Cheat_Sheet.md' }],
+      },
+      fetchImpl: (input) => {
+        fetched.push(
+          typeof input === 'string' ? input : input instanceof URL ? input.href : input.url,
+        );
+        return Promise.resolve(
+          new Response('<title>Doc</title><p>text</p>', {
+            headers: { 'content-type': 'text/html' },
+          }),
+        );
+      },
+    });
+    expect(fetched.filter((u) => u === 'https://example.com/doc')).toHaveLength(1);
+    const audit = r.models.calls.find((c) => c.role === 'link-auditor');
+    expect(audit?.req.user.match(/https:\/\/example\.com\/doc/g)?.length ?? 0).toBeGreaterThan(0);
+    expect(audit?.req.user).not.toContain('Link 2');
+  });
+
+  it('shows the auditor every sentence that cites one URL across sheets', async () => {
+    const one = withLink();
+    const [file] = one.files;
+    if (!file) throw new Error('fixture');
+    const other = 'cheatsheets/Other_Cheat_Sheet.md';
+    const r = await drive({
+      scenario: {
+        ...one,
+        files: [
+          file,
+          {
+            ...file,
+            filename: other,
+            patch: file.patch?.replace('for details.', 'which says MD5 is fine.') ?? '',
+          },
+        ],
+      },
+      fetchImpl: () =>
+        Promise.resolve(
+          new Response('<title>Doc</title><p>text</p>', {
+            headers: { 'content-type': 'text/html' },
+          }),
+        ),
+    });
+    const audit = r.models.calls.find((c) => c.role === 'link-auditor');
+    expect(audit?.req.user).toContain('Sentence: See https://example.com/doc for details.');
+    expect(audit?.req.user).toContain(
+      `Also cited in ${other} line 4: See https://example.com/doc which says MD5 is fine.`,
+    );
+    expect(audit?.req.user).not.toContain('Link 2');
+  });
+
   it('lists a forbidden page for manual verification instead of calling it broken', async () => {
     const r = await drive({
       scenario: withLink(),
@@ -1182,6 +1307,24 @@ describe('cheatsheet-review: PR #75 review fixes', () => {
     const r = await drive({ scenario: scenario({ pullAfter: { labels: [] } }) });
     expect(r.out).toMatchObject({ ok: false, status: 'cancelled' });
     expect(r.broker.acts).toEqual([]);
+  });
+
+  it('publishes nothing when the run was reported as interrupted meanwhile', async () => {
+    const r = await drive({
+      midRun: (agent) => agent.checkInterrupted({ pull: PR, labelEvent: 501 }),
+    });
+    expect(r.out).toMatchObject({ ok: false, status: 'interrupted' });
+    expect(r.broker.acts).toEqual([]);
+    expect(r.rows).toMatchObject([{ status: 'interrupted' }]);
+  });
+
+  it('keeps the interrupted status when such a run ends without posting', async () => {
+    const r = await drive({
+      scenario: scenario({ pullAfter: { labels: [] } }),
+      midRun: (agent) => agent.checkInterrupted({ pull: PR, labelEvent: 501 }),
+    });
+    expect(r.out).toMatchObject({ ok: false, status: 'cancelled' });
+    expect(r.rows).toMatchObject([{ status: 'interrupted' }]);
   });
 
   it('publishes nothing when the author pushed during the review (L3)', async () => {

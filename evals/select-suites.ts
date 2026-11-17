@@ -12,6 +12,8 @@ const CHEATSHEET = [
   `${AGENTS}cheatsheet-review/lineup.ts`,
   `${AGENTS}cheatsheet-review/types.ts`,
   `${AGENTS}cheatsheet-review/input.ts`,
+  // Builds the sentence the link auditor reads for each URL.
+  `${AGENTS}cheatsheet-review/links.ts`,
   'packages/llm/src/chat.ts',
 ];
 const JEV = ['packages/llm/src/jev.ts', 'packages/llm/src/clef.ts'];
@@ -37,7 +39,11 @@ export const SUITE_PATHS: Record<string, readonly string[]> = {
   'cheatsheet-review-links': CHEATSHEET,
   'cheatsheet-review-scope': CHEATSHEET,
   'cheatsheet-review-security': CHEATSHEET,
-  'cheatsheet-review-security-2': CHEATSHEET,
+  // The second voice runs the first one's cases (its config loads them): a new case must reach both.
+  'cheatsheet-review-security-2': [
+    ...CHEATSHEET,
+    'evals/agents/cheatsheet-review-security/cases.yaml',
+  ],
   'cheatsheet-review-verifier': [...CHEATSHEET, CLAIMS],
 };
 
@@ -45,7 +51,6 @@ export const SUITE_PATHS: Record<string, readonly string[]> = {
 export const SHARED_PATHS: readonly string[] = [
   '.github/workflows/evals.yml',
   'evals/providers/',
-  'evals/injection/',
   'evals/summarize.ts',
   'evals/select-suites.ts',
   'packages/llm/src/models.ts',

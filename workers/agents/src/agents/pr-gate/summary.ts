@@ -4,6 +4,7 @@ import { inertText } from '@custodes/llm';
 import { inertNoLinks } from '../triage/assess.js';
 import { esc } from '../triage/digest-html.js';
 import { pullUrl } from '../triage/digest.js';
+import { issueRefs } from './comment.js';
 
 export type SummaryOutcome = 'close' | 'would_close' | 'flag' | 'error' | 'minor';
 
@@ -20,7 +21,6 @@ export interface SummaryRow {
   decidedAt: string;
   /** Issues behind the decision (the approved issue for author_has_approved_issue). */
   issues?: number[];
-  githubUrl?: string;
   attestationId?: string;
 }
 
@@ -66,10 +66,10 @@ const SECTIONS: { outcome: SummaryOutcome; heading: string }[] = [
   },
 ];
 
-/** " #2770, #2771" from validated numbers only. */
+/** " #2770, #2771", with the leading space, or nothing. */
 function refs(r: SummaryRow): string {
-  const ns = (r.issues ?? []).filter((n) => Number.isSafeInteger(n) && n > 0).slice(0, 5);
-  return ns.length ? ` ${ns.map((n) => `#${n}`).join(', ')}` : '';
+  const list = issueRefs(r.issues ?? []);
+  return list ? ` ${list}` : '';
 }
 
 function line(repo: string, r: SummaryRow): string {

@@ -1,10 +1,10 @@
 import { z } from 'zod';
-import { AUTOMATION_TRIGGER_LABELS, CheatSheetFile } from '@custodes/schema';
+import { AUTOMATION_TRIGGER_LABELS } from '@custodes/schema';
 import { clip, parseStructured, untrusted, UNTRUSTED_DATA_RULES } from '@custodes/llm';
 import { inertNoLinks, inertNoLinksWords } from '../triage/assess.js';
 import { issueLabels, type IssueComment, type PublicIssue } from '../triage/github.js';
 import { isSafeName, safeLogin } from '../triage/prompt.js';
-import { list, text, unit } from './lenient.js';
+import { list, text, toIssueNumber, unit } from './lenient.js';
 import { RawEvidence, sanitizeComment, VerifiedEvidence, verifyEvidence } from './evidence.js';
 import {
   ASK_AUTHOR,
@@ -27,9 +27,16 @@ import {
   type LinkedPull,
 } from './implementation.js';
 import { linkedIssueNumbers } from '../pr-gate/rules.js';
+import { MAX_PROPOSAL_COMMENT, MAX_PROPOSAL_LABELS } from '../triage-apply/bundle.js';
 import { instanceForRepo } from '../../instances.js';
 import { loadCheatSheets, type SpecialistDeps } from './run.js';
-import { buildSelectMessage, RawSelection, SELECT_PROMPT, validateSelection } from './select.js';
+import {
+  buildSelectMessage,
+  offerableCheatSheets,
+  RawSelection,
+  SELECT_PROMPT,
+  validateSelection,
+} from './select.js';
 
 /** evals/agents/proposal-review/system.txt must match it byte for byte; a test enforces that. */
 export const PROPOSAL_PROMPT = `You are "proposal-review", a read-only assistant for the maintainers of the OWASP Cheat Sheet Series.
@@ -112,7 +119,7 @@ export const RawProposalReview = z.object({
   ]),
   makesSense: z.boolean(),
   evidence: list(RawEvidence, 8),
-  addLabels: list(text(60), 6),
+  addLabels: list(text(60), MAX_PROPOSAL_LABELS),
   removeLabels: list(text(60), 6),
   // Lenient: an answer without these (or an unknown intent) counts as "unclear", nobody offered.
   authorIntent: z.enum(['offered', 'declined', 'unclear']).catch('unclear').default('unclear'),
@@ -123,11 +130,7 @@ export const RawProposalReview = z.object({
     .union([z.number(), z.string()])
     .nullable()
     .optional()
-    .transform((v) => {
-      if (v === null || v === undefined) return null;
-      const n = typeof v === 'number' ? v : Number(v.replace(/^#/, ''));
-      return Number.isInteger(n) && n > 0 && n <= 1_000_000 ? n : null;
-    }),
+    .transform((v) => (v === null || v === undefined ? null : toIssueNumber(v))),
   helpWanted: z.boolean(),
   // Optional for answers that leave it out; "#12" is accepted like 12.
   priorDecision: z
@@ -136,13 +139,11 @@ export const RawProposalReview = z.object({
     .optional()
     .transform((v) => {
       if (!v) return null;
-      const n = typeof v.issue === 'number' ? v.issue : Number(v.issue.replace(/^#/, ''));
-      return Number.isInteger(n) && n > 0 && n <= 1_000_000
-        ? { issue: n, summary: v.summary }
-        : null;
+      const n = toIssueNumber(v.issue);
+      return n === null ? null : { issue: n, summary: v.summary };
     }),
   explanation: text(1500),
-  suggestedComment: text(3000),
+  suggestedComment: text(MAX_PROPOSAL_COMMENT),
   injectionDetected: z.boolean(),
   confidence: unit,
 });
@@ -160,7 +161,7 @@ export const ProposalReview = z.object({
   assignTo: z.string().nullable(),
   /** Why `assignTo` was chosen (older stored results have none). */
   assignWhy: z
-    .enum(['author offered', 'author declined', 'author silent 2 days'])
+    .enum(['author offered', 'author declined', 'author silent 2 days', 'no author to ask'])
     .nullable()
     .default(null),
   /** Logins the suggested comment names, put in by code from GitHub-set fields (ADR 0019). */
@@ -223,14 +224,33 @@ export interface ReferencedIssue {
   via: string;
 }
 
-/** Distinct, valid logins of the author and commenters, author first. */
+/** The author's login, or null when a bot, a deleted account or an unusable login opened the issue. */
+export function threadAuthor(issue: PublicIssue): string | null {
+  const login = safeLogin(issue.user?.login);
+  // GitHub shows an issue from a deleted account as the placeholder user `ghost`.
+  return issue.user?.['type'] === 'Bot' || login === 'unknown' || login.toLowerCase() === 'ghost'
+    ? null
+    : login;
+}
+
+/**
+ * Distinct, valid logins of the author (when `threadAuthor` gives one) and the commenters, author
+ * first. Without an author the list holds commenters only: pass `threadAuthor` along with it, so
+ * that nobody reads the first commenter as the author (`{author}`, "author offered").
+ */
 export function threadPeople(issue: PublicIssue, comments: IssueComment[]): string[] {
   // Bot commenters are never people to assign or name (ADR 0019; security review of #113).
   const all = [
-    issue.user?.login,
+    threadAuthor(issue) ?? undefined,
     ...comments.filter((c) => c.user?.type !== 'Bot').map((c) => c.user?.login),
   ];
   return [...new Set(all.map(safeLogin).filter((l) => l !== 'unknown'))];
+}
+
+/** The commenters of `threadPeople`: everyone but the author. */
+function threadCommenters(issue: PublicIssue, comments: IssueComment[]): string[] {
+  const people = threadPeople(issue, comments);
+  return threadAuthor(issue) === null ? people : people.slice(1);
 }
 
 /** Code-built: whether and when we asked the author, and whether they answered. */
@@ -264,8 +284,7 @@ export function buildProposalMessage(
     `Known labels: ${labels.join(', ')}`,
     `People in this thread: ${threadPeople(issue, comments).join(', ') || '(none)'}`,
     `Commenters: ${
-      threadPeople(issue, comments)
-        .slice(1)
+      threadCommenters(issue, comments)
         .map((p, i) => `${i + 1}. ${p}`)
         .join(', ') || '(none)'
     }`,
@@ -319,6 +338,8 @@ export function validateProposalReview(
     labels: string[];
     current: string[];
     people: string[];
+    /** `threadAuthor`: null when nobody is the author. */
+    author: string | null;
     files: ReadonlyMap<string, string>;
     /** Current assignees (valid logins). */
     assignees?: string[];
@@ -365,6 +386,7 @@ export function validateProposalReview(
     intent: raw.authorIntent,
     volunteers: raw.volunteers,
     people: ctx.people,
+    author: ctx.author,
     assignees,
     reviewPr,
     asked,
@@ -380,14 +402,19 @@ export function validateProposalReview(
     assignTo === null &&
     assignees.length === 0 &&
     reviewPr === null &&
-    ctx.people.length > 0;
+    // There must be an author to ask: a commenter is never asked in the author's place.
+    ctx.author !== null;
   let comment = sanitizeComment(raw.suggestedComment);
   if (ask && !comment.includes('{author}'))
     comment = comment ? `${comment}\n\n${ASK_AUTHOR}` : ASK_AUTHOR;
-  const filled = fillPlaceholders(comment, ctx.people);
+  const filled = fillPlaceholders(comment, ctx.people, ctx.author);
   if (!filled.ok) dropped.push('comment (bad placeholder)');
-  const suggestedComment = filled.ok ? filled.text : '';
-  const mentions = filled.ok ? filled.mentions : [];
+  // The appended question and filled placeholders can take the comment past what triage-apply
+  // accepts; then the whole one-click link would be refused. Drop the comment, keep the rest.
+  const tooLong = filled.ok && filled.text.length > MAX_PROPOSAL_COMMENT;
+  if (tooLong) dropped.push('comment (too long)');
+  const suggestedComment = filled.ok && !tooLong ? filled.text : '';
+  const mentions = filled.ok && !tooLong ? filled.mentions : [];
   // Nobody is needed when someone is assigned, already assigned, or a PR does the work.
   const helpWanted =
     raw.helpWanted && assignTo === null && assignees.length === 0 && reviewPr === null;
@@ -401,7 +428,8 @@ export function validateProposalReview(
     helpWanted &&
     helpLabel &&
     !current.has(helpLabel.toLowerCase()) &&
-    !addLabels.includes(helpLabel)
+    !addLabels.includes(helpLabel) &&
+    addLabels.length < MAX_PROPOSAL_LABELS
   )
     addLabels.push(helpLabel);
   let priorDecision: ProposalReview['priorDecision'] = null;
@@ -473,8 +501,8 @@ export async function readReferencedIssues(
   ];
   const refs: { n: number; via: string }[] = [];
   for (const { text, via } of sources)
-    for (const n of linkedIssueNumbers(text, repo))
-      if (n !== issue.number && !refs.some((r) => r.n === n)) refs.push({ n, via });
+    for (const n of linkedIssueNumbers(text, repo, issue.number))
+      if (!refs.some((r) => r.n === n)) refs.push({ n, via });
   const out: ReferencedIssue[] = [];
   for (const { n, via } of refs) {
     if (out.length >= MAX_REFERENCED) break;
@@ -509,10 +537,7 @@ export async function reviewProposal(
     .map((a) => safeLogin(a.login))
     .filter((l) => l !== 'unknown');
   const labels = allLabels.filter(isSafeName);
-  // Names the broker would refuse to read are never offered to the model.
-  const cheatSheets = allCheatSheets.filter(
-    (n) => isSafeName(n) && CheatSheetFile.safeParse(n).success,
-  );
+  const cheatSheets = offerableCheatSheets(allCheatSheets);
   const selection = parseStructured(
     RawSelection,
     await deps.select(SELECT_PROMPT, buildSelectMessage(repo, issue, cheatSheets), issueNumber),
@@ -541,6 +566,7 @@ export async function reviewProposal(
     labels,
     current: issueLabels(issue),
     people: threadPeople(issue, comments),
+    author: threadAuthor(issue),
     files,
     assignees,
     linkedPrs,

@@ -226,6 +226,8 @@ export function assignWhyText(why: NonNullable<ProposalReview['assignWhy']>): st
       return 'the model reads the author as declining; the first other volunteer';
     case 'author silent 2 days':
       return 'no reply from the author 2 days after our question; the first volunteer';
+    case 'no author to ask':
+      return 'a bot or a deleted account opened the issue; the first volunteer';
   }
 }
 

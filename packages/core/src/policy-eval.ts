@@ -19,6 +19,10 @@ export function evaluatePolicy(policy: Policy, req: BrokerRequest): PolicyDecisi
     return { allow: false, code: 'policy_denied', reason: `agent ${req.agentId} is read-only` };
   }
 
+  // Retired actions are refused whatever a policy lists (`pr.review` could approve a pull request).
+  if (req.action.type === 'pr.review' || req.action.type === 'pr.comment') {
+    return { allow: false, code: 'policy_denied', reason: `action ${req.action.type} is retired` };
+  }
   if (!agent.repos.includes(req.action.repo)) {
     return { allow: false, code: 'policy_denied', reason: `repo ${req.action.repo} not allowed` };
   }

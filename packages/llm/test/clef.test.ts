@@ -92,6 +92,30 @@ describe('ClefClient', () => {
   });
 });
 
+describe('ClefClient timeout label', () => {
+  it('reports ClefTimeoutError even when the runner rejects as soon as it is aborted', async () => {
+    const run = vi.fn<AiRunner['run']>(
+      (_m, _i, o) =>
+        new Promise((_, reject) => {
+          o.signal?.addEventListener('abort', () => {
+            reject(new Error('aborted'));
+          });
+        }),
+    );
+    const client = new ClefClient({ ai: { run }, gatewayId: 'custodes', timeoutMs: 20 });
+    await expect(client.decide(req)).rejects.toThrow(ClefTimeoutError);
+  });
+
+  it('refuses free text in gateway metadata before any call', async () => {
+    const run = vi.fn<AiRunner['run']>(() => Promise.resolve({}));
+    const bad = { ...req, metadata: { ...req.metadata, title: 'free text' } };
+    await expect(
+      new ClefClient({ ai: { run }, gatewayId: 'custodes' }).decide(bad),
+    ).rejects.toThrow('gateway metadata');
+    expect(run).not.toHaveBeenCalled();
+  });
+});
+
 describe('one AI Gateway (ADR 0015)', () => {
   it('reaches no model endpoint outside AI Gateway except Jev direct', () => {
     // Every https URL in the model adapters must be the gateway, except JevClient's direct

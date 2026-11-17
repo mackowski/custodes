@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { env } from 'cloudflare:workers';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import { canonicalJson, KillSwitch, sha256Hex } from '@custodes/core';
+import { canonicalJson, KillSwitch, mentionsIn, sha256Hex } from '@custodes/core';
 import {
   type ApprovalBundle,
   type BrokerAction,
@@ -16,7 +16,6 @@ import {
   createBundleApproval,
   MAX_BUNDLE_ASKS_PER_HOUR,
   decideApproval,
-  mentionsIn,
   readIssueThread,
 } from '../src/approvals.js';
 import type { BrokerEnv } from '../src/env.js';
@@ -773,6 +772,47 @@ describe('readIssueThread', () => {
     vi.restoreAllMocks();
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json({ state: 'open', user: null }));
     expect(await read(11)).toEqual({ ok: false, reason: 'unexpected issue shape' });
+    // An issue a bot opened is a known shape, whatever its login: the bot is not among the people.
+    vi.restoreAllMocks();
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input) =>
+      Promise.resolve(
+        String(input instanceof Request ? input.url : input).includes('/comments')
+          ? Response.json([])
+          : Response.json({
+              state: 'open',
+              user: { login: 'dependabot[bot]', type: 'Bot' },
+              updated_at: '2026-11-10T10:00:00Z',
+              comments: 0,
+            }),
+      ),
+    );
+    expect(await read(13)).toMatchObject({ ok: true, people: [] });
+    // So is one from a deleted account (`ghost`): nobody to name; a commenter still is.
+    vi.restoreAllMocks();
+    vi.spyOn(globalThis, 'fetch').mockImplementation((input) =>
+      Promise.resolve(
+        String(input instanceof Request ? input.url : input).includes('/comments')
+          ? Response.json([{ user: { login: 'ghost' } }, { user: { login: 'helper' } }])
+          : Response.json({
+              state: 'open',
+              user: { login: 'ghost' },
+              updated_at: '2026-11-10T10:00:00Z',
+              comments: 2,
+            }),
+      ),
+    );
+    expect(await read(14)).toMatchObject({ ok: true, people: ['helper'] });
+    // An assignee with a login we do not accept is still an assignee: never read as unassigned.
+    vi.restoreAllMocks();
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      Response.json({
+        state: 'open',
+        user: { login: 'author' },
+        updated_at: '2026-11-10T10:00:00Z',
+        assignees: [{ login: 'old-' }],
+      }),
+    );
+    expect(await read(12)).toEqual({ ok: false, reason: 'unexpected issue shape' });
   });
 
   it('does not read for an agent without read policy for the repo', async () => {

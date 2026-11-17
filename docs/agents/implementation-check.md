@@ -45,12 +45,12 @@ Nothing on GitHub.
 
 ## Limits and failure modes
 
-| Limit or failure                        | Effect                                                                        |
-| --------------------------------------- | ----------------------------------------------------------------------------- |
-| 10 jobs per UTC day (sandbox: 40)       | the rest wait; the first poll after midnight resumes                          |
-| Model output invalid, refused, cut off  | job moves to the back of the queue; dropped after 4 attempts, error in digest |
-| Broker, GitHub or gateway failure       | job kept, chain stops, retried on the next triage poll                        |
-| Kill switch `halt:implementation-check` | alarms return at once; checked again before every model call                  |
+| Limit or failure                        | Effect                                                                                                                                           |
+| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 10 jobs per UTC day (sandbox: 40)       | the rest wait; the first poll after midnight resumes                                                                                             |
+| Model output invalid, refused, cut off  | job is tried again at the next daily preparation; after 4 such answers it is parked for 30 days (a changed issue runs at once), error in digest. |
+| Broker, GitHub or gateway failure       | job kept, chain stops, retried at the next daily preparation; parked for 30 days only after 12 failures of the same issue version                |
+| Kill switch `halt:implementation-check` | alarms return at once; checked again before every model call                                                                                     |
 
 ## Threat model
 

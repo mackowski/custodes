@@ -4,7 +4,7 @@
  * `author_association` (OWNER, MEMBER, COLLABORATOR), the filter of ADR 0013; bots and this
  * agent's own posted reviews are left out. The bodies stay untrusted. Pure.
  */
-import { AGENT_TRAILER } from '../pr-gate/rules.js';
+import { AGENT_TRAILER, MAINTAINER_ASSOCIATIONS } from '../pr-gate/rules.js';
 import { safeLogin } from '../triage/prompt.js';
 import type { IssueComment, PullReview } from '../triage/github.js';
 
@@ -12,8 +12,6 @@ import type { IssueComment, PullReview } from '../triage/github.js';
 export const OWN_REVIEW_MARKER = 'Automated LLM review (multi-model)';
 /** Requests shown to the judge: the newest ones. */
 export const MAX_REQUESTS = 10;
-
-const MAINTAINER = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
 
 export interface MaintainerRequest {
   /** Login in GitHub's charset (safeLogin). */
@@ -42,7 +40,7 @@ function counts(x: Authored, prAuthor: string): boolean {
   const body = x.body ?? '';
   const own = unquoted(body);
   return (
-    MAINTAINER.has(x.author_association ?? '') &&
+    MAINTAINER_ASSOCIATIONS.has(x.author_association ?? '') &&
     x.user?.type !== 'Bot' &&
     !login.endsWith('[bot]') &&
     // The PR author is never their own maintainer (as in pr-gate's maintainerComments, ADR 0013).

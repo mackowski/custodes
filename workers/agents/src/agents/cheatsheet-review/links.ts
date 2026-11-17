@@ -4,7 +4,8 @@
  * `untrusted()`. Like upstream's link check, 401/403/429/5xx and timeouts mean "verify manually",
  * never "broken".
  */
-import type { DiffLine, Hunk } from './diff.js';
+import { cutWhole } from '@custodes/llm';
+import type { Hunk } from './diff.js';
 
 export interface AddedLink {
   url: string;
@@ -19,6 +20,74 @@ export interface AddedLink {
    * href/src value (#95). Inside a fenced code block that is a code sample, not a rendered link.
    */
   markup?: true;
+  /** Further new sentences that cite the same URL (`citeAgain`); author text, untrusted. */
+  more?: { file: string; line: number; context: string }[];
+  /** Further citing sentences past the limit: not audited, listed for a manual check. */
+  unaudited?: { file: string; line: number }[];
+  /** Places where this URL only replaced an older target, while it is audited as new here. */
+  movedAt?: { file: string; line: number; previous: string }[];
+}
+
+/** Sentences audited for one URL: the first place and this many more that cite it again. */
+export const MAX_EXTRA_CITATIONS = 2;
+
+/**
+ * The same URL cited again for new text, in this file or another: the auditor answers once per
+ * URL, so the further sentence is judged with the first one's. Without this a true sentence at
+ * the first place would cover a false claim at the second. Past the limit the sentence is counted
+ * in `unaudited`, and the review says so.
+ */
+function citeAgain(prior: AddedLink, link: AddedLink): void {
+  // A move that is not the one audited here (this place is audited as new, or as another move).
+  if (link.previous !== undefined && link.previous !== prior.previous) {
+    // Audited as new for its sentence; the move elsewhere is not judged, and the review says so.
+    prior.movedAt = [
+      ...(prior.movedAt ?? []),
+      { file: link.file, line: link.line, previous: link.previous },
+    ];
+    return;
+  }
+  if (link.previous !== undefined || link.markup || prior.previous !== undefined) return;
+  const more = prior.more ?? [];
+  if (link.context === prior.context || more.some((m) => m.context === link.context)) return;
+  if (more.length >= MAX_EXTRA_CITATIONS)
+    prior.unaudited = [...(prior.unaudited ?? []), { file: link.file, line: link.line }];
+  else prior.more = [...more, { file: link.file, line: link.line, context: link.context }];
+}
+
+/**
+ * A URL seen again, in the same file or in another sheet: which place and sentence it is audited
+ * at. One rule for both, in this order: new text wins over "only its target moved" (the page must
+ * support the claim, not just be the same resource); a sentence wins over other markup (a
+ * reference definition, a code sample); any further new sentence is judged too (`citeAgain`).
+ */
+export function mergeCitation(prior: AddedLink, link: AddedLink): void {
+  const newOverMoved = link.previous === undefined && prior.previous !== undefined;
+  const sentenceOverMarkup = prior.markup === true && !link.markup;
+  if (!newOverMoved && !sentenceOverMarkup) {
+    citeAgain(prior, link);
+    return;
+  }
+  if (newOverMoved && prior.previous !== undefined) {
+    // The move is no longer what is judged here: keep it for the review's manual list.
+    prior.movedAt = [
+      ...(prior.movedAt ?? []),
+      { file: prior.file, line: prior.line, previous: prior.previous },
+    ];
+    delete prior.previous;
+  }
+  if (sentenceOverMarkup) delete prior.markup;
+  prior.file = link.file;
+  prior.line = link.line;
+  prior.context = link.context;
+}
+
+/** What the auditor reads for a link: its sentence and the further ones that cite the same URL. */
+export function citedText(link: AddedLink): string {
+  return [
+    link.context,
+    ...(link.more ?? []).map((m) => `Also cited in ${m.file} line ${m.line}: ${m.context}`),
+  ].join('\n');
 }
 
 export type FetchedLink =
@@ -212,19 +281,8 @@ export function scanLinks(
   const push = (link: AddedLink) => {
     if (!link.url) return;
     if (seen.has(link.url)) {
-      // Cited again for new text: judge it as new (support for the sentence), not only as a move.
       const prior = links.find((x) => x.url === link.url);
-      if (prior && link.previous === undefined && prior.previous !== undefined) {
-        delete prior.previous;
-        prior.line = link.line;
-        prior.context = link.context;
-      }
-      if (prior?.markup && !link.markup) {
-        // Audit it against the sentence that cites it, not the code sample (review of #125, L-b).
-        delete prior.markup;
-        prior.line = link.line;
-        prior.context = link.context;
-      }
+      if (prior) mergeCitation(prior, link);
       return;
     }
     seen.add(link.url);
@@ -317,22 +375,6 @@ export function scanLinks(
   return { links, targetOnlyLines, longLines };
 }
 
-/** Links in added lines, in order, each once. */
-export function extractLinks(file: string, added: readonly DiffLine[]): AddedLink[] {
-  const out: AddedLink[] = [];
-  const seen = new Set<string>();
-  for (const l of added) {
-    if (l.newLine === undefined) continue;
-    // The same extractor the pipeline uses (#95): one definition of what a link is.
-    for (const url of targets(l.text)) {
-      if (!url || seen.has(url)) continue;
-      seen.add(url);
-      out.push({ url, file, line: l.newLine, context: l.text.slice(0, 600) });
-    }
-  }
-  return out;
-}
-
 export function isExternal(url: string): boolean {
   return /^https?:\/\//i.test(url);
 }
@@ -405,13 +447,71 @@ const ENTITIES: Record<string, string> = {
   nbsp: ' ',
 };
 
+// The name must end there: <svg-icon> or <template-row> is an ordinary tag, not a hidden block.
+const HIDDEN_BLOCK = /^<(script|style|noscript|svg|template)(?=[\s/>])/i;
+
+/**
+ * `html` without comments, hidden blocks (script, style, noscript, svg, template) and tags, in one
+ * pass. The page is chosen by the PR author: regexes with a lazy `[\s\S]*?` or `<[^>]+>` rescan
+ * to the end from every unclosed opener, which is quadratic and can use up the Worker's CPU limit
+ * (200 KB of `<svg ` took 3.6 s). Here an unclosed comment or hidden block drops the rest of the
+ * page, and a `<` with no `>` after it ends the scan, so every search to the end happens once.
+ */
+function stripMarkup(html: string): string {
+  const out: string[] = [];
+  let i = 0;
+  while (i < html.length) {
+    const lt = html.indexOf('<', i);
+    if (lt < 0) break;
+    out.push(html.slice(i, lt));
+    let end: number;
+    const block = HIDDEN_BLOCK.exec(html.slice(lt, lt + 10));
+    if (html.startsWith('<!--', lt)) {
+      const close = html.indexOf('-->', lt + 4);
+      end = close < 0 ? -1 : close + 3;
+    } else if (block?.[1] !== undefined) {
+      const closer = new RegExp(`</${block[1]}>`, 'gi');
+      closer.lastIndex = lt;
+      end = closer.exec(html) ? closer.lastIndex : -1;
+    } else {
+      const gt = html.indexOf('>', lt + 1);
+      if (gt < 0) {
+        // No tag can close any more: the rest is text.
+        out.push(html.slice(lt));
+        return out.join('');
+      }
+      if (gt === lt + 1) {
+        // "<>" is not a tag.
+        out.push('<');
+        i = lt + 1;
+        continue;
+      }
+      end = gt + 1;
+    }
+    if (end < 0) return out.join('');
+    out.push(' ');
+    i = end;
+  }
+  out.push(html.slice(i));
+  return out.join('');
+}
+
+/** The first <title>'s content, found without a regex that rescans (see stripMarkup). */
+function rawTitle(html: string): string {
+  const open = html.search(/<title/i);
+  if (open < 0) return '';
+  const gt = html.indexOf('>', open);
+  if (gt < 0) return '';
+  const closer = /<\/title>/gi;
+  closer.lastIndex = gt;
+  const m = closer.exec(html);
+  return m ? html.slice(gt + 1, m.index) : '';
+}
+
 /** Visible text of an HTML page: no scripts, styles or tags. */
 export function pageText(html: string): { title: string; text: string } {
-  const title = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(html)?.[1] ?? '';
-  const text = html
-    .replace(/<(script|style|noscript|svg|template)[\s\S]*?<\/\1>/gi, ' ')
-    .replace(/<!--[\s\S]*?-->/g, ' ')
-    .replace(/<[^>]+>/g, ' ')
+  const title = rawTitle(html);
+  const text = stripMarkup(html)
     .replace(/&(amp|lt|gt|quot|#39|nbsp);/g, (_, e: string) => ENTITIES[e] ?? ' ')
     .replace(/\s+/g, ' ')
     .trim();
@@ -419,7 +519,7 @@ export function pageText(html: string): { title: string; text: string } {
     /&(amp|lt|gt|quot|#39|nbsp);/g,
     (_, e: string) => ENTITIES[e] ?? ' ',
   );
-  return { title: decoded.replace(/\s+/g, ' ').trim().slice(0, 200), text };
+  return { title: cutWhole(decoded.replace(/\s+/g, ' ').trim(), 200), text };
 }
 
 /** At most `max` bytes of the body; `over` when the body had more. */
@@ -528,7 +628,7 @@ export async function fetchLink(url: string, fetchImpl: typeof fetch): Promise<F
       status: res.status,
       finalUrl,
       title,
-      excerpt: text.slice(0, EXCERPT_CHARS),
+      excerpt: cutWhole(text, EXCERPT_CHARS),
     };
   } catch (err) {
     return { kind: 'unreachable', why: failure(err, ac.signal) };

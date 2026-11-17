@@ -489,6 +489,23 @@ describe('decide', () => {
     expect(r).toMatchObject({ outcome: 'flag', reason: 'too_many_refs' });
   });
 
+  it('flags when the PR mentions its own number and a sixth issue is cut off unread', async () => {
+    const pr = pull({ body: '' });
+    const body = `${tick(true, false)}\nfollow-up to #1, this is #${pr.number}, see #2 #3 #4 #5 #6`;
+    // #6 is cut by the reference cap; without the fix the own number hid that.
+    const d = deps({
+      getIssue: vi.fn((n: number) => Promise.resolve(issue({ number: n, labels: [] }))),
+      listFiles: vi.fn(() => Promise.resolve([file({ status: 'added' })])),
+    });
+    const r = await decide(REPO, { ...pr, body }, d);
+    expect(r).toMatchObject({ outcome: 'flag', reason: 'too_many_refs' });
+    // Its own number plus exactly five issues: all five are read, so this is not an overflow.
+    const five = body.replace(' #6', '');
+    const read = await decide(REPO, { ...pr, body: five }, d);
+    expect(read).not.toMatchObject({ reason: 'too_many_refs' });
+    expect(d.getIssue).toHaveBeenCalledWith(5);
+  });
+
   it('still skips an overflowing body when an approved issue assigned to the author is read', async () => {
     const body = `${tick(true, false)}\nfixes #1, related #2 #3 #4 #5 #6`;
     const d = deps({

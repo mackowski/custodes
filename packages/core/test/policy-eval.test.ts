@@ -200,6 +200,25 @@ describe('evaluatePolicy for pr-gate (real broker policy)', () => {
       }),
     ).toEqual({ allow: true, needsApproval: false });
   });
+  it('refuses a retired action even when a policy lists it', () => {
+    const gateEntry = real.agents['pr-gate'];
+    if (!gateEntry) throw new Error('fixture');
+    const widened = {
+      ...real,
+      agents: {
+        ...real.agents,
+        'pr-gate': { ...gateEntry, actions: [...gateEntry.actions, 'pr.review' as const] },
+      },
+    };
+    const repo = gateEntry.repos[0] ?? '';
+    expect(
+      evaluatePolicy(widened, {
+        ...gate,
+        action: { type: 'pr.review', repo, pull: 7, event: 'APPROVE', body: 'x' },
+      }),
+    ).toMatchObject({ allow: false, code: 'policy_denied', reason: 'action pr.review is retired' });
+  });
+
   it('denies pr-gate commenting, reviewing and closing on other repositories', () => {
     expect(
       evaluatePolicy(real, {

@@ -168,10 +168,24 @@ describe('broker act() when execution fails half way', () => {
     expect(postedBody).toContain(res.attestationId);
     const att = await store.get(res.attestationId);
     expect(att?.record.decision).toBe('denied');
-    expect(att?.record.reason).toMatch(/^execution failed: /);
+    expect(att?.record.reason).toBe(
+      'execution failed: GitHub 403 on /repos/OWASP/CheatSheetSeries/pulls/7',
+    );
+    // GitHub's own error text stays out of the signed, public record.
+    expect(att?.record.reason).not.toContain('Resource not accessible');
     expect(await store.countAllowedSince('pr-gate', 'OWASP/CheatSheetSeries', hourAgo)).toBe(
       before + 1,
     );
+  });
+});
+
+describe('audit list page size', () => {
+  it('is 1 to 200, and 50 for anything else (a negative LIMIT means no limit in SQLite)', () => {
+    expect(AuditStore.listLimit(undefined)).toBe(50);
+    expect(AuditStore.listLimit('10')).toBe(10);
+    expect(AuditStore.listLimit('5000')).toBe(200);
+    for (const bad of ['-1', '0', 'abc', '1.5', ''])
+      expect(AuditStore.listLimit(bad), bad).toBe(50);
   });
 });
 
@@ -240,6 +254,61 @@ describe('broker act() for cheatsheet-review', () => {
       await act(testEnv, inline('cheatsheet-review', 'mackowski/custodes-sandbox')),
     ).toMatchObject({ ok: true });
     expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('still answers ok when the audit record cannot be stored after the post, and logs the loss', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(() =>
+      Promise.resolve(
+        Response.json({ html_url: 'https://github.com/mackowski/custodes-sandbox/pull/3#r1' }),
+      ),
+    );
+    // The review is live on GitHub: a 500 here would read as "nothing happened" and invite a repeat.
+    const insert = vi
+      .spyOn(AuditStore.prototype, 'insert')
+      .mockRejectedValue(new Error('D1 unavailable'));
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const ks = new KillSwitch(env.KILL_SWITCH);
+    let halted: boolean;
+    let res: Awaited<ReturnType<typeof act>>;
+    try {
+      res = await act(testEnv, inline('cheatsheet-review', 'mackowski/custodes-sandbox'));
+      halted = (await ks.state('cheatsheet-review')).halted;
+    } finally {
+      await ks.resume('cheatsheet-review');
+    }
+    expect(res).toMatchObject({ ok: true });
+    // Without an audit trail the rate limit cannot count either: the agent is stopped.
+    expect(halted).toBe(true);
+    expect(insert).toHaveBeenCalledTimes(2);
+    const line = logged.mock.calls.map((c) => String(c[0])).find((l) => l.includes('audit.lost'));
+    expect(JSON.parse(line ?? '{}')).toMatchObject({
+      event: 'broker.audit.lost',
+      agentId: 'cheatsheet-review',
+      action: 'pr.review.inline',
+    });
+  });
+
+  it('does not report a loss or halt when the audit write landed although the call threw', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(() =>
+      Promise.resolve(
+        Response.json({ html_url: 'https://github.com/mackowski/custodes-sandbox/pull/3#r1' }),
+      ),
+    );
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- called with the store as `this` below
+    const real = AuditStore.prototype.insert;
+    const insert = vi.spyOn(AuditStore.prototype, 'insert').mockImplementation(async function (
+      this: AuditStore,
+      att,
+    ) {
+      await real.call(this, att);
+      throw new Error('reported after commit');
+    });
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const res = await act(testEnv, inline('cheatsheet-review', 'mackowski/custodes-sandbox'));
+    expect(res).toMatchObject({ ok: true });
+    expect(insert).toHaveBeenCalledTimes(1);
+    expect(logged.mock.calls.some((c) => String(c[0]).includes('audit.lost'))).toBe(false);
+    expect((await new KillSwitch(env.KILL_SWITCH).state('cheatsheet-review')).halted).toBe(false);
   });
 
   it('needs an approval to post on OWASP (ADR 0017 amendment), before reaching GitHub', async () => {

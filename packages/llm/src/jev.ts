@@ -14,7 +14,9 @@
  */
 import { z } from 'zod';
 import { chat, type OperationSpan, type Turn } from '@custodes/core';
-import { GatewayError } from './gateway.js';
+import { GatewayError, openRouterCode } from './gateway.js';
+import { gatewayMetadata } from './metadata.js';
+import { withTimeout } from './timeout.js';
 import { clip, untrusted } from './untrusted.js';
 
 /** Above ~32 KB Jev switches to a slower, less accurate long-context mode; stay below it. */
@@ -34,7 +36,16 @@ export type JevTransport =
 export interface JevConfig {
   transport: JevTransport;
   fetchImpl?: typeof fetch;
+  /** Bound on one decision call. Default `JEV_TIMEOUT_MS`. */
+  timeoutMs?: number;
 }
+
+/**
+ * A decision is a short typed answer: all 40 calls in the gateway logs up to 2026-11-17 took under
+ * 2 s. A stalled one must not hold a pr-gate poll towards its lock; a timeout is a thrown rung,
+ * which flags and never acts.
+ */
+export const JEV_TIMEOUT_MS = 30_000;
 
 /** Path under `…/openrouter/` that AI Gateway forwards to OpenRouter's Decisions endpoint. */
 export const JEV_GATEWAY_PATH = 'api/alpha/decisions';
@@ -50,8 +61,7 @@ export function jevState(source: string, content: string): JevState {
 
 export type JevQuestion =
   | { type: 'noul'; instructions: string; criteria: { true: string; false: string } }
-  | { type: 'choice'; instructions: string; criteria: Record<string, string> }
-  | { type: 'score'; instructions: string; criteria: string[] };
+  | { type: 'choice'; instructions: string; criteria: Record<string, string> };
 
 export interface JevRequest<Q extends Record<string, JevQuestion>> {
   model: string;
@@ -69,18 +79,7 @@ export const JevChoiceAnswer = z.object({
   confidence: Probability,
   probabilities: z.record(z.string(), Probability),
 });
-export const JevScoreAnswer = z.object({
-  type: z.literal('score'),
-  score: z.number(),
-  confidence: Probability,
-  probabilities: z.record(z.string(), Probability),
-  legend: z.record(z.string(), z.string()).optional(),
-});
-export const JevAnswer = z.discriminatedUnion('type', [
-  JevNoulAnswer,
-  JevChoiceAnswer,
-  JevScoreAnswer,
-]);
+export const JevAnswer = z.discriminatedUnion('type', [JevNoulAnswer, JevChoiceAnswer]);
 export type JevAnswer = z.infer<typeof JevAnswer>;
 
 export const JevResponse = z.object({
@@ -98,9 +97,7 @@ export const JevResponse = z.object({
 
 type AnswerFor<Q extends JevQuestion> = Q['type'] extends 'noul'
   ? z.infer<typeof JevNoulAnswer>
-  : Q['type'] extends 'choice'
-    ? z.infer<typeof JevChoiceAnswer>
-    : z.infer<typeof JevScoreAnswer>;
+  : z.infer<typeof JevChoiceAnswer>;
 
 export interface JevResult<Q extends Record<string, JevQuestion>> {
   id: string;
@@ -114,18 +111,6 @@ export class JevOutputError extends Error {
   constructor(readonly question: string) {
     super(`jev answer missing or mistyped: ${question}`);
     this.name = 'JevOutputError';
-  }
-}
-
-/** OpenRouter's error code, without keeping any message text. */
-function openRouterCode(body: string): string | undefined {
-  try {
-    const parsed: unknown = JSON.parse(body);
-    const c = (parsed as { error?: { code?: unknown } }).error?.code;
-    if (typeof c === 'number') return String(c);
-    return typeof c === 'string' && /^[a-z0-9_]{1,60}$/i.test(c) ? c : undefined;
-  } catch {
-    return undefined;
   }
 }
 
@@ -156,23 +141,27 @@ export class JevClient {
     };
     if (t.kind === 'gateway') {
       headers['cf-aig-authorization'] = `Bearer ${t.gatewayToken}`;
-      headers['cf-aig-metadata'] = JSON.stringify(req.metadata);
+      headers['cf-aig-metadata'] = JSON.stringify(gatewayMetadata(req.metadata));
     } else {
       headers['authorization'] = `Bearer ${t.apiKey}`;
       body['trace'] = { trace_id: req.metadata.runId, trace_name: req.metadata.agentId };
     }
     return chat(turn, { provider: 'openrouter', model: req.model }, async (span) => {
       span.payload('gen_ai.input.messages', decisionInput(req));
-      const res = await this.fetchImpl(this.url, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(body),
+      // The body is read inside the bound: headers that arrive before a stalled body would
+      // otherwise end the timeout.
+      const res = await withTimeout(this.cfg.timeoutMs ?? JEV_TIMEOUT_MS, async (signal) => {
+        const r = await this.fetchImpl(this.url, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(body),
+          signal,
+        });
+        return { ok: r.ok, status: r.status, text: await r.text() };
       });
-      if (!res.ok) {
-        const text = await res.text();
-        throw new GatewayError(res.status, text.slice(0, 300), openRouterCode(text));
-      }
-      const parsed = JevResponse.safeParse(await res.json());
+      if (!res.ok)
+        throw new GatewayError(res.status, res.text.slice(0, 300), openRouterCode(res.text));
+      const parsed = JevResponse.safeParse(JSON.parse(res.text) as unknown);
       if (!parsed.success) throw new JevOutputError('(response)');
       decisionOutput(span, parsed.data);
       for (const [name, q] of Object.entries(req.questions)) {

@@ -15,11 +15,11 @@ import {
 } from '../src/agents/specialists/proposal.js';
 import {
   buildBundle as buildBundleWith,
-  mentionsIn,
   ProposalInput,
   snapshotOf as snapshotOfWith,
   threadPeople,
 } from '../src/agents/triage-apply/bundle.js';
+import { mentionsIn } from '@custodes/core';
 import type { IssueComment, PublicIssue } from '../src/agents/triage/github.js';
 import { applyLine, renderDigest, type ApplyLink } from '../src/agents/triage/digest.js';
 import { renderDigestHtml } from '../src/agents/triage/digest-html.js';
@@ -223,12 +223,12 @@ describe('buildBundle', () => {
 });
 
 describe('triage-apply helpers', () => {
-  it('snapshots sorted labels and assignees, and drops invalid logins', () => {
+  it('snapshots sorted labels and assignees, and refuses an assignee it cannot name', () => {
     expect(
       snapshotOf(
         issue({
           labels: ['b', { name: 'a' }],
-          assignees: [{ login: 'zed' }, { login: 'not a login' }, { login: 'amy' }],
+          assignees: [{ login: 'zed' }, { login: 'amy' }],
           comments: 4,
         }),
       ),
@@ -240,6 +240,12 @@ describe('triage-apply helpers', () => {
       commentsDigest: DIGEST,
     });
     expect(snapshotOf(issue({ state: 'merged' }))).toBeNull();
+    // An assignee with a login we do not accept (old accounts end in a hyphen): no snapshot,
+    // never "unassigned".
+    expect(snapshotOf(issue({ assignees: [{ login: 'old-' }] }))).toBeNull();
+    expect(
+      snapshotOf(issue({ assignees: [{ login: 'amy' }, { login: 'not a login' }] })),
+    ).toBeNull();
   });
 
   it('lists the author first and every commenter once, ignoring invalid logins', () => {
@@ -248,7 +254,7 @@ describe('triage-apply helpers', () => {
     ).toEqual(['author', 'Bob']);
   });
 
-  it('mentionsIn agrees with the broker rule', () => {
+  it('mentionsIn (the rule shared with the broker) finds what GitHub would notify', () => {
     // GitHub mentions in rendered text: after code, emphasis or a slash too; never inside a word.
     expect(mentionsIn('@a and (@b) but not x@c, `@d`, /@e or w@f')).toEqual(['a', 'b', 'd', 'e']);
   });
@@ -335,6 +341,7 @@ describe('automation trigger labels (review of #113)', () => {
         labels: ['ACK_OBTAINED', 'jules', 'custodes_cheatsheet_review'],
         current: [],
         people: ['author'],
+        author: 'author',
         files: new Map(),
       },
     );
@@ -429,6 +436,7 @@ describe('chooseAssignee', () => {
     intent: 'unclear',
     volunteers: [],
     people: ['author', 'bob', 'carol'],
+    author: 'author',
     assignees: [],
     reviewPr: null,
     asked: null,
@@ -449,7 +457,9 @@ describe('chooseAssignee', () => {
   it('assigns nobody when someone is assigned, a PR does the work or there is no author', () => {
     expect(chooseAssignee({ ...base, intent: 'offered', assignees: ['x'] }).assignTo).toBeNull();
     expect(chooseAssignee({ ...base, intent: 'offered', reviewPr: 5 }).assignTo).toBeNull();
-    expect(chooseAssignee({ ...base, intent: 'offered', people: [] }).assignTo).toBeNull();
+    expect(
+      chooseAssignee({ ...base, intent: 'offered', people: [], author: null }).assignTo,
+    ).toBeNull();
   });
 
   it('waits for the author while intent is unclear and a volunteer exists', () => {
@@ -524,14 +534,14 @@ describe('chooseAssignee', () => {
 describe('fillPlaceholders', () => {
   const people = ['author', 'bob', 'carol'];
   it('puts in the author and the N-th commenter, and lists each mention once', () => {
-    expect(fillPlaceholders('{author} and {commenter:2}, {author}!', people)).toEqual({
+    expect(fillPlaceholders('{author} and {commenter:2}, {author}!', people, 'author')).toEqual({
       ok: true,
       text: '@author and @carol, @author!',
       mentions: ['author', 'carol'],
     });
   });
   it('leaves text without placeholders alone', () => {
-    expect(fillPlaceholders('plain {1} text', people)).toEqual({
+    expect(fillPlaceholders('plain {1} text', people, 'author')).toEqual({
       ok: true,
       text: 'plain {1} text',
       mentions: [],
@@ -545,11 +555,11 @@ describe('fillPlaceholders', () => {
     '{author:1}',
     '{owner:1}',
   ])('rejects %s', (p) => {
-    expect(fillPlaceholders(`hi ${p}`, people)).toEqual({ ok: false });
+    expect(fillPlaceholders(`hi ${p}`, people, 'author')).toEqual({ ok: false });
   });
   it('rejects {author} when there is nobody, and a login that is not safe', () => {
-    expect(fillPlaceholders('{author}', [])).toEqual({ ok: false });
-    expect(fillPlaceholders('{author}', ['bad login'])).toEqual({ ok: false });
+    expect(fillPlaceholders('{author}', [], null)).toEqual({ ok: false });
+    expect(fillPlaceholders('{author}', ['bad login'], 'bad login')).toEqual({ ok: false });
   });
 });
 
@@ -560,6 +570,7 @@ describe('validateProposalReview: asking the author and the 48 hours', () => {
     labels: ['ACK_OBTAINED', 'ACK_WAITING', 'HELP_WANTED', 'NEW_CS'],
     current: ['ACK_WAITING'],
     people: ['author', 'bob'],
+    author: 'author',
     files: new Map<string, string>(),
     now: NOW,
   };
@@ -667,6 +678,7 @@ describe('digest apply block', () => {
     labels: ['ACK_OBTAINED', 'ACK_WAITING', 'NEW_CS'],
     current: ['ACK_WAITING'],
     people: ['author'],
+    author: 'author',
     files: new Map<string, string>(),
     now: NOW,
   };
@@ -783,7 +795,7 @@ describe('digest apply block', () => {
 });
 
 describe('TriageApplyIntake', () => {
-  const intake = (e: Partial<AgentsEnv> = {}) =>
+  const intake = (e: Record<string, unknown> = {}) =>
     new TriageApplyIntake({} as ExecutionContext, { ...(env as AgentsEnv), ...e });
 
   it('refuses an instance that is not in the instance list, including prototype names', async () => {
@@ -795,9 +807,18 @@ describe('TriageApplyIntake', () => {
   });
 
   it('says so when the agent is not deployed in this Worker, and does not touch the proposal', async () => {
-    expect(await intake({}).propose('custodes-sandbox', { anything: 1 })).toEqual({
+    expect(
+      await intake({ TriageApplyAgent: undefined }).propose('custodes-sandbox', { anything: 1 }),
+    ).toEqual({
       ok: false,
       reason: 'triage-apply is not deployed here',
     });
+  });
+
+  it('refuses a proposal for a repository its instance does not serve', async () => {
+    // The policy allows triage-apply on both repositories; only this check ties an instance to one.
+    expect(
+      await intake().propose('custodes-sandbox', input({ repo: 'OWASP/CheatSheetSeries' })),
+    ).toEqual({ ok: false, reason: 'repository not served by this instance' });
   });
 });

@@ -1,6 +1,6 @@
 # cheatsheet-review model benchmark (one-off, 2026-10)
 
-Run by hand with `workers/agents/scripts/benchmark/` (README.md); not part of CI. 30 external pull
+A one-off run, not part of CI. The scripts that produced it were removed after the decision; they are in the repository history at commit `6c0ce98` (`workers/agents/scripts/benchmark/`). 30 external pull
 requests to OWASP/CheatSheetSeries closed in the last 12 months (10 clean, 12 fixed, 8 closed), each reviewed at the commit of the first maintainer review.
 Grader: GPT-6.1 Terra (in no candidate role). Real problems found by maintainers: 40.
 Total cost: $14.47 in 355 calls.

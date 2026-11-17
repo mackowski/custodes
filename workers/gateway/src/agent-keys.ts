@@ -4,21 +4,14 @@
  * Access; each agent Worker is bound with its `KeyAdmin` entrypoint, which returns public keys and
  * rotates, nothing else. A Worker not bound yet (before its cutover) is listed as such.
  */
+import type { PublicKeyInfo } from '@custodes/core';
 import { type AgentKeys, CallerName, PINNED_AGENT_KEYS, verificationKeys } from '@custodes/schema';
 import { escapeHtml, layout } from './approval-page.js';
 
-/** Public key info as a Keyholder reports it. */
-export interface HeldKey {
-  kid: string;
-  x: string;
-  state: 'active' | 'next';
-  createdAt: string;
-}
-
 /** The part of a Worker's `KeyAdmin` entrypoint the gateway uses. */
 export interface KeyAdminLike {
-  publicKeys(): Promise<HeldKey[]>;
-  rotate(): Promise<HeldKey>;
+  publicKeys(): Promise<PublicKeyInfo[]>;
+  rotate(): Promise<PublicKeyInfo>;
 }
 
 /** Caller → the gateway binding of its KeyAdmin entrypoint (added once the Worker exists). */
@@ -34,7 +27,7 @@ export type PinState = 'pinned' | 'retired' | 'not pinned' | 'pinned, different 
 export interface AgentKeyRow {
   caller: CallerName;
   bound: boolean;
-  keys: (HeldKey & { pin: PinState; fingerprint: string })[];
+  keys: (PublicKeyInfo & { pin: PinState; fingerprint: string })[];
   /** Pinned kids the Keyholder no longer holds (rotated out): candidates to move to `retired`. */
   pinnedNotHeld: string[];
   error?: string;

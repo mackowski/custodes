@@ -128,6 +128,9 @@ describe('approval tokens', () => {
     const a = await createApproval(testEnv, review(), 'r', new Date(Date.now() - 2 * 86_400_000));
     if (!a.ok) throw new Error(a.error);
     expect(await approvalByToken(testEnv, a.token)).toEqual({ ok: false, reason: 'expired' });
+    // An expired request can no longer be decided, so the operator's list does not show it.
+    const listed = await new ApprovalStore(env.AUDIT).listPending(1000);
+    expect(listed.map((p) => p.id)).not.toContain(a.approval.id);
   });
 });
 
@@ -369,13 +372,6 @@ describe('one live approval per pull request (CI review L1, L2)', () => {
     expect(await approvalByToken(testEnv, a.token)).toMatchObject({
       approval: { status: 'pending' },
     });
-  });
-
-  it('never carries onBehalfOf, which the page does not show, into what gets posted', async () => {
-    const c = await created({ ...review('x'), onBehalfOf: 'someone' });
-    const { ApprovalStore } = await import('../src/store.js');
-    const stored = await new ApprovalStore(env.AUDIT).requestOf(c.approval.id);
-    expect(stored?.onBehalfOf).toBeUndefined();
   });
 });
 
