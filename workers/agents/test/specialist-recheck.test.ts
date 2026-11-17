@@ -186,7 +186,7 @@ describe('SpecialistAgent recheck (ADR 0019)', () => {
   it('a newer version also pulls a failed job out of its retry delay, but the same version does not', async () => {
     const issue = 1000 + ++n;
     await inAgent(async (a) => {
-      // An unusable answer about this issue: the only kind of failure that counts as an attempt.
+      // An unusable answer about this issue: it weighs a quarter of the limit, other failures 1/12.
       a.run = () =>
         Promise.reject(Object.assign(new Error('bad output'), { name: 'StructuredOutputError' }));
       await a.enqueue([{ issue, issueUpdatedAt: '2026-11-10T10:00:00.000Z' }]);

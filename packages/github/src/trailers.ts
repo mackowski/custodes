@@ -13,7 +13,7 @@ export interface TrailerInput {
 
 /**
  * Every comment an agent posts carries a machine-readable HTML comment, and a visible footer unless
- * the policy sets `trailer: hidden`, so that anyone can tell which agent acted, for whom, and can
+ * the policy sets `trailer: hidden`, so that anyone can tell which agent acted and can
  * verify the attestation.
  */
 export function buildTrailers(input: TrailerInput): string {

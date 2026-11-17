@@ -60,6 +60,9 @@ export async function act(
         await attest(record);
         return;
       } catch {
+        // A write can be applied although the call reported an error; then the retry would hit
+        // the primary key and look like a loss.
+        if (await audit.get(record.id).catch(() => null)) return;
         if (attempt < 2) continue;
         console.error(
           JSON.stringify({

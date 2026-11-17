@@ -141,11 +141,14 @@ export class CheatsheetReviewAgent extends CustodesAgent<AgentsEnv, CheatsheetRe
     this.ensureSchema();
     const row = this.sql<{ status: string }>`SELECT status FROM reviews
       WHERE pull = ${pull} AND label_event = ${labelEvent}`[0];
-    if (row?.status !== 'running') return;
+    // `posting`: the run claimed its row and died before recording the outcome.
+    if (row?.status !== 'running' && row?.status !== 'posting') return;
+    const wasPosting = row.status === 'posting';
     this.sql`UPDATE reviews SET status = 'interrupted', finished_at = ${new Date().toISOString()}
-      WHERE pull = ${pull} AND label_event = ${labelEvent} AND status = 'running'`;
-    const why =
-      'the run was interrupted and did not finish; remove and add the label again to review it';
+      WHERE pull = ${pull} AND label_event = ${labelEvent} AND status IN ('running', 'posting')`;
+    const why = wasPosting
+      ? 'the run was interrupted while posting: check the pull request for a review before adding the label again'
+      : 'the run was interrupted and did not finish; remove and add the label again to review it';
     this.setState({
       ...this.state,
       lastErrors: [`#${pull}: interrupted`, ...this.state.lastErrors].slice(0, 20),

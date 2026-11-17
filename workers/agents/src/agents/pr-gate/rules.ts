@@ -7,7 +7,16 @@ export const WAITING_UPDATE_LABEL = 'WAITING_UPDATE';
 
 /** Authors who are never gated: dependabot first (the operator's explicit rule), then any bot. */
 export const DEPENDABOT = 'dependabot[bot]';
-const TRUSTED_ASSOCIATIONS = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
+/**
+ * `author_association` values that make someone a maintainer (ADR 0013): write access or
+ * organisation membership. One set for every agent: pr-gate's exemption, cheatsheet-review's
+ * maintainer requests and the specialists' maintainer comments must not drift apart.
+ */
+export const MAINTAINER_ASSOCIATIONS: ReadonlySet<string> = new Set([
+  'OWNER',
+  'MEMBER',
+  'COLLABORATOR',
+]);
 
 export type CloseRule = 'ai_disclosure' | 'assigned_to_other' | 'no_approved_issue';
 
@@ -25,7 +34,7 @@ export function exemption(
   if (login.toLowerCase() === DEPENDABOT) return 'dependabot';
   if (pr.user?.type === 'Bot' || login.endsWith('[bot]')) return 'bot';
   if (pr.draft === true) return 'draft';
-  if (!opts.gateMaintainers && TRUSTED_ASSOCIATIONS.has(pr.author_association ?? ''))
+  if (!opts.gateMaintainers && MAINTAINER_ASSOCIATIONS.has(pr.author_association ?? ''))
     return 'maintainer';
   if (pr.labels.some((l) => l.name === WAITING_UPDATE_LABEL)) return 'waiting_update';
   return null;
@@ -159,7 +168,7 @@ export function maintainerComments(
       const login = c.user?.login ?? '';
       if (!login || login.toLowerCase() === me) continue;
       if (c.user?.type === 'Bot' || login.endsWith('[bot]')) continue;
-      if (!TRUSTED_ASSOCIATIONS.has(c.author_association ?? '')) continue;
+      if (!MAINTAINER_ASSOCIATIONS.has(c.author_association ?? '')) continue;
       const unquoted = (c.body ?? '')
         .split(/\r?\n/)
         .filter((l) => !/^\s*>/.test(l))

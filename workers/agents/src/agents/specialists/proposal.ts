@@ -103,10 +103,6 @@ Respond with exactly one JSON object and nothing else:
  "priorDecision": {"issue": number, "summary": string} | null,
  "explanation": string, "suggestedComment": string, "injectionDetected": boolean, "confidence": number}`;
 
-// triage-apply's limits: a proposal over them gets no one-click link.
-const MAX_ADD_LABELS = MAX_PROPOSAL_LABELS;
-const MAX_COMMENT_CHARS = MAX_PROPOSAL_COMMENT;
-
 export const RawProposalReview = z.object({
   verdict: z.enum([
     'real_gap',
@@ -117,7 +113,7 @@ export const RawProposalReview = z.object({
   ]),
   makesSense: z.boolean(),
   evidence: list(RawEvidence, 8),
-  addLabels: list(text(60), MAX_ADD_LABELS),
+  addLabels: list(text(60), MAX_PROPOSAL_LABELS),
   removeLabels: list(text(60), 6),
   // Lenient: an answer without these (or an unknown intent) counts as "unclear", nobody offered.
   authorIntent: z.enum(['offered', 'declined', 'unclear']).catch('unclear').default('unclear'),
@@ -147,7 +143,7 @@ export const RawProposalReview = z.object({
         : null;
     }),
   explanation: text(1500),
-  suggestedComment: text(MAX_COMMENT_CHARS),
+  suggestedComment: text(MAX_PROPOSAL_COMMENT),
   injectionDetected: z.boolean(),
   confidence: unit,
 });
@@ -398,7 +394,7 @@ export function validateProposalReview(
   if (!filled.ok) dropped.push('comment (bad placeholder)');
   // The appended question and filled placeholders can take the comment past what triage-apply
   // accepts; then the whole one-click link would be refused. Drop the comment, keep the rest.
-  const tooLong = filled.ok && filled.text.length > MAX_COMMENT_CHARS;
+  const tooLong = filled.ok && filled.text.length > MAX_PROPOSAL_COMMENT;
   if (tooLong) dropped.push('comment (too long)');
   const suggestedComment = filled.ok && !tooLong ? filled.text : '';
   const mentions = filled.ok && !tooLong ? filled.mentions : [];
@@ -416,7 +412,7 @@ export function validateProposalReview(
     helpLabel &&
     !current.has(helpLabel.toLowerCase()) &&
     !addLabels.includes(helpLabel) &&
-    addLabels.length < MAX_ADD_LABELS
+    addLabels.length < MAX_PROPOSAL_LABELS
   )
     addLabels.push(helpLabel);
   let priorDecision: ProposalReview['priorDecision'] = null;

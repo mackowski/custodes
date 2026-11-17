@@ -122,6 +122,7 @@ async function linkStage(snap: Snapshot, deps: PipelineDeps): Promise<LinkStage>
   const notes: string[] = [];
   const allowed = new Set<string>();
   const external: { link: AddedLink }[] = [];
+  const externalUrls = new Set<string>();
   for (const f of snap.files.filter((x) => isSheet(x.file.filename))) {
     const self = f.file.filename.split('/').pop() ?? f.file.filename;
     const own = snap.contents.get(f.file.filename);
@@ -152,7 +153,10 @@ async function linkStage(snap: Snapshot, deps: PipelineDeps): Promise<LinkStage>
         // One fetch and one verdict per URL, at its first place. scanLinks dedupes within a file
         // only; the auditor answers by URL, so the same URL in two sheets got both answers on the
         // first one and used two of the MAX_EXTERNAL_LINKS places.
-        if (!external.some((e) => e.link.url === link.url)) external.push({ link });
+        if (!externalUrls.has(link.url)) {
+          externalUrls.add(link.url);
+          external.push({ link });
+        }
         continue;
       }
       // javascript:, data:, mailto: and other schemes are never fetched; a person has to look.

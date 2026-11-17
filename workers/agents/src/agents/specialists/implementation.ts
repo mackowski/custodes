@@ -13,6 +13,7 @@ import { list, numbers, text, unit } from './lenient.js';
 import { RawEvidence, sanitizeComment, VerifiedEvidence, verifyEvidence } from './evidence.js';
 import { loadCheatSheets, type SpecialistDeps } from './run.js';
 import { buildSelectMessage, RawSelection, SELECT_PROMPT, validateSelection } from './select.js';
+import { MAINTAINER_ASSOCIATIONS } from '../pr-gate/rules.js';
 
 /**
  * evals/agents/implementation-check/system.txt must match it byte for byte; a test enforces that.
@@ -108,9 +109,6 @@ export const ImplementationCheck = z.object({
   changedSinceCheck: z.boolean().optional(),
 });
 export type ImplementationCheck = z.infer<typeof ImplementationCheck>;
-
-/** `author_association` values GitHub gives people with write access or org membership. */
-const MAINTAINER_ASSOCIATIONS = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
 
 export function isMaintainer(c: Pick<IssueComment, 'author_association'>): boolean {
   return MAINTAINER_ASSOCIATIONS.has(c.author_association ?? '');

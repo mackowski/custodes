@@ -162,7 +162,7 @@ export abstract class SpecialistAgent extends CustodesAgent<AgentsEnv, Specialis
   }
 
   /**
-   * Called by triage over RPC on every poll, with new jobs or an empty list: either way it wakes the
+   * Called by triage over RPC at its daily preparation, with new jobs or an empty list: either way it wakes the
    * queue, so jobs left over (daily cap, infrastructure failure) resume without new work arriving.
    * Input is re-validated: an RPC caller is still another component.
    */
