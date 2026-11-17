@@ -1977,6 +1977,46 @@ describe('links.scanLinks', () => {
     expect(link.movedAt).toEqual([
       { file: 'other.md', line: 3, previous: 'https://old.example/a' },
     ]);
+    // A move seen first, then the URL in new text: audited as new, and the move is kept.
+    const moved = {
+      url: 'https://u.example/',
+      file: 'a.md',
+      line: 3,
+      context: 'Old.',
+      previous: 'https://nist.example/',
+    };
+    mergeCitation(moved, {
+      url: 'https://u.example/',
+      file: 'b.md',
+      line: 7,
+      context: 'New claim.',
+    });
+    expect(moved).toEqual({
+      url: 'https://u.example/',
+      file: 'b.md',
+      line: 7,
+      context: 'New claim.',
+      movedAt: [{ file: 'a.md', line: 3, previous: 'https://nist.example/' }],
+    });
+    // Two moves to one URL from different targets: the second is kept as well.
+    const first = {
+      url: 'https://u.example/',
+      file: 'a.md',
+      line: 3,
+      context: 'Old.',
+      previous: 'https://x.example/',
+    };
+    mergeCitation(first, {
+      url: 'https://u.example/',
+      file: 'b.md',
+      line: 9,
+      context: 'Other.',
+      previous: 'https://y.example/',
+    });
+    expect(first.previous).toBe('https://x.example/');
+    expect(first).toHaveProperty('movedAt', [
+      { file: 'b.md', line: 9, previous: 'https://y.example/' },
+    ]);
     // Across sheets as within one: a sentence wins over a reference definition.
     const definition = {
       url: 'https://x.example/',

@@ -12,6 +12,10 @@ const SECRET = [
   /\.key$/,
   /\/\.wrangler\//,
   /\/\.cloudflared\//,
+  /\/\.env(\.|$)/,
+  /\/\.ssh\//,
+  /\/\.aws\//,
+  /\/\.config\/gh\//,
 ];
 
 /**
@@ -39,7 +43,7 @@ function linksToSecret(link) {
 /** Directories never walked: huge, and nothing of ours is in them. */
 const SKIP = new Set(['node_modules', '.git']);
 /** More entries than this under the search root: too broad to check, so refuse. */
-export const MAX_ENTRIES = 50_000;
+export const MAX_ENTRIES = 20_000;
 
 /**
  * Secret-bearing files under `root`, as paths relative to it. Null when the tree is too large.
@@ -140,20 +144,49 @@ export function globRegExp(glob) {
 
 /**
  * Whether a ripgrep include glob selects the file. Ripgrep reads globs as .gitignore does: one
- * without a slash matches a name at any depth, one with a slash is read from the search root, and
- * one that matches a directory selects what is under it. Errs towards "selects".
+ * without a slash matches a name at any depth, and one that matches a directory selects what is
+ * under it. One with a slash is matched by ripgrep against the path it walks, which starts at the
+ * search path as given, so here it is tried from every directory of the file's full path
+ * (`**\/gateway/*` with the search in `workers/gateway` selects `.dev.vars`). Errs towards "selects".
  * @param {string} pattern
  * @param {string} file path relative to the search root, with `/` separators
+ * @param {string} [root] the search root, absolute
  */
-export function globSelects(pattern, file) {
+export function globSelects(pattern, file, root = '') {
   if (pattern.startsWith('!')) return false; // an exclusion selects nothing
   const p = pattern.replace(/^\.?\//, '').replace(/\/$/, '');
   const re = globRegExp(p);
   if (re === null) return true;
-  const parts = file.split('/');
-  for (let n = 1; n <= parts.length; n++)
-    if (re.test(p.includes('/') ? parts.slice(0, n).join('/') : (parts[n - 1] ?? ''))) return true;
+  const above = root.split(sep).filter(Boolean);
+  const parts = [...above, ...file.split('/')];
+  for (let end = above.length + 1; end <= parts.length; end++) {
+    if (!p.includes('/')) {
+      if (re.test(parts[end - 1] ?? '')) return true;
+      continue;
+    }
+    for (let start = 0; start < end; start++)
+      if (re.test(parts.slice(start, end).join('/'))) return true;
+  }
   return false;
+}
+
+/**
+ * Whether .gitignore hides the file from a search without a glob. Exact case and exact forms, as
+ * ripgrep reads them: a name the patterns above call secret but .gitignore does not list
+ * (`.dev.vars~`, `.Dev.Vars`) is searched, so it is not hidden.
+ * @param {string} file path relative to the repository, with `/` separators
+ */
+export function gitIgnored(file) {
+  const name = file.split('/').pop() ?? '';
+  return (
+    name === '.dev.vars' ||
+    name.startsWith('.dev.vars.') ||
+    name === '.env' ||
+    name.startsWith('.env.') ||
+    name === 'backend.hcl' ||
+    /\.(pem|key|tfvars)$/.test(name) ||
+    /(^|\/)(\.wrangler|\.cloudflared|secrets|node_modules)\//.test(file)
+  );
 }
 
 /**
@@ -199,11 +232,15 @@ export function refusal(
   const files = secretFilesUnder(root);
   if (files === null) return `too many files under ${root} to check: narrow the path`;
   if (!glob) {
-    // Inside the repository only a link can lead past the ignore rules (its own name is not ignored).
-    const reached = inProject ? files.find((f) => !isSecretPath(`/${f}`)) : files[0];
+    // Inside the repository only what .gitignore does not hide is searched: a link (its own name
+    // is not ignored) or a secret-bearing name in a form .gitignore does not list.
+    const fromRepo = relative(project, root).split(sep).join('/');
+    const reached = inProject
+      ? files.find((f) => !gitIgnored(fromRepo ? `${fromRepo}/${f}` : f))
+      : files[0];
     return reached === undefined ? null : `the search reaches a secret-bearing file: ${reached}`;
   }
   const patterns = globPatterns(glob);
-  const hit = files.find((f) => patterns.some((p) => globSelects(p, f)));
+  const hit = files.find((f) => patterns.some((p) => globSelects(p, f, root)));
   return hit === undefined ? null : `the glob selects a secret-bearing file: ${hit}`;
 }

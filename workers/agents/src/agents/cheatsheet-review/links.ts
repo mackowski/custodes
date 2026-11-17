@@ -38,7 +38,8 @@ export const MAX_EXTRA_CITATIONS = 2;
  * in `unaudited`, and the review says so.
  */
 function citeAgain(prior: AddedLink, link: AddedLink): void {
-  if (link.previous !== undefined && prior.previous === undefined) {
+  // A move that is not the one audited here (this place is audited as new, or as another move).
+  if (link.previous !== undefined && link.previous !== prior.previous) {
     // Audited as new for its sentence; the move elsewhere is not judged, and the review says so.
     prior.movedAt = [
       ...(prior.movedAt ?? []),
@@ -67,7 +68,14 @@ export function mergeCitation(prior: AddedLink, link: AddedLink): void {
     citeAgain(prior, link);
     return;
   }
-  if (newOverMoved) delete prior.previous;
+  if (newOverMoved && prior.previous !== undefined) {
+    // The move is no longer what is judged here: keep it for the review's manual list.
+    prior.movedAt = [
+      ...(prior.movedAt ?? []),
+      { file: prior.file, line: prior.line, previous: prior.previous },
+    ];
+    delete prior.previous;
+  }
   if (sentenceOverMarkup) delete prior.markup;
   prior.file = link.file;
   prior.line = link.line;

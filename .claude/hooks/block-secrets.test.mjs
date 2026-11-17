@@ -87,6 +87,20 @@ void test('refuses a Grep glob that selects a secret-bearing file without naming
     grep(root, { pattern: 'x', glob: 'workers/gateway/*.vars' }) ?? '',
     /selects a secret-bearing file/,
   );
+  // A glob that names a folder above the search path still selects the file in ripgrep.
+  for (const glob of ['**/gateway/*', 'workers/*/*', 'gateway/.d*'])
+    assert.match(
+      refusal(
+        {
+          tool_name: 'Grep',
+          cwd: root,
+          tool_input: { pattern: 'x', glob, path: 'workers/gateway' },
+        },
+        root,
+      ) ?? '',
+      /selects a secret-bearing file/,
+      glob,
+    );
 });
 
 void test('allows a Grep that cannot reach one', () => {
@@ -98,6 +112,14 @@ void test('allows a Grep that cannot reach one', () => {
   assert.equal(grep(root, { pattern: 'x', glob: 'workers/*/src/**' }), null);
   assert.equal(grep(root, { pattern: 'x', glob: '[a-z]*.ts' }), null);
   assert.equal(grep(root, { pattern: 'x', glob: '.d*', path: 'workers/gateway/src' }), null);
+});
+
+void test('a secret-bearing name that .gitignore does not hide stops a Grep without a glob', () => {
+  const root = tree();
+  assert.equal(grep(root, { pattern: 'x' }), null);
+  writeFileSync(join(root, 'workers/gateway/.dev.vars~'), 'X=1\n');
+  assert.match(grep(root, { pattern: 'x' }) ?? '', /\.dev\.vars~/);
+  assert.match(grep(root, { pattern: 'x', path: 'workers/gateway' }) ?? '', /\.dev\.vars~/);
 });
 
 void test('outside the repository a Grep without a glob is checked too', () => {
@@ -117,9 +139,10 @@ void test('outside the repository a Grep without a glob is checked too', () => {
 
 void test('splits several globs but not the alternatives inside braces', () => {
   assert.deepEqual(globPatterns('*.{ts,md}, *.js  .d*'), ['*.{ts,md}', '*.js', '.d*']);
-  // A glob with a slash is read from the search root, as ripgrep does.
+  // A glob with a slash is tried from every directory of the path, as ripgrep walks it.
   assert.equal(globSelects('workers/gateway/src/*.ts', 'workers/gateway/src/index.ts'), true);
-  assert.equal(globSelects('src/*.ts', 'workers/gateway/src/index.ts'), false);
+  assert.equal(globSelects('src/*.ts', 'workers/gateway/src/index.ts'), true);
+  assert.equal(globSelects('docs/*.ts', 'workers/gateway/src/index.ts'), false);
   assert.equal(globSelects('*.md', 'workers/gateway/src/index.ts'), false);
 });
 
