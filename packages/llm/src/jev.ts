@@ -15,6 +15,7 @@
 import { z } from 'zod';
 import { chat, type OperationSpan, type Turn } from '@custodes/core';
 import { GatewayError } from './gateway.js';
+import { withTimeout } from './timeout.js';
 import { clip, untrusted } from './untrusted.js';
 
 /** Above ~32 KB Jev switches to a slower, less accurate long-context mode; stay below it. */
@@ -34,7 +35,16 @@ export type JevTransport =
 export interface JevConfig {
   transport: JevTransport;
   fetchImpl?: typeof fetch;
+  /** Bound on one decision call. Default `JEV_TIMEOUT_MS`. */
+  timeoutMs?: number;
 }
+
+/**
+ * A decision is a short typed answer: all 40 calls in the gateway logs up to 2026-11-17 took under
+ * 2 s. A stalled one must not hold a pr-gate poll towards its lock; a timeout is a thrown rung,
+ * which flags and never acts.
+ */
+export const JEV_TIMEOUT_MS = 30_000;
 
 /** Path under `…/openrouter/` that AI Gateway forwards to OpenRouter's Decisions endpoint. */
 export const JEV_GATEWAY_PATH = 'api/alpha/decisions';
@@ -163,11 +173,9 @@ export class JevClient {
     }
     return chat(turn, { provider: 'openrouter', model: req.model }, async (span) => {
       span.payload('gen_ai.input.messages', decisionInput(req));
-      const res = await this.fetchImpl(this.url, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(body),
-      });
+      const res = await withTimeout(this.cfg.timeoutMs ?? JEV_TIMEOUT_MS, (signal) =>
+        this.fetchImpl(this.url, { method: 'POST', headers, body: JSON.stringify(body), signal }),
+      );
       if (!res.ok) {
         const text = await res.text();
         throw new GatewayError(res.status, text.slice(0, 300), openRouterCode(text));

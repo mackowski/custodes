@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { GatewayError } from '../src/gateway.js';
+import { ChatTimeoutError } from '../src/timeout.js';
 import {
   JEV_STATE_MAX_CHARS,
   JevClient,
@@ -199,5 +200,19 @@ describe('JevClient default fetch', () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+});
+
+describe('JevClient timeout', () => {
+  const hang = ((_u: RequestInfo | URL, init?: RequestInit) =>
+    new Promise((_, reject) => {
+      init?.signal?.addEventListener('abort', () => {
+        reject(new Error('aborted'));
+      });
+    })) as unknown as typeof fetch;
+
+  it('times out instead of holding the poll open', async () => {
+    const client = new JevClient({ transport: direct, fetchImpl: hang, timeoutMs: 20 });
+    await expect(client.decide(req)).rejects.toBeInstanceOf(ChatTimeoutError);
   });
 });

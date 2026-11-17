@@ -3,13 +3,13 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   gatewayMetadata,
   AnthropicChat,
-  ChatTimeoutError,
   OpenRouterGateway,
   readCompletion,
   WorkersAiChat,
   type ChatRequest,
 } from '../src/chat.js';
 import type { AiRunner } from '../src/clef.js';
+import { ChatTimeoutError } from '../src/timeout.js';
 import {
   AnthropicGateway,
   clipPayload,

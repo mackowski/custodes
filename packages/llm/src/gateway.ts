@@ -12,7 +12,8 @@
  *   credentials are required"), which does not list the configured aliases.
  * - Inside a turn, each call is a `chat` span (ADR 0016).
  */
-import { chat, type Turn } from '@custodes/core';
+import { chat, type OperationSpan, type Turn } from '@custodes/core';
+import { withTimeout } from './timeout.js';
 
 export interface GatewayConfig {
   accountId: string;
@@ -22,7 +23,16 @@ export interface GatewayConfig {
   /** Only for local development against a non-BYOK gateway. Never set in production. */
   anthropicApiKey?: string;
   fetchImpl?: typeof fetch;
+  /** Bound on one call, alias retry and body read included. Default `ANTHROPIC_TIMEOUT_MS`. */
+  timeoutMs?: number;
 }
+
+/**
+ * Without a bound a stalled call never throws, so a caller's fallback never runs and a poll is
+ * held open. The slowest of 3,127 calls in the gateway logs (2026-09-28 to 2026-11-17) took 78 s
+ * (Opus, 8,960 output tokens); this leaves more than twice that.
+ */
+export const ANTHROPIC_TIMEOUT_MS = 180_000;
 
 export interface MessageParam {
   role: 'user' | 'assistant';
@@ -148,6 +158,45 @@ export class AnthropicGateway {
     this.fetchImpl = cfg.fetchImpl ?? ((input, init) => fetch(input, init));
   }
 
+  /** One request, with the single BYOK alias retry, read to the end: everything the timeout bounds. */
+  private async exchange(
+    headers: Record<string, string>,
+    body: Omit<MessagesRequest, 'metadata'>,
+    signal: AbortSignal,
+    span: OperationSpan,
+  ): Promise<MessagesResponse> {
+    const send = (alias: string) =>
+      this.fetchImpl(this.url, {
+        method: 'POST',
+        headers: { ...headers, 'cf-aig-byok-alias': alias },
+        body: JSON.stringify(body),
+        signal,
+      });
+    const known = discoveredAliases.get(this.url) ?? DEFAULT_BYOK_ALIAS;
+    let res = await send(known);
+    if (!res.ok) {
+      let text = await res.text();
+      const aliases = byokAliasesOf(text);
+      if (aliases) {
+        discoveredAliases.delete(this.url);
+        const only = aliases.length === 1 ? aliases[0] : undefined;
+        if (only !== undefined && only !== known) {
+          discoveredAliases.set(this.url, only);
+          span.set('custodes.byok_alias_discovered', true);
+          res = await send(only);
+          if (!res.ok) text = await res.text();
+        }
+      }
+      if (!res.ok)
+        throw new GatewayError(
+          res.status,
+          text.slice(0, 500),
+          byokAliasesOf(text) ? 'byok_alias_missing' : errorTypeOf(text),
+        );
+    }
+    return res.json<MessagesResponse>();
+  }
+
   async messages(req: MessagesRequest, turn?: Turn): Promise<MessagesResponse> {
     const { metadata, ...body } = req;
     const headers: Record<string, string> = {
@@ -172,35 +221,9 @@ export class AnthropicGateway {
           parts: [{ type: 'text', content: clipPayload(m.content) }],
         })),
       );
-      const send = (alias: string) =>
-        this.fetchImpl(this.url, {
-          method: 'POST',
-          headers: { ...headers, 'cf-aig-byok-alias': alias },
-          body: JSON.stringify(body),
-        });
-      const known = discoveredAliases.get(this.url) ?? DEFAULT_BYOK_ALIAS;
-      let res = await send(known);
-      if (!res.ok) {
-        let text = await res.text();
-        const aliases = byokAliasesOf(text);
-        if (aliases) {
-          discoveredAliases.delete(this.url);
-          const only = aliases.length === 1 ? aliases[0] : undefined;
-          if (only !== undefined && only !== known) {
-            discoveredAliases.set(this.url, only);
-            span.set('custodes.byok_alias_discovered', true);
-            res = await send(only);
-            if (!res.ok) text = await res.text();
-          }
-        }
-        if (!res.ok)
-          throw new GatewayError(
-            res.status,
-            text.slice(0, 500),
-            byokAliasesOf(text) ? 'byok_alias_missing' : errorTypeOf(text),
-          );
-      }
-      const out = await res.json<MessagesResponse>();
+      const out = await withTimeout(this.cfg.timeoutMs ?? ANTHROPIC_TIMEOUT_MS, (signal) =>
+        this.exchange(headers, body, signal, span),
+      );
       span.set('gen_ai.response.id', out.id);
       span.set('gen_ai.response.model', out.model);
       // Unvalidated JSON: a 200 without usage must not fail the call because of a span.

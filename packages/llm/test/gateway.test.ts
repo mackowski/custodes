@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { ChatTimeoutError } from '../src/timeout.js';
 import {
   AnthropicGateway,
   byokAliasesOf,
@@ -341,5 +342,33 @@ describe('AnthropicGateway BYOK alias discovery', () => {
       .catch((e: unknown) => e);
     expect((err as GatewayError).errorType).toBe('rate_limit_error');
     expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('AnthropicGateway timeout', () => {
+  const hang = ((_u: RequestInfo | URL, init?: RequestInit) =>
+    new Promise((_, reject) => {
+      init?.signal?.addEventListener('abort', () => {
+        reject(new Error('aborted'));
+      });
+    })) as unknown as typeof fetch;
+
+  it('times out instead of hanging, so a caller can fall back', async () => {
+    const gw = new AnthropicGateway({
+      accountId: 'acc',
+      gatewayId: 'timeout-test',
+      gatewayToken: 'tok',
+      fetchImpl: hang,
+      timeoutMs: 20,
+    });
+    await expect(
+      gw.messages({
+        model: 'claude-opus-5-5',
+        system: 's',
+        messages: [{ role: 'user', content: 'u' }],
+        max_tokens: 10,
+        metadata: { agentId: 'triage', runId: 'r' },
+      }),
+    ).rejects.toBeInstanceOf(ChatTimeoutError);
   });
 });

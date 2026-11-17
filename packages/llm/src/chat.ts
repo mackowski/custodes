@@ -12,6 +12,7 @@
  */
 import { chat, type OperationSpan, type Turn } from '@custodes/core';
 import type { AiRunner } from './clef.js';
+import { withTimeout } from './timeout.js';
 import {
   AnthropicGateway,
   clipPayload,
@@ -69,14 +70,6 @@ export function gatewayMetadata(m: ChatRequest['metadata']): Record<string, stri
   return Object.fromEntries(entries);
 }
 
-/** The call did not answer in time. */
-export class ChatTimeoutError extends Error {
-  constructor() {
-    super('model call timed out');
-    this.name = 'ChatTimeoutError';
-  }
-}
-
 const DEFAULT_TIMEOUT_MS = 180_000;
 /**
  * Workers AI answers a synchronous call or fails it with HTTP 408 after about 235 s; DeepSeek at
@@ -104,24 +97,6 @@ function resultAttributes(span: OperationSpan, out: ChatResult, finish: string) 
       finish_reason: finish,
     },
   ]);
-}
-
-/** Runs `work` with an abort signal and rejects with `ChatTimeoutError` after `ms`. */
-async function withTimeout<T>(ms: number, work: (signal: AbortSignal) => Promise<T>): Promise<T> {
-  const ac = new AbortController();
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => {
-      // Reject first: aborting can make the work reject synchronously and win the race.
-      reject(new ChatTimeoutError());
-      ac.abort();
-    }, ms);
-  });
-  try {
-    return await Promise.race([work(ac.signal), timeout]);
-  } finally {
-    clearTimeout(timer);
-  }
 }
 
 /**
