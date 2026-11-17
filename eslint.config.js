@@ -13,7 +13,6 @@ export default defineConfig(
       '**/node_modules/**',
       '**/coverage/**',
       '**/worker-configuration.d.ts',
-      // Throwaway Worker for the operator's Durable Object transfer rehearsal (ADR 0018).
     ],
   },
   js.configs.recommended,

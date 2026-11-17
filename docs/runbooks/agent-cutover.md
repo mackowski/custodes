@@ -22,7 +22,7 @@ The table mirrors `MOVES` in `scripts/agent-cutover-config.ts`, which the deploy
 
 ## Before PR #106 is marked ready
 
-**Transfer rehearsal.** Run [scripts/do-transfer-test](../../scripts/do-transfer-test/README.md).
+**Transfer rehearsal.** Run `scripts/do-transfer-test` (removed since; see the note at the top).
 It covers both one-way steps: the `migrations` to `exports` switch that ships with the merge of #106,
 and the transfer itself. All pass criteria must hold. If any fails, do not merge #106 as it is.
 
@@ -146,7 +146,7 @@ Kept on purpose, for later PRs:
 
 - ~~The tombstones~~ (`transferred`, and `HelloAgent` `deleted`) in `workers/agents/wrangler.jsonc`:
   dropped 2026-11-16, after every production deploy reported them `stale_tombstone` ("Safe to
-  remove from `exports`") and the rehearsal (steps F and G of `scripts/do-transfer-test/README.md`)
+  remove from `exports`") and the rehearsal (steps F and G of `scripts/do-transfer-test/README.md`, removed since)
   showed a deploy without them leaves the target's data untouched. `exports` stays, empty (no way
   back to `migrations`). `agent-cutover-config.ts moved` now counts a move as done when
   `custodes-agents` no longer declares its classes live, so the deploy guard still checks that each
