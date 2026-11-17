@@ -4,8 +4,8 @@ import {
   generateAgentKeyPair,
   importPrivateKey,
   signAuditRecord,
+  verifyRecord,
 } from '@custodes/core';
-import { verifyLocally } from '../src/commands/audit.js';
 import { toKebab } from '../src/commands/agents.js';
 
 describe('custodes audit verify', () => {
@@ -22,17 +22,28 @@ describe('custodes audit verify', () => {
       decision: 'allowed',
     });
     const att = await signAuditRecord(record, await importPrivateKey(privateJwk), 'pr-gate-test');
-    expect(
-      await verifyLocally(att, [
-        {
-          keyId: 'pr-gate-test',
-          agentId: 'pr-gate',
-          jwk: publicJwk,
-          createdAt: new Date(0).toISOString(),
-        },
-      ]),
-    ).toEqual({ valid: true });
-    expect((await verifyLocally(att, [])).valid).toBe(false);
+    const keys = [
+      {
+        keyId: 'pr-gate-test',
+        agentId: 'pr-gate',
+        jwk: publicJwk,
+        createdAt: new Date(0).toISOString(),
+      },
+    ];
+    expect(await verifyRecord(att, record.id, keys)).toMatchObject({
+      valid: true,
+      agentSignature: { status: 'none' },
+    });
+    expect((await verifyRecord(att, record.id, [])).valid).toBe(false);
+    // The same record fetched under another id, and a key published for another agent.
+    expect(await verifyRecord(att, '0b6b8a4e-6a9c-4f7e-8d2a-3c1b5e7f9a10', keys)).toMatchObject({
+      valid: false,
+      reason: 'record id does not match',
+    });
+    expect(await verifyRecord(att, record.id, [{ ...keys[0]!, agentId: 'triage' }])).toMatchObject({
+      valid: false,
+      reason: 'key belongs to another agent',
+    });
   });
   it('maps agent ids to SDK routes', () => {
     expect(toKebab('pr-gate')).toBe('pr-gate-agent');

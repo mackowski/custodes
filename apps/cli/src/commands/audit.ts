@@ -1,6 +1,6 @@
 import { Command } from 'commander';
 import { z } from 'zod';
-import { importPublicKey, verifyAttestation } from '@custodes/core';
+import { verifyRecord } from '@custodes/core';
 import { Attestation, PublicKeyEntry } from '@custodes/schema';
 import { ApiClient } from '../client.js';
 import { loadConfig } from '../config.js';
@@ -47,37 +47,27 @@ export function auditCommand(): Command {
   cmd
     .command('verify <id>')
     .description(
-      'fetch an attestation and verify its Ed25519 signature locally against the published keys',
+      'fetch an attestation and verify it locally: the broker signature, the record id and the agent signature against the pinned keys',
     )
     .action(async (id: string, _o, c: Command) => {
       const cfg = loadConfig(c.optsWithGlobals());
       const api = new ApiClient(cfg);
       const att = await api.call('GET', `/admin/audit/${encodeURIComponent(id)}`, Attestation);
       const keys = await api.call('GET', '/admin/keys', z.array(PublicKeyEntry));
-      const result = await verifyLocally(att, keys);
+      // The check the public /verify runs, with the agent keys built into this binary.
+      const { valid, reason, agentSignature } = await verifyRecord(att, id, keys);
+      const result = {
+        valid,
+        ...(reason !== undefined ? { reason } : {}),
+        ...(agentSignature !== undefined ? { agentSignature: agentSignature.status } : {}),
+      };
       print(cfg.json, result, () =>
         result.valid
-          ? `VALID  ${att.record.agentId}@${att.record.agentVersion} ${att.record.decision} ${att.record.action.type} ${att.record.action.repo}`
+          ? `VALID  ${att.record.agentId}@${att.record.agentVersion} ${att.record.decision} ${att.record.action.type} ${att.record.action.repo}  (agent signature: ${result.agentSignature ?? 'none'})`
           : `INVALID  ${result.reason ?? ''}`,
       );
       if (!result.valid) process.exitCode = 1;
     });
 
   return cmd;
-}
-
-export async function verifyLocally(
-  att: Attestation,
-  keys: PublicKeyEntry[],
-): Promise<{ valid: boolean; reason?: string }> {
-  const key = keys.find((k) => k.keyId === att.keyId && k.agentId === att.record.agentId);
-  if (!key)
-    return {
-      valid: false,
-      reason: `no published key ${att.keyId} for agent ${att.record.agentId}`,
-    };
-  const r = await verifyAttestation(att, await importPublicKey(key.jwk));
-  return r.valid
-    ? { valid: true }
-    : { valid: false, ...(r.reason !== undefined ? { reason: r.reason } : {}) };
 }

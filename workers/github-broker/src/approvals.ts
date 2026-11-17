@@ -125,9 +125,7 @@ async function storeApproval(
   const store = new ApprovalStore(env.AUDIT);
   if ((await store.countPending(req.agentId, now)) >= maxPending(req.agentId))
     return { ok: false, status: 403, error: 'too many pending approvals' };
-  // Only what the page shows gets posted: `onBehalfOf` would add a mention to the public trailer
-  // that the operator never saw, so it is not carried into an approval.
-  const { approvalId: _ignored, onBehalfOf: _notShown, ...request } = req;
+  const { approvalId: _ignored, ...request } = req;
   const actionHash = await approvalHash(req.action, bundle);
   const ttl = approvalTtlSeconds(req.agentId);
   const approval = await store.create(request, rationale, actionHash, ttl, now, bundle);

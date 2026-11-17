@@ -373,13 +373,6 @@ describe('one live approval per pull request (CI review L1, L2)', () => {
       approval: { status: 'pending' },
     });
   });
-
-  it('never carries onBehalfOf, which the page does not show, into what gets posted', async () => {
-    const c = await created({ ...review('x'), onBehalfOf: 'someone' });
-    const { ApprovalStore } = await import('../src/store.js');
-    const stored = await new ApprovalStore(env.AUDIT).requestOf(c.approval.id);
-    expect(stored?.onBehalfOf).toBeUndefined();
-  });
 });
 
 describe("admin writes need the operator's own Access token, checked by the broker (#104)", () => {

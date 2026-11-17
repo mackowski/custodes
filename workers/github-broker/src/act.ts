@@ -153,7 +153,6 @@ export async function act(
         attestationId,
         verifyUrl: env.VERIFY_URL,
         visibility: agentPolicy.trailer,
-        ...(req.onBehalfOf !== undefined ? { onBehalfOf: req.onBehalfOf } : {}),
       }),
     );
     githubUrl = result.githubUrl;

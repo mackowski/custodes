@@ -1,11 +1,6 @@
 import { Hono, type Context } from 'hono';
 import { z } from 'zod';
-import {
-  accessTokenOf,
-  importPublicKey,
-  verifyAttestation,
-  verifyCallerIntent,
-} from '@custodes/core';
+import { accessTokenOf, verifyRecord } from '@custodes/core';
 import { verifyGitHubWebhookSignature } from '@custodes/github';
 import {
   AgentId,
@@ -15,8 +10,6 @@ import {
   type AdminActor,
   type InboundEvent,
   type PublicKeyEntry,
-  PINNED_AGENT_KEYS,
-  verificationKeys,
   CallerName,
 } from '@custodes/schema';
 import { agentKeysPage, type HeldKey, keyAdminOf, listAgentKeys } from './agent-keys.js';
@@ -50,46 +43,12 @@ app.get('/verify/:id', async (c) => {
   const attRes = await c.env.BROKER.fetch(`https://broker.internal/v1/attestations/${id}`);
   if (attRes.status === 404) return c.json({ error: 'not found' }, 404);
   if (!attRes.ok) return c.json({ error: 'broker unavailable' }, 502);
-  const att = await attRes.json<{ keyId: string }>();
+  const att: unknown = await attRes.json();
   const keysRes = await c.env.BROKER.fetch('https://broker.internal/v1/keys');
   if (!keysRes.ok) return c.json({ error: 'broker unavailable' }, 502);
   const keys = await keysRes.json<PublicKeyEntry[]>();
-  const key = keys.find((k) => k.keyId === att.keyId);
-  if (!key) return c.json({ valid: false, reason: 'unknown key' });
-  const result = await verifyAttestation(att, await importPublicKey(key.jwk));
-  if (!result.valid || !result.attestation)
-    return c.json({ valid: false, reason: result.reason, attestation: result.attestation });
-  const record = result.attestation.record;
-  // A row copied under another id (for example the one in a comment trailer) is not that record.
-  if (record.id !== id)
-    return c.json({
-      valid: false,
-      reason: 'record id does not match',
-      attestation: result.attestation,
-    });
-  // The broker signs each record with that agent's own key; another agent's key proves nothing.
-  if (key.agentId !== record.agentId)
-    return c.json({
-      valid: false,
-      reason: 'key belongs to another agent',
-      attestation: result.attestation,
-    });
-  /*
-   * The agent's own signature (ADR 0018, R1), checked against the keys committed in the repository
-   * and built into this Worker, never keys served by the broker. `none` proves nothing: records
-   * from the shared Worker and actions run on an operator's approval carry no agent signature.
-   */
-  const agentSignature = await verifyCallerIntent(record, (caller) =>
-    verificationKeys(PINNED_AGENT_KEYS, caller),
-  );
-  if (agentSignature.status === 'invalid')
-    return c.json({
-      valid: false,
-      reason: `agent signature: ${agentSignature.reason}`,
-      agentSignature,
-      attestation: result.attestation,
-    });
-  return c.json({ valid: true, agentSignature, attestation: result.attestation });
+  // The same check as `custodes audit verify`, so the two cannot disagree.
+  return c.json(await verifyRecord(att, id, keys));
 });
 
 // ---------- GitHub webhooks (optional per repo; polling is the default) ----------

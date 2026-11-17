@@ -2,7 +2,6 @@ export interface TrailerInput {
   agentId: string;
   agentVersion: string;
   attestationId: string;
-  onBehalfOf?: string;
   /** Base URL of the public verify endpoint, e.g. https://custodes.work/verify */
   verifyUrl?: string;
   /**
@@ -22,7 +21,6 @@ export function buildTrailers(input: TrailerInput): string {
     `Custodes-Agent: ${input.agentId}@${input.agentVersion}`,
     `Custodes-Attestation: ${input.attestationId}`,
   ];
-  if (input.onBehalfOf) lines.push(`On-Behalf-Of: @${input.onBehalfOf}`);
   const hidden = `\n<!--\n${lines.join('\n')}\n-->`;
   if (input.visibility === 'hidden') return `\n${hidden}`;
   const visible = lines.join(' · ');

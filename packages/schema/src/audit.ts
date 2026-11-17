@@ -32,6 +32,7 @@ export const AuditRecord = z.object({
   agentVersion: SemVer,
   runId: z.uuid(),
   triggeredBy: Trigger,
+  /** Never set since 2026-11: nothing produced it. Kept so a record that has it still parses. */
   onBehalfOf: z.string().optional(),
   approvalId: z.uuid().optional(),
   action: BrokerAction,

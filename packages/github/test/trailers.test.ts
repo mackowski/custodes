@@ -7,11 +7,10 @@ describe('trailers', () => {
       agentId: 'triage',
       agentVersion: '0.1.0',
       attestationId: '9d7c1e9e-2b1a-4b6e-9a2e-1f7d1c2b3a44',
-      onBehalfOf: 'jakub',
     });
     expect(body).toContain('Custodes-Agent: triage@0.1.0');
     expect(body).toContain(
-      '<!--\nCustodes-Agent: triage@0.1.0\nCustodes-Attestation: 9d7c1e9e-2b1a-4b6e-9a2e-1f7d1c2b3a44\nOn-Behalf-Of: @jakub\n-->',
+      '<!--\nCustodes-Agent: triage@0.1.0\nCustodes-Attestation: 9d7c1e9e-2b1a-4b6e-9a2e-1f7d1c2b3a44\n-->',
     );
   });
 });
