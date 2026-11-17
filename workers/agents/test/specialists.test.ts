@@ -307,6 +307,7 @@ describe('validateProposalReview', () => {
     expect(threadAuthor(bot)).toBeNull();
     expect(proposalThreadPeople(bot, [c])).toEqual(['first-commenter']);
     expect(threadAuthor(issue(1, { user: null }))).toBeNull();
+    expect(threadAuthor(issue(1, { user: { login: 'ghost', type: 'User' } }))).toBeNull();
     expect(proposalThreadPeople(issue(1, { user: null }), [c])).toEqual(['first-commenter']);
     expect(threadAuthor(issue(1, { user: { login: 'author' } }))).toBe('author');
     expect(proposalThreadPeople(issue(1, { user: { login: 'author' } }), [c])).toEqual([

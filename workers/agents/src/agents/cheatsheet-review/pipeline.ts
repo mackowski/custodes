@@ -122,7 +122,7 @@ async function linkStage(snap: Snapshot, deps: PipelineDeps): Promise<LinkStage>
   const notes: string[] = [];
   const allowed = new Set<string>();
   const external: { link: AddedLink }[] = [];
-  const externalUrls = new Set<string>();
+  const externalByUrl = new Map<string, { link: AddedLink }>();
   for (const f of snap.files.filter((x) => isSheet(x.file.filename))) {
     const self = f.file.filename.split('/').pop() ?? f.file.filename;
     const own = snap.contents.get(f.file.filename);
@@ -153,9 +153,16 @@ async function linkStage(snap: Snapshot, deps: PipelineDeps): Promise<LinkStage>
         // One fetch and one verdict per URL, at its first place. scanLinks dedupes within a file
         // only; the auditor answers by URL, so the same URL in two sheets got both answers on the
         // first one and used two of the MAX_EXTERNAL_LINKS places.
-        if (!externalUrls.has(link.url)) {
-          externalUrls.add(link.url);
-          external.push({ link });
+        const prior = externalByUrl.get(link.url);
+        if (prior === undefined) {
+          const entry = { link };
+          externalByUrl.set(link.url, entry);
+          external.push(entry);
+        } else if (link.previous === undefined && prior.link.previous !== undefined) {
+          // New somewhere wins over "only its target moved" elsewhere (as scanLinks does within a
+          // file): the auditor must check that the page supports the claim, not just that it is
+          // the same resource as before.
+          prior.link = link;
         }
         continue;
       }

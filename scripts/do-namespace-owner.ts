@@ -86,7 +86,10 @@ function declaresLive(dir: string, className: string): boolean {
   return isLive(JSON.parse(text) as WranglerConfig, className);
 }
 
-if (process.argv[1]?.endsWith('do-namespace-owner.ts')) {
+// Runs whenever the file is executed. Only the unit test, which imports the rules above, skips it:
+// a guard keyed on the script's file name would pass without checking anything if the file were
+// renamed or bundled.
+if (process.env['VITEST'] === undefined) {
   const [classArg = '', flag, dir, script] = process.argv.slice(2);
   const classes = classArg.split(',');
   const token = process.env['CLOUDFLARE_API_TOKEN'];

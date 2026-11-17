@@ -227,7 +227,10 @@ export interface ReferencedIssue {
 /** The author's login, or null when a bot, a deleted account or an unusable login opened the issue. */
 export function threadAuthor(issue: PublicIssue): string | null {
   const login = safeLogin(issue.user?.login);
-  return issue.user?.['type'] === 'Bot' || login === 'unknown' ? null : login;
+  // GitHub shows an issue from a deleted account as the placeholder user `ghost`.
+  return issue.user?.['type'] === 'Bot' || login === 'unknown' || login.toLowerCase() === 'ghost'
+    ? null
+    : login;
 }
 
 /**
