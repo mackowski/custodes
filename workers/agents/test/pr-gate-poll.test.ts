@@ -119,6 +119,33 @@ afterEach(async () => {
   await testKillSwitch().resume('pr-gate');
 });
 
+describe('pr-gate summary', () => {
+  it('keeps an error a poll recorded while the e-mail was being sent', async () => {
+    const left = await runInDurableObject(await stub(), async (agent: PrGateAgent) => {
+      const i = agent as unknown as Internals & { recordErrors(e: string[]): void };
+      agent.setState({ ...agent.state, lastErrors: ['sent with this summary'] });
+      const env = i.env;
+      i.env = Object.create(env, {
+        EMAIL: {
+          value: {
+            send: () => {
+              i.recordErrors(['recorded during the send']);
+              return Promise.resolve();
+            },
+          },
+        },
+      }) as AgentsEnv;
+      try {
+        expect((await agent.sendSummary()).ok).toBe(true);
+      } finally {
+        i.env = env;
+      }
+      return agent.state.lastErrors;
+    });
+    expect(left).toEqual(['recorded during the send']);
+  });
+});
+
 describe('pr-gate poll budgets', () => {
   it('evaluates a settled PR in the first four polls of a day and not in the fifth', async () => {
     const results = await inAgent([pull(9101)], async (agent) => {

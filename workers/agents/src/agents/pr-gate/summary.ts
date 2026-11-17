@@ -20,7 +20,6 @@ export interface SummaryRow {
   decidedAt: string;
   /** Issues behind the decision (the approved issue for author_has_approved_issue). */
   issues?: number[];
-  githubUrl?: string;
   attestationId?: string;
 }
 

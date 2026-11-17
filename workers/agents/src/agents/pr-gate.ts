@@ -809,7 +809,6 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
         ...(d.data.p !== undefined ? { p: d.data.p } : {}),
         ...(d.data.issues !== undefined ? { issues: d.data.issues } : {}),
         decidedAt: r.decided_at,
-        ...(r.github_url ? { githubUrl: r.github_url } : {}),
         ...(r.attestation_id ? { attestationId: r.attestation_id } : {}),
       });
     }
@@ -862,7 +861,12 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
       return { ok: false, detail };
     }
     this.markReported(stamp, lastId);
-    this.setState({ ...this.state, lastSummaryAt: stamp, lastErrors: [] });
+    // Clear only what was sent: a poll can record errors while the e-mail is being sent.
+    this.setState({
+      ...this.state,
+      lastSummaryAt: stamp,
+      lastErrors: this.state.lastErrors.filter((e) => !errors.includes(e)),
+    });
     return { ok: true, detail: `sent ${rows.length} row(s), ${skipped} skipped` };
   }
 
