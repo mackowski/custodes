@@ -3,7 +3,7 @@ import { AgentHaltedError } from '@custodes/core/agent';
 import { parseStructured } from '@custodes/llm';
 import { RawAssessment, validateAssessment, type Assessment } from './assess.js';
 import { describeError } from './errors.js';
-import { issueLabels, type BrokerGitHubReader, type PublicIssue } from './github.js';
+import type { BrokerGitHubReader, PublicIssue } from './github.js';
 import { buildUserMessage, isSafeName, SYSTEM_PROMPT, type TriageContext } from './prompt.js';
 
 export interface TriageStore {
@@ -29,17 +29,8 @@ export interface TriageDeps {
   now(): Date;
 }
 
-/** An issue assessed in this run, as routing needs it. */
-export interface AssessedIssue {
-  number: number;
-  updatedAt: string;
-  labels: string[];
-  kind: Assessment['kind'];
-}
-
 export interface TriageRunResult {
   assessed: number;
-  assessedIssues: AssessedIssue[];
   skipped: number;
   errors: string[];
   nextSince: string;
@@ -84,7 +75,7 @@ export async function runTriage(
   const ctx: TriageContext = { repo, labels, cheatSheets, recent };
   let firstFailedUpdate: string | null = null;
   const errors: string[] = [];
-  const assessedIssues: AssessedIssue[] = [];
+  let assessed = 0;
   let skipped = 0;
   let consecutiveInfra = 0;
   for (const issue of issues) {
@@ -115,12 +106,7 @@ export async function runTriage(
         return a;
       });
       deps.store.save(issue, assessment, deps.now());
-      assessedIssues.push({
-        number: issue.number,
-        updatedAt: issue.updated_at,
-        labels: issueLabels(issue),
-        kind: assessment.kind,
-      });
+      assessed++;
       consecutiveInfra = 0;
     } catch (err) {
       if (err instanceof AgentHaltedError) throw err; // a halt stops the run; the cursor is kept
@@ -150,5 +136,5 @@ export async function runTriage(
   // to now is covered. A failed issue (model or gateway error) is retried next run: never move the
   // cursor past it.
   const nextSince = firstFailedUpdate ?? resumeAt ?? startedAt.toISOString();
-  return { assessed: assessedIssues.length, assessedIssues, skipped, errors, nextSince };
+  return { assessed, skipped, errors, nextSince };
 }

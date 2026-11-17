@@ -143,23 +143,6 @@ export function fencedLines(markdown: string): Set<number> {
   return out;
 }
 
-/** Edit similarity of two lines in [0, 1] (Levenshtein, bounded to short lines). */
-export function similarity(a: string, b: string): number {
-  if (a === b) return 1;
-  if (a.length > 400 || b.length > 400) return 0;
-  const prev = Array.from({ length: b.length + 1 }, (_, j) => j);
-  for (let i = 1; i <= a.length; i++) {
-    let diag = prev[0] ?? 0;
-    prev[0] = i;
-    for (let j = 1; j <= b.length; j++) {
-      const up = prev[j] ?? 0;
-      prev[j] = Math.min(up + 1, (prev[j - 1] ?? 0) + 1, diag + (a[i - 1] === b[j - 1] ? 0 : 1));
-      diag = up;
-    }
-  }
-  return 1 - (prev[b.length] ?? 0) / Math.max(a.length, b.length);
-}
-
 /**
  * True when every change in these hunks is a removed line directly replaced by an added line that
  * differs only in link targets: within one contiguous block (a run of removed lines followed by a

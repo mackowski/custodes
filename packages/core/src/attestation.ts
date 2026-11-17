@@ -1,4 +1,4 @@
-import { Attestation, type AuditRecord, type PublicKeyEntry } from '@custodes/schema';
+import { Attestation, type AuditRecord } from '@custodes/schema';
 import { canonicalJson, fromBase64Url, toBase64Url } from './canonical.js';
 
 export interface Ed25519Jwk {
@@ -58,8 +58,4 @@ export async function verifyAttestation(
   const data = new TextEncoder().encode(canonicalJson(parsed.data.record));
   const ok = await crypto.subtle.verify(ALG, publicKey, fromBase64Url(parsed.data.signature), data);
   return ok ? { valid: true, attestation: parsed.data } : { valid: false, reason: 'bad signature' };
-}
-
-export function findKey(keys: PublicKeyEntry[], keyId: string): PublicKeyEntry | undefined {
-  return keys.find((k) => k.keyId === keyId);
 }
