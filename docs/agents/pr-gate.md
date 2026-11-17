@@ -82,7 +82,7 @@ on OWASP/CheatSheetSeries. Rotate it per [rotate-pat](../runbooks/rotate-pat.md)
   This happens with or without a webhook.
 - **One poll at a time:** a poll that starts while another runs (cron, wake-up, sandbox run) does
   nothing and schedules a wake-up for the next slot, so a PR is never decided or closed twice. A
-  poll flag older than 15 minutes (a hung poll) is ignored; a poll stops starting evaluations after 12 minutes and leaves the rest to the next one, so two polls never decide the same pull request, and a halted agent schedules nothing.
+  poll flag older than 15 minutes (a hung poll) is ignored; a poll stops starting evaluations after 12 minutes and leaves the rest to the next one, and a poll that lost its lock never closes, and a halted agent schedules nothing.
 - With the webhook installed and the caps not reached, a PR that breaks the guide is closed about
   30–35 minutes after its last change; otherwise at the first poll after that.
 - **07:00 UTC daily** (`0 7 * * *`): sends the summary e-mail. It lists closed PRs, PRs it would

@@ -541,6 +541,27 @@ describe('failure handling (the 2026-09-29 outage)', () => {
     for (const n of [2, 3, 4]) expect(store.failures(n, `2026-09-22T10:0${n}:00Z`)).toBe(0);
   });
 
+  it('still asks the probe when a server error follows the refusal', async () => {
+    const store = memStore([]);
+    let call = 0;
+    // Assessed, refused (400), server error (503), then the probe: refused.
+    const complete = () => {
+      call++;
+      if (call === 1) return Promise.resolve(JSON.stringify(raw()));
+      return call === 3
+        ? Promise.reject(new GatewayError(503, 'x', 'overloaded_error'))
+        : badRequest();
+    };
+    const three = [1, 2, 3].map((n) => issue(n, { updated_at: `2026-09-22T10:0${n}:00Z` }));
+    await runTriage(
+      'OWASP/CheatSheetSeries',
+      '2026-09-21T00:00:00Z',
+      deps({ complete, store }, three),
+    );
+    expect(call).toBe(4);
+    expect(store.failures(2, '2026-09-22T10:02:00Z')).toBe(0);
+  });
+
   it('counts refused issues when nothing was assessed but the probe is answered', async () => {
     const store = memStore([]);
     const three = [1, 2, 3].map((n) => issue(n, { updated_at: `2026-09-22T10:0${n}:00Z` }));

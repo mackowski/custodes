@@ -292,14 +292,18 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
     }
     this.pollingSince = started;
     try {
-      return await this.pollOnce(opts);
+      return await this.pollOnce(opts, started);
     } finally {
       // A newer poll may have taken over a stale flag; only the owner clears it.
       if (this.pollingSince === started) this.pollingSince = null;
     }
   }
 
-  private async pollOnce(opts: { manual?: boolean }): Promise<{ ok: boolean; detail: string }> {
+  private async pollOnce(
+    opts: { manual?: boolean },
+    /** This poll's lock value (`pollingSince`). */
+    started: number,
+  ): Promise<{ ok: boolean; detail: string }> {
     try {
       await this.guard();
     } catch (err) {
@@ -372,7 +376,8 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
     let closedThisRun = 0;
     for (const pr of listed.pulls) {
       if (evaluated >= MAX_EVALUATIONS_PER_RUN) break;
-      if (Date.now() - now.getTime() > this.pollBudgetMs) {
+      // Measured from the lock's own start, not from after the first awaits.
+      if (Date.now() - started > this.pollBudgetMs) {
         // Stop while the lock still holds; the rest is decided by the next poll.
         errors.push(
           'poll stopped at its time budget; the remaining pull requests wait for the next',
@@ -524,6 +529,11 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
           closedThisRun >= MAX_CLOSES_PER_RUN
         ) {
           this.store(pr, 'would_close', detail, now);
+        } else if (this.pollingSince !== started) {
+          // The time budget bounds the model calls; a broker read has no timeout. If this poll
+          // ran past its lock, a newer one is deciding this pull request: never act as well.
+          errors.push(`#${pr.number}: not closed, this poll lost its lock`);
+          return 'stop';
         } else {
           closedThisRun++;
           const outcome = await this.close(pr, decision, runId, now, turn);

@@ -148,7 +148,8 @@ export async function runTriage(
         firstFailedUpdate ??= issue.updated_at;
         errors.push(`#${issue.number}: ${what}`);
         if (isRequestRefused(err)) infraFailed.push(issue);
-        endedRefused = isRequestRefused(err);
+        // Only a success clears it: a 5xx after a refusal says nothing about the path either.
+        if (isRequestRefused(err)) endedRefused = true;
         if (++consecutiveInfra >= MAX_CONSECUTIVE_INFRA_FAILURES) {
           errors.push(`stopped after ${consecutiveInfra} consecutive infrastructure failures`);
           break;
