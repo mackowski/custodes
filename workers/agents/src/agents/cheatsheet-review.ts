@@ -18,7 +18,7 @@ import {
 } from '@custodes/llm';
 import type { BrokerAction, BrokerResponse, Trigger } from '@custodes/schema';
 import type { AgentsEnv } from '../env.js';
-import { instanceOf, UnknownInstanceError, unknownInstance } from '../instances.js';
+import { instanceOf, noSuchAction, UnknownInstanceError, unknownInstance } from '../instances.js';
 import {
   approvalMail,
   partialReviewMail,
@@ -640,7 +640,9 @@ export class CheatsheetReviewAgent extends CustodesAgent<AgentsEnv, CheatsheetRe
   }
 
   /** Status for operators through the Access-protected gateway: ids and outcomes only. */
-  override async onRequest(_request: Request): Promise<Response> {
+  override async onRequest(request: Request): Promise<Response> {
+    const refused = noSuchAction(request);
+    if (refused) return refused;
     try {
       instanceOf(this.name);
     } catch (err) {

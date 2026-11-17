@@ -9,7 +9,6 @@
   },
   "scripts": {
     "build": "tsup",
-    "dev": "node --experimental-strip-types src/index.ts",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run"
   },

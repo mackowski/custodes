@@ -320,6 +320,14 @@ describe('triage agent wiring', () => {
     expect(await res.json()).toMatchObject({ manifest: { id: 'triage' }, recent: [] });
   });
 
+  it('answers 405 to a write it has no handler for, instead of the status', async () => {
+    const res = await triageWorker.fetch(
+      new Request('https://x/agents/triage-agent/custodes-sandbox/summary', { method: 'POST' }),
+      testEnv,
+    );
+    expect(res.status).toBe(405);
+  });
+
   it('refuses, as a read-only agent, to ask for any side effect before reaching the broker', async () => {
     const stub = await getAgentByName(testEnv.TriageAgent, 'owasp-cheatsheetseries');
     const errors = await runInDurableObject(stub, async (agent) => {

@@ -10,7 +10,13 @@ import {
   type JevTransport,
 } from '@custodes/llm';
 import type { AgentsEnv } from '../env.js';
-import { instanceOf, OWASP_INSTANCE, UnknownInstanceError, unknownInstance } from '../instances.js';
+import {
+  instanceOf,
+  noSuchAction,
+  OWASP_INSTANCE,
+  UnknownInstanceError,
+  unknownInstance,
+} from '../instances.js';
 import { closeComment } from './pr-gate/comment.js';
 import { decide, type Decision } from './pr-gate/decide.js';
 import { APPROVAL_QUESTIONS } from './pr-gate/approval.js';
@@ -925,6 +931,8 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
       const { mail } = this.buildSummary(new Date());
       return Response.json(mail);
     }
+    const refused = noSuchAction(request);
+    if (refused) return refused;
     this.ensureSchema();
     return Response.json({
       manifest: this.manifest,

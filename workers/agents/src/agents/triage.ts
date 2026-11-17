@@ -2,7 +2,13 @@ import { getAgentByName } from 'agents';
 import { CustodesAgent } from '@custodes/core/agent';
 import { AnthropicGateway, inertText } from '@custodes/llm';
 import type { AgentsEnv } from '../env.js';
-import { instanceOf, OWASP_INSTANCE, UnknownInstanceError, unknownInstance } from '../instances.js';
+import {
+  instanceOf,
+  noSuchAction,
+  OWASP_INSTANCE,
+  UnknownInstanceError,
+  unknownInstance,
+} from '../instances.js';
 import { PendingResults, type SpecialistJob } from './specialists/agent.js';
 import { ImplementationCheck } from './specialists/implementation.js';
 import { ProposalReview } from './specialists/proposal.js';
@@ -584,6 +590,8 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
           : await this.poll({ prepare: true }),
       );
     }
+    const refused = noSuchAction(request);
+    if (refused) return refused;
     this.ensureSchema();
     const recent = this
       .sql<AssessmentRow>`SELECT issue, title, issue_updated_at, assessment, assessed_at

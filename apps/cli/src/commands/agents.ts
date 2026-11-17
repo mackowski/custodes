@@ -6,7 +6,11 @@ import { loadConfig } from '../config.js';
 import { print, rows } from '../output.js';
 
 const Registry = z.array(AgentManifest);
-const Status = z.object({
+/**
+ * Loose on purpose: every agent adds its own fields (pr-gate `enforcing`, specialists `queued`,
+ * `recent`…), and a strict object dropped them all, also from `--json`.
+ */
+export const Status = z.looseObject({
   manifest: AgentManifest,
   state: z.unknown(),
   killSwitch: KillSwitchState,

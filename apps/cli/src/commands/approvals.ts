@@ -21,7 +21,14 @@ export function approvalsCommand(): Command {
       print(cfg.json, list, () =>
         rows(
           ['ID', 'AGENT', 'ACTION', 'REPO', 'EXPIRES'],
-          list.map((a) => [a.id, a.agentId, a.action.type, a.action.repo, a.expiresAt]),
+          list.map((a) => [
+            a.id,
+            a.agentId,
+            // A bundle's `action` is only its first step: show them all.
+            a.bundle ? a.bundle.actions.map((x) => x.type).join('+') : a.action.type,
+            a.action.repo,
+            a.expiresAt,
+          ]),
         ),
       );
     });

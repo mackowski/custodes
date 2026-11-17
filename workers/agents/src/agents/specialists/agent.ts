@@ -3,7 +3,7 @@ import { invokeAgent, type Turn } from '@custodes/core';
 import { AgentHaltedError, CustodesAgent } from '@custodes/core/agent';
 import { AnthropicGateway } from '@custodes/llm';
 import type { AgentsEnv } from '../../env.js';
-import { instanceOf } from '../../instances.js';
+import { instanceOf, noSuchAction } from '../../instances.js';
 import { describeError } from '../triage/errors.js';
 import { BrokerGitHubReader } from '../triage/github.js';
 import { assessRequest, selectRequest } from './model.js';
@@ -340,7 +340,9 @@ export abstract class SpecialistAgent extends CustodesAgent<AgentsEnv, Specialis
     this.setState({ ...this.state, lastErrors: [] });
   }
 
-  override async onRequest(): Promise<Response> {
+  override async onRequest(request: Request): Promise<Response> {
+    const refused = noSuchAction(request);
+    if (refused) return refused;
     this.ensureSchema();
     return Response.json({
       manifest: this.manifest,
