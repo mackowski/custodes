@@ -96,6 +96,35 @@ export type SignatureCheck =
   | { ok: false; reason: 'missing' | 'malformed' | 'stale' | 'unknown_key' | 'bad_signature' };
 
 /**
+ * The Ed25519 check both verifiers share: the pinned key with that id over that signing input.
+ * Null when no usable key is pinned under the id. One place, so the live check and the check of a
+ * recorded signature cannot come to use different keys or inputs.
+ */
+async function verifyWithPinnedKey(
+  pinned: readonly PinnedAgentKey[],
+  kid: string,
+  signature: string,
+  signingInput: string,
+): Promise<boolean | null> {
+  const key = pinned.find((k) => k.kid === kid);
+  // The schema refuses weak keys already; checked again so a key built in code cannot slip by.
+  if (!key || isWeakEd25519PublicKey(key.x)) return null;
+  const publicKey = await crypto.subtle.importKey(
+    'jwk',
+    { kty: 'OKP', crv: 'Ed25519', x: key.x },
+    ALG,
+    false,
+    ['verify'],
+  );
+  return crypto.subtle.verify(
+    ALG,
+    publicKey,
+    fromBase64Url(signature),
+    new TextEncoder().encode(signingInput),
+  );
+}
+
+/**
  * Verifies a request against the keys pinned for its caller. Does not check the nonce for reuse:
  * that needs storage, so the broker does it after this returns ok.
  */
@@ -115,21 +144,14 @@ export async function verifyRequestSignature(
     return { ok: false, reason: 'malformed' };
   if (Math.abs(now - Number(timestamp)) > SIGNATURE_WINDOW_MS)
     return { ok: false, reason: 'stale' };
-  const key = pinned.find((k) => k.kid === keyId);
-  // The schema refuses weak keys already; checked again so a key built in code cannot slip by.
-  if (!key || isWeakEd25519PublicKey(key.x)) return { ok: false, reason: 'unknown_key' };
-  const publicKey = await crypto.subtle.importKey(
-    'jwk',
-    { kty: 'OKP', crv: 'Ed25519', x: key.x },
-    ALG,
-    false,
-    ['verify'],
-  );
   const bodySha256 = await sha256Hex(part.body);
-  const data = new TextEncoder().encode(
+  const valid = await verifyWithPinnedKey(
+    pinned,
+    keyId,
+    signature,
     signingInputFromHash(part.method, part.path, timestamp, nonce, bodySha256),
   );
-  const valid = await crypto.subtle.verify(ALG, publicKey, fromBase64Url(signature), data);
+  if (valid === null) return { ok: false, reason: 'unknown_key' };
   return valid
     ? { ok: true, keyId, nonce, signature, timestamp, bodySha256 }
     : { ok: false, reason: 'bad_signature' };
@@ -144,17 +166,12 @@ export async function verifyRecordedCallerSignature(
   pinned: readonly PinnedAgentKey[],
   sig: CallerSignature,
 ): Promise<boolean> {
-  const key = pinned.find((k) => k.kid === sig.kid);
-  if (!key || isWeakEd25519PublicKey(key.x)) return false;
-  const publicKey = await crypto.subtle.importKey(
-    'jwk',
-    { kty: 'OKP', crv: 'Ed25519', x: key.x },
-    ALG,
-    false,
-    ['verify'],
+  const input = signingInputFromHash(
+    sig.method,
+    sig.path,
+    sig.timestamp,
+    sig.nonce,
+    sig.bodySha256,
   );
-  const data = new TextEncoder().encode(
-    signingInputFromHash(sig.method, sig.path, sig.timestamp, sig.nonce, sig.bodySha256),
-  );
-  return crypto.subtle.verify(ALG, publicKey, fromBase64Url(sig.signature), data);
+  return (await verifyWithPinnedKey(pinned, sig.kid, sig.signature, input)) === true;
 }

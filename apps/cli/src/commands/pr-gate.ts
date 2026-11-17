@@ -1,33 +1,11 @@
 import { Command, InvalidArgumentError } from 'commander';
 import { z } from 'zod';
+import { ComparisonRow, VerdictRequest } from '@custodes/schema';
 import { ApiClient } from '../client.js';
 import { loadConfig } from '../config.js';
 import { print, rows } from '../output.js';
 
-/** One Jev vs Clef row (ADR 0015): ids and numbers only. */
-export const ComparisonRow = z.object({
-  id: z.number(),
-  pr: z.number(),
-  head_sha: z.string(),
-  state_sha256: z.string(),
-  question: z.string(),
-  jev_model: z.string().nullable(),
-  jev_p: z.number().nullable(),
-  jev_choice: z.string().nullable(),
-  jev_ms: z.number(),
-  jev_tokens: z.number().nullable(),
-  jev_error: z.string().nullable(),
-  clef_model: z.string().nullable(),
-  clef_p: z.number().nullable(),
-  clef_choice: z.string().nullable(),
-  clef_ms: z.number(),
-  clef_tokens: z.number().nullable(),
-  clef_error: z.string().nullable(),
-  outcome: z.string().nullable(),
-  human_verdict: z.string().nullable(),
-  decided_at: z.string(),
-});
-export type ComparisonRow = z.infer<typeof ComparisonRow>;
+export { ComparisonRow };
 
 const COLUMNS = Object.keys(ComparisonRow.shape) as (keyof ComparisonRow)[];
 
@@ -44,14 +22,16 @@ export function toCsv(list: readonly ComparisonRow[]): string {
   );
 }
 
-function parseQuestion(v: string): 'minor' | 'approval' {
-  if (v !== 'minor' && v !== 'approval') throw new InvalidArgumentError('minor or approval');
-  return v;
+function parseQuestion(v: string): VerdictRequest['question'] {
+  const q = VerdictRequest.shape.question.safeParse(v);
+  if (!q.success) throw new InvalidArgumentError('minor or approval');
+  return q.data;
 }
 
-function parseAnswer(v: string): 'yes' | 'no' {
-  if (v !== 'yes' && v !== 'no') throw new InvalidArgumentError('yes or no');
-  return v;
+function parseAnswer(v: string): VerdictRequest['answer'] {
+  const a = VerdictRequest.shape.answer.safeParse(v);
+  if (!a.success) throw new InvalidArgumentError('yes or no');
+  return a.data;
 }
 
 function parsePr(v: string): number {

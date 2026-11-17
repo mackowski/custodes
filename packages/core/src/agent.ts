@@ -158,6 +158,27 @@ export abstract class CustodesAgent<
     if (state.halted) throw new AgentHaltedError(this.manifest.id, state.reason);
   }
 
+  /**
+   * The start of every request for a side effect (`act`, `requestApproval`,
+   * `requestBundleApproval`): a read-only agent is refused here, the kill switch is checked, and
+   * the fields that identify the request are built. One place, so the three cannot drift.
+   */
+  private async sideEffect(
+    runId: string,
+    triggeredBy: Trigger,
+  ): Promise<Pick<BrokerRequest, 'agentId' | 'agentVersion' | 'runId' | 'triggeredBy'>> {
+    if (this.manifest.mode === 'readonly') {
+      throw new Error(`agent ${this.manifest.id} is read-only and cannot request side effects`);
+    }
+    await this.guard();
+    return {
+      agentId: this.manifest.id,
+      agentVersion: this.manifest.version,
+      runId,
+      triggeredBy,
+    };
+  }
+
   /** Requests a GitHub side effect. The broker decides; this method only reports the outcome. */
   protected async act(
     action: BrokerAction,
@@ -165,17 +186,7 @@ export abstract class CustodesAgent<
     triggeredBy: Trigger,
     opts: { turn?: Turn } = {},
   ): Promise<BrokerResponse> {
-    if (this.manifest.mode === 'readonly') {
-      throw new Error(`agent ${this.manifest.id} is read-only and cannot request side effects`);
-    }
-    await this.guard();
-    const request: BrokerRequest = {
-      agentId: this.manifest.id,
-      agentVersion: this.manifest.version,
-      runId,
-      triggeredBy,
-      action,
-    };
+    const request: BrokerRequest = { ...(await this.sideEffect(runId, triggeredBy)), action };
     return executeTool(opts.turn, action.type, async (span) => {
       // The action is our own output (it becomes public on GitHub); approval ids are not recorded.
       span.payload('gen_ai.tool.call.arguments', action);
@@ -202,17 +213,7 @@ export abstract class CustodesAgent<
     triggeredBy: Trigger,
     opts: { turn?: Turn } = {},
   ): Promise<{ ok: true; created: ApprovalCreated } | { ok: false; status: number }> {
-    if (this.manifest.mode === 'readonly') {
-      throw new Error(`agent ${this.manifest.id} is read-only and cannot request side effects`);
-    }
-    await this.guard();
-    const request: BrokerRequest = {
-      agentId: this.manifest.id,
-      agentVersion: this.manifest.version,
-      runId,
-      triggeredBy,
-      action,
-    };
+    const request: BrokerRequest = { ...(await this.sideEffect(runId, triggeredBy)), action };
     return executeTool(opts.turn, 'approval.request', async (span) => {
       const res = await this.broker.fetch('https://broker.internal/v1/approvals', {
         method: 'POST',
@@ -238,23 +239,11 @@ export abstract class CustodesAgent<
   ): Promise<
     { ok: true; created: ApprovalCreated } | { ok: false; status: number; error?: string }
   > {
-    if (this.manifest.mode === 'readonly') {
-      throw new Error(`agent ${this.manifest.id} is read-only and cannot request side effects`);
-    }
-    await this.guard();
+    const request = { ...(await this.sideEffect(runId, triggeredBy)), bundle };
     const res = await this.broker.fetch('https://broker.internal/v1/approvals/bundle', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        request: {
-          agentId: this.manifest.id,
-          agentVersion: this.manifest.version,
-          runId,
-          triggeredBy,
-          bundle,
-        },
-        rationale: rationale.slice(0, 4_000),
-      }),
+      body: JSON.stringify({ request, rationale: rationale.slice(0, 4_000) }),
     });
     if (res.status !== 201) {
       // The broker's reason (policy, stale, a stranger named) is ours to log; it holds no secret.

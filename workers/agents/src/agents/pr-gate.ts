@@ -9,6 +9,7 @@ import {
   type JevState,
   type JevTransport,
 } from '@custodes/llm';
+import { VerdictRequest, type ComparisonRow } from '@custodes/schema';
 import type { AgentsEnv } from '../env.js';
 import {
   instanceOf,
@@ -66,37 +67,7 @@ export const CLEF_BUDGET_PER_POLL_MS = 60_000;
 /** Jev vs Clef rows are kept this long (ADR 0015): enough to decide on an agreement mode. */
 export const COMPARISON_RETENTION_DAYS = 180;
 
-/** The operator's answer to one question about one PR (ADR 0015). */
-export const VerdictRequest = z
-  .object({
-    pr: z.number().int().positive().max(1_000_000),
-    question: z.enum(['minor', 'approval']),
-    answer: z.enum(['yes', 'no']),
-  })
-  .strict();
-
-export interface ComparisonRow {
-  id: number;
-  pr: number;
-  head_sha: string;
-  state_sha256: string;
-  question: string;
-  jev_model: string | null;
-  jev_p: number | null;
-  jev_choice: string | null;
-  jev_ms: number;
-  jev_tokens: number | null;
-  jev_error: string | null;
-  clef_model: string | null;
-  clef_p: number | null;
-  clef_choice: string | null;
-  clef_ms: number;
-  clef_tokens: number | null;
-  clef_error: string | null;
-  outcome: string | null;
-  human_verdict: string | null;
-  decided_at: string;
-}
+export type { ComparisonRow };
 
 type StoredOutcome = 'skip' | SummaryOutcome;
 
