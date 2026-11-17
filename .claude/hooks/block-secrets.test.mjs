@@ -1,7 +1,7 @@
 // node --test: runs in `pnpm test:hooks` (part of `pnpm test`), so in `pnpm check` and CI.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -44,6 +44,20 @@ void test('refuses a path or a glob that names a secret-bearing file', () => {
   assert.match(refusal({ tool_input: { file_path: '/r/w/.dev.vars' } }) ?? '', /secret-bearing/);
   assert.match(refusal({ tool_input: { path: '/r/w/.wrangler' } }) ?? '', /secret-bearing/);
   assert.match(grep(tree(), { pattern: 'x', glob: '**/.dev.vars' }) ?? '', /secret-bearing/);
+});
+
+void test('refuses another spelling of the name and a link to the file', () => {
+  const root = tree();
+  assert.match(
+    refusal({ tool_input: { file_path: join(root, 'workers/gateway/.DEV.VARS') } }) ?? '',
+    /secret-bearing/,
+  );
+  symlinkSync(join(root, 'workers/gateway/.dev.vars'), join(root, 'notes.txt'));
+  assert.match(
+    refusal({ tool_input: { file_path: join(root, 'notes.txt') } }) ?? '',
+    /secret-bearing/,
+  );
+  assert.match(grep(root, { pattern: 'x', path: 'notes.txt' }) ?? '', /secret-bearing/);
 });
 
 void test('refuses a Grep glob that selects a secret-bearing file without naming it', () => {

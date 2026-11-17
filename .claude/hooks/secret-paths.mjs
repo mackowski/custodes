@@ -1,5 +1,5 @@
 // The rules of block-secrets.mjs, apart from the hook so a test can import them.
-import { readdirSync } from 'node:fs';
+import { readdirSync, realpathSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
 
 /** Paths that hold secrets. Tested against an absolute path with `/` separators. */
@@ -19,7 +19,8 @@ const SECRET = [
  * @param {string} path
  */
 export function isSecretPath(path) {
-  const p = path.split(sep).join('/');
+  // Lower case: the patterns are, and the default macOS disk ignores case (`.DEV.VARS`).
+  const p = path.split(sep).join('/').toLowerCase();
   return SECRET.some((re) => re.test(p) || re.test(`${p}/`));
 }
 
@@ -159,12 +160,21 @@ export function refusal(event) {
   );
   /** @param {string} k */
   const text = (k) => (typeof input[k] === 'string' ? input[k] : '');
-  for (const k of ['file_path', 'path'])
-    if (text(k) && isSecretPath(resolve(text(k)))) return `secret-bearing file: ${text(k)}`;
+  const cwd = e !== null && typeof e.cwd === 'string' ? e.cwd : process.cwd();
+  for (const k of ['file_path', 'path']) {
+    if (!text(k)) continue;
+    const given = resolve(cwd, text(k));
+    let real = given;
+    try {
+      real = realpathSync(given); // a link to a secret-bearing file is that file
+    } catch {
+      // not there yet (a Write): the path as given is all there is
+    }
+    if (isSecretPath(given) || isSecretPath(real)) return `secret-bearing file: ${text(k)}`;
+  }
   const glob = text('glob');
   if (!glob) return null;
   if (isSecretPath(`/${glob}`)) return `secret-bearing file: ${glob}`;
-  const cwd = e !== null && typeof e.cwd === 'string' ? e.cwd : process.cwd();
   const root = resolve(cwd, text('path') || '.');
   const files = secretFilesUnder(root);
   if (files === null)

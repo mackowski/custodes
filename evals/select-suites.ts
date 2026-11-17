@@ -12,6 +12,8 @@ const CHEATSHEET = [
   `${AGENTS}cheatsheet-review/lineup.ts`,
   `${AGENTS}cheatsheet-review/types.ts`,
   `${AGENTS}cheatsheet-review/input.ts`,
+  // Builds the sentence the link auditor reads for each URL.
+  `${AGENTS}cheatsheet-review/links.ts`,
   'packages/llm/src/chat.ts',
 ];
 const JEV = ['packages/llm/src/jev.ts', 'packages/llm/src/clef.ts'];

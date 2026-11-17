@@ -200,7 +200,12 @@ async function linkStage(snap: Snapshot, deps: PipelineDeps): Promise<LinkStage>
   for (const { link } of external.slice(0, MAX_EXTERNAL_LINKS)) {
     if (link.unaudited)
       notes.push(
-        `${link.url.slice(0, 300)} (cited in ${link.unaudited} more sentence(s) that were not audited)`,
+        `${link.url.slice(0, 300)} (also cited at ${link.unaudited
+          .slice(0, 5)
+          .map((u) => `${u.file}:${u.line}`)
+          .join(
+            ', ',
+          )}${link.unaudited.length > 5 ? ' and more' : ''}; those sentences were not audited)`,
       );
     await deps.guard();
     const got = await deps.limit(() => deps.fetchLink(link.url));

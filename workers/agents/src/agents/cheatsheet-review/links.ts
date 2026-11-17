@@ -23,7 +23,7 @@ export interface AddedLink {
   /** Further new sentences that cite the same URL (`citeAgain`); author text, untrusted. */
   more?: { file: string; line: number; context: string }[];
   /** Further citing sentences past the limit: not audited, listed for a manual check. */
-  unaudited?: number;
+  unaudited?: { file: string; line: number }[];
 }
 
 /** Sentences audited for one URL: the first place and this many more that cite it again. */
@@ -39,7 +39,8 @@ function citeAgain(prior: AddedLink, link: AddedLink): void {
   if (link.previous !== undefined || link.markup || prior.previous !== undefined) return;
   const more = prior.more ?? [];
   if (link.context === prior.context || more.some((m) => m.context === link.context)) return;
-  if (more.length >= MAX_EXTRA_CITATIONS) prior.unaudited = (prior.unaudited ?? 0) + 1;
+  if (more.length >= MAX_EXTRA_CITATIONS)
+    prior.unaudited = [...(prior.unaudited ?? []), { file: link.file, line: link.line }];
   else prior.more = [...more, { file: link.file, line: link.line, context: link.context }];
 }
 

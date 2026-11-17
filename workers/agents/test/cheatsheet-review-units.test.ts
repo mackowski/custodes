@@ -1965,13 +1965,13 @@ describe('links.scanLinks', () => {
     expect(text).toContain('Third claim');
     // Past the limit a sentence is counted, never dropped without a word.
     expect(text).not.toContain('Fourth claim');
-    expect(link.unaudited).toBe(1);
+    expect(link.unaudited).toEqual([{ file: SHEET, line: 4 }]);
     // A sentence that merely contains an audited one is a different claim.
     const short = { ...link, line: 9, context: 'claim, see [d](https://new.example/a).' };
     delete short.more;
     delete short.unaudited;
     mergeCitation(link, short);
-    expect(link.unaudited).toBe(2);
+    expect(link.unaudited).toHaveLength(2);
     // Across sheets as within one: a sentence wins over a reference definition.
     const definition = {
       url: 'https://x.example/',
