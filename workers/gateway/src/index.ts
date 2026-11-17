@@ -29,6 +29,7 @@ import {
   PAGE_HEADERS,
   resultPage,
   type DecideResult,
+  unknownOutcomePage,
 } from './approval-page.js';
 import type { GatewayEnv } from './env.js';
 
@@ -63,6 +64,13 @@ app.get('/verify/:id', async (c) => {
     return c.json({
       valid: false,
       reason: 'record id does not match',
+      attestation: result.attestation,
+    });
+  // The broker signs each record with that agent's own key; another agent's key proves nothing.
+  if (key.agentId !== record.agentId)
+    return c.json({
+      valid: false,
+      reason: 'key belongs to another agent',
       attestation: result.attestation,
     });
   /*
@@ -289,6 +297,12 @@ admin.post('/approvals/link/:token', async (c) => {
     asOperator(c, { decision: choice === 'approve' ? 'approved' : 'rejected' }),
   );
   if (res.status === 404) return c.body(invalidPage(), 404, PAGE_HEADERS);
+  // 200 and 409 carry a decision result. Anything else (a refusal, or an error after the approval
+  // was already used up) does not, and the operator must not read it as "nothing happened".
+  if (!res.ok && res.status !== 409) {
+    console.log(JSON.stringify({ event: 'admin.approval.link.failed', status: res.status }));
+    return c.body(unknownOutcomePage(), 502, PAGE_HEADERS);
+  }
   const out = await res.json<DecideResult>();
   console.log(
     JSON.stringify({ event: 'admin.approval.link', decision: choice, result: out.result }),

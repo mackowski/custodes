@@ -584,6 +584,15 @@ describe('public /verify (ADR 0018, R1)', () => {
     });
   });
 
+  it("is invalid when the record names one agent and the key is another agent's", async () => {
+    // brokerWith lists the key under cheatsheet-review; the signed record says pr-gate.
+    const broker = await brokerWith((r) => ({ ...r, agentId: 'pr-gate' }));
+    expect(await verify(broker)).toMatchObject({
+      valid: false,
+      reason: 'key belongs to another agent',
+    });
+  });
+
   it('is invalid when the record claims an agent signature by a key that is not committed', async () => {
     const broker = await brokerWith((r) => ({
       ...r,
@@ -956,6 +965,27 @@ describe("admin writes forward the operator's own Access token to the broker (#1
     );
     return { res, seen, jwt };
   };
+
+  it('says the outcome is unknown when the broker answers a decision with an error', async () => {
+    const link =
+      '/admin/approvals/link/9d7c1e9e-2b1a-4b6e-9a2e-1f7d1c2b3a44.1900000000.abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG';
+    for (const reply of [
+      new Response('Internal Server Error', { status: 500 }),
+      Response.json({ error: 'forbidden' }, { status: 403 }),
+    ]) {
+      const res = await worker.fetch(
+        new Request(`https://custodes.work${link}`, {
+          method: 'POST',
+          headers: { 'cf-access-jwt-assertion': await token(approver()) },
+          body: new URLSearchParams({ decision: 'approve' }),
+        }),
+        { ...testEnv(), BROKER: { fetch: () => Promise.resolve(reply) } as unknown as Fetcher },
+        ctx,
+      );
+      expect(res.status).toBe(502);
+      expect(await res.text()).toContain('The outcome is not known');
+    }
+  });
 
   it("halts through the broker with the caller's token and no identity of its own", async () => {
     const { res, seen, jwt } = await send(

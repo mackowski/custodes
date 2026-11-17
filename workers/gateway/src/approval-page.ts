@@ -171,6 +171,14 @@ export function resultPage(out: DecideResult): string {
   return layout('Approval', `<h1>Approval</h1><p>${msg}</p>`);
 }
 
+/** The broker did not return a decision result: the action may or may not have run. */
+export function unknownOutcomePage(): string {
+  return layout(
+    'Approval',
+    '<h1>The outcome is not known</h1><p>The broker did not confirm the decision. Something may have been posted. Check the audit log (<code>custodes audit</code>) before using the link again.</p>',
+  );
+}
+
 /** An unusable link: never says which check failed beyond a generic reason. */
 export function invalidPage(): string {
   return layout(
