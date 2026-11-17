@@ -20,7 +20,6 @@ import { buildUserMessage, SYSTEM_PROMPT } from '../src/agents/triage/prompt.js'
 import { GatewayError } from '@custodes/llm';
 import {
   MAX_CONSECUTIVE_INFRA_FAILURES,
-  MAX_PER_RUN,
   runTriage,
   type TriageDeps,
 } from '../src/agents/triage/run.js';

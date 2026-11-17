@@ -405,13 +405,70 @@ const ENTITIES: Record<string, string> = {
   nbsp: ' ',
 };
 
+const HIDDEN_BLOCK = /^<(script|style|noscript|svg|template)/i;
+
+/**
+ * `html` without comments, hidden blocks (script, style, noscript, svg, template) and tags, in one
+ * pass. The page is chosen by the PR author: regexes with a lazy `[\s\S]*?` or `<[^>]+>` rescan
+ * to the end from every unclosed opener, which is quadratic and can use up the Worker's CPU limit
+ * (200 KB of `<svg ` took 3.6 s). Here an unclosed comment or hidden block drops the rest of the
+ * page, and a `<` with no `>` after it ends the scan, so every search to the end happens once.
+ */
+function stripMarkup(html: string): string {
+  const out: string[] = [];
+  let i = 0;
+  while (i < html.length) {
+    const lt = html.indexOf('<', i);
+    if (lt < 0) break;
+    out.push(html.slice(i, lt));
+    let end: number;
+    const block = HIDDEN_BLOCK.exec(html.slice(lt, lt + 10));
+    if (html.startsWith('<!--', lt)) {
+      const close = html.indexOf('-->', lt + 4);
+      end = close < 0 ? -1 : close + 3;
+    } else if (block?.[1] !== undefined) {
+      const closer = new RegExp(`</${block[1]}>`, 'gi');
+      closer.lastIndex = lt;
+      end = closer.exec(html) ? closer.lastIndex : -1;
+    } else {
+      const gt = html.indexOf('>', lt + 1);
+      if (gt < 0) {
+        // No tag can close any more: the rest is text.
+        out.push(html.slice(lt));
+        return out.join('');
+      }
+      if (gt === lt + 1) {
+        // "<>" is not a tag.
+        out.push('<');
+        i = lt + 1;
+        continue;
+      }
+      end = gt + 1;
+    }
+    if (end < 0) return out.join('');
+    out.push(' ');
+    i = end;
+  }
+  out.push(html.slice(i));
+  return out.join('');
+}
+
+/** The first <title>'s content, found without a regex that rescans (see stripMarkup). */
+function rawTitle(html: string): string {
+  const open = html.search(/<title/i);
+  if (open < 0) return '';
+  const gt = html.indexOf('>', open);
+  if (gt < 0) return '';
+  const closer = /<\/title>/gi;
+  closer.lastIndex = gt;
+  const m = closer.exec(html);
+  return m ? html.slice(gt + 1, m.index) : '';
+}
+
 /** Visible text of an HTML page: no scripts, styles or tags. */
 export function pageText(html: string): { title: string; text: string } {
-  const title = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(html)?.[1] ?? '';
-  const text = html
-    .replace(/<(script|style|noscript|svg|template)[\s\S]*?<\/\1>/gi, ' ')
-    .replace(/<!--[\s\S]*?-->/g, ' ')
-    .replace(/<[^>]+>/g, ' ')
+  const title = rawTitle(html);
+  const text = stripMarkup(html)
     .replace(/&(amp|lt|gt|quot|#39|nbsp);/g, (_, e: string) => ENTITIES[e] ?? ' ')
     .replace(/\s+/g, ' ')
     .trim();

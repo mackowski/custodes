@@ -27,6 +27,7 @@ import {
   extractLinks,
   fetchable,
   fetchLink,
+  pageText,
   maskedLine,
   scanLinks,
   knownTargetForm,
@@ -454,6 +455,29 @@ describe('links.extractLinks', () => {
     expect(
       extractLinks('f.md', [{ kind: '-' as const, text: 'https://gone.example.com' }]),
     ).toEqual([]);
+  });
+});
+
+describe('links.pageText', () => {
+  it('keeps visible text and drops comments, hidden blocks and tags', () => {
+    const html =
+      '<html><head><TITLE lang="en">A &amp; B</TITLE><style>p{}</style></head><body>' +
+      '<!-- note --><p class="x">Hello <b>world</b></p><script>alert(1)</SCRIPT> 1 <> 2 &lt;ok&gt;</body></html>';
+    expect(pageText(html)).toEqual({ title: 'A & B', text: 'A & B Hello world 1 <> 2 <ok>' });
+  });
+
+  it('drops the rest after an unclosed comment or hidden block, and keeps text after a lone "<"', () => {
+    expect(pageText('before <script>var x = 1;').text).toBe('before');
+    expect(pageText('before <!-- never closed').text).toBe('before');
+    expect(pageText('a < b and c').text).toBe('a < b and c');
+  });
+
+  it('stays fast on a page built to make a regex rescan (author-chosen URL)', () => {
+    for (const unit of ['<svg ', '<!-- ', '< ', '<title ', '<title>']) {
+      const started = Date.now();
+      pageText(unit.repeat(400_000));
+      expect(Date.now() - started, unit).toBeLessThan(1_000);
+    }
   });
 });
 
