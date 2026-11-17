@@ -65,13 +65,13 @@ request before every deploy.
 
 ## Failure modes
 
-| Failure                                                     | Effect                                                                                      |
-| ----------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| GitHub rate limit (5,000 requests/h with the read-only PAT) | run fails, error listed in next digest, cursor unchanged                                    |
-| Model returns invalid or off-schema JSON                    | issue skipped, `#<n>: StructuredOutputError` in digest, retried when the issue next changes |
-| AI Gateway missing provider key or token                    | whole run fails, reported in digest                                                         |
-| E-mail destination not verified                             | digest not sent, assessments kept for the next attempt                                      |
-| Kill switch set                                             | runs return immediately; checked again before every model call                              |
+| Failure                                                     | Effect                                                                                                                                                                                                                                  |
+| ----------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GitHub rate limit (5,000 requests/h with the read-only PAT) | run fails, error listed in next digest, cursor unchanged                                                                                                                                                                                |
+| Model output invalid, refused or cut off                    | error in digest; the issue is tried again on the next polls with the cursor held, and skipped after 3 attempts until it changes                                                                                                         |
+| AI Gateway, provider or network failure                     | error per issue in the digest; the run stops after 3 in a row and the cursor stays, so nothing is skipped. If other issues were assessed in the same run, the failure counts against that issue (3 such runs: skipped until it changes) |
+| E-mail destination not verified                             | digest not sent, assessments kept for the next attempt                                                                                                                                                                                  |
+| Kill switch set                                             | runs return immediately; checked again before every model call                                                                                                                                                                          |
 
 ## How to halt
 

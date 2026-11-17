@@ -9,9 +9,9 @@ import { buildUserMessage, isSafeName, SYSTEM_PROMPT, type TriageContext } from 
 export interface TriageStore {
   /** True when this issue was already assessed at this `updated_at`. */
   isCurrent(issue: number, updatedAt: string): boolean;
-  /** Input-specific failures recorded for this issue at this `updated_at`. */
+  /** Failures counted against this issue at this `updated_at` (see `runTriage`). */
   failures(issue: number, updatedAt: string): number;
-  /** Records one input-specific failure and returns the new count. */
+  /** Records one failure that is about this issue and returns the new count. */
   recordFailure(issue: number, updatedAt: string): number;
   save(issue: PublicIssue, assessment: Assessment, now: Date): void;
 }
@@ -78,6 +78,7 @@ export async function runTriage(
   let assessed = 0;
   let skipped = 0;
   let consecutiveInfra = 0;
+  const infraFailed: PublicIssue[] = [];
   for (const issue of issues) {
     if (
       deps.store.isCurrent(issue.number, issue.updated_at) ||
@@ -124,6 +125,7 @@ export async function runTriage(
       } else {
         firstFailedUpdate ??= issue.updated_at;
         errors.push(`#${issue.number}: ${what}`);
+        infraFailed.push(issue);
         if (++consecutiveInfra >= MAX_CONSECUTIVE_INFRA_FAILURES) {
           errors.push(`stopped after ${consecutiveInfra} consecutive infrastructure failures`);
           break;
@@ -131,6 +133,18 @@ export async function runTriage(
       }
     }
   }
+  // An "infrastructure" failure in a run where other issues were assessed is about that issue
+  // (a guardrail block, a provider 400 on its text), not an outage: count it, so it cannot hold
+  // the cursor and cost a model call on every poll for ever. In an outage nothing is assessed and
+  // nothing is counted.
+  if (assessed > 0)
+    for (const issue of infraFailed) {
+      const attempts = deps.store.recordFailure(issue.number, issue.updated_at);
+      if (attempts >= MAX_ATTEMPTS)
+        errors.push(
+          `#${issue.number}: gave up after ${attempts} attempts (failed while other issues were assessed)`,
+        );
+    }
   // Issues arrive oldest update first. If the reader did not see everything, resume where it
   // stopped (an issue already assessed is skipped next time as current); otherwise everything up
   // to now is covered. A failed issue (model or gateway error) is retried next run: never move the

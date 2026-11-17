@@ -168,7 +168,11 @@ describe('broker act() when execution fails half way', () => {
     expect(postedBody).toContain(res.attestationId);
     const att = await store.get(res.attestationId);
     expect(att?.record.decision).toBe('denied');
-    expect(att?.record.reason).toMatch(/^execution failed: /);
+    expect(att?.record.reason).toBe(
+      'execution failed: GitHub 403 on /repos/OWASP/CheatSheetSeries/pulls/7',
+    );
+    // GitHub's own error text stays out of the signed, public record.
+    expect(att?.record.reason).not.toContain('Resource not accessible');
     expect(await store.countAllowedSince('pr-gate', 'OWASP/CheatSheetSeries', hourAgo)).toBe(
       before + 1,
     );

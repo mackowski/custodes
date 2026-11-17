@@ -472,6 +472,30 @@ describe('failure handling (the 2026-09-29 outage)', () => {
     expect(d.store.failures(5, issue(5).updated_at)).toBe(0);
   });
 
+  it('counts a failure against an issue when others in the same run were assessed, then frees the cursor', async () => {
+    const poison = issue(5, { updated_at: '2026-09-22T10:00:00Z' });
+    const store = memStore([]);
+    const complete = (_s: string, _u: string, n: number) =>
+      n === 5 ? badRequest() : Promise.resolve(JSON.stringify(raw()));
+    const run = (other: number) => {
+      const d = deps({ complete, store }, [
+        poison,
+        issue(other, { updated_at: `2026-09-22T11:0${other - 6}:00Z` }),
+      ]);
+      return runTriage('OWASP/CheatSheetSeries', '2026-09-21T00:00:00Z', d);
+    };
+    // Each poll also assesses a new issue, so this is not an outage: the failure is about #5.
+    const runs = [await run(6), await run(7), await run(8), await run(9)];
+    expect(runs[0]?.nextSince).toBe(poison.updated_at);
+    expect(runs[2]?.errors.at(-1)).toBe(
+      '#5: gave up after 3 attempts (failed while other issues were assessed)',
+    );
+    expect(store.failures(5, poison.updated_at)).toBe(3);
+    // Skipped from now on, so the cursor moves past it.
+    expect(runs[3]?.errors).toEqual([]);
+    expect(runs[3]?.nextSince).not.toBe(poison.updated_at);
+  });
+
   it('gives up on an issue with unusable output after three attempts and frees the cursor', async () => {
     const { ModelOutputError } = await import('@custodes/llm');
     const d = deps({ complete: () => Promise.reject(new ModelOutputError('refusal')) });

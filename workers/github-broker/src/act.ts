@@ -161,7 +161,12 @@ export async function act(
     // Execution started, so part of the action may be live (pr.close posts its comment before
     // closing). Record it under the id already written into that comment's trailer, so /verify
     // works, and so the rate limit counts it (EXECUTION_FAILED prefix, see countAllowedSince).
-    const detail = err instanceof GitHubApiError ? err.message : 'github request failed';
+    // Status and path only. The record is signed and served by the public /verify, and GitHub's
+    // error body is text we do not control.
+    const detail =
+      err instanceof GitHubApiError
+        ? `GitHub ${err.status} on ${err.path}`
+        : 'github request failed';
     const reason = `${EXECUTION_FAILED}${detail}`.slice(0, 500);
     const record = await buildAuditRecord({
       request: req,
