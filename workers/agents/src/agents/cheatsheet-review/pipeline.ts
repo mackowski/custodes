@@ -198,18 +198,19 @@ async function linkStage(snap: Snapshot, deps: PipelineDeps): Promise<LinkStage>
       ...(link.previous !== undefined ? { previous: link.previous } : {}),
     });
   for (const { link } of external.slice(0, MAX_EXTERNAL_LINKS)) {
+    // The reason comes first: the note is cut at 400 characters when rendered.
     if (link.unaudited)
       notes.push(
-        `${link.url.slice(0, 300)} (also cited at ${link.unaudited
+        `not audited: further sentences at ${link.unaudited
           .slice(0, 5)
           .map((u) => `${u.file}:${u.line}`)
           .join(
             ', ',
-          )}${link.unaudited.length > 5 ? ' and more' : ''}; those sentences were not audited)`,
+          )}${link.unaudited.length > 5 ? ' and more' : ''} cite ${link.url.slice(0, 200)}`,
       );
     for (const m of (link.movedAt ?? []).slice(0, 5))
       notes.push(
-        `${link.url.slice(0, 300)} (also replaces ${m.previous.slice(0, 300)} at ${m.file}:${m.line}; that move was not judged)`,
+        `move not judged: at ${m.file}:${m.line} ${link.url.slice(0, 150)} replaces ${m.previous.slice(0, 150)}`,
       );
     await deps.guard();
     const got = await deps.limit(() => deps.fetchLink(link.url));

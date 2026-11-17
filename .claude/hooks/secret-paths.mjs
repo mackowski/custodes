@@ -231,7 +231,9 @@ export function refusal(
   const inProject = root === project || root.startsWith(`${project}${sep}`);
   const files = secretFilesUnder(root);
   if (files === null) return `too many files under ${root} to check: narrow the path`;
-  if (!glob) {
+  // Only exclusions select nothing by themselves: ripgrep then searches as if there were no glob.
+  const patterns = globPatterns(glob).filter((p) => !p.startsWith('!'));
+  if (patterns.length === 0) {
     // Inside the repository only what .gitignore does not hide is searched: a link (its own name
     // is not ignored) or a secret-bearing name in a form .gitignore does not list.
     const fromRepo = relative(project, root).split(sep).join('/');
@@ -240,7 +242,6 @@ export function refusal(
       : files[0];
     return reached === undefined ? null : `the search reaches a secret-bearing file: ${reached}`;
   }
-  const patterns = globPatterns(glob);
   const hit = files.find((f) => patterns.some((p) => globSelects(p, f, root)));
   return hit === undefined ? null : `the glob selects a secret-bearing file: ${hit}`;
 }

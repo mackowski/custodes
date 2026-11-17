@@ -120,6 +120,7 @@ void test('a secret-bearing name that .gitignore does not hide stops a Grep with
   writeFileSync(join(root, 'workers/gateway/.dev.vars~'), 'X=1\n');
   assert.match(grep(root, { pattern: 'x' }) ?? '', /\.dev\.vars~/);
   assert.match(grep(root, { pattern: 'x', path: 'workers/gateway' }) ?? '', /\.dev\.vars~/);
+  assert.match(grep(root, { pattern: 'x', glob: '!*.md' }) ?? '', /\.dev\.vars~/);
 });
 
 void test('outside the repository a Grep without a glob is checked too', () => {
