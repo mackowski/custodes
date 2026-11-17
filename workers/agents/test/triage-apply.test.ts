@@ -789,7 +789,7 @@ describe('digest apply block', () => {
 });
 
 describe('TriageApplyIntake', () => {
-  const intake = (e: Partial<AgentsEnv> = {}) =>
+  const intake = (e: Record<string, unknown> = {}) =>
     new TriageApplyIntake({} as ExecutionContext, { ...(env as AgentsEnv), ...e });
 
   it('refuses an instance that is not in the instance list, including prototype names', async () => {
@@ -801,9 +801,18 @@ describe('TriageApplyIntake', () => {
   });
 
   it('says so when the agent is not deployed in this Worker, and does not touch the proposal', async () => {
-    expect(await intake({}).propose('custodes-sandbox', { anything: 1 })).toEqual({
+    expect(
+      await intake({ TriageApplyAgent: undefined }).propose('custodes-sandbox', { anything: 1 }),
+    ).toEqual({
       ok: false,
       reason: 'triage-apply is not deployed here',
     });
+  });
+
+  it('refuses a proposal for a repository its instance does not serve', async () => {
+    // The policy allows triage-apply on both repositories; only this check ties an instance to one.
+    expect(
+      await intake().propose('custodes-sandbox', input({ repo: 'OWASP/CheatSheetSeries' })),
+    ).toEqual({ ok: false, reason: 'repository not served by this instance' });
   });
 });

@@ -44,6 +44,7 @@ export default defineConfig({
           ProposalReviewAgent: { className: 'ProposalReviewAgent', useSQLite: true },
           PrGateAgent: { className: 'PrGateAgent', useSQLite: true },
           CheatsheetReviewAgent: { className: 'CheatsheetReviewAgent', useSQLite: true },
+          TriageApplyAgent: { className: 'TriageApplyAgent', useSQLite: true },
           // As in every agent Worker: broker calls are signed by the Worker's Keyholder (ADR 0018).
           KEYHOLDER: { className: 'Keyholder', useSQLite: true },
         },
