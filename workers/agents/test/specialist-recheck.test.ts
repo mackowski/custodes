@@ -5,7 +5,11 @@ import { describe, expect, it } from 'vitest';
 import { validateProposalReview } from '../src/agents/specialists/proposal.js';
 import type { AgentsEnv } from '../src/env.js';
 import { OWASP_INSTANCE, SANDBOX_INSTANCE } from '../src/instances.js';
-import { MAX_JOBS_PER_DAY, MAX_JOBS_PER_DAY_SANDBOX } from '../src/agents/specialists/agent.js';
+import {
+  MAX_FAILURES,
+  MAX_JOBS_PER_DAY,
+  MAX_JOBS_PER_DAY_SANDBOX,
+} from '../src/agents/specialists/agent.js';
 import e2eRunner from '../../../e2e/sandbox/run.ts?raw';
 
 const testEnv = env as unknown as AgentsEnv;
@@ -188,7 +192,7 @@ describe('SpecialistAgent recheck (ADR 0019)', () => {
       await a.enqueue([{ issue, issueUpdatedAt: '2026-11-10T10:00:00.000Z' }]);
       await a.workOne();
       const delayed = jobs(a).find((j) => j.issue === issue)!;
-      expect(delayed.attempts).toBe(1);
+      expect(delayed.attempts).toBe(MAX_FAILURES / 4);
       expect(Date.parse(delayed.enqueued_at)).toBeGreaterThan(Date.now() + 5 * HOUR);
 
       await a.enqueue([{ issue, issueUpdatedAt: '2026-11-10T10:00:00.000Z' }]);
@@ -227,19 +231,25 @@ describe('SpecialistAgent queue: giving up, the daily cap and versions', () => {
   // An unusable answer about this issue (input-specific), as the model clients throw it.
   const unusable = () => Object.assign(new Error('bad output'), { name: 'StructuredOutputError' });
 
-  it('never parks a job for infrastructure failures: an outage heals by itself', async () => {
+  it('does not park a job for a few infrastructure failures: an outage heals by itself', async () => {
     const issue = 1000 + ++n;
     await inAgent(async (a) => {
       a.run = () => Promise.reject(new Error('gateway down'));
       await a.enqueue([{ issue, issueUpdatedAt: updated }]);
-      for (let k = 0; k < 6; k++) {
-        makeReady(a, issue);
-        await a.workOne();
-      }
-      const row = jobs(a).find((j) => j.issue === issue);
-      expect(row?.attempts).toBe(0);
-      // Waiting for the retry delay, not parked for a month.
-      expect(Date.parse(row?.enqueued_at ?? '')).toBeLessThan(Date.now() + 7 * HOUR);
+      const failTimes = async (times: number) => {
+        for (let k = 0; k < times; k++) {
+          makeReady(a, issue);
+          await a.workOne();
+        }
+        return jobs(a).find((j) => j.issue === issue);
+      };
+      // Six failures (a day and a half of outage): still waiting for the retry delay.
+      const waiting = await failTimes(6);
+      expect(Date.parse(waiting?.enqueued_at ?? '')).toBeLessThan(Date.now() + 7 * HOUR);
+      // An issue that fails this way every time is parked in the end, so it cannot use up the
+      // daily budget for ever.
+      const parked = await failTimes(MAX_FAILURES - 6);
+      expect(Date.parse(parked?.enqueued_at ?? '')).toBeGreaterThan(Date.now() + 29 * 24 * HOUR);
     });
   });
 
@@ -253,7 +263,7 @@ describe('SpecialistAgent queue: giving up, the daily cap and versions', () => {
         await a.workOne();
       }
       const parked = jobs(a).find((j) => j.issue === issue);
-      expect(parked?.attempts).toBe(4);
+      expect(parked?.attempts).toBe(MAX_FAILURES);
       expect(Date.parse(parked?.enqueued_at ?? '')).toBeGreaterThan(Date.now() + 29 * 24 * HOUR);
       // Triage sends the same version again on every prepare: the row stays parked.
       let calls = 0;
@@ -264,7 +274,7 @@ describe('SpecialistAgent queue: giving up, the daily cap and versions', () => {
       await a.enqueue([{ issue, issueUpdatedAt: updated }]);
       expect(await a.workOne()).toBe(false);
       expect(calls).toBe(0);
-      expect(jobs(a).find((j) => j.issue === issue)?.attempts).toBe(4);
+      expect(jobs(a).find((j) => j.issue === issue)?.attempts).toBe(MAX_FAILURES);
       // A newer version of the issue starts fresh and runs now.
       await a.enqueue([{ issue, issueUpdatedAt: '2026-11-12T10:00:00.000Z' }]);
       expect(jobs(a).find((j) => j.issue === issue)?.attempts).toBe(0);

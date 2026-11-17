@@ -49,7 +49,7 @@ Nothing on GitHub.
 | --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
 | 10 jobs per UTC day (sandbox: 40)       | the rest wait; the first poll after midnight resumes                                                                             |
 | Model output invalid, refused, cut off  | job waits 6 h and is tried again; after 4 such answers it is parked for 30 days (a changed issue runs at once), error in digest. |
-| Broker, GitHub or gateway failure       | job kept, chain stops, retried on the next triage poll                                                                           |
+| Broker, GitHub or gateway failure       | job kept, chain stops, retried after 6 h; parked for 30 days only after 12 failures of the same issue version                    |
 | Kill switch `halt:implementation-check` | alarms return at once; checked again before every model call                                                                     |
 
 ## Threat model

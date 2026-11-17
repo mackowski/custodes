@@ -175,7 +175,7 @@ export function resultPage(out: DecideResult): string {
 export function refusedPage(): string {
   return layout(
     'Approval',
-    '<h1>The decision was refused</h1><p>The broker did not accept this request. Nothing was decided and nothing was posted. The link can be used again.</p>',
+    '<h1>The decision was refused</h1><p>The broker did not accept this request. Nothing was decided and nothing was posted. The request is still pending.</p>',
   );
 }
 

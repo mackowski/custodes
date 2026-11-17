@@ -53,11 +53,20 @@ export const MAX_JOBS_PER_DAY = 10;
  */
 export const MAX_JOBS_PER_DAY_SANDBOX = 40;
 /**
- * A job whose model answer is unusable this many times is parked for PARK_MS. It is not deleted: triage sends every
- * stale accepted issue again on each prepare, and a deleted job came back with attempts 0, so
- * giving up never held. A newer version of the issue resets the row and runs at once.
+ * A job whose model answer is unusable this many times is parked for PARK_MS. It is not deleted:
+ * triage sends every stale accepted issue again on each prepare, and a deleted job came back with
+ * attempts 0, so giving up never held. A newer version of the issue resets the row and runs at once.
  */
 export const MAX_ATTEMPTS = 4;
+/**
+ * Any other failure (gateway, GitHub, network) parks the job only after this many: about three
+ * days at RETRY_AFTER_MS, so an outage heals by itself, but an issue whose text makes an
+ * "infrastructure" failure every time (a guardrail block, a provider 400) cannot use up the daily
+ * job budget for ever.
+ */
+export const MAX_FAILURES = 12;
+/** `jobs.attempts` holds a weight: an unusable answer counts this much, any other failure 1. */
+const UNUSABLE_WEIGHT = MAX_FAILURES / MAX_ATTEMPTS;
 const PARK_MS = 30 * 86_400_000;
 const MAX_ENQUEUE = 100;
 /**
@@ -265,15 +274,14 @@ export abstract class SpecialistAgent extends CustodesAgent<AgentsEnv, Specialis
       if (err instanceof AgentHaltedError) return false;
       // Class, status and error type only: never model output or issue text.
       const what = describeError(err);
-      // Only an unusable answer about this issue counts as an attempt. An infrastructure failure
-      // (gateway, GitHub, network) says nothing about the issue: an outage must not park every
-      // queued job for a month, so it only waits and is tried again (as triage does).
-      const attempts = job.attempts + (isInputSpecific(err) ? 1 : 0);
-      if (attempts >= MAX_ATTEMPTS) {
+      // An unusable answer about this issue weighs UNUSABLE_WEIGHT, any other failure 1: four bad
+      // answers park the job, an outage does not until it has failed MAX_FAILURES times.
+      const attempts = job.attempts + (isInputSpecific(err) ? UNUSABLE_WEIGHT : 1);
+      if (attempts >= MAX_FAILURES) {
         const parkedUntil = new Date(now.getTime() + PARK_MS).toISOString();
         this.sql`UPDATE jobs SET attempts = ${attempts}, enqueued_at = ${parkedUntil}
           WHERE issue = ${job.issue} AND issue_updated_at = ${job.issue_updated_at}`;
-        this.recordError(`#${job.issue}: gave up after ${attempts} attempts (${what})`);
+        this.recordError(`#${job.issue}: gave up for 30 days after repeated failures (${what})`);
       } else {
         // Not before RETRY_AFTER_MS, so one failing issue neither blocks the others nor burns
         // repeated model calls in the same run.
