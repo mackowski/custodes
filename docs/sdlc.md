@@ -33,7 +33,7 @@ approvers. The repository encodes how that works so every session behaves the sa
 6. **Review**: `/agent-security-review` (delegates to `security-reviewer`) and, when the change
    touches code, `/lean-review` (correctness, load, missing tests and what to delete; it runs in the
    read-only `lean-reviewer` subagent, reports and never edits). Fix, then open the PR with the template's security-impact section filled in.
-   `/lean-review` reviews the checked-out branch and runs only locally: there is no CI step for it. `/lean-review repo` audits the
+   `/lean-review` reviews the operator's own checked-out branch (never check out someone else's PR to review it: its hooks would run) and runs only locally: there is no CI step for it. `/lean-review repo` audits the
    whole repository on request.
 7. **Ship**: `/ship` updates every doc the change touches (`docs/architecture/data-flow.md` first)
    and writes the PR's "Architecture and data flow" section: Mermaid diagrams of the touched part

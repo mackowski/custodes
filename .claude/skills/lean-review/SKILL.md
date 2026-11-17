@@ -17,15 +17,18 @@ Method adapted from Ponytail's `ponytail-review` and `ponytail-audit` skills (MI
 github.com/DietrichGebert/ponytail, commit `96608e0`). Only the method is used; the Ponytail plugin
 and its hooks are not installed in this repository.
 
-This skill reports. It never edits code, opens PRs or posts comments, and it runs nothing: the
-`lean-reviewer` subagent has Read, Grep and Glob only, no shell.
+This skill reports. It never edits code, opens PRs or posts comments. The `lean-reviewer` subagent has
+Read, Grep and Glob only, no shell; the only commands are the two fixed `git diff` calls below.
 
 ## 1. Pick the target
 
 - `repo` or a folder: an **audit**. Ignore the diff below and go to "Audit".
-- Nothing: a **change review** of the checked-out branch against `origin/main`. To review a pull
-  request, the operator checks it out first (`gh pr checkout <n>`); the argument is never a PR
-  number or a branch name, so no outside text reaches a shell.
+- Nothing: a **change review** of the checked-out branch against `origin/main`. Only for the
+  operator's own branches. Never check out another author's or a fork's pull request to review it:
+  a checkout puts that PR's `.claude/hooks/`, skills and agent files on disk, and this session then
+  runs them with the operator's credentials. Such a PR gets `/agent-security-review <n>` (it reads
+  `gh pr diff`, no checkout) and the CI review. The argument is never a PR number or a branch
+  name, so no outside text reaches a shell.
 
 Committed changes:
 !`git diff origin/main...HEAD`
@@ -113,7 +116,9 @@ wrong, ask a question in the report instead of proposing a cut.
 - configuration that is a control even when nothing reads it in code: `policy.json` entries, rate
   limits and approval modes, safe-default flags (`TRACE_PAYLOADS`, `PR_GATE_ENFORCE`), workflow
   `permissions:` blocks, CODEOWNERS, Terraform Access policies and token durations
-- exact dependency pins, SHA-pinned actions, anything in `.claude/hooks/` or the settings deny list
+- exact dependency pins, SHA-pinned actions, anything in `.claude/hooks/`, the settings deny list,
+  `tools:` and `permissionMode` in `.claude/agents/*`, the supply-chain settings in
+  `pnpm-workspace.yaml`, workflow `environment:` gates and `persist-credentials`
 
 Per-agent separation (its own Worker, its own PAT, its own policy entry: ADR 0018) is isolation,
 not duplication. Shared logic between agents may be merged; authority may not.
@@ -168,5 +173,6 @@ End with:
 Nothing found: the first line, then `Looks good. Ship.` and one line on what you checked.
 
 An audit's report goes into one GitHub issue only after the operator has read it and asked for
-that. The repository is public: the `For /agent-security-review:` lines and any unfixed risk
-finding never go into the issue (`SECURITY.md`). Each accepted finding is fixed in its own small draft PR through the normal loop.
+that. The repository is public: the `For /agent-security-review:` lines, any risk finding, and
+any finding in `workers/github-broker`, `packages/core`, `workers/gateway` or touching a
+`CLAUDE.md` invariant never go into the issue until fixed (`SECURITY.md`). Each accepted finding is fixed in its own small draft PR through the normal loop.
