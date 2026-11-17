@@ -17,9 +17,26 @@ export function commentProblem(body: string, repo: string): CommentProblem | nul
   if (body.includes('<!--') || body.includes('-->')) return 'comment_marker';
   // No links at all: model text is link-free after sanitizeComment.
   if (/https?:|www\./i.test(body)) return 'link';
-  for (const m of body.matchAll(/([A-Za-z0-9-]+\/[A-Za-z0-9._-]+)#\d+/g))
-    if (m[1]?.toLowerCase() !== repo.toLowerCase()) return 'other_repository';
-  return null;
+  return namesAnotherRepository(body, repo) ? 'other_repository' : null;
+}
+
+/** GitHub's limits: an owner is at most 39 characters, a repository name at most 100. */
+const REPO_BEFORE_HASH = /([A-Za-z0-9-]{1,39}\/[A-Za-z0-9._-]{1,100})$/;
+
+/**
+ * Whether the text holds `owner/repo#N` for another repository. Found from each `#N` backwards
+ * over a bounded slice, not with one `[A-Za-z0-9-]+/...#\d+` pattern: that one rescans from every
+ * position of a long run of name characters, which is polynomial on text chosen by a model or an
+ * author (CodeQL js/polynomial-redos).
+ */
+function namesAnotherRepository(body: string, repo: string): boolean {
+  const own = repo.toLowerCase();
+  for (const m of body.matchAll(/#\d/g)) {
+    const before = body.slice(Math.max(0, m.index - 140), m.index);
+    const name = REPO_BEFORE_HASH.exec(before)?.[1];
+    if (name !== undefined && name.toLowerCase() !== own) return true;
+  }
+  return false;
 }
 
 /**
