@@ -24,6 +24,8 @@ export interface AddedLink {
   more?: { file: string; line: number; context: string }[];
   /** Further citing sentences past the limit: not audited, listed for a manual check. */
   unaudited?: { file: string; line: number }[];
+  /** Places where this URL only replaced an older target, while it is audited as new here. */
+  movedAt?: { file: string; line: number; previous: string }[];
 }
 
 /** Sentences audited for one URL: the first place and this many more that cite it again. */
@@ -36,6 +38,14 @@ export const MAX_EXTRA_CITATIONS = 2;
  * in `unaudited`, and the review says so.
  */
 function citeAgain(prior: AddedLink, link: AddedLink): void {
+  if (link.previous !== undefined && prior.previous === undefined) {
+    // Audited as new for its sentence; the move elsewhere is not judged, and the review says so.
+    prior.movedAt = [
+      ...(prior.movedAt ?? []),
+      { file: link.file, line: link.line, previous: link.previous },
+    ];
+    return;
+  }
   if (link.previous !== undefined || link.markup || prior.previous !== undefined) return;
   const more = prior.more ?? [];
   if (link.context === prior.context || more.some((m) => m.context === link.context)) return;

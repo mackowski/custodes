@@ -207,6 +207,10 @@ async function linkStage(snap: Snapshot, deps: PipelineDeps): Promise<LinkStage>
             ', ',
           )}${link.unaudited.length > 5 ? ' and more' : ''}; those sentences were not audited)`,
       );
+    for (const m of (link.movedAt ?? []).slice(0, 5))
+      notes.push(
+        `${link.url.slice(0, 300)} (also replaces ${m.previous.slice(0, 300)} at ${m.file}:${m.line}; that move was not judged)`,
+      );
     await deps.guard();
     const got = await deps.limit(() => deps.fetchLink(link.url));
     if (got.kind === 'broken') check(link, `broken (HTTP ${got.status})`);
@@ -227,6 +231,9 @@ async function linkStage(snap: Snapshot, deps: PipelineDeps): Promise<LinkStage>
         file: link.file,
         line: link.line,
         context: citedText(link),
+        ...(link.more?.length
+          ? { also: link.more.map((m) => `${m.file}:${m.line}`).join(', ') }
+          : {}),
         title: got.title,
         excerpt: got.excerpt,
         ...(link.previous !== undefined ? { previous: link.previous } : {}),
@@ -253,7 +260,7 @@ async function linkStage(snap: Snapshot, deps: PipelineDeps): Promise<LinkStage>
         severity: status === 'LOW-AUTHORITY' || status === 'STALE' ? 'MINOR' : 'BLOCKER',
         file: page.file,
         line: page.line,
-        problem: `${status}: \`${page.url.slice(0, 300)}\`${page.previous !== undefined ? ` (moved from \`${page.previous.slice(0, 300)}\`)` : ''}: ${v.reason}`,
+        problem: `${status}: \`${page.url.slice(0, 300)}\`${page.previous !== undefined ? ` (moved from \`${page.previous.slice(0, 300)}\`)` : ''}${page.also ? ` (also cited at ${page.also})` : ''}: ${v.reason}`,
       });
       if (status !== 'LOW-AUTHORITY' && status !== 'STALE') allowed.delete(page.url);
     }

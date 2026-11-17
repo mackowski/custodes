@@ -947,6 +947,38 @@ describe('cheatsheet-review: external links', () => {
     expect(audit?.req.user).not.toContain('Link 2');
   });
 
+  it('shows the auditor every sentence that cites one URL across sheets', async () => {
+    const one = withLink();
+    const [file] = one.files;
+    if (!file) throw new Error('fixture');
+    const other = 'cheatsheets/Other_Cheat_Sheet.md';
+    const r = await drive({
+      scenario: {
+        ...one,
+        files: [
+          file,
+          {
+            ...file,
+            filename: other,
+            patch: file.patch?.replace('for details.', 'which says MD5 is fine.') ?? '',
+          },
+        ],
+      },
+      fetchImpl: () =>
+        Promise.resolve(
+          new Response('<title>Doc</title><p>text</p>', {
+            headers: { 'content-type': 'text/html' },
+          }),
+        ),
+    });
+    const audit = r.models.calls.find((c) => c.role === 'link-auditor');
+    expect(audit?.req.user).toContain('Sentence: See https://example.com/doc for details.');
+    expect(audit?.req.user).toContain(
+      `Also cited in ${other} line 4: See https://example.com/doc which says MD5 is fine.`,
+    );
+    expect(audit?.req.user).not.toContain('Link 2');
+  });
+
   it('lists a forbidden page for manual verification instead of calling it broken', async () => {
     const r = await drive({
       scenario: withLink(),

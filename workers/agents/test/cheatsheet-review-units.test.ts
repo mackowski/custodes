@@ -1972,6 +1972,11 @@ describe('links.scanLinks', () => {
     delete short.unaudited;
     mergeCitation(link, short);
     expect(link.unaudited).toHaveLength(2);
+    // The same URL as a mere retarget elsewhere: kept for the review, never judged as new text.
+    mergeCitation(link, { ...short, file: 'other.md', line: 3, previous: 'https://old.example/a' });
+    expect(link.movedAt).toEqual([
+      { file: 'other.md', line: 3, previous: 'https://old.example/a' },
+    ]);
     // Across sheets as within one: a sentence wins over a reference definition.
     const definition = {
       url: 'https://x.example/',

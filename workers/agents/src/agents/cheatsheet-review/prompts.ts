@@ -122,6 +122,9 @@ weak citations are the main reason these pull requests are reverted.
   marketing for a vendor-neutral claim. RFCs, NIST, OWASP, vendor documentation, MDN, tool
   documentation and canonical GitHub repositories are authoritative.
 - STALE: superseded or outdated guidance.
+A link can list further sentences that cite the same URL ("Also cited in ..."). Each is its own
+claim: answer OK only when the page supports every one of them. When it does not support one,
+answer UNSUPPORTED and say in the reason which sentence, by its file and line.
 A link marked "moved" only changed its target; its sentence is not part of the pull request. For it
 answer only whether the new URL is the same resource as the "Previous URL" (moved, renamed, a new
 edition of the same document), never whether the page supports the sentence:
