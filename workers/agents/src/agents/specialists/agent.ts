@@ -341,15 +341,14 @@ export abstract class SpecialistAgent extends CustodesAgent<AgentsEnv, Specialis
     const refused = noSuchAction(request);
     if (refused) return refused;
     this.ensureSchema();
+    const ready = this.readyJobs(new Date());
     return Response.json({
       manifest: this.manifest,
       state: this.state,
       killSwitch: await this.haltState(),
       // Jobs that can run now. Rechecks, retries and parked jobs wait for their time (`waiting`).
-      queued: this.readyJobs(new Date()),
-      waiting:
-        (this.sql<{ n: number }>`SELECT COUNT(*) AS n FROM jobs`[0]?.n ?? 0) -
-        this.readyJobs(new Date()),
+      queued: ready,
+      waiting: (this.sql<{ n: number }>`SELECT COUNT(*) AS n FROM jobs`[0]?.n ?? 0) - ready,
       // Validated, sanitised results (the digest shows the same); operators only, through Access.
       recent: this.sql<{ issue: number; checked_at: string; result: string }>`SELECT issue,
         checked_at, result FROM results ORDER BY checked_at DESC LIMIT 20`.map((r) => ({

@@ -12,8 +12,9 @@ export const WORKERS: Readonly<Record<string, string>> = {
 };
 
 /**
- * Live logs come from Workers Logs via `wrangler tail`, which needs wrangler on the PATH and a
- * Cloudflare login with Workers read scope. A thin wrapper, so operators need not remember names.
+ * Live logs come from Workers Logs via `wrangler tail`, with the wrangler version this repository
+ * pins (never one from the PATH or `npx`, which would run outside the lockfile on a machine with
+ * a Cloudflare login). Run it from a checkout of the repository.
  */
 export function logsCommand(): Command {
   return new Command('logs')
@@ -22,9 +23,22 @@ export function logsCommand(): Command {
     .action((worker: string) => {
       const name = Object.hasOwn(WORKERS, worker) ? WORKERS[worker] : undefined;
       if (!name) throw new Error(`worker must be one of: ${Object.keys(WORKERS).join(', ')}`);
-      const child = spawn('wrangler', ['tail', name, '--format', 'pretty'], { stdio: 'inherit' });
+      const child = spawn(
+        'pnpm',
+        [
+          '--filter',
+          './workers/github-broker',
+          'exec',
+          'wrangler',
+          'tail',
+          name,
+          '--format',
+          'pretty',
+        ],
+        { stdio: 'inherit' },
+      );
       child.on('error', () => {
-        console.error('could not start wrangler: is it installed and on the PATH?');
+        console.error('could not start pnpm: run this from a checkout of the repository');
         process.exit(1);
       });
       child.on('exit', (code) => process.exit(code ?? 0));

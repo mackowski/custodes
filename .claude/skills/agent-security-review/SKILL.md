@@ -20,6 +20,10 @@ author or a fork is reviewed by number only, never checked out: a checkout would
 skills on disk, where the session runs them. To read a file as the pull request has it, use the
 diff above; Read shows the checked-out tree.
 
+You cannot fetch the diff again. If the diff above is cut short, or was saved to a file instead of
+shown, Read that file in full; if you cannot see the whole diff, say that the review is incomplete
+and which files you did not see, and give no approving verdict.
+
 Work through the checklist in the security-reviewer system prompt. Also verify:
 
 - `workers/github-broker/policy/policy.json` diff: any new repo, action, or higher rate limit must

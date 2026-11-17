@@ -24,7 +24,7 @@ custodes agents list | status <agent> | run <agent> | halt <agent|*> --reason ..
 custodes approvals list | reject <id>   # approve through the e-mailed link
 custodes audit list [--agent id] | show <id> | verify <id>
 custodes keys list | rotate <agent>
-custodes logs gateway|broker|triage|triage-apply|pr-gate|cheatsheet-review   # needs `wrangler` on the PATH and a Cloudflare login
+custodes logs gateway|broker|triage|triage-apply|pr-gate|cheatsheet-review   # from a repo checkout (uses the pinned wrangler) with a Cloudflare login
 ```
 
 `--json` on any command prints machine-readable output.

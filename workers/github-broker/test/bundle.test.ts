@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { env } from 'cloudflare:workers';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import { canonicalJson, KillSwitch, sha256Hex } from '@custodes/core';
+import { canonicalJson, KillSwitch, mentionsIn, sha256Hex } from '@custodes/core';
 import {
   type ApprovalBundle,
   type BrokerAction,
@@ -16,7 +16,6 @@ import {
   createBundleApproval,
   MAX_BUNDLE_ASKS_PER_HOUR,
   decideApproval,
-  mentionsIn,
   readIssueThread,
 } from '../src/approvals.js';
 import type { BrokerEnv } from '../src/env.js';

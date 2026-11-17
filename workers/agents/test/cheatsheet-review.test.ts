@@ -463,9 +463,13 @@ describe('cheatsheet-review: an interrupted run', () => {
           VALUES (77, 9001, 'abc', '2026-11-17T10:00:00.000Z', 'running')`;
         i.sql`INSERT INTO reviews (pull, label_event, head_sha, started_at, status)
           VALUES (77, 9002, 'abc', '2026-11-17T10:00:00.000Z', 'posted')`;
+        i.sql`INSERT INTO reviews (pull, label_event, head_sha, started_at, status)
+          VALUES (77, 9003, 'abc', '2026-11-17T10:00:00.000Z', 'posting')`;
         await agent.checkInterrupted({ pull: 77, labelEvent: 9001 });
         // A finished review is left alone.
         await agent.checkInterrupted({ pull: 77, labelEvent: 9002 });
+        // A run that died after claiming its row: the review may be on the pull request already.
+        await agent.checkInterrupted({ pull: 77, labelEvent: 9003 });
         return {
           rows: i.sql<{ label_event: number; status: string }>`SELECT label_event, status
             FROM reviews WHERE pull = 77 ORDER BY label_event`,
@@ -479,10 +483,12 @@ describe('cheatsheet-review: an interrupted run', () => {
     expect(out.rows).toEqual([
       { label_event: 9001, status: 'interrupted' },
       { label_event: 9002, status: 'posted' },
+      { label_event: 9003, status: 'interrupted' },
     ]);
     expect(out.errors[0]).toBe('#77: interrupted');
-    expect(sent).toHaveLength(1);
-    expect(sent[0]?.text).toContain('interrupted');
+    expect(sent).toHaveLength(2);
+    expect(sent[0]?.text).toContain('remove and add the label again');
+    expect(sent[1]?.text).toContain('interrupted while posting: check the pull request');
   });
 });
 

@@ -288,6 +288,29 @@ describe('broker act() for cheatsheet-review', () => {
     });
   });
 
+  it('does not report a loss or halt when the audit write landed although the call threw', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(() =>
+      Promise.resolve(
+        Response.json({ html_url: 'https://github.com/mackowski/custodes-sandbox/pull/3#r1' }),
+      ),
+    );
+    // eslint-disable-next-line @typescript-eslint/unbound-method -- called with the store as `this` below
+    const real = AuditStore.prototype.insert;
+    const insert = vi.spyOn(AuditStore.prototype, 'insert').mockImplementation(async function (
+      this: AuditStore,
+      att,
+    ) {
+      await real.call(this, att);
+      throw new Error('reported after commit');
+    });
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const res = await act(testEnv, inline('cheatsheet-review', 'mackowski/custodes-sandbox'));
+    expect(res).toMatchObject({ ok: true });
+    expect(insert).toHaveBeenCalledTimes(1);
+    expect(logged.mock.calls.some((c) => String(c[0]).includes('audit.lost'))).toBe(false);
+    expect((await new KillSwitch(env.KILL_SWITCH).state('cheatsheet-review')).halted).toBe(false);
+  });
+
   it('needs an approval to post on OWASP (ADR 0017 amendment), before reaching GitHub', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch');
     expect(await act(testEnv, inline('cheatsheet-review'))).toMatchObject({

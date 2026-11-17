@@ -101,8 +101,6 @@ export function commentProblem(body: string, repo: string): string | null {
   return problem === null ? null : PROBLEM_TEXT[problem];
 }
 
-export { mentionsIn };
-
 /**
  * The bundle for one proposal, in run order, with what was left out and why. Fails when the issue
  * is not an open issue, when nothing is left to do, or when the thread is longer than was read.

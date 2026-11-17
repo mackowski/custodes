@@ -15,11 +15,11 @@ import {
 } from '../src/agents/specialists/proposal.js';
 import {
   buildBundle as buildBundleWith,
-  mentionsIn,
   ProposalInput,
   snapshotOf as snapshotOfWith,
   threadPeople,
 } from '../src/agents/triage-apply/bundle.js';
+import { mentionsIn } from '@custodes/core';
 import type { IssueComment, PublicIssue } from '../src/agents/triage/github.js';
 import { applyLine, renderDigest, type ApplyLink } from '../src/agents/triage/digest.js';
 import { renderDigestHtml } from '../src/agents/triage/digest-html.js';
@@ -254,7 +254,7 @@ describe('triage-apply helpers', () => {
     ).toEqual(['author', 'Bob']);
   });
 
-  it('mentionsIn agrees with the broker rule', () => {
+  it('mentionsIn (the rule shared with the broker) finds what GitHub would notify', () => {
     // GitHub mentions in rendered text: after code, emphasis or a slash too; never inside a word.
     expect(mentionsIn('@a and (@b) but not x@c, `@d`, /@e or w@f')).toEqual(['a', 'b', 'd', 'e']);
   });

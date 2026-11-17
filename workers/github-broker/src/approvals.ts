@@ -260,8 +260,6 @@ export function commentProblem(body: string, repo: string): string | null {
   return problem === null ? null : PROBLEM_TEXT[problem];
 }
 
-export { mentionsIn };
-
 /** The bundle against the issue now: same snapshot, and only thread people assigned or named. */
 export async function checkBundle(
   env: BrokerEnv,
