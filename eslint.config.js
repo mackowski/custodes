@@ -14,7 +14,6 @@ export default defineConfig(
       '**/coverage/**',
       '**/worker-configuration.d.ts',
       // Throwaway Worker for the operator's Durable Object transfer rehearsal (ADR 0018).
-      'scripts/do-transfer-test/**',
     ],
   },
   js.configs.recommended,

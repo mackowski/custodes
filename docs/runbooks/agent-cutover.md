@@ -1,5 +1,12 @@
 # Agent cutover: moving an agent to its own Worker
 
+> **History.** All three moves below are done, and so is the clean-up. A new agent starts in its
+> own Worker and never moves, so the cutover workflow (`agent-cutover.yml`), the code that wrote its
+> per-phase configs and the transfer rehearsal (`scripts/do-transfer-test/`) were removed. They are
+> in the repository history at commit `38608ce`. The sections "Before PR #106", "Before a cutover" and
+> "Cutover" are kept as the record of how it was done; they can no longer be run as written. What
+> still runs on every deploy is the guard described under "After".
+
 ADR 0018, issue #103. Moves an agent's Durable Object classes, with their stored state, from
 `custodes-agents` to the agent's own Worker. That Worker then signs every broker call with its own
 key. **After step 2 of the workflow there is no rollback**, so each gate below must pass. One agent at
@@ -11,8 +18,7 @@ a time: finish its follow-up PR before the next cutover.
 | `cheatsheet-review`   | `custodes-cheatsheet-review` | `CheatsheetReviewAgent`                                          | `cheatsheet-review`                                 | `custodes-inbound-cheatsheet-review` |
 | `triage`              | `custodes-triage`            | `TriageAgent`, `ImplementationCheckAgent`, `ProposalReviewAgent` | `triage`, `implementation-check`, `proposal-review` | none (crons only)                    |
 
-The table mirrors `MOVES` in `scripts/agent-cutover-config.ts`, which the workflow and the deploy
-guard read.
+The table mirrors `MOVES` in `scripts/agent-cutover-config.ts`, which the deploy guard reads.
 
 ## Before PR #106 is marked ready
 

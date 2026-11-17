@@ -136,7 +136,7 @@ GitHub Actions (service token, read) ─► gateway /admin/agent-keys (public ke
 4. Done, then superseded (#122, 2026-11-16): `isolated: true` was honoured on the default entrypoint
    during the transition (T2). After the last move the default entrypoint refuses every request but
    `/healthz` in code (`broker.default.refused`), no Worker may bind it (`bindings.test.ts`), and the
-   agent routes refuse any call without a verified signature. The flag stays as a record only.
+   agent routes refuse any call without a verified signature. The flag was dropped on 2026-11-16 (#146).
 5. Done: audit record stores the agent signature; the gateway's `/verify` and the CLI's `audit verify` run one check (`verifyRecord` in `@custodes/core`): the broker signature with a key the broker publishes for that agent, and the agent signature against committed keys (R1). Follow-ups: sign approval requests; report `missing` for an isolated agent's record without signature or approval.
 6. Done: `keyholder` exposes only `signRequest`, `publicKeys`, `rotate`, `activateNextIfAccepted`; canary tests cover both keys (I1).
 7. Done for the keyholder: rotation keeps the old key until the broker accepts the next one (D1). Page and workflow show
