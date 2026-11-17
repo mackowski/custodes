@@ -377,6 +377,15 @@ export class CheatsheetReviewAgent extends CustodesAgent<AgentsEnv, CheatsheetRe
       finish('stale', { change_class: result.changeClass, verdict: d.verdict, models });
       return { ok: false, status: 'stale', detail: 'pull request changed during the review' };
     }
+    // A run slower than the interrupted-run check was reported to the operator as interrupted,
+    // who may have asked for a new review: this one must not post as well. Claiming the row also
+    // keeps the check from marking a review that is about to post.
+    const row = this.sql<{ status: string }>`SELECT status FROM reviews
+      WHERE pull = ${pull} AND label_event = ${labelEvent}`[0];
+    if (row?.status !== 'running')
+      return { ok: false, status: 'interrupted', detail: 'reported as interrupted; not posted' };
+    this.sql`UPDATE reviews SET status = 'posting'
+      WHERE pull = ${pull} AND label_event = ${labelEvent} AND status = 'running'`;
     const review: BrokerAction = {
       type: 'pr.review.inline',
       repo,
