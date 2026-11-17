@@ -20,21 +20,55 @@ export interface AddedLink {
    * href/src value (#95). Inside a fenced code block that is a code sample, not a rendered link.
    */
   markup?: true;
+  /** Further new sentences that cite the same URL (`citeAgain`); author text, untrusted. */
+  more?: { file: string; line: number; context: string }[];
+  /** Further citing sentences past the limit: not audited, listed for a manual check. */
+  unaudited?: number;
 }
 
 /** Sentences audited for one URL: the first place and this many more that cite it again. */
-const MAX_EXTRA_CITATIONS = 2;
+export const MAX_EXTRA_CITATIONS = 2;
 
 /**
  * The same URL cited again for new text, in this file or another: the auditor answers once per
- * URL, so the further sentence joins the first one's and is judged with it. Without this a true
- * sentence at the first place would cover a false claim at the second.
+ * URL, so the further sentence is judged with the first one's. Without this a true sentence at
+ * the first place would cover a false claim at the second. Past the limit the sentence is counted
+ * in `unaudited`, and the review says so.
  */
-export function citeAgain(prior: AddedLink, link: AddedLink): void {
+function citeAgain(prior: AddedLink, link: AddedLink): void {
   if (link.previous !== undefined || link.markup || prior.previous !== undefined) return;
-  if (prior.context.includes(link.context)) return;
-  if (prior.context.split('\nAlso cited in ').length > MAX_EXTRA_CITATIONS) return;
-  prior.context += `\nAlso cited in ${link.file} line ${link.line}: ${link.context}`;
+  const more = prior.more ?? [];
+  if (link.context === prior.context || more.some((m) => m.context === link.context)) return;
+  if (more.length >= MAX_EXTRA_CITATIONS) prior.unaudited = (prior.unaudited ?? 0) + 1;
+  else prior.more = [...more, { file: link.file, line: link.line, context: link.context }];
+}
+
+/**
+ * A URL seen again, in the same file or in another sheet: which place and sentence it is audited
+ * at. One rule for both, in this order: new text wins over "only its target moved" (the page must
+ * support the claim, not just be the same resource); a sentence wins over other markup (a
+ * reference definition, a code sample); any further new sentence is judged too (`citeAgain`).
+ */
+export function mergeCitation(prior: AddedLink, link: AddedLink): void {
+  const newOverMoved = link.previous === undefined && prior.previous !== undefined;
+  const sentenceOverMarkup = prior.markup === true && !link.markup;
+  if (!newOverMoved && !sentenceOverMarkup) {
+    citeAgain(prior, link);
+    return;
+  }
+  if (newOverMoved) delete prior.previous;
+  if (sentenceOverMarkup) delete prior.markup;
+  prior.file = link.file;
+  prior.line = link.line;
+  prior.context = link.context;
+}
+
+/** What the auditor reads for a link: its sentence and the further ones that cite the same URL. */
+export function citedText(link: AddedLink): string {
+  return [
+    link.context,
+    ...(link.more ?? []).map((m) => `Also cited in ${m.file} line ${m.line}: ${m.context}`),
+  ].join('\n');
 }
 
 export type FetchedLink =
@@ -228,19 +262,8 @@ export function scanLinks(
   const push = (link: AddedLink) => {
     if (!link.url) return;
     if (seen.has(link.url)) {
-      // Cited again for new text: judge it as new (support for the sentence), not only as a move.
       const prior = links.find((x) => x.url === link.url);
-      if (prior && link.previous === undefined && prior.previous !== undefined) {
-        delete prior.previous;
-        prior.line = link.line;
-        prior.context = link.context;
-      }
-      if (prior?.markup && !link.markup) {
-        // Audit it against the sentence that cites it, not the code sample (review of #125, L-b).
-        delete prior.markup;
-        prior.line = link.line;
-        prior.context = link.context;
-      } else if (prior) citeAgain(prior, link);
+      if (prior) mergeCitation(prior, link);
       return;
     }
     seen.add(link.url);

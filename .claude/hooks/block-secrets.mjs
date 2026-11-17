@@ -17,7 +17,7 @@ const deny = (why) => {
 };
 
 try {
-  // Loaded here, so a Node too old for the rules (path.matchesGlob) refuses instead of crashing.
+  // Loaded here, so rules that fail to load refuse the call instead of crashing the hook.
   const { refusal } = await import('./secret-paths.mjs');
   let raw = '';
   for await (const chunk of process.stdin) raw += String(chunk);

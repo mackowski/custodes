@@ -50,8 +50,24 @@ void test('refuses a Grep glob that selects a secret-bearing file without naming
   const root = tree();
   for (const glob of ['.d*', '**/.dev.v*', '.{dev,x}.vars', '*.sqlite', 'workers/**', '*.ts, .d*'])
     assert.match(grep(root, { pattern: 'x', glob }) ?? '', /selects a secret-bearing file/, glob);
+  // A wildcard matches a leading dot in ripgrep, so none of these needs to spell one.
+  for (const glob of [
+    '*',
+    '*.vars',
+    '*vars*',
+    '?dev.vars',
+    '[.]dev*',
+    '.d*',
+    '{*.ts,*.vars}',
+    'a[b',
+  ])
+    assert.match(
+      grep(root, { pattern: 'x', glob, path: 'workers/gateway' }) ?? '',
+      /selects a secret-bearing file/,
+      glob,
+    );
   assert.match(
-    grep(root, { pattern: 'x', glob: '.d*', path: 'workers/gateway' }) ?? '',
+    grep(root, { pattern: 'x', glob: 'workers/gateway/*.vars' }) ?? '',
     /selects a secret-bearing file/,
   );
 });
@@ -62,12 +78,16 @@ void test('allows a Grep that cannot reach one', () => {
   assert.equal(grep(root, { pattern: 'x', glob: '*.ts' }), null);
   assert.equal(grep(root, { pattern: 'x', glob: '*.{ts,md}' }), null);
   assert.equal(grep(root, { pattern: 'x', glob: '!.d*' }), null);
+  assert.equal(grep(root, { pattern: 'x', glob: 'workers/*/src/**' }), null);
+  assert.equal(grep(root, { pattern: 'x', glob: '[a-z]*.ts' }), null);
   assert.equal(grep(root, { pattern: 'x', glob: '.d*', path: 'workers/gateway/src' }), null);
 });
 
 void test('splits several globs but not the alternatives inside braces', () => {
   assert.deepEqual(globPatterns('*.{ts,md}, *.js  .d*'), ['*.{ts,md}', '*.js', '.d*']);
-  assert.equal(globSelects('src/*.ts', 'workers/gateway/src/index.ts'), true);
+  // A glob with a slash is read from the search root, as ripgrep does.
+  assert.equal(globSelects('workers/gateway/src/*.ts', 'workers/gateway/src/index.ts'), true);
+  assert.equal(globSelects('src/*.ts', 'workers/gateway/src/index.ts'), false);
   assert.equal(globSelects('*.md', 'workers/gateway/src/index.ts'), false);
 });
 

@@ -28,6 +28,8 @@ import {
   fetchLink,
   pageText,
   maskedLine,
+  mergeCitation,
+  citedText,
   scanLinks,
   knownTargetForm,
   sameSite,
@@ -1955,11 +1957,41 @@ describe('links.scanLinks', () => {
       ),
     );
     expect(r.links).toHaveLength(1);
-    const context = r.links[0]?.context ?? '';
-    expect(context).toContain('True claim');
-    expect(context).toContain(`Also cited in ${SHEET} line 2: False claim`);
-    expect(context).toContain('Third claim');
-    expect(context).not.toContain('Fourth claim');
+    const [link] = r.links;
+    if (!link) throw new Error('fixture');
+    const text = citedText(link);
+    expect(text).toContain('True claim');
+    expect(text).toContain(`Also cited in ${SHEET} line 2: False claim`);
+    expect(text).toContain('Third claim');
+    // Past the limit a sentence is counted, never dropped without a word.
+    expect(text).not.toContain('Fourth claim');
+    expect(link.unaudited).toBe(1);
+    // A sentence that merely contains an audited one is a different claim.
+    const short = { ...link, line: 9, context: 'claim, see [d](https://new.example/a).' };
+    delete short.more;
+    delete short.unaudited;
+    mergeCitation(link, short);
+    expect(link.unaudited).toBe(2);
+    // Across sheets as within one: a sentence wins over a reference definition.
+    const definition = {
+      url: 'https://x.example/',
+      file: 'a.md',
+      line: 3,
+      context: '[1]: x',
+      markup: true as const,
+    };
+    mergeCitation(definition, {
+      url: 'https://x.example/',
+      file: 'b.md',
+      line: 7,
+      context: 'A claim.',
+    });
+    expect(definition).toEqual({
+      url: 'https://x.example/',
+      file: 'b.md',
+      line: 7,
+      context: 'A claim.',
+    });
   });
 
   it('does not pair across a context line inside one hunk', () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { pinKeys, type KeysFile, type Row } from '../../../scripts/pin-agent-keys.js';
+import { pinKeys, type KeysFile, type Row } from '../../../scripts/pin-agent-keys-rules.js';
 
 /**
  * The rules that decide which agent keys the broker accepts (ADR 0018). The workflow's result is

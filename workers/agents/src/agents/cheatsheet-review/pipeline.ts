@@ -18,7 +18,8 @@ import {
   isExternal,
   knownTargetForm,
   maskedLine,
-  citeAgain,
+  mergeCitation,
+  citedText,
   scanLinks,
   type AddedLink,
   MAX_EXTERNAL_LINKS,
@@ -152,7 +153,7 @@ async function linkStage(snap: Snapshot, deps: PipelineDeps): Promise<LinkStage>
       }
       if (isExternal(link.url)) {
         // One fetch and one verdict per URL, at its first place, for every sentence that cites it
-        // (citeAgain). scanLinks dedupes within a file only; the auditor answers by URL, so the
+        // (mergeCitation). scanLinks dedupes within a file only; the auditor answers by URL, so the
         // same URL in two sheets got both answers on the first one and used two of the
         // MAX_EXTERNAL_LINKS places.
         const prior = externalByUrl.get(link.url);
@@ -160,12 +161,7 @@ async function linkStage(snap: Snapshot, deps: PipelineDeps): Promise<LinkStage>
           const entry = { link };
           externalByUrl.set(link.url, entry);
           external.push(entry);
-        } else if (link.previous === undefined && prior.link.previous !== undefined) {
-          // New somewhere wins over "only its target moved" elsewhere (as scanLinks does within a
-          // file): the auditor must check that the page supports the claim, not just that it is
-          // the same resource as before.
-          prior.link = link;
-        } else citeAgain(prior.link, link);
+        } else mergeCitation(prior.link, link);
         continue;
       }
       // javascript:, data:, mailto: and other schemes are never fetched; a person has to look.
@@ -202,6 +198,10 @@ async function linkStage(snap: Snapshot, deps: PipelineDeps): Promise<LinkStage>
       ...(link.previous !== undefined ? { previous: link.previous } : {}),
     });
   for (const { link } of external.slice(0, MAX_EXTERNAL_LINKS)) {
+    if (link.unaudited)
+      notes.push(
+        `${link.url.slice(0, 300)} (cited in ${link.unaudited} more sentence(s) that were not audited)`,
+      );
     await deps.guard();
     const got = await deps.limit(() => deps.fetchLink(link.url));
     if (got.kind === 'broken') check(link, `broken (HTTP ${got.status})`);
@@ -221,7 +221,7 @@ async function linkStage(snap: Snapshot, deps: PipelineDeps): Promise<LinkStage>
         url: link.url,
         file: link.file,
         line: link.line,
-        context: link.context,
+        context: citedText(link),
         title: got.title,
         excerpt: got.excerpt,
         ...(link.previous !== undefined ? { previous: link.previous } : {}),

@@ -487,7 +487,10 @@ describe('failure handling (the 2026-09-29 outage)', () => {
     );
     // Three issues, then one probe to tell an outage from refused issues.
     expect(calls).toHaveBeenCalledTimes(MAX_CONSECUTIVE_INFRA_FAILURES + 1);
-    expect(r.errors.at(-1)).toBe('stopped after 3 consecutive infrastructure failures');
+    expect(r.errors.slice(-2)).toEqual([
+      'stopped after 3 consecutive infrastructure failures',
+      'probe refused too (GatewayError 400 invalid_request_error)',
+    ]);
     // infrastructure failures hold the cursor at the first failed issue so nothing is skipped
     expect(r.nextSince).toBe('2026-09-22T10:00:00Z');
   });

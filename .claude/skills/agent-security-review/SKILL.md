@@ -4,7 +4,7 @@ description: Security-focused review checklist for a pull request in this repo -
 argument-hint: '[pr-number] (nothing = the checked-out branch against main)'
 context: fork
 agent: security-reviewer
-allowed-tools: Read, Grep, Glob, Bash(gh pr diff *), Bash(git diff *)
+allowed-tools: Read, Grep, Glob, Bash(gh pr diff *), Bash(git diff origin/main...HEAD), Bash(git diff HEAD)
 ---
 
 # Agent security review: ${ARGUMENTS:-the checked-out branch against main}

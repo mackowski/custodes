@@ -40,4 +40,5 @@ Notes from earlier reviews are in `.claude/agent-memory/security-reviewer/` at t
 root: read its `MEMORY.md` first and the notes it points to that fit the change. You cannot write
 there (a reviewer that reads other people's diffs holds no write tool). End the report with a
 `For memory:` list of recurring patterns and decisions worth keeping, if any; the session that
-started you records them.
+started you records them. The repository is public: only patterns that are already fixed belong
+in that folder, never an open finding.

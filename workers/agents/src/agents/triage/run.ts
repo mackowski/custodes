@@ -168,6 +168,9 @@ export async function runTriage(
       if (err instanceof AgentHaltedError) throw err;
       // An unusable answer is still an answer.
       pathWorks = isInputSpecific(err);
+      // Refused like the issues: an outage, or something every request shares (a label or a
+      // recent title a guardrail blocks). The operator has to look; nothing is counted.
+      if (isRequestRefused(err)) errors.push(`probe refused too (${describeError(err)})`);
     }
   if (pathWorks)
     for (const issue of infraFailed) {

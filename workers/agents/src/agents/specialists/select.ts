@@ -43,7 +43,6 @@ export function buildSelectMessage(
   ].join('\n');
 }
 
-/** Keeps only real file names, in order, without duplicates. */
 /**
  * The cheat sheet names a specialist may offer to the model: safe for a prompt, and readable
  * through the broker. A name the broker would refuse makes a read error later, which counts as an
@@ -53,6 +52,7 @@ export function offerableCheatSheets(all: readonly string[]): string[] {
   return all.filter((n) => isSafeName(n) && CheatSheetFile.safeParse(n).success);
 }
 
+/** Keeps only real file names, in order, without duplicates. */
 export function validateSelection(raw: RawSelection, known: readonly string[]): string[] {
   return [...new Set(raw.files.filter((f) => known.includes(f)))];
 }

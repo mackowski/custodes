@@ -1,6 +1,6 @@
 // The rules of block-secrets.mjs, apart from the hook so a test can import them.
 import { readdirSync } from 'node:fs';
-import { join, matchesGlob, relative, resolve, sep } from 'node:path';
+import { join, relative, resolve, sep } from 'node:path';
 
 /** Paths that hold secrets. Tested against an absolute path with `/` separators. */
 const SECRET = [
@@ -78,21 +78,67 @@ export function globPatterns(glob) {
 }
 
 /**
+ * A ripgrep glob as a regular expression over a `/`-separated path. Written here, not taken from
+ * `path.matchesGlob`: that one never lets a wildcard match a leading dot, and ripgrep does (`*`
+ * selects `.dev.vars`). Null for a glob this cannot read; the caller then assumes it selects.
+ * @param {string} glob
+ * @returns {RegExp | null}
+ */
+export function globRegExp(glob) {
+  let re = '';
+  let braces = 0;
+  for (let i = 0; i < glob.length; i++) {
+    const ch = glob[i] ?? '';
+    if (ch === '*') {
+      if (glob[i + 1] === '*') {
+        i++;
+        if (glob[i + 1] === '/') {
+          i++;
+          re += '(?:.*/)?';
+        } else re += '.*';
+      } else re += '[^/]*';
+    } else if (ch === '?') re += '[^/]';
+    else if (ch === '[') {
+      const end = glob.indexOf(']', i + 2);
+      if (end < 0) return null;
+      const body = glob.slice(i + 1, end).replace(/\\/g, '\\\\');
+      re += `[${body.startsWith('!') ? `^${body.slice(1)}` : body}]`;
+      i = end;
+    } else if (ch === '{') {
+      braces++;
+      re += '(?:';
+    } else if (ch === '}' && braces > 0) {
+      braces--;
+      re += ')';
+    } else if (ch === ',' && braces > 0) re += '|';
+    else if (ch === '\\') {
+      i++;
+      re += (glob[i] ?? '').replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
+    } else re += ch.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
+  }
+  if (braces !== 0) return null;
+  try {
+    return new RegExp(`^${re}$`);
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Whether a ripgrep include glob selects the file. Ripgrep reads globs as .gitignore does: one
- * without a slash matches a name at any depth, and one that matches a directory selects what is
- * under it. Errs towards "selects".
+ * without a slash matches a name at any depth, one with a slash is read from the search root, and
+ * one that matches a directory selects what is under it. Errs towards "selects".
  * @param {string} pattern
  * @param {string} file path relative to the search root, with `/` separators
  */
 export function globSelects(pattern, file) {
   if (pattern.startsWith('!')) return false; // an exclusion selects nothing
-  const p = pattern.replace(/^\.?\//, '');
+  const p = pattern.replace(/^\.?\//, '').replace(/\/$/, '');
+  const re = globRegExp(p);
+  if (re === null) return true;
   const parts = file.split('/');
-  for (let n = 1; n <= parts.length; n++) {
-    const head = parts.slice(0, n).join('/');
-    const name = parts[n - 1] ?? '';
-    if (matchesGlob(head, p) || matchesGlob(head, `**/${p}`) || matchesGlob(name, p)) return true;
-  }
+  for (let n = 1; n <= parts.length; n++)
+    if (re.test(p.includes('/') ? parts.slice(0, n).join('/') : (parts[n - 1] ?? ''))) return true;
   return false;
 }
 
