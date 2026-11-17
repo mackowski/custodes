@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import { CheatSheetFile } from '@custodes/schema';
 import { clip, parseStructured, untrusted, UNTRUSTED_DATA_RULES } from '@custodes/llm';
 import { inertNoLinks, inertNoLinksWords } from '../triage/assess.js';
 import {
@@ -12,7 +11,13 @@ import { isSafeName, safeLogin } from '../triage/prompt.js';
 import { list, numbers, text, unit } from './lenient.js';
 import { RawEvidence, sanitizeComment, VerifiedEvidence, verifyEvidence } from './evidence.js';
 import { loadCheatSheets, type SpecialistDeps } from './run.js';
-import { buildSelectMessage, RawSelection, SELECT_PROMPT, validateSelection } from './select.js';
+import {
+  buildSelectMessage,
+  offerableCheatSheets,
+  RawSelection,
+  SELECT_PROMPT,
+  validateSelection,
+} from './select.js';
 import { MAINTAINER_ASSOCIATIONS } from '../pr-gate/rules.js';
 
 /**
@@ -394,10 +399,7 @@ export async function checkImplementation(
     deps.reader.listTimeline(repo, issueNumber),
     deps.reader.listCheatSheets(repo),
   ]);
-  // Names the broker would refuse to read are never offered to the model.
-  const cheatSheets = allCheatSheets.filter(
-    (n) => isSafeName(n) && CheatSheetFile.safeParse(n).success,
-  );
+  const cheatSheets = offerableCheatSheets(allCheatSheets);
   const ackAt = labelAppliedAt(timeline, 'ACK_OBTAINED');
   const pulls: PullRef[] = [];
   for (const p of referencingPulls(repo, timeline).slice(0, 10)) {

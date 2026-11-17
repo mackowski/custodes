@@ -1,10 +1,10 @@
 import { z } from 'zod';
-import { AUTOMATION_TRIGGER_LABELS, CheatSheetFile } from '@custodes/schema';
+import { AUTOMATION_TRIGGER_LABELS } from '@custodes/schema';
 import { clip, parseStructured, untrusted, UNTRUSTED_DATA_RULES } from '@custodes/llm';
 import { inertNoLinks, inertNoLinksWords } from '../triage/assess.js';
 import { issueLabels, type IssueComment, type PublicIssue } from '../triage/github.js';
 import { isSafeName, safeLogin } from '../triage/prompt.js';
-import { list, text, unit } from './lenient.js';
+import { list, text, toIssueNumber, unit } from './lenient.js';
 import { RawEvidence, sanitizeComment, VerifiedEvidence, verifyEvidence } from './evidence.js';
 import {
   ASK_AUTHOR,
@@ -30,7 +30,13 @@ import { linkedIssueNumbers } from '../pr-gate/rules.js';
 import { MAX_PROPOSAL_COMMENT, MAX_PROPOSAL_LABELS } from '../triage-apply/bundle.js';
 import { instanceForRepo } from '../../instances.js';
 import { loadCheatSheets, type SpecialistDeps } from './run.js';
-import { buildSelectMessage, RawSelection, SELECT_PROMPT, validateSelection } from './select.js';
+import {
+  buildSelectMessage,
+  offerableCheatSheets,
+  RawSelection,
+  SELECT_PROMPT,
+  validateSelection,
+} from './select.js';
 
 /** evals/agents/proposal-review/system.txt must match it byte for byte; a test enforces that. */
 export const PROPOSAL_PROMPT = `You are "proposal-review", a read-only assistant for the maintainers of the OWASP Cheat Sheet Series.
@@ -124,11 +130,7 @@ export const RawProposalReview = z.object({
     .union([z.number(), z.string()])
     .nullable()
     .optional()
-    .transform((v) => {
-      if (v === null || v === undefined) return null;
-      const n = typeof v === 'number' ? v : Number(v.replace(/^#/, ''));
-      return Number.isInteger(n) && n > 0 && n <= 1_000_000 ? n : null;
-    }),
+    .transform((v) => (v === null || v === undefined ? null : toIssueNumber(v))),
   helpWanted: z.boolean(),
   // Optional for answers that leave it out; "#12" is accepted like 12.
   priorDecision: z
@@ -137,10 +139,8 @@ export const RawProposalReview = z.object({
     .optional()
     .transform((v) => {
       if (!v) return null;
-      const n = typeof v.issue === 'number' ? v.issue : Number(v.issue.replace(/^#/, ''));
-      return Number.isInteger(n) && n > 0 && n <= 1_000_000
-        ? { issue: n, summary: v.summary }
-        : null;
+      const n = toIssueNumber(v.issue);
+      return n === null ? null : { issue: n, summary: v.summary };
     }),
   explanation: text(1500),
   suggestedComment: text(MAX_PROPOSAL_COMMENT),
@@ -534,10 +534,7 @@ export async function reviewProposal(
     .map((a) => safeLogin(a.login))
     .filter((l) => l !== 'unknown');
   const labels = allLabels.filter(isSafeName);
-  // Names the broker would refuse to read are never offered to the model.
-  const cheatSheets = allCheatSheets.filter(
-    (n) => isSafeName(n) && CheatSheetFile.safeParse(n).success,
-  );
+  const cheatSheets = offerableCheatSheets(allCheatSheets);
   const selection = parseStructured(
     RawSelection,
     await deps.select(SELECT_PROMPT, buildSelectMessage(repo, issue, cheatSheets), issueNumber),

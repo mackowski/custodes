@@ -1,7 +1,9 @@
 import { z } from 'zod';
 import { list, text } from './lenient.js';
 import { clip, untrusted, UNTRUSTED_DATA_RULES } from '@custodes/llm';
+import { CheatSheetFile } from '@custodes/schema';
 import type { PublicIssue } from '../triage/github.js';
+import { isSafeName } from '../triage/prompt.js';
 
 /** evals are not run for this short step; the smoke test exercises it. */
 export const SELECT_PROMPT = `You pick files for a maintainer of the OWASP Cheat Sheet Series.
@@ -42,6 +44,15 @@ export function buildSelectMessage(
 }
 
 /** Keeps only real file names, in order, without duplicates. */
+/**
+ * The cheat sheet names a specialist may offer to the model: safe for a prompt, and readable
+ * through the broker. A name the broker would refuse makes a read error later, which counts as an
+ * infrastructure failure for the whole job; one rule for both specialists.
+ */
+export function offerableCheatSheets(all: readonly string[]): string[] {
+  return all.filter((n) => isSafeName(n) && CheatSheetFile.safeParse(n).success);
+}
+
 export function validateSelection(raw: RawSelection, known: readonly string[]): string[] {
   return [...new Set(raw.files.filter((f) => known.includes(f)))];
 }
