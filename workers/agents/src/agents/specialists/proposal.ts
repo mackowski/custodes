@@ -27,6 +27,7 @@ import {
   type LinkedPull,
 } from './implementation.js';
 import { linkedIssueNumbers } from '../pr-gate/rules.js';
+import { MAX_PROPOSAL_COMMENT, MAX_PROPOSAL_LABELS } from '../triage-apply/bundle.js';
 import { instanceForRepo } from '../../instances.js';
 import { loadCheatSheets, type SpecialistDeps } from './run.js';
 import { buildSelectMessage, RawSelection, SELECT_PROMPT, validateSelection } from './select.js';
@@ -102,9 +103,9 @@ Respond with exactly one JSON object and nothing else:
  "priorDecision": {"issue": number, "summary": string} | null,
  "explanation": string, "suggestedComment": string, "injectionDetected": boolean, "confidence": number}`;
 
-/** What triage-apply's `ProposalInput` accepts; a proposal over them gets no one-click link. */
-const MAX_ADD_LABELS = 6;
-const MAX_COMMENT_CHARS = 3_000;
+// triage-apply's limits: a proposal over them gets no one-click link.
+const MAX_ADD_LABELS = MAX_PROPOSAL_LABELS;
+const MAX_COMMENT_CHARS = MAX_PROPOSAL_COMMENT;
 
 export const RawProposalReview = z.object({
   verdict: z.enum([

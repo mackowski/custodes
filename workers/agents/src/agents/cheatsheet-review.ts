@@ -544,7 +544,7 @@ export class CheatsheetReviewAgent extends CustodesAgent<AgentsEnv, CheatsheetRe
       related.set(name, await reader.getCheatSheet(repo, name));
     const author = pr.user?.login ?? '';
     const issues: IssueFacts[] = [];
-    for (const n of reviewIssueRefs(pr.body, repo)) {
+    for (const n of reviewIssueRefs(pr.body, repo, pr.number)) {
       try {
         const issue = await reader.getIssue(repo, n);
         if (issue.pull_request !== undefined) continue;

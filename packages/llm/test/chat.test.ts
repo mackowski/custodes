@@ -1,7 +1,6 @@
 import { invokeAgent, invokeSubAgent } from '@custodes/core';
 import { describe, expect, it, vi } from 'vitest';
 import {
-  gatewayMetadata,
   AnthropicChat,
   OpenRouterGateway,
   readCompletion,
@@ -9,6 +8,7 @@ import {
   type ChatRequest,
 } from '../src/chat.js';
 import type { AiRunner } from '../src/clef.js';
+import { gatewayMetadata } from '../src/metadata.js';
 import { ChatTimeoutError } from '../src/timeout.js';
 import {
   AnthropicGateway,

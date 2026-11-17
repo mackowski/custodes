@@ -1710,6 +1710,11 @@ describe('refs.reviewIssueRefs', () => {
     expect(refs('related to issues 12')).toEqual([12]);
   });
 
+  it("does not give one of its three places to the pull request's own number", () => {
+    const body = 'Closes #2850. This PR #2860 fixes #2851 and #2852';
+    expect(reviewIssueRefs(body, 'OWASP/CheatSheetSeries', 2860)).toEqual([2850, 2851, 2852]);
+  });
+
   it('never takes a bare number or another repository issue URL', () => {
     expect(refs('Version 2815 of the 100 things; PR 44')).toEqual([]);
     expect(refs('https://github.com/other/repo/issues/9')).toEqual([]);

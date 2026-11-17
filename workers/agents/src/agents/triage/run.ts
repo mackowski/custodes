@@ -2,7 +2,7 @@ import { invokeAgent, type Turn } from '@custodes/core';
 import { AgentHaltedError } from '@custodes/core/agent';
 import { parseStructured } from '@custodes/llm';
 import { RawAssessment, validateAssessment, type Assessment } from './assess.js';
-import { describeError } from './errors.js';
+import { describeError, isInputSpecific, isRequestRefused } from './errors.js';
 import type { BrokerGitHubReader, PublicIssue } from './github.js';
 import { buildUserMessage, isSafeName, SYSTEM_PROMPT, type TriageContext } from './prompt.js';
 
@@ -42,15 +42,6 @@ export const MAX_PER_RUN = 15;
 export const MAX_ATTEMPTS = 3;
 /** Consecutive infrastructure failures after which the run stops instead of hammering a broken path. */
 export const MAX_CONSECUTIVE_INFRA_FAILURES = 3;
-
-/**
- * Input-specific failures are about this issue's content (model output unparseable, refused or cut
- * off); retrying forever would stall the cursor. Everything else (gateway, GitHub, network,
- * configuration) is infrastructure: it is retried next run and never counted against an issue.
- */
-function isInputSpecific(err: unknown): boolean {
-  return err instanceof Error && ['StructuredOutputError', 'ModelOutputError'].includes(err.name);
-}
 
 /**
  * One triage pass: read public data, assess changed issues, store validated results.
@@ -125,7 +116,7 @@ export async function runTriage(
       } else {
         firstFailedUpdate ??= issue.updated_at;
         errors.push(`#${issue.number}: ${what}`);
-        infraFailed.push(issue);
+        if (isRequestRefused(err)) infraFailed.push(issue);
         if (++consecutiveInfra >= MAX_CONSECUTIVE_INFRA_FAILURES) {
           errors.push(`stopped after ${consecutiveInfra} consecutive infrastructure failures`);
           break;
@@ -133,10 +124,11 @@ export async function runTriage(
       }
     }
   }
-  // An "infrastructure" failure in a run where other issues were assessed is about that issue
-  // (a guardrail block, a provider 400 on its text), not an outage: count it, so it cannot hold
-  // the cursor and cost a model call on every poll for ever. In an outage nothing is assessed and
-  // nothing is counted.
+  // A refused request (a 4xx that is not a timeout or a rate limit) in a run where other issues
+  // were assessed is about that issue (a guardrail block, a provider 400 on its text), not an
+  // outage: count it, so it cannot hold the cursor and cost a model call on every poll for ever.
+  // In an outage nothing is assessed and nothing is counted; a 429, a 5xx or a timeout is never
+  // counted, or a flood of issues could push real ones out of triage.
   if (assessed > 0)
     for (const issue of infraFailed) {
       const attempts = deps.store.recordFailure(issue.number, issue.updated_at);

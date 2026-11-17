@@ -52,7 +52,7 @@ export async function act(
    * Attests a record written after GitHub was already called. The action (or part of it) is live
    * whatever happens here, so a failure to sign or store must not become a 500: the agent would
    * read that as "nothing happened" and might repeat the action. One retry, then a log line with
-   * ids only; the answer to the agent stays the truth about GitHub.
+   * ids only and a halt of that agent; the answer to the agent stays the truth about GitHub.
    */
   const attestAfterExecution = async (record: AuditRecord): Promise<void> => {
     for (let attempt = 1; attempt <= 2; attempt++) {
@@ -71,6 +71,18 @@ export async function act(
             decision: record.decision,
           }),
         );
+        // No audit trail means no rate limit either (it counts audit rows): stop this agent until
+        // an operator has looked. The halt flag lives in KV, so it does not need the store that
+        // just failed.
+        try {
+          await new KillSwitch(env.KILL_SWITCH).halt(
+            record.agentId,
+            'audit record could not be stored',
+            'broker',
+          );
+        } catch {
+          // Nothing more to do here; the log line above is the alarm.
+        }
       }
     }
   };

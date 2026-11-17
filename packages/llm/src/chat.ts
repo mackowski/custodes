@@ -14,8 +14,6 @@ import { chat, type OperationSpan, type Turn } from '@custodes/core';
 import type { AiRunner } from './clef.js';
 import { gatewayMetadata } from './metadata.js';
 import { withTimeout } from './timeout.js';
-
-export { gatewayMetadata };
 import {
   AnthropicGateway,
   clipPayload,

@@ -496,6 +496,23 @@ describe('failure handling (the 2026-09-29 outage)', () => {
     expect(runs[3]?.nextSince).not.toBe(poison.updated_at);
   });
 
+  it('never counts a rate limit, a server error or a timeout against an issue, even when others were assessed', async () => {
+    const store = memStore([]);
+    for (const status of [429, 503, 408]) {
+      const complete = (_s: string, _u: string, n: number) =>
+        n === 5
+          ? Promise.reject(new GatewayError(status, 'x', 'overloaded_error'))
+          : Promise.resolve(JSON.stringify(raw()));
+      for (let other = 60; other < 64; other++)
+        await runTriage(
+          'OWASP/CheatSheetSeries',
+          '2026-09-21T00:00:00Z',
+          deps({ complete, store }, [issue(5), issue(other + status)]),
+        );
+    }
+    expect(store.failures(5, issue(5).updated_at)).toBe(0);
+  });
+
   it('gives up on an issue with unusable output after three attempts and frees the cursor', async () => {
     const { ModelOutputError } = await import('@custodes/llm');
     const d = deps({ complete: () => Promise.reject(new ModelOutputError('refusal')) });

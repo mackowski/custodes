@@ -60,7 +60,7 @@ export function agentsCommand(): Command {
   cmd
     .command('run <agent>')
     .description(
-      'trigger one run of an agent instance now (sandbox instances only for triage and pr-gate)',
+      'trigger one run now: triage and pr-gate only, on sandbox instances (other agents answer 405)',
     )
     .option('--instance <name>', 'instance name', 'default')
     .option(

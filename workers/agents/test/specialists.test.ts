@@ -323,6 +323,17 @@ describe('validateProposalReview', () => {
     expect(r.addLabels.length).toBeLessThanOrEqual(6);
   });
 
+  it('does not add HELP_WANTED as a seventh label: triage-apply accepts six', () => {
+    const six = ['A', 'B', 'C', 'D', 'E', 'F'];
+    const r = validateProposalReview(rawProposal({ addLabels: six, helpWanted: true }), {
+      ...proposalCtx,
+      labels: [...six, 'HELP_WANTED'],
+      current: [],
+    });
+    expect(r.addLabels).toHaveLength(6);
+    expect(r.addLabels).not.toContain('HELP_WANTED');
+  });
+
   it('adds HELP_WANTED when nobody volunteered, never alongside an assignee', () => {
     expect(
       validateProposalReview(rawProposal({ helpWanted: true }), proposalCtx).addLabels,

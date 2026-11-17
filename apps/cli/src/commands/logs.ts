@@ -20,7 +20,7 @@ export function logsCommand(): Command {
     .description("tail a Worker's logs (wraps `wrangler tail`)")
     .argument('<worker>', Object.keys(WORKERS).join(' | '))
     .action((worker: string) => {
-      const name = WORKERS[worker];
+      const name = Object.hasOwn(WORKERS, worker) ? WORKERS[worker] : undefined;
       if (!name) throw new Error(`worker must be one of: ${Object.keys(WORKERS).join(', ')}`);
       const child = spawn('wrangler', ['tail', name, '--format', 'pretty'], { stdio: 'inherit' });
       child.on('error', () => {

@@ -243,7 +243,7 @@ describe('SpecialistAgent queue: giving up, the daily cap and versions', () => {
         }
         return jobs(a).find((j) => j.issue === issue);
       };
-      // Six failures (a day and a half of outage): still waiting for the retry delay.
+      // Six failures (six daily preparations during an outage): still waiting for the retry delay.
       const waiting = await failTimes(6);
       expect(Date.parse(waiting?.enqueued_at ?? '')).toBeLessThan(Date.now() + 7 * HOUR);
       // An issue that fails this way every time is parked in the end, so it cannot use up the

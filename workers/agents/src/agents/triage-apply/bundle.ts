@@ -13,16 +13,20 @@ import {
 } from '@custodes/schema';
 import { issueLabels, type IssueComment, type PublicIssue } from '../triage/github.js';
 
+/** Limits of a proposal. proposal-review keeps its output within them, or the link is refused. */
+export const MAX_PROPOSAL_LABELS = 6;
+export const MAX_PROPOSAL_COMMENT = 3_000;
+
 /** What triage hands over for one issue: the stored proposal, nothing the model wrote unchecked. */
 export const ProposalInput = z.object({
   repo: z.string().regex(/^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/),
   issue: z.number().int().positive().max(1_000_000),
-  addLabels: z.array(z.string().min(1).max(50)).max(6),
+  addLabels: z.array(z.string().min(1).max(50)).max(MAX_PROPOSAL_LABELS),
   removeLabels: z.array(z.string().min(1).max(50)).max(6),
   /** Chosen by code from GitHub-set fields (the assignment rule), never by the model alone. */
   assignee: GitHubLogin.nullable(),
   /** Placeholders already replaced by code with logins from GitHub; "" for no comment. */
-  comment: z.string().max(3_000),
+  comment: z.string().max(MAX_PROPOSAL_COMMENT),
   /** One line for the operator's approval page: why this proposal. */
   reason: z.string().max(300),
 });

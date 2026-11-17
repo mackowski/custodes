@@ -64,7 +64,13 @@ export function auditCommand(): Command {
       print(cfg.json, result, () =>
         result.valid
           ? `VALID  ${att.record.agentId}@${att.record.agentVersion} ${att.record.decision} ${att.record.action.type} ${att.record.action.repo}  (agent signature: ${result.agentSignature ?? 'none'})`
-          : `INVALID  ${result.reason ?? ''}`,
+          : `INVALID  ${result.reason ?? ''}${
+              // The agent keys are built into this binary: after a rotation an older build does
+              // not know the new key. The record still reads as invalid here; /verify decides.
+              result.reason === 'agent signature: unknown_key'
+                ? '  (this CLI may predate the key: rebuild from main and check /verify)'
+                : ''
+            }`,
       );
       if (!result.valid) process.exitCode = 1;
     });

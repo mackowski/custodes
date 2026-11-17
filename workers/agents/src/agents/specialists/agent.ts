@@ -4,7 +4,7 @@ import { AgentHaltedError, CustodesAgent } from '@custodes/core/agent';
 import { AnthropicGateway } from '@custodes/llm';
 import type { AgentsEnv } from '../../env.js';
 import { instanceOf, noSuchAction } from '../../instances.js';
-import { describeError } from '../triage/errors.js';
+import { describeError, isInputSpecific } from '../triage/errors.js';
 import { BrokerGitHubReader } from '../triage/github.js';
 import { assessRequest, selectRequest } from './model.js';
 import type { SpecialistDeps } from './run.js';
@@ -59,8 +59,9 @@ export const MAX_JOBS_PER_DAY_SANDBOX = 40;
  */
 export const MAX_ATTEMPTS = 4;
 /**
- * Any other failure (gateway, GitHub, network) parks the job only after this many: about three
- * days at RETRY_AFTER_MS, so an outage heals by itself, but an issue whose text makes an
+ * Any other failure (gateway, GitHub, network) parks the job only after this many. The queue wakes
+ * at triage's daily preparation, so that is about twelve days: an outage heals by itself, but an
+ * issue whose text makes an
  * "infrastructure" failure every time (a guardrail block, a provider 400) cannot use up the daily
  * job budget for ever.
  */
@@ -103,10 +104,6 @@ function parseStored(json: string): unknown {
   } catch {
     return { unreadable: true };
   }
-}
-
-function isInputSpecific(err: unknown): boolean {
-  return err instanceof Error && ['StructuredOutputError', 'ModelOutputError'].includes(err.name);
 }
 
 /**

@@ -267,8 +267,18 @@ describe('broker act() for cheatsheet-review', () => {
       .spyOn(AuditStore.prototype, 'insert')
       .mockRejectedValue(new Error('D1 unavailable'));
     const logged = vi.spyOn(console, 'error').mockImplementation(() => undefined);
-    const res = await act(testEnv, inline('cheatsheet-review', 'mackowski/custodes-sandbox'));
+    const ks = new KillSwitch(env.KILL_SWITCH);
+    let halted: boolean;
+    let res: Awaited<ReturnType<typeof act>>;
+    try {
+      res = await act(testEnv, inline('cheatsheet-review', 'mackowski/custodes-sandbox'));
+      halted = (await ks.state('cheatsheet-review')).halted;
+    } finally {
+      await ks.resume('cheatsheet-review');
+    }
     expect(res).toMatchObject({ ok: true });
+    // Without an audit trail the rate limit cannot count either: the agent is stopped.
+    expect(halted).toBe(true);
     expect(insert).toHaveBeenCalledTimes(2);
     const line = logged.mock.calls.map((c) => String(c[0])).find((l) => l.includes('audit.lost'));
     expect(JSON.parse(line ?? '{}')).toMatchObject({
