@@ -128,7 +128,10 @@ async function linkStage(snap: Snapshot, deps: PipelineDeps): Promise<LinkStage>
         continue;
       }
       if (isExternal(link.url)) {
-        external.push({ link });
+        // One fetch and one verdict per URL, at its first place. scanLinks dedupes within a file
+        // only; the auditor answers by URL, so the same URL in two sheets got both answers on the
+        // first one and used two of the MAX_EXTERNAL_LINKS places.
+        if (!external.some((e) => e.link.url === link.url)) external.push({ link });
         continue;
       }
       // javascript:, data:, mailto: and other schemes are never fetched; a person has to look.

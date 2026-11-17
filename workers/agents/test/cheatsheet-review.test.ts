@@ -436,6 +436,56 @@ describe('cheatsheet-review: refusing to run', () => {
   });
 });
 
+describe('cheatsheet-review: an interrupted run', () => {
+  it('marks a review still running at the check as interrupted and e-mails the operator', async () => {
+    const sent: { subject: string; text: string }[] = [];
+    const out = await runInDurableObject(await stub(), async (agent: CheatsheetReviewAgent) => {
+      const i = agent as unknown as Internals & {
+        ensureSchema(): void;
+        sql<T>(strings: TemplateStringsArray, ...values: unknown[]): T[];
+      };
+      const original = i.env;
+      i.env = Object.create(original, {
+        BROKER: { value: withHaltState(fakeBroker(scenario())) },
+        EMAIL: {
+          value: {
+            send: (m: { subject: string; text: string }) => {
+              sent.push(m);
+              return Promise.resolve();
+            },
+          },
+        },
+      }) as AgentsEnv;
+      try {
+        i.ensureSchema();
+        i.sql`DELETE FROM reviews WHERE pull = 77`;
+        i.sql`INSERT INTO reviews (pull, label_event, head_sha, started_at, status)
+          VALUES (77, 9001, 'abc', '2026-11-17T10:00:00.000Z', 'running')`;
+        i.sql`INSERT INTO reviews (pull, label_event, head_sha, started_at, status)
+          VALUES (77, 9002, 'abc', '2026-11-17T10:00:00.000Z', 'posted')`;
+        await agent.checkInterrupted({ pull: 77, labelEvent: 9001 });
+        // A finished review is left alone.
+        await agent.checkInterrupted({ pull: 77, labelEvent: 9002 });
+        return {
+          rows: i.sql<{ label_event: number; status: string }>`SELECT label_event, status
+            FROM reviews WHERE pull = 77 ORDER BY label_event`,
+          errors: agent.state.lastErrors,
+        };
+      } finally {
+        i.sql`DELETE FROM reviews WHERE pull = 77`;
+        i.env = original;
+      }
+    });
+    expect(out.rows).toEqual([
+      { label_event: 9001, status: 'interrupted' },
+      { label_event: 9002, status: 'posted' },
+    ]);
+    expect(out.errors[0]).toBe('#77: interrupted');
+    expect(sent).toHaveLength(1);
+    expect(sent[0]?.text).toContain('interrupted');
+  });
+});
+
 describe('cheatsheet-review: a content pull request', () => {
   it('reads what it needs through the broker only, at the head commit', async () => {
     const r = await drive();
@@ -852,6 +902,33 @@ describe('cheatsheet-review: external links', () => {
     expect(outside(audit?.req.user ?? '')).not.toContain('ignore previous instructions');
     // A page the auditor fetched may be clickable in the review.
     expect(reviewActs(r)[0]?.body).toContain('<https://example.com/doc>');
+  });
+
+  it('fetches and audits a URL once when two sheets cite it', async () => {
+    const one = withLink();
+    const [file] = one.files;
+    if (!file) throw new Error('fixture');
+    const fetched: string[] = [];
+    const r = await drive({
+      scenario: {
+        ...one,
+        files: [file, { ...file, filename: 'cheatsheets/Other_Cheat_Sheet.md' }],
+      },
+      fetchImpl: (input) => {
+        fetched.push(
+          typeof input === 'string' ? input : input instanceof URL ? input.href : input.url,
+        );
+        return Promise.resolve(
+          new Response('<title>Doc</title><p>text</p>', {
+            headers: { 'content-type': 'text/html' },
+          }),
+        );
+      },
+    });
+    expect(fetched.filter((u) => u === 'https://example.com/doc')).toHaveLength(1);
+    const audit = r.models.calls.find((c) => c.role === 'link-auditor');
+    expect(audit?.req.user.match(/https:\/\/example\.com\/doc/g)?.length ?? 0).toBeGreaterThan(0);
+    expect(audit?.req.user).not.toContain('Link 2');
   });
 
   it('lists a forbidden page for manual verification instead of calling it broken', async () => {

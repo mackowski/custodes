@@ -54,6 +54,8 @@ import { CHEATSHEET_REVIEW_MANIFEST } from '../manifests.js';
 
 /** At most this many model calls at once: AI Gateway's rate limit is shared by every agent. */
 const MAX_CONCURRENT_CALLS = 4;
+/** After this long a review still marked `running` was interrupted (operator decision, #127). */
+const STALE_RUN_SECONDS = 30 * 60;
 /** Changed cheat sheets read in full; a larger PR is still reviewed from its diff. */
 const MAX_FULL_FILES = 5;
 
@@ -126,6 +128,34 @@ export class CheatsheetReviewAgent extends CustodesAgent<AgentsEnv, CheatsheetRe
   async notify(pull: number): Promise<{ id: string; at: string }> {
     const s = await this.schedule(1, 'review', { pull }, { idempotent: true });
     return { id: s.id, at: new Date(Date.now() + 1_000).toISOString() };
+  }
+
+  /**
+   * Alarm callback, set when a review starts. A run whose isolate is killed (CPU limit, memory)
+   * never reaches its `catch`: the row stays `running`, which also blocks a second run for the
+   * same label event, and nobody is told. This marks such a row and tells the operator. It never
+   * starts the review again: the `running` row is the lock against two reviews at once.
+   */
+  async checkInterrupted(payload: { pull: number; labelEvent: number }): Promise<void> {
+    const { pull, labelEvent } = payload;
+    this.ensureSchema();
+    const row = this.sql<{ status: string }>`SELECT status FROM reviews
+      WHERE pull = ${pull} AND label_event = ${labelEvent}`[0];
+    if (row?.status !== 'running') return;
+    this.sql`UPDATE reviews SET status = 'interrupted', finished_at = ${new Date().toISOString()}
+      WHERE pull = ${pull} AND label_event = ${labelEvent} AND status = 'running'`;
+    const why =
+      'the run was interrupted and did not finish; remove and add the label again to review it';
+    this.setState({
+      ...this.state,
+      lastErrors: [`#${pull}: interrupted`, ...this.state.lastErrors].slice(0, 20),
+    });
+    console.warn(
+      JSON.stringify({ event: 'cheatsheet-review.interrupted', instance: this.name, pull }),
+    );
+    await this.mail(
+      partialReviewMail({ repo: this.repo, pull, why, outcomes: [], decision: undefined }),
+    );
   }
 
   /** Alarm callback. */
@@ -226,6 +256,8 @@ export class CheatsheetReviewAgent extends CustodesAgent<AgentsEnv, CheatsheetRe
     const started = new Date().toISOString();
     this.sql`INSERT INTO reviews (pull, label_event, head_sha, started_at, status)
       VALUES (${pull}, ${labelled.id}, ${headSha}, ${started}, 'running')`;
+    // Longer than any real review (model calls are bounded by their timeouts): see checkInterrupted.
+    await this.schedule(STALE_RUN_SECONDS, 'checkInterrupted', { pull, labelEvent: labelled.id });
     const finish = (status: string, extra: Partial<ReviewRow> = {}) => {
       this.sql`UPDATE reviews SET status = ${status}, finished_at = ${new Date().toISOString()},
         change_class = ${extra.change_class ?? null}, verdict = ${extra.verdict ?? null},
