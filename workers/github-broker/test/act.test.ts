@@ -252,6 +252,28 @@ describe('broker act() for cheatsheet-review', () => {
     expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 
+  it('still answers ok when the audit record cannot be stored after the post, and logs the loss', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(() =>
+      Promise.resolve(
+        Response.json({ html_url: 'https://github.com/mackowski/custodes-sandbox/pull/3#r1' }),
+      ),
+    );
+    // The review is live on GitHub: a 500 here would read as "nothing happened" and invite a repeat.
+    const insert = vi
+      .spyOn(AuditStore.prototype, 'insert')
+      .mockRejectedValue(new Error('D1 unavailable'));
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const res = await act(testEnv, inline('cheatsheet-review', 'mackowski/custodes-sandbox'));
+    expect(res).toMatchObject({ ok: true });
+    expect(insert).toHaveBeenCalledTimes(2);
+    const line = logged.mock.calls.map((c) => String(c[0])).find((l) => l.includes('audit.lost'));
+    expect(JSON.parse(line ?? '{}')).toMatchObject({
+      event: 'broker.audit.lost',
+      agentId: 'cheatsheet-review',
+      action: 'pr.review.inline',
+    });
+  });
+
   it('needs an approval to post on OWASP (ADR 0017 amendment), before reaching GitHub', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch');
     expect(await act(testEnv, inline('cheatsheet-review'))).toMatchObject({

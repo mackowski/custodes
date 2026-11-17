@@ -48,6 +48,33 @@ export async function act(
     return att;
   };
 
+  /**
+   * Attests a record written after GitHub was already called. The action (or part of it) is live
+   * whatever happens here, so a failure to sign or store must not become a 500: the agent would
+   * read that as "nothing happened" and might repeat the action. One retry, then a log line with
+   * ids only; the answer to the agent stays the truth about GitHub.
+   */
+  const attestAfterExecution = async (record: AuditRecord): Promise<void> => {
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        await attest(record);
+        return;
+      } catch {
+        if (attempt < 2) continue;
+        console.error(
+          JSON.stringify({
+            event: 'broker.audit.lost',
+            attestationId: record.id,
+            agentId: record.agentId,
+            action: record.action.type,
+            repo: record.action.repo,
+            decision: record.decision,
+          }),
+        );
+      }
+    }
+  };
+
   const deny = async (
     code: BrokerDenialCode,
     reason: string,
@@ -144,7 +171,7 @@ export async function act(
       id: attestationId,
       ...signed,
     });
-    await attest(record);
+    await attestAfterExecution(record);
     return { ok: false, code: 'github_error', reason, attestationId };
   }
 
@@ -156,6 +183,6 @@ export async function act(
     ...signed,
     ...(githubUrl !== undefined ? { githubUrl } : {}),
   });
-  await attest(record);
+  await attestAfterExecution(record);
   return { ok: true, attestationId, ...(githubUrl !== undefined ? { githubUrl } : {}) };
 }
