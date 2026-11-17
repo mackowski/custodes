@@ -22,7 +22,7 @@ interface Page {
   result?: Namespace[];
   result_info?: { total_count?: number };
 }
-interface WranglerConfig {
+export interface WranglerConfig {
   exports?: Record<string, { state?: string } | undefined>;
   durable_objects?: { bindings?: { class_name: string; script_name?: string }[] };
 }
@@ -58,13 +58,12 @@ async function ownersByClass(token: string, account: string): Promise<Map<string
   throw new Error(`more than ${MAX_PAGES} pages of namespaces`);
 }
 
-function declaresLive(dir: string, className: string): boolean {
-  const text = readFileSync(join(dir, 'wrangler.jsonc'), 'utf8')
-    .split('\n')
-    .map((l) => (/^\s*\/\//.test(l) ? '' : l))
-    .join('\n')
-    .replace(/,(\s*[}\]])/g, '$1');
-  const config = JSON.parse(text) as WranglerConfig;
+/**
+ * Whether a Worker's config declares the class as its own live Durable Object: an export without a
+ * tombstone state, or a binding without `script_name` (a binding with one points at another
+ * Worker). Exported for the test: this decides what the deploy guard looks at.
+ */
+export function isLive(config: WranglerConfig, className: string): boolean {
   const exported = config.exports?.[className];
   const liveExport = exported !== undefined && exported.state === undefined;
   const ownBinding = (config.durable_objects?.bindings ?? []).some(
@@ -73,41 +72,57 @@ function declaresLive(dir: string, className: string): boolean {
   return liveExport || ownBinding;
 }
 
-const [classArg = '', flag, dir, script] = process.argv.slice(2);
-const classes = classArg.split(',');
-const token = process.env['CLOUDFLARE_API_TOKEN'];
-const account = process.env['CLOUDFLARE_ACCOUNT_ID'];
-const usage = 'usage: do-namespace-owner.ts <Class> | <Class,Class,...> --guard <dir> <script>';
-if (!classes.every((c) => /^[A-Za-z][A-Za-z0-9]*$/.test(c)) || !token || !account) {
-  console.error(usage);
-  process.exit(2);
+/** The guard's rule: a Worker may only declare a class live when the namespace is already its own. */
+export function mustRefuse(live: boolean, owner: string, script: string): boolean {
+  return live && owner !== script;
 }
-const all = await ownersByClass(token, account);
-const ownerOf = (c: string): string => {
-  const set = all.get(c) ?? new Set<string>();
-  if (set.size > 1) {
-    console.error(`more than one namespace for ${c}: ${[...set].join(', ')}`);
-    process.exit(1);
-  }
-  return [...set][0] ?? '';
-};
 
-if (flag === undefined && classes.length === 1) {
-  console.log(ownerOf(classes[0] ?? ''));
-} else if (flag === '--guard' && dir && script) {
-  let refused = false;
-  for (const c of classes) {
-    const owner = ownerOf(c);
-    if (declaresLive(dir, c) && owner !== script) {
-      console.error(
-        `${dir} declares ${c} live, but its namespace belongs to '${owner || 'nobody'}', not ${script}. ` +
-          'After a cutover, merge its follow-up PR first (docs/runbooks/agent-cutover.md).',
-      );
-      refused = true;
-    } else console.log(`${c}: owner ${owner || '(none)'}, ok for ${script}`);
+function declaresLive(dir: string, className: string): boolean {
+  const text = readFileSync(join(dir, 'wrangler.jsonc'), 'utf8')
+    .split('\n')
+    .map((l) => (/^\s*\/\//.test(l) ? '' : l))
+    .join('\n')
+    .replace(/,(\s*[}\]])/g, '$1');
+  return isLive(JSON.parse(text) as WranglerConfig, className);
+}
+
+if (process.argv[1]?.endsWith('do-namespace-owner.ts')) {
+  const [classArg = '', flag, dir, script] = process.argv.slice(2);
+  const classes = classArg.split(',');
+  const token = process.env['CLOUDFLARE_API_TOKEN'];
+  const account = process.env['CLOUDFLARE_ACCOUNT_ID'];
+  const usage = 'usage: do-namespace-owner.ts <Class> | <Class,Class,...> --guard <dir> <script>';
+  if (!classes.every((c) => /^[A-Za-z][A-Za-z0-9]*$/.test(c)) || !token || !account) {
+    console.error(usage);
+    process.exit(2);
   }
-  if (refused) process.exit(1);
-} else {
-  console.error(usage);
-  process.exit(2);
+  const all = await ownersByClass(token, account);
+  const ownerOf = (c: string): string => {
+    const set = all.get(c) ?? new Set<string>();
+    if (set.size > 1) {
+      console.error(`more than one namespace for ${c}: ${[...set].join(', ')}`);
+      process.exit(1);
+    }
+    return [...set][0] ?? '';
+  };
+
+  if (flag === undefined && classes.length === 1) {
+    console.log(ownerOf(classes[0] ?? ''));
+  } else if (flag === '--guard' && dir && script) {
+    let refused = false;
+    for (const c of classes) {
+      const owner = ownerOf(c);
+      if (mustRefuse(declaresLive(dir, c), owner, script)) {
+        console.error(
+          `${dir} declares ${c} live, but its namespace belongs to '${owner || 'nobody'}', not ${script}. ` +
+            'After a cutover, merge its follow-up PR first (docs/runbooks/agent-cutover.md).',
+        );
+        refused = true;
+      } else console.log(`${c}: owner ${owner || '(none)'}, ok for ${script}`);
+    }
+    if (refused) process.exit(1);
+  } else {
+    console.error(usage);
+    process.exit(2);
+  }
 }
