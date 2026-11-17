@@ -101,7 +101,7 @@ function triageDeps(
       listLabels: () => Promise.resolve(['bug', 'enhancement']),
       listCheatSheets: () => Promise.resolve(['Cross_Site_Scripting_Prevention_Cheat_Sheet.md']),
       listRecentIssueTitles: () => Promise.resolve([{ number: 3, title: 'older' }]),
-      listUpdatedIssues: () => Promise.resolve(issues),
+      listUpdatedIssues: () => Promise.resolve({ issues, resumeAt: null }),
     },
     complete: async (system, user, n, turn) =>
       AnthropicGateway.text(

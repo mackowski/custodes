@@ -71,7 +71,7 @@ export async function runTriage(
   deps: TriageDeps,
 ): Promise<TriageRunResult> {
   const startedAt = deps.now();
-  const [allLabels, allCheatSheets, recent, issues] = await Promise.all([
+  const [allLabels, allCheatSheets, recent, { issues, resumeAt }] = await Promise.all([
     deps.reader.listLabels(repo),
     deps.reader.listCheatSheets(repo),
     deps.reader.listRecentIssueTitles(repo, 50),
@@ -145,12 +145,10 @@ export async function runTriage(
       }
     }
   }
-  // Issues arrive oldest update first. If the batch was capped, resume from the last one reached
-  // (it is skipped next time as already current); otherwise everything up to now is covered.
-  // A failed issue (model or gateway error) is retried next run: never move the cursor past it.
-  const last = issues.at(-1);
-  const nextSince =
-    firstFailedUpdate ??
-    (issues.length >= MAX_PER_RUN && last ? last.updated_at : startedAt.toISOString());
+  // Issues arrive oldest update first. If the reader did not see everything, resume where it
+  // stopped (an issue already assessed is skipped next time as current); otherwise everything up
+  // to now is covered. A failed issue (model or gateway error) is retried next run: never move the
+  // cursor past it.
+  const nextSince = firstFailedUpdate ?? resumeAt ?? startedAt.toISOString();
   return { assessed: assessedIssues.length, assessedIssues, skipped, errors, nextSince };
 }

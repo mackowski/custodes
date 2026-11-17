@@ -145,6 +145,33 @@ describe('renderDigest', () => {
 describe('BrokerGitHubReader', () => {
   const runId = '9d7c1e9e-2b1a-4b6e-9a2e-1f7d1c2b3a44';
 
+  it('says where to resume when issues were cut, or a full page may hide more behind pull requests', async () => {
+    const at = (n: number) =>
+      `2026-09-22T10:${String(n % 60).padStart(2, '0')}:${String(Math.floor(n / 60)).padStart(2, '0')}Z`;
+    const list = (data: unknown[]) =>
+      new BrokerGitHubReader(
+        { fetch: () => Promise.resolve(Response.json({ ok: true, data })) },
+        'triage',
+        runId,
+      ).listUpdatedIssues('OWASP/CheatSheetSeries', '2026-09-01T00:00:00Z', 3);
+    // More issues than the limit: resume from the last one returned.
+    const many = await list([1, 2, 3, 4, 5].map((n) => issue(n, { updated_at: at(n) })));
+    expect(many.issues.map((i) => i.number)).toEqual([1, 2, 3]);
+    expect(many.resumeAt).toBe(at(3));
+    // A full page of 100 with two issues among pull requests: more may follow the last item.
+    const full = await list(
+      Array.from({ length: 100 }, (_, n) =>
+        n < 2
+          ? issue(n + 1, { updated_at: at(n) })
+          : { ...issue(n + 1, { updated_at: at(n) }), pull_request: {} },
+      ),
+    );
+    expect(full.issues.map((i) => i.number)).toEqual([1, 2]);
+    expect(full.resumeAt).toBe(at(99));
+    // A short page under the limit: everything was seen.
+    expect((await list([issue(1)])).resumeAt).toBeNull();
+  });
+
   it('reads through the broker with a named resource, never a URL, and filters out pull requests', async () => {
     const fetch = vi.fn((_u: string, _i?: RequestInit) =>
       Promise.resolve(
@@ -152,12 +179,13 @@ describe('BrokerGitHubReader', () => {
       ),
     );
     const reader = new BrokerGitHubReader({ fetch }, 'triage', runId);
-    const issues = await reader.listUpdatedIssues(
+    const { issues, resumeAt } = await reader.listUpdatedIssues(
       'OWASP/CheatSheetSeries',
       '2026-09-01T00:00:00Z',
       10,
     );
     expect(issues.map((i) => i.number)).toEqual([1]);
+    expect(resumeAt).toBeNull();
     const [url, init] = fetch.mock.calls[0] ?? [];
     expect(url).toBe('https://broker.internal/v1/read');
     const body = JSON.parse(init?.body as string) as Record<string, unknown>;
@@ -221,7 +249,7 @@ function deps(
       listLabels: () => Promise.resolve(known.labels),
       listCheatSheets: () => Promise.resolve(known.cheatSheets),
       listRecentIssueTitles: () => Promise.resolve([{ number: 3, title: 'older' }]),
-      listUpdatedIssues: () => Promise.resolve(issues),
+      listUpdatedIssues: () => Promise.resolve({ issues, resumeAt: null }),
     },
     complete: () => Promise.resolve(JSON.stringify(raw())),
     store: memStore(saved),
@@ -263,12 +291,12 @@ describe('runTriage', () => {
     expect(d.saved).toEqual([]);
   });
 
-  it('resumes from the last issue reached when the batch is capped', async () => {
-    const many = Array.from({ length: MAX_PER_RUN }, (_, i) =>
-      issue(i + 1, { updated_at: `2026-09-22T10:${String(i).padStart(2, '0')}:00Z` }),
-    );
-    const r = await runTriage('OWASP/CheatSheetSeries', '2026-09-21T00:00:00Z', deps({}, many));
-    expect(r.nextSince).toBe(`2026-09-22T10:${String(MAX_PER_RUN - 1).padStart(2, '0')}:00Z`);
+  it('resumes where the reader stopped when it did not see everything', async () => {
+    const d = deps({}, [issue(1)]);
+    d.reader.listUpdatedIssues = () =>
+      Promise.resolve({ issues: [issue(1)], resumeAt: '2026-09-22T10:14:00Z' });
+    const r = await runTriage('OWASP/CheatSheetSeries', '2026-09-21T00:00:00Z', d);
+    expect(r.nextSince).toBe('2026-09-22T10:14:00Z');
   });
 });
 

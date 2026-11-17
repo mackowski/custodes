@@ -179,11 +179,32 @@ export class BrokerGitHubReader {
     });
   }
 
-  /** Open issues (not PRs) updated since `since`, oldest update first, so a capped run resumes cleanly. */
-  async listUpdatedIssues(repo: string, since: string, limit: number): Promise<PublicIssue[]> {
-    const q: ReadQuery = { state: 'open', sort: 'updated', direction: 'asc', since, per_page: 100 };
-    const issues = await this.read(repo, 'issues', q, z.array(PublicIssue));
-    return issues.filter((i) => i.pull_request === undefined).slice(0, limit);
+  /**
+   * Open issues (not PRs) updated since `since`, oldest update first, at most `limit`.
+   * `resumeAt` is where the next run must start when this one did not see everything: the last
+   * issue returned when more issues were cut, or the last item of a full page (GitHub lists pull
+   * requests on the same endpoint, so a full page can hold few issues and still hide more behind
+   * it). Null means everything updated since `since` was seen.
+   */
+  async listUpdatedIssues(
+    repo: string,
+    since: string,
+    limit: number,
+  ): Promise<{ issues: PublicIssue[]; resumeAt: string | null }> {
+    const perPage = 100;
+    const q: ReadQuery = {
+      state: 'open',
+      sort: 'updated',
+      direction: 'asc',
+      since,
+      per_page: perPage,
+    };
+    const page = await this.read(repo, 'issues', q, z.array(PublicIssue));
+    const all = page.filter((i) => i.pull_request === undefined);
+    const issues = all.slice(0, limit);
+    const cut =
+      all.length > limit ? issues.at(-1) : page.length >= perPage ? page.at(-1) : undefined;
+    return { issues, resumeAt: cut?.updated_at ?? null };
   }
 
   /** Recently created open issues, as candidates for duplicate detection. */
