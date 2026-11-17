@@ -1,4 +1,6 @@
 import { env } from 'cloudflare:workers';
+import { runInDurableObject } from 'cloudflare:test';
+import { getAgentByName } from 'agents';
 import { describe, expect, it, vi } from 'vitest';
 import evalSystemPrompt from '../../../evals/agents/triage/system.txt?raw';
 import worker from '../src/index.js';
@@ -316,6 +318,31 @@ describe('triage agent wiring', () => {
     );
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ manifest: { id: 'triage' }, recent: [] });
+  });
+
+  it('refuses, as a read-only agent, to ask for any side effect before reaching the broker', async () => {
+    const stub = await getAgentByName(testEnv.TriageAgent, 'owasp-cheatsheetseries');
+    const errors = await runInDurableObject(stub, async (agent) => {
+      const a = agent as unknown as {
+        act(...args: unknown[]): Promise<unknown>;
+        requestApproval(...args: unknown[]): Promise<unknown>;
+        requestBundleApproval(...args: unknown[]): Promise<unknown>;
+      };
+      const out: string[] = [];
+      for (const call of [
+        () => a.act({}, 'run', { kind: 'schedule' }),
+        () => a.requestApproval({}, 'why', 'run', { kind: 'schedule' }),
+        () => a.requestBundleApproval({}, 'why', 'run', { kind: 'schedule' }),
+      ])
+        out.push(
+          await call().then(
+            () => 'resolved',
+            (e: unknown) => (e instanceof Error ? e.message : 'threw'),
+          ),
+        );
+      return out;
+    });
+    for (const e of errors) expect(e).toContain('read-only');
   });
 });
 

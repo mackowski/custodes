@@ -171,6 +171,14 @@ export function resultPage(out: DecideResult): string {
   return layout('Approval', `<h1>Approval</h1><p>${msg}</p>`);
 }
 
+/** The broker refused the request before deciding anything. */
+export function refusedPage(): string {
+  return layout(
+    'Approval',
+    '<h1>The decision was refused</h1><p>The broker did not accept this request. Nothing was decided and nothing was posted. The link can be used again.</p>',
+  );
+}
+
 /** The broker did not return a decision result: the action may or may not have run. */
 export function unknownOutcomePage(): string {
   return layout(

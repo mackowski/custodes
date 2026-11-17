@@ -53,7 +53,7 @@ export const MAX_JOBS_PER_DAY = 10;
  */
 export const MAX_JOBS_PER_DAY_SANDBOX = 40;
 /**
- * A job that fails this many times is parked for PARK_MS. It is not deleted: triage sends every
+ * A job whose model answer is unusable this many times is parked for PARK_MS. It is not deleted: triage sends every
  * stale accepted issue again on each prepare, and a deleted job came back with attempts 0, so
  * giving up never held. A newer version of the issue resets the row and runs at once.
  */
@@ -265,7 +265,10 @@ export abstract class SpecialistAgent extends CustodesAgent<AgentsEnv, Specialis
       if (err instanceof AgentHaltedError) return false;
       // Class, status and error type only: never model output or issue text.
       const what = describeError(err);
-      const attempts = job.attempts + 1;
+      // Only an unusable answer about this issue counts as an attempt. An infrastructure failure
+      // (gateway, GitHub, network) says nothing about the issue: an outage must not park every
+      // queued job for a month, so it only waits and is tried again (as triage does).
+      const attempts = job.attempts + (isInputSpecific(err) ? 1 : 0);
       if (attempts >= MAX_ATTEMPTS) {
         const parkedUntil = new Date(now.getTime() + PARK_MS).toISOString();
         this.sql`UPDATE jobs SET attempts = ${attempts}, enqueued_at = ${parkedUntil}

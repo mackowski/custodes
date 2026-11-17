@@ -182,7 +182,9 @@ describe('SpecialistAgent recheck (ADR 0019)', () => {
   it('a newer version also pulls a failed job out of its retry delay, but the same version does not', async () => {
     const issue = 1000 + ++n;
     await inAgent(async (a) => {
-      a.run = () => Promise.reject(new Error('boom'));
+      // An unusable answer about this issue: the only kind of failure that counts as an attempt.
+      a.run = () =>
+        Promise.reject(Object.assign(new Error('bad output'), { name: 'StructuredOutputError' }));
       await a.enqueue([{ issue, issueUpdatedAt: '2026-11-10T10:00:00.000Z' }]);
       await a.workOne();
       const delayed = jobs(a).find((j) => j.issue === issue)!;
@@ -222,10 +224,29 @@ describe('SpecialistAgent queue: giving up, the daily cap and versions', () => {
   const makeReady = (a: Internals, issue: number) =>
     a.sql`UPDATE jobs SET enqueued_at = '2000-01-01T00:00:00.000Z' WHERE issue = ${issue}`;
 
+  // An unusable answer about this issue (input-specific), as the model clients throw it.
+  const unusable = () => Object.assign(new Error('bad output'), { name: 'StructuredOutputError' });
+
+  it('never parks a job for infrastructure failures: an outage heals by itself', async () => {
+    const issue = 1000 + ++n;
+    await inAgent(async (a) => {
+      a.run = () => Promise.reject(new Error('gateway down'));
+      await a.enqueue([{ issue, issueUpdatedAt: updated }]);
+      for (let k = 0; k < 6; k++) {
+        makeReady(a, issue);
+        await a.workOne();
+      }
+      const row = jobs(a).find((j) => j.issue === issue);
+      expect(row?.attempts).toBe(0);
+      // Waiting for the retry delay, not parked for a month.
+      expect(Date.parse(row?.enqueued_at ?? '')).toBeLessThan(Date.now() + 7 * HOUR);
+    });
+  });
+
   it('parks a job after the last attempt, so the next prepare does not start it over', async () => {
     const issue = 1000 + ++n;
     await inAgent(async (a) => {
-      a.run = () => Promise.reject(new Error('boom'));
+      a.run = () => Promise.reject(unusable());
       await a.enqueue([{ issue, issueUpdatedAt: updated }]);
       for (let k = 0; k < 4; k++) {
         makeReady(a, issue);

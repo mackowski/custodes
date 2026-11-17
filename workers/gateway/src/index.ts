@@ -29,6 +29,7 @@ import {
   PAGE_HEADERS,
   resultPage,
   type DecideResult,
+  refusedPage,
   unknownOutcomePage,
 } from './approval-page.js';
 import type { GatewayEnv } from './env.js';
@@ -327,7 +328,13 @@ admin.post('/approvals/link/:token', async (c) => {
   // was already used up) does not, and the operator must not read it as "nothing happened".
   if (!res.ok && res.status !== 409) {
     console.log(JSON.stringify({ event: 'admin.approval.link.failed', status: res.status }));
-    return c.body(unknownOutcomePage(), 502, PAGE_HEADERS);
+    // The broker answers 4xx before it looks at the approval; only a 5xx can follow one that was
+    // already used up.
+    return c.body(
+      res.status < 500 ? refusedPage() : unknownOutcomePage(),
+      res.status < 500 ? 403 : 502,
+      PAGE_HEADERS,
+    );
   }
   const out = await res.json<DecideResult>();
   console.log(

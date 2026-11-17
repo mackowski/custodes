@@ -473,8 +473,8 @@ export async function readReferencedIssues(
   ];
   const refs: { n: number; via: string }[] = [];
   for (const { text, via } of sources)
-    for (const n of linkedIssueNumbers(text, repo))
-      if (n !== issue.number && !refs.some((r) => r.n === n)) refs.push({ n, via });
+    for (const n of linkedIssueNumbers(text, repo, issue.number))
+      if (!refs.some((r) => r.n === n)) refs.push({ n, via });
   const out: ReferencedIssue[] = [];
   for (const { n, via } of refs) {
     if (out.length >= MAX_REFERENCED) break;

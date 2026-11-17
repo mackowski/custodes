@@ -993,10 +993,11 @@ describe("admin writes forward the operator's own Access token to the broker (#1
   it('says the outcome is unknown when the broker answers a decision with an error', async () => {
     const link =
       '/admin/approvals/link/9d7c1e9e-2b1a-4b6e-9a2e-1f7d1c2b3a44.1900000000.abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG';
-    for (const reply of [
-      new Response('Internal Server Error', { status: 500 }),
-      Response.json({ error: 'forbidden' }, { status: 403 }),
-    ]) {
+    for (const [reply, status, text] of [
+      [new Response('Internal Server Error', { status: 500 }), 502, 'The outcome is not known'],
+      // A refusal comes before the broker looks at the approval: nothing can have been posted.
+      [Response.json({ error: 'forbidden' }, { status: 403 }), 403, 'Nothing was decided'],
+    ] as const) {
       const res = await worker.fetch(
         new Request(`https://custodes.work${link}`, {
           method: 'POST',
@@ -1006,8 +1007,8 @@ describe("admin writes forward the operator's own Access token to the broker (#1
         { ...testEnv(), BROKER: { fetch: () => Promise.resolve(reply) } as unknown as Fetcher },
         ctx,
       );
-      expect(res.status).toBe(502);
-      expect(await res.text()).toContain('The outcome is not known');
+      expect(res.status).toBe(status);
+      expect(await res.text()).toContain(text);
     }
   });
 

@@ -5,6 +5,7 @@
  * comments; the rest stay in the body as text. Pure.
  */
 import { inertText } from '@custodes/llm';
+import { INLINE_COMMENT_BODY_MAX } from '@custodes/schema';
 import { DIMENSION, type ClaimResult } from './claims.js';
 import { inOneHunk, type Hunk } from './diff.js';
 import { LINEUP, model, type Role, type RoleOutcome } from './lineup.js';
@@ -16,8 +17,6 @@ export const DOCS_URL =
 
 /** Upper bound for the review body: the broker allows 60 000 and appends a trailer. */
 const BODY_LIMIT = 55_000;
-/** `InlineReviewComment.body` in `@custodes/schema`: the broker refuses a longer comment. */
-const INLINE_BODY_MAX = 3_900;
 
 const URL_IN_TEXT = /https?:\/\/[^\s<>"'`)\]]+/gi;
 /** Placeholders for allowed URLs; inertText has already removed every control character. */
@@ -133,7 +132,7 @@ export function checkSuggestions(
     const body = `${inertMarkdown(s.rationale, allowed, 400)}\n\n\`\`\`\`suggestion\n${s.replacement}\n\`\`\`\``;
     // Escaping can grow the rationale fourfold. Cutting the body to fit would cut the suggestion
     // block, and one click would then commit a truncated replacement.
-    if (body.length > INLINE_BODY_MAX) {
+    if (body.length > INLINE_COMMENT_BODY_MAX) {
       reject('too long for an inline comment; apply it by hand if it is right');
       continue;
     }
