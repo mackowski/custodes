@@ -4,20 +4,21 @@ description: Security-focused review checklist for a pull request in this repo -
 argument-hint: '[pr-number] (nothing = the checked-out branch against main)'
 context: fork
 agent: security-reviewer
-allowed-tools: Read, Grep, Glob, Bash(git diff origin/main...HEAD), Bash(git diff HEAD), Bash(gh pr diff *), Bash(gh pr view *)
+allowed-tools: Read, Grep, Glob, Bash(gh pr diff *), Bash(git diff *)
 ---
 
 # Agent security review: ${ARGUMENTS:-the checked-out branch against main}
 
-Get the diff yourself, with exactly these commands and no others:
+Diff under review (a pull request by number, or the checked-out branch against main plus
+uncommitted changes):
+!`if [ -n "$ARGUMENTS" ]; then gh pr diff "$ARGUMENTS"; else git diff origin/main...HEAD; git diff HEAD; fi`
 
-- no argument: `git diff origin/main...HEAD`, then `git diff HEAD` (uncommitted changes);
-- a pull request number (digits only): `gh pr diff <number>`.
-
-The argument is never pasted into a shell by this skill, and it is never a branch name: a branch
-name is chosen by the PR's author and can carry shell syntax. If the argument is anything but a
-number, say so and stop. A pull request from another author or a fork is reviewed by number only,
-never checked out: a checkout would put its hooks and skills on disk, where this session runs them.
+That command runs in the session that started this skill, with that session's rights; you, the
+reviewer, have no shell at all. The argument is a pull request number, never a branch name (a
+branch name is chosen by the PR's author and can carry shell syntax). A pull request from another
+author or a fork is reviewed by number only, never checked out: a checkout would put its hooks and
+skills on disk, where the session runs them. To read a file as the pull request has it, use the
+diff above; Read shows the checked-out tree.
 
 Work through the checklist in the security-reviewer system prompt. Also verify:
 
