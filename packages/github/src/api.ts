@@ -3,10 +3,8 @@ import {
   type BrokerAction,
   type InlineReviewComment,
 } from '@custodes/schema';
+import { GITHUB_API, githubHeaders, unboundFetch } from './http.js';
 import type { GitHubIdentity } from './identity.js';
-
-const API = 'https://api.github.com';
-const API_VERSION = '2022-11-28';
 
 export class GitHubApiError extends Error {
   constructor(
@@ -23,18 +21,14 @@ export class GitHubApiError extends Error {
 export class GitHubRest {
   constructor(
     private readonly identity: GitHubIdentity,
-    // Wrapped, not bare: calling the global fetch as a method throws "Illegal invocation" in Workers.
-    private readonly fetchImpl: typeof fetch = (input, init) => fetch(input, init),
+    private readonly fetchImpl: typeof fetch = unboundFetch,
   ) {}
 
   private async call<T>(method: string, path: string, body?: unknown): Promise<T> {
-    const res = await this.fetchImpl(`${API}${path}`, {
+    const res = await this.fetchImpl(`${GITHUB_API}${path}`, {
       method,
       headers: {
-        accept: 'application/vnd.github+json',
-        authorization: `Bearer ${await this.identity.token()}`,
-        'x-github-api-version': API_VERSION,
-        'user-agent': `custodes/${this.identity.agentId}`,
+        ...(await githubHeaders(this.identity)),
         ...(body !== undefined ? { 'content-type': 'application/json' } : {}),
       },
       body: body !== undefined ? JSON.stringify(body) : null,

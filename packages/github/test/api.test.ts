@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { INLINE_COMMENT_MARKER } from '@custodes/schema';
 import { executeAction, GitHubRest } from '../src/api.js';
+import { GitHubReadClient } from '../src/read.js';
 import type { GitHubIdentity } from '../src/identity.js';
 
 const id: GitHubIdentity = { agentId: 'triage', token: () => Promise.resolve('tok') };
@@ -162,6 +163,10 @@ describe('GitHubRest default fetch', () => {
     });
     try {
       await new GitHubRest(id).createIssueComment('x/y', 1, 'hi');
+      expect(receiver).toBeUndefined();
+      // The read client shares the default: every /v1/read broke this way on 2026-09-29.
+      receiver = 'not called';
+      await new GitHubReadClient(id).get('/repos/x/y/issues/1');
       expect(receiver).toBeUndefined();
     } finally {
       vi.unstubAllGlobals();

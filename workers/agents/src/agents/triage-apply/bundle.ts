@@ -5,6 +5,11 @@
  */
 import { z } from 'zod';
 import {
+  commentProblem as sharedCommentProblem,
+  mentionsIn,
+  type CommentProblem,
+} from '@custodes/core';
+import {
   type ApprovalBundle,
   ApprovalToken,
   type BrokerAction,
@@ -83,23 +88,20 @@ export function threadPeople(issue: PublicIssue, comments: IssueComment[]): stri
   return out;
 }
 
-/** Same rules as the broker's `commentProblem` (it checks again): see there for why. */
+const PROBLEM_TEXT: Record<CommentProblem, string> = {
+  character_reference: 'HTML character reference',
+  comment_marker: 'HTML comment marker',
+  link: 'link',
+  other_repository: 'reference to another repository',
+};
+
+/** The shared rule (`@custodes/core`, which the broker applies again), in this agent's words. */
 export function commentProblem(body: string, repo: string): string | null {
-  if (/&(#|[A-Za-z][A-Za-z0-9]*;)/.test(body)) return 'HTML character reference';
-  if (body.includes('<!--') || body.includes('-->')) return 'HTML comment marker';
-  if (/https?:|www\./i.test(body)) return 'link';
-  for (const m of body.matchAll(/([A-Za-z0-9-]+\/[A-Za-z0-9._-]+)#\d+/g))
-    if (m[1]?.toLowerCase() !== repo.toLowerCase()) return 'reference to another repository';
-  return null;
+  const problem = sharedCommentProblem(body, repo);
+  return problem === null ? null : PROBLEM_TEXT[problem];
 }
 
-/** Same rule as the broker's `mentionsIn`: `@name` not after a letter or digit. */
-export function mentionsIn(body: string): string[] {
-  const out = new Set<string>();
-  for (const m of body.matchAll(/(?<![A-Za-z0-9])@([A-Za-z0-9-]{1,39})/g))
-    if (m[1] !== undefined) out.add(m[1]);
-  return [...out];
-}
+export { mentionsIn };
 
 /**
  * The bundle for one proposal, in run order, with what was left out and why. Fails when the issue
