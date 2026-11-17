@@ -2,16 +2,16 @@ import { invokeAgent, type Turn } from '@custodes/core';
 import { AgentHaltedError } from '@custodes/core/agent';
 import { parseStructured } from '@custodes/llm';
 import { RawAssessment, validateAssessment, type Assessment } from './assess.js';
-import { describeError } from './errors.js';
-import { issueLabels, type BrokerGitHubReader, type PublicIssue } from './github.js';
+import { describeError, isInputSpecific, isRequestRefused } from './errors.js';
+import type { BrokerGitHubReader, PublicIssue } from './github.js';
 import { buildUserMessage, isSafeName, SYSTEM_PROMPT, type TriageContext } from './prompt.js';
 
 export interface TriageStore {
   /** True when this issue was already assessed at this `updated_at`. */
   isCurrent(issue: number, updatedAt: string): boolean;
-  /** Input-specific failures recorded for this issue at this `updated_at`. */
+  /** Failures counted against this issue at this `updated_at` (see `runTriage`). */
   failures(issue: number, updatedAt: string): number;
-  /** Records one input-specific failure and returns the new count. */
+  /** Records one failure that is about this issue and returns the new count. */
   recordFailure(issue: number, updatedAt: string): number;
   save(issue: PublicIssue, assessment: Assessment, now: Date): void;
 }
@@ -29,17 +29,8 @@ export interface TriageDeps {
   now(): Date;
 }
 
-/** An issue assessed in this run, as routing needs it. */
-export interface AssessedIssue {
-  number: number;
-  updatedAt: string;
-  labels: string[];
-  kind: Assessment['kind'];
-}
-
 export interface TriageRunResult {
   assessed: number;
-  assessedIssues: AssessedIssue[];
   skipped: number;
   errors: string[];
   nextSince: string;
@@ -53,13 +44,21 @@ export const MAX_ATTEMPTS = 3;
 export const MAX_CONSECUTIVE_INFRA_FAILURES = 3;
 
 /**
- * Input-specific failures are about this issue's content (model output unparseable, refused or cut
- * off); retrying forever would stall the cursor. Everything else (gateway, GitHub, network,
- * configuration) is infrastructure: it is retried next run and never counted against an issue.
+ * A fixed, harmless issue. When a run assessed nothing and requests were refused, it goes through
+ * the same request as a real one: an answer means the path works and the refusals were about those
+ * issues; a failure means an outage (or a request the provider rejects whatever the text).
  */
-function isInputSpecific(err: unknown): boolean {
-  return err instanceof Error && ['StructuredOutputError', 'ModelOutputError'].includes(err.name);
-}
+const PROBE: PublicIssue = {
+  number: 0,
+  title: 'Connectivity check',
+  body: 'This is a fixed test message, not a real issue.',
+  html_url: 'https://github.com/',
+  user: null,
+  labels: [],
+  created_at: '1970-01-01T00:00:00Z',
+  updated_at: '1970-01-01T00:00:00Z',
+  comments: 0,
+};
 
 /**
  * One triage pass: read public data, assess changed issues, store validated results.
@@ -71,11 +70,11 @@ export async function runTriage(
   deps: TriageDeps,
 ): Promise<TriageRunResult> {
   const startedAt = deps.now();
-  const [allLabels, allCheatSheets, recent, issues] = await Promise.all([
+  const [allLabels, allCheatSheets, recent, { issues, resumeAt }] = await Promise.all([
     deps.reader.listLabels(repo),
     deps.reader.listCheatSheets(repo),
     deps.reader.listRecentIssueTitles(repo, 50),
-    deps.reader.listUpdatedIssues(repo, since, MAX_PER_RUN),
+    deps.reader.listUpdatedIssues(repo, since),
   ]);
   // Only names that pass the prompt's safe charset unchanged are offered and accepted, so the model
   // sees exactly the list it is validated against.
@@ -84,9 +83,13 @@ export async function runTriage(
   const ctx: TriageContext = { repo, labels, cheatSheets, recent };
   let firstFailedUpdate: string | null = null;
   const errors: string[] = [];
-  const assessedIssues: AssessedIssue[] = [];
+  let assessed = 0;
   let skipped = 0;
   let consecutiveInfra = 0;
+  const infraFailed: PublicIssue[] = [];
+  let attempted = 0;
+  /** Where the run stopped at its cap: the first issue it did not get to. */
+  let cutAt: string | null = null;
   for (const issue of issues) {
     if (
       deps.store.isCurrent(issue.number, issue.updated_at) ||
@@ -95,6 +98,14 @@ export async function runTriage(
       skipped++;
       continue;
     }
+    // The cap counts issues that need work, not the ones skipped above: otherwise 15 assessed
+    // issues sharing one timestamp (a bulk label) would fill every run and nothing after them
+    // would ever be reached.
+    if (attempted >= MAX_PER_RUN) {
+      cutAt = issue.updated_at;
+      break;
+    }
+    attempted++;
     try {
       const turn = deps.turn?.(issue.number);
       const assessment = await invokeAgent(turn, async (span) => {
@@ -115,12 +126,7 @@ export async function runTriage(
         return a;
       });
       deps.store.save(issue, assessment, deps.now());
-      assessedIssues.push({
-        number: issue.number,
-        updatedAt: issue.updated_at,
-        labels: issueLabels(issue),
-        kind: assessment.kind,
-      });
+      assessed++;
       consecutiveInfra = 0;
     } catch (err) {
       if (err instanceof AgentHaltedError) throw err; // a halt stops the run; the cursor is kept
@@ -138,6 +144,7 @@ export async function runTriage(
       } else {
         firstFailedUpdate ??= issue.updated_at;
         errors.push(`#${issue.number}: ${what}`);
+        if (isRequestRefused(err)) infraFailed.push(issue);
         if (++consecutiveInfra >= MAX_CONSECUTIVE_INFRA_FAILURES) {
           errors.push(`stopped after ${consecutiveInfra} consecutive infrastructure failures`);
           break;
@@ -145,12 +152,38 @@ export async function runTriage(
       }
     }
   }
-  // Issues arrive oldest update first. If the batch was capped, resume from the last one reached
-  // (it is skipped next time as already current); otherwise everything up to now is covered.
-  // A failed issue (model or gateway error) is retried next run: never move the cursor past it.
-  const last = issues.at(-1);
-  const nextSince =
-    firstFailedUpdate ??
-    (issues.length >= MAX_PER_RUN && last ? last.updated_at : startedAt.toISOString());
-  return { assessed: assessedIssues.length, assessedIssues, skipped, errors, nextSince };
+  // A refused request (a 4xx that is not a timeout or a rate limit) while the model path works is
+  // about that issue (a guardrail block, a provider 400 on its text), not an outage: count it, so
+  // it cannot hold the cursor and cost a model call on every poll for ever. The path works when
+  // another issue was assessed in this run or, failing that, when the probe gets an answer: three
+  // refused issues at the front of every run would otherwise stop triage for good. In an outage
+  // the probe fails too and nothing is counted; a 429, a 5xx or a timeout is never counted, or a
+  // flood of issues could push real ones out of triage.
+  let pathWorks = assessed > 0;
+  if (!pathWorks && infraFailed.length > 0)
+    try {
+      await deps.complete(SYSTEM_PROMPT, buildUserMessage(PROBE, ctx), PROBE.number);
+      pathWorks = true;
+    } catch (err) {
+      if (err instanceof AgentHaltedError) throw err;
+      // An unusable answer is still an answer.
+      pathWorks = isInputSpecific(err);
+      // Refused like the issues: an outage, or something every request shares (a label or a
+      // recent title a guardrail blocks). The operator has to look; nothing is counted.
+      if (isRequestRefused(err)) errors.push(`probe refused too (${describeError(err)})`);
+    }
+  if (pathWorks)
+    for (const issue of infraFailed) {
+      const attempts = deps.store.recordFailure(issue.number, issue.updated_at);
+      if (attempts >= MAX_ATTEMPTS)
+        errors.push(
+          `#${issue.number}: gave up after ${attempts} attempts (refused while other requests were answered)`,
+        );
+    }
+  // Issues arrive oldest update first. If the reader did not see everything, resume where it
+  // stopped (an issue already assessed is skipped next time as current); otherwise everything up
+  // to now is covered. A failed issue (model or gateway error) is retried next run: never move the
+  // cursor past it.
+  const nextSince = firstFailedUpdate ?? cutAt ?? resumeAt ?? startedAt.toISOString();
+  return { assessed, skipped, errors, nextSince };
 }

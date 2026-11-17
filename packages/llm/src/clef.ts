@@ -9,6 +9,8 @@
  */
 import { z } from 'zod';
 import { chat, type Turn } from '@custodes/core';
+import { gatewayMetadata } from './metadata.js';
+import { withTimeout } from './timeout.js';
 import {
   decisionInput,
   decisionOutput,
@@ -85,30 +87,19 @@ export class ClefClient {
     if (!selector) throw new Error(`not a Clef model: ${req.model}`);
     return chat(turn, { provider: 'cloudflare.workers_ai', model: req.model }, async (span) => {
       span.payload('gen_ai.input.messages', decisionInput(req));
-      const ac = new AbortController();
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      const timeout = new Promise<never>((_, reject) => {
-        timer = setTimeout(() => {
-          ac.abort();
-          reject(new ClefTimeoutError());
-        }, this.timeoutMs);
-      });
-      let raw: unknown;
-      try {
-        raw = await Promise.race([
+      const raw: unknown = await withTimeout(
+        this.timeoutMs,
+        (signal) =>
           this.cfg.ai.run(
             req.model,
             { model: selector, state: req.state, questions: req.questions },
             {
-              gateway: { id: this.cfg.gatewayId, metadata: { ...req.metadata } },
-              signal: ac.signal,
+              gateway: { id: this.cfg.gatewayId, metadata: gatewayMetadata(req.metadata) },
+              signal,
             },
           ),
-          timeout,
-        ]);
-      } finally {
-        clearTimeout(timer);
-      }
+        () => new ClefTimeoutError(),
+      );
       const parsed = ClefResponse.safeParse(raw);
       if (!parsed.success) throw new JevOutputError('(response)');
       decisionOutput(span, parsed.data);

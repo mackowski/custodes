@@ -21,8 +21,9 @@ export interface CustodesEnv {
   /** `"true"` records model and tool payloads in trace spans (ADR 0016). */
   TRACE_PAYLOADS: string;
   /**
-   * Set only in a per-agent Worker (ADR 0018): its `Keyholder` and its caller name, e.g.
-   * `custodes-pr-gate`. With both, every broker call is signed; the shared Worker has neither.
+   * The agent Worker's `Keyholder` and its caller name, e.g. `custodes-pr-gate` (ADR 0018): every
+   * broker call is signed with them. Optional in the type only because `custodes-agents`, which
+   * runs no agent, shares this env shape; an agent without both refuses to call the broker.
    */
   KEYHOLDER?: DurableObjectNamespace<Keyholder>;
   CALLER_NAME?: string;
@@ -62,6 +63,11 @@ export abstract class CustodesAgent<
     if (source !== 'server') throw new Error('agent state is server-owned');
   }
 
+  /** A second layer for the same rule: the SDK refuses a state frame from a read-only connection. */
+  override shouldConnectionBeReadonly(): boolean {
+    return true;
+  }
+
   /**
    * Workers custom spans; tests replace it with a recording fake. A namespace import, so a runtime
    * without `tracing` falls back to no spans instead of failing to load the Worker.
@@ -83,20 +89,20 @@ export abstract class CustodesAgent<
   }
 
   /**
-   * The broker, as this agent must call it: signed with the Worker's own key in a per-agent Worker,
-   * plain on the shared Worker until it moves (ADR 0018). Read on every call, so tests that replace
-   * `env.BROKER` keep working. Use this, never `env.BROKER`, for every broker request.
+   * The broker, as this agent must call it: every request signed with the Worker's own key
+   * (ADR 0018). Read on every call, so tests that replace `env.BROKER` keep working. Use this,
+   * never `env.BROKER`, for every broker request.
    */
   protected get broker(): BrokerFetcher {
-    const keyholder = this.keyholder;
-    return keyholder === null ? this.env.BROKER : signingBroker(this.env.BROKER, keyholder);
+    return signingBroker(this.env.BROKER, this.keyholder);
   }
 
-  /** This Worker's Keyholder, or null on the shared Worker. Throws when half-configured. */
-  private get keyholder(): DurableObjectStub<Keyholder> | null {
+  /**
+   * This Worker's Keyholder. Every agent runs in its own Worker with one (the shared Worker that
+   * sent unsigned requests is gone), so a missing binding is a deploy mistake: fail loudly.
+   */
+  private get keyholder(): DurableObjectStub<Keyholder> {
     const { KEYHOLDER, CALLER_NAME } = this.env;
-    if (KEYHOLDER === undefined && CALLER_NAME === undefined) return null;
-    // Half-configured is a deploy mistake: fail loudly instead of sending unsigned requests.
     if (KEYHOLDER === undefined || CALLER_NAME === undefined) {
       console.error(
         JSON.stringify({ event: 'agent.broker.misconfigured', agentId: this.manifest.id }),
@@ -134,12 +140,11 @@ export abstract class CustodesAgent<
 
   /**
    * After a rotation, switches the Worker to its next key once the broker accepts it (ADR 0018,
-   * threat D1). A no-op on the shared Worker and when there is no next key; never blocks a run.
+   * threat D1). A no-op when there is no next key; never blocks a run.
    */
   private async adoptNextKey(): Promise<void> {
     try {
-      const keyholder = this.keyholder;
-      if (keyholder !== null && (await keyholder.activateNextIfAccepted()))
+      if (await this.keyholder.activateNextIfAccepted())
         console.log(JSON.stringify({ event: 'agent.key.activated', agentId: this.manifest.id }));
     } catch {
       // A half-configured Worker or an unreachable keyholder: haltState() fails closed next.
@@ -153,25 +158,35 @@ export abstract class CustodesAgent<
     if (state.halted) throw new AgentHaltedError(this.manifest.id, state.reason);
   }
 
+  /**
+   * The start of every request for a side effect (`act`, `requestApproval`,
+   * `requestBundleApproval`): a read-only agent is refused here, the kill switch is checked, and
+   * the fields that identify the request are built. One place, so the three cannot drift.
+   */
+  private async sideEffect(
+    runId: string,
+    triggeredBy: Trigger,
+  ): Promise<Pick<BrokerRequest, 'agentId' | 'agentVersion' | 'runId' | 'triggeredBy'>> {
+    if (this.manifest.mode === 'readonly') {
+      throw new Error(`agent ${this.manifest.id} is read-only and cannot request side effects`);
+    }
+    await this.guard();
+    return {
+      agentId: this.manifest.id,
+      agentVersion: this.manifest.version,
+      runId,
+      triggeredBy,
+    };
+  }
+
   /** Requests a GitHub side effect. The broker decides; this method only reports the outcome. */
   protected async act(
     action: BrokerAction,
     runId: string,
     triggeredBy: Trigger,
-    opts: { onBehalfOf?: string; turn?: Turn } = {},
+    opts: { turn?: Turn } = {},
   ): Promise<BrokerResponse> {
-    if (this.manifest.mode === 'readonly') {
-      throw new Error(`agent ${this.manifest.id} is read-only and cannot request side effects`);
-    }
-    await this.guard();
-    const request: BrokerRequest = {
-      agentId: this.manifest.id,
-      agentVersion: this.manifest.version,
-      runId,
-      triggeredBy,
-      action,
-      ...(opts.onBehalfOf !== undefined ? { onBehalfOf: opts.onBehalfOf } : {}),
-    };
+    const request: BrokerRequest = { ...(await this.sideEffect(runId, triggeredBy)), action };
     return executeTool(opts.turn, action.type, async (span) => {
       // The action is our own output (it becomes public on GitHub); approval ids are not recorded.
       span.payload('gen_ai.tool.call.arguments', action);
@@ -198,14 +213,7 @@ export abstract class CustodesAgent<
     triggeredBy: Trigger,
     opts: { turn?: Turn } = {},
   ): Promise<{ ok: true; created: ApprovalCreated } | { ok: false; status: number }> {
-    await this.guard();
-    const request: BrokerRequest = {
-      agentId: this.manifest.id,
-      agentVersion: this.manifest.version,
-      runId,
-      triggeredBy,
-      action,
-    };
+    const request: BrokerRequest = { ...(await this.sideEffect(runId, triggeredBy)), action };
     return executeTool(opts.turn, 'approval.request', async (span) => {
       const res = await this.broker.fetch('https://broker.internal/v1/approvals', {
         method: 'POST',
@@ -231,23 +239,11 @@ export abstract class CustodesAgent<
   ): Promise<
     { ok: true; created: ApprovalCreated } | { ok: false; status: number; error?: string }
   > {
-    if (this.manifest.mode === 'readonly') {
-      throw new Error(`agent ${this.manifest.id} is read-only and cannot request side effects`);
-    }
-    await this.guard();
+    const request = { ...(await this.sideEffect(runId, triggeredBy)), bundle };
     const res = await this.broker.fetch('https://broker.internal/v1/approvals/bundle', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        request: {
-          agentId: this.manifest.id,
-          agentVersion: this.manifest.version,
-          runId,
-          triggeredBy,
-          bundle,
-        },
-        rationale: rationale.slice(0, 4_000),
-      }),
+      body: JSON.stringify({ request, rationale: rationale.slice(0, 4_000) }),
     });
     if (res.status !== 201) {
       // The broker's reason (policy, stale, a stranger named) is ours to log; it holds no secret.

@@ -1,10 +1,13 @@
 import {
   canonicalJson,
+  commentProblem as sharedCommentProblem,
   commentsDigest,
   evaluatePolicy,
   KillSwitch,
+  mentionsIn,
   parseApprovalToken,
   sha256Hex,
+  type CommentProblem,
 } from '@custodes/core';
 import {
   type ApprovalBundle,
@@ -12,6 +15,8 @@ import {
   type BrokerRequest,
   type BrokerResponse,
   type BundleApprovalAsk,
+  type BundleStep,
+  type DecideOutcome,
   GitHubLogin,
   type IssueSnapshot,
 } from '@custodes/schema';
@@ -125,9 +130,7 @@ async function storeApproval(
   const store = new ApprovalStore(env.AUDIT);
   if ((await store.countPending(req.agentId, now)) >= maxPending(req.agentId))
     return { ok: false, status: 403, error: 'too many pending approvals' };
-  // Only what the page shows gets posted: `onBehalfOf` would add a mention to the public trailer
-  // that the operator never saw, so it is not carried into an approval.
-  const { approvalId: _ignored, onBehalfOf: _notShown, ...request } = req;
+  const { approvalId: _ignored, ...request } = req;
   const actionHash = await approvalHash(req.action, bundle);
   const ttl = approvalTtlSeconds(req.agentId);
   const approval = await store.create(request, rationale, actionHash, ttl, now, bundle);
@@ -187,23 +190,32 @@ export async function readIssueThread(
     updated_at?: unknown;
   };
   if (data.pull_request !== undefined) return { ok: false, reason: 'not an issue' };
+  // `ghost` is GitHub's placeholder for a deleted account: nobody to assign or name, as the
+  // agents read it too.
   const login = (v: unknown) =>
-    typeof v === 'string' && GitHubLogin.safeParse(v).success ? v : null;
+    typeof v === 'string' && GitHubLogin.safeParse(v).success && v.toLowerCase() !== 'ghost'
+      ? v
+      : null;
   const author = login(data.user?.login);
-  if (author === null || (data.state !== 'open' && data.state !== 'closed'))
+  // A bot author often has a login we do not accept (`dependabot[bot]`): that is still a known
+  // shape. It is never a person to assign or name; the commenters still are.
+  const botAuthor =
+    data.user?.type === 'Bot' ||
+    (typeof data.user?.login === 'string' && data.user.login.toLowerCase() === 'ghost');
+  if ((author === null && !botAuthor) || (data.state !== 'open' && data.state !== 'closed'))
     return { ok: false, reason: 'unexpected issue shape' };
   const labels = (data.labels ?? [])
     .map((l) => (typeof l === 'string' ? l : typeof l.name === 'string' ? l.name : ''))
     .filter((l) => l.length > 0)
     .sort();
-  const assignees = (data.assignees ?? [])
-    .map((a) => login(a.login))
-    .filter((a): a is string => a !== null)
-    .sort();
+  const assigned = (data.assignees ?? []).map((a) => login(a.login));
+  // An assignee whose login we do not accept is still an assignee: dropping it would make the
+  // issue look unassigned and let a bundle assign a second person (ADR 0019).
+  if (assigned.includes(null)) return { ok: false, reason: 'unexpected issue shape' };
+  const assignees = assigned.filter((a): a is string => a !== null).sort();
   if (typeof data.updated_at !== 'string') return { ok: false, reason: 'unexpected issue shape' };
   const updatedAt = data.updated_at;
-  // A bot author is not a person to assign or name either.
-  const people = data.user?.type === 'Bot' ? [] : [author];
+  const people = botAuthor || author === null ? [] : [author];
   const all: unknown[] = [];
   let count = 0;
   for (let page = 1; page <= MAX_COMMENT_PAGES; page++) {
@@ -243,36 +255,17 @@ export async function readIssueThread(
   };
 }
 
-/**
- * Logins a comment may notify: `@name` not preceded by a letter or digit (so e-mail addresses do
- * not count). Over-reporting only makes the check stricter.
- */
-export function mentionsIn(body: string): string[] {
-  const out = new Set<string>();
-  // GitHub finds mentions in rendered text, so `_@x_`, `` `a`@x `` and `/@x` count too.
-  for (const m of body.matchAll(/(?<![A-Za-z0-9])@([A-Za-z0-9-]{1,39})/g))
-    if (m[1] !== undefined) out.add(m[1]);
-  return [...out];
-}
+const PROBLEM_TEXT: Record<CommentProblem, string> = {
+  character_reference: 'comment contains an HTML character reference',
+  comment_marker: 'comment contains an HTML comment marker',
+  link: 'comment contains a link',
+  other_repository: 'comment references another repository',
+};
 
-/**
- * Why a bundle comment cannot be posted, or null (ADR 0019). Mirrors triage-apply's `buildBundle`:
- * - a character reference renders as `@` (`&#64;x`) where the mention check cannot see it;
- * - `<!--` or `-->` would hide text (or a fake trailer) on GitHub that the page shows;
- * - a reference to another repository (`owner/repo#N`) or any link puts a cross-reference in
- *   someone else's timeline under the operator's name.
- */
+/** The shared rule (`@custodes/core`, which triage-apply applies first), in the broker's words. */
 export function commentProblem(body: string, repo: string): string | null {
-  if (/&(#|[A-Za-z][A-Za-z0-9]*;)/.test(body))
-    return 'comment contains an HTML character reference';
-  if (body.includes('<!--') || body.includes('-->'))
-    return 'comment contains an HTML comment marker';
-  // No links at all (model text is link-free after sanitizeComment): a URL to another issue or
-  // pull request would create a cross-reference under the operator's name.
-  if (/https?:|www\./i.test(body)) return 'comment contains a link';
-  for (const m of body.matchAll(/([A-Za-z0-9-]+\/[A-Za-z0-9._-]+)#\d+/g))
-    if (m[1]?.toLowerCase() !== repo.toLowerCase()) return 'comment references another repository';
-  return null;
+  const problem = sharedCommentProblem(body, repo);
+  return problem === null ? null : PROBLEM_TEXT[problem];
 }
 
 /** The bundle against the issue now: same snapshot, and only thread people assigned or named. */
@@ -342,19 +335,6 @@ export async function approvalByToken(
   return { ok: true, approval: { ...approval, action: request.action } };
 }
 
-/** One action of an approved bundle, as it ran (or did not). */
-export interface BundleStep {
-  type: BrokerRequest['action']['type'];
-  outcome: 'done' | 'failed' | 'not_run';
-  code?: string;
-  githubUrl?: string;
-}
-
-export type DecideOutcome =
-  | { result: 'not_found' | 'not_pending' | 'expired' | 'rate_limited' }
-  | { result: 'ok'; decision: 'rejected' }
-  | { result: 'ok'; decision: 'approved'; executed: BrokerResponse; steps?: BundleStep[] };
-
 /** Records the decision; on approval runs the stored request once, through the full pipeline. */
 export async function decideApproval(
   env: BrokerEnv,
@@ -371,11 +351,10 @@ export async function decideApproval(
     const pending = await store.get(id);
     const agentPolicy = pending ? policy.agents[pending.agentId] : undefined;
     if (pending?.bundle && agentPolicy) {
-      const hourAgo = new Date(now.getTime() - 3_600_000).toISOString();
-      const used = await new AuditStore(env.AUDIT).countAllowedSince(
+      const used = await new AuditStore(env.AUDIT).usedThisHour(
         pending.agentId,
         pending.action.repo,
-        hourAgo,
+        now,
       );
       if (used + pending.bundle.actions.length > agentPolicy.rateLimitPerHour)
         return { result: 'rate_limited' };

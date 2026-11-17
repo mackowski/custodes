@@ -28,6 +28,9 @@ const repoPath = z
  */
 export const INLINE_COMMENT_MARKER = '🤖 _Custodes LLM suggestion: please double-check._\n\n';
 
+/** Longest inline comment body an agent may send; with the marker it stays under GitHub's limit. */
+export const INLINE_COMMENT_BODY_MAX = 3_900;
+
 /** One inline review comment on the new side of the diff; `startLine` makes it multi-line. */
 export const InlineReviewComment = z
   .object({
@@ -36,7 +39,7 @@ export const InlineReviewComment = z
     startLine: z.number().int().positive().max(100_000).optional(),
     side: z.literal('RIGHT'),
     /** The broker prefixes `INLINE_COMMENT_MARKER`, so the posted comment stays under 4000. */
-    body: z.string().min(1).max(3_900),
+    body: z.string().min(1).max(INLINE_COMMENT_BODY_MAX),
   })
   .refine((c) => c.startLine === undefined || c.startLine < c.line, {
     message: 'startLine must be before line',
@@ -65,6 +68,8 @@ export const BrokerAction = z.discriminatedUnion('type', [
     ...issueRef,
     assignees: z.array(GitHubLogin).length(1),
   }),
+  // `pr.comment` and `pr.review` are retired: kept so old audit records parse, never executed
+  // (`executeAction` in @custodes/github refuses them). Use `issue.comment` and `pr.review.inline`.
   z.object({ type: z.literal('pr.comment'), ...pullRef, body }),
   z.object({
     type: z.literal('pr.review'),
@@ -96,7 +101,3 @@ export const BrokerActionType = z.enum(
   ],
 );
 export type BrokerActionType = z.infer<typeof BrokerActionType>;
-
-export function actionRepo(action: BrokerAction): string {
-  return action.repo;
-}

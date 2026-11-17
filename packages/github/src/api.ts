@@ -3,10 +3,8 @@ import {
   type BrokerAction,
   type InlineReviewComment,
 } from '@custodes/schema';
+import { GITHUB_API, githubHeaders, unboundFetch } from './http.js';
 import type { GitHubIdentity } from './identity.js';
-
-const API = 'https://api.github.com';
-const API_VERSION = '2022-11-28';
 
 export class GitHubApiError extends Error {
   constructor(
@@ -23,18 +21,14 @@ export class GitHubApiError extends Error {
 export class GitHubRest {
   constructor(
     private readonly identity: GitHubIdentity,
-    // Wrapped, not bare: calling the global fetch as a method throws "Illegal invocation" in Workers.
-    private readonly fetchImpl: typeof fetch = (input, init) => fetch(input, init),
+    private readonly fetchImpl: typeof fetch = unboundFetch,
   ) {}
 
   private async call<T>(method: string, path: string, body?: unknown): Promise<T> {
-    const res = await this.fetchImpl(`${API}${path}`, {
+    const res = await this.fetchImpl(`${GITHUB_API}${path}`, {
       method,
       headers: {
-        accept: 'application/vnd.github+json',
-        authorization: `Bearer ${await this.identity.token()}`,
-        'x-github-api-version': API_VERSION,
-        'user-agent': `custodes/${this.identity.agentId}`,
+        ...(await githubHeaders(this.identity)),
         ...(body !== undefined ? { 'content-type': 'application/json' } : {}),
       },
       body: body !== undefined ? JSON.stringify(body) : null,
@@ -69,12 +63,6 @@ export class GitHubRest {
       `/repos/${repo}/issues/${issue}/assignees`,
       { assignees },
     );
-  }
-  createPullReview(repo: string, pull: number, event: string, body: string) {
-    return this.call<{ html_url: string }>('POST', `/repos/${repo}/pulls/${pull}/reviews`, {
-      event,
-      body,
-    });
   }
   /** A review with inline comments on the new side of the diff, pinned to `commitId`. */
   createInlinePullReview(
@@ -113,10 +101,6 @@ export async function executeAction(
       const r = await api.createIssueComment(action.repo, action.issue, decorate(action.body));
       return { githubUrl: r.html_url };
     }
-    case 'pr.comment': {
-      const r = await api.createIssueComment(action.repo, action.pull, decorate(action.body));
-      return { githubUrl: r.html_url };
-    }
     case 'issue.label.add':
       await api.addLabels(action.repo, action.issue, action.labels);
       return {};
@@ -136,15 +120,12 @@ export async function executeAction(
         );
       return {};
     }
-    case 'pr.review': {
-      const r = await api.createPullReview(
-        action.repo,
-        action.pull,
-        action.event,
-        decorate(action.body),
-      );
-      return { githubUrl: r.html_url };
-    }
+    // Retired: no agent ever used them and no policy granted them, and `pr.review` could approve a
+    // pull request. The variants stay in the schema only so that an old audit record still parses;
+    // they cannot be executed, whatever a policy says.
+    case 'pr.comment':
+    case 'pr.review':
+      throw new Error(`action ${action.type} is retired and cannot be executed`);
     case 'pr.review.inline': {
       // Trailers go on the review body; each inline comment gets a fixed marker instead.
       const r = await api.createInlinePullReview(action.repo, action.pull, {

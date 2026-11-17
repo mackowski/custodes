@@ -12,13 +12,15 @@
  */
 import { chat, type OperationSpan, type Turn } from '@custodes/core';
 import type { AiRunner } from './clef.js';
+import { gatewayMetadata } from './metadata.js';
+import { withTimeout } from './timeout.js';
 import {
   AnthropicGateway,
   clipPayload,
   errorTypeOf,
+  openRouterCode,
   GatewayError,
   ModelOutputError,
-  type MessagesRequest,
 } from './gateway.js';
 
 export interface ChatRequest {
@@ -52,31 +54,6 @@ export interface ChatModel {
   complete(req: ChatRequest, turn?: Turn): Promise<ChatResult>;
 }
 
-const METADATA_KEY = /^[A-Za-z]{1,30}$/;
-const METADATA_VALUE = /^[A-Za-z0-9_.:/#-]{1,100}$/;
-
-/**
- * AI Gateway logs keep metadata outside the `TRACE_PAYLOADS` switch, and allow at most 5 entries:
- * refuse anything but a few id-like values, so no untrusted text can end up there.
- */
-export function gatewayMetadata(m: ChatRequest['metadata']): Record<string, string> {
-  const entries = Object.entries(m);
-  if (
-    entries.length > 5 ||
-    !entries.every(([k, v]) => METADATA_KEY.test(k) && METADATA_VALUE.test(v))
-  )
-    throw new Error('gateway metadata must be at most 5 id-like entries');
-  return Object.fromEntries(entries);
-}
-
-/** The call did not answer in time. */
-export class ChatTimeoutError extends Error {
-  constructor() {
-    super('model call timed out');
-    this.name = 'ChatTimeoutError';
-  }
-}
-
 const DEFAULT_TIMEOUT_MS = 180_000;
 /**
  * Workers AI answers a synchronous call or fails it with HTTP 408 after about 235 s; DeepSeek at
@@ -104,24 +81,6 @@ function resultAttributes(span: OperationSpan, out: ChatResult, finish: string) 
       finish_reason: finish,
     },
   ]);
-}
-
-/** Runs `work` with an abort signal and rejects with `ChatTimeoutError` after `ms`. */
-async function withTimeout<T>(ms: number, work: (signal: AbortSignal) => Promise<T>): Promise<T> {
-  const ac = new AbortController();
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => {
-      // Reject first: aborting can make the work reject synchronously and win the race.
-      reject(new ChatTimeoutError());
-      ac.abort();
-    }, ms);
-  });
-  try {
-    return await Promise.race([work(ac.signal), timeout]);
-  } finally {
-    clearTimeout(timer);
-  }
 }
 
 /**
@@ -215,8 +174,10 @@ export class OpenRouterGateway implements ChatModel {
     return chat(turn, { provider: this.provider, model: req.model }, async (span) => {
       requestPayloads(span, req);
       const metadata = gatewayMetadata(req.metadata);
-      const res = await withTimeout(this.cfg.timeoutMs ?? DEFAULT_TIMEOUT_MS, (signal) =>
-        this.fetchImpl(this.url, {
+      // The body is read inside the bound: headers that arrive before a stalled body would
+      // otherwise end the timeout.
+      const res = await withTimeout(this.cfg.timeoutMs ?? DEFAULT_TIMEOUT_MS, async (signal) => {
+        const r = await this.fetchImpl(this.url, {
           method: 'POST',
           headers: {
             'content-type': 'application/json',
@@ -226,13 +187,16 @@ export class OpenRouterGateway implements ChatModel {
           },
           body: JSON.stringify(body),
           signal,
-        }),
-      );
-      if (!res.ok) {
-        const text = await res.text();
-        throw new GatewayError(res.status, text.slice(0, 500), errorTypeOf(text));
-      }
-      const { out, finish } = readCompletion(await res.json(), req.model);
+        });
+        return { ok: r.ok, status: r.status, text: await r.text() };
+      });
+      if (!res.ok)
+        throw new GatewayError(
+          res.status,
+          res.text.slice(0, 500),
+          errorTypeOf(res.text) ?? openRouterCode(res.text),
+        );
+      const { out, finish } = readCompletion(JSON.parse(res.text) as unknown, req.model);
       resultAttributes(span, out, finish);
       return out;
     });
@@ -285,11 +249,8 @@ export class WorkersAiChat implements ChatModel {
 export class AnthropicChat implements ChatModel {
   readonly provider = 'anthropic';
 
-  constructor(
-    private readonly gateway: AnthropicGateway,
-    /** Omitted by default: Opus 5.5 rejects `disabled`, and the model's default applies. */
-    private readonly thinking?: MessagesRequest['thinking'],
-  ) {}
+  // No `thinking` is sent: Opus 5.5 rejects `disabled`, and the model's default applies.
+  constructor(private readonly gateway: AnthropicGateway) {}
 
   async complete(req: ChatRequest, turn?: Turn): Promise<ChatResult> {
     const res = await this.gateway.messages(
@@ -298,7 +259,6 @@ export class AnthropicChat implements ChatModel {
         system: req.system,
         messages: [{ role: 'user', content: req.user }],
         max_tokens: req.max_tokens,
-        ...(this.thinking ? { thinking: this.thinking } : {}),
         metadata: req.metadata,
       },
       turn,

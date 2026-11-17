@@ -39,6 +39,7 @@ const review = (over: Partial<ProposalReview> = {}): ProposalReview => ({
       labels: ['ACK_OBTAINED'],
       current: [],
       people: ['author'],
+      author: 'author',
       files: new Map(),
       now: new Date('2026-11-12T10:00:00Z'),
     },

@@ -48,6 +48,48 @@ export async function act(
     return att;
   };
 
+  /**
+   * Attests a record written after GitHub was already called. The action (or part of it) is live
+   * whatever happens here, so a failure to sign or store must not become a 500: the agent would
+   * read that as "nothing happened" and might repeat the action. One retry, then a log line with
+   * ids only and a halt of that agent; the answer to the agent stays the truth about GitHub.
+   */
+  const attestAfterExecution = async (record: AuditRecord): Promise<void> => {
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        await attest(record);
+        return;
+      } catch {
+        // A write can be applied although the call reported an error; then the retry would hit
+        // the primary key and look like a loss.
+        if (await audit.get(record.id).catch(() => null)) return;
+        if (attempt < 2) continue;
+        console.error(
+          JSON.stringify({
+            event: 'broker.audit.lost',
+            attestationId: record.id,
+            agentId: record.agentId,
+            action: record.action.type,
+            repo: record.action.repo,
+            decision: record.decision,
+          }),
+        );
+        // No audit trail means no rate limit either (it counts audit rows): stop this agent until
+        // an operator has looked. The halt flag lives in KV, so it does not need the store that
+        // just failed.
+        try {
+          await new KillSwitch(env.KILL_SWITCH).halt(
+            record.agentId,
+            'audit record could not be stored',
+            'broker',
+          );
+        } catch {
+          // Nothing more to do here; the log line above is the alarm.
+        }
+      }
+    }
+  };
+
   const deny = async (
     code: BrokerDenialCode,
     reason: string,
@@ -104,8 +146,7 @@ export async function act(
       return deny('approval_invalid', 'approval already used');
   }
 
-  const hourAgo = new Date(now.getTime() - 3600_000).toISOString();
-  const used = await audit.countAllowedSince(req.agentId, req.action.repo, hourAgo);
+  const used = await audit.usedThisHour(req.agentId, req.action.repo, now);
   if (used >= agentPolicy.rateLimitPerHour) {
     return deny(
       'policy_denied',
@@ -126,7 +167,6 @@ export async function act(
         attestationId,
         verifyUrl: env.VERIFY_URL,
         visibility: agentPolicy.trailer,
-        ...(req.onBehalfOf !== undefined ? { onBehalfOf: req.onBehalfOf } : {}),
       }),
     );
     githubUrl = result.githubUrl;
@@ -134,7 +174,12 @@ export async function act(
     // Execution started, so part of the action may be live (pr.close posts its comment before
     // closing). Record it under the id already written into that comment's trailer, so /verify
     // works, and so the rate limit counts it (EXECUTION_FAILED prefix, see countAllowedSince).
-    const detail = err instanceof GitHubApiError ? err.message : 'github request failed';
+    // Status and path only. The record is signed and served by the public /verify, and GitHub's
+    // error body is text we do not control.
+    const detail =
+      err instanceof GitHubApiError
+        ? `GitHub ${err.status} on ${err.path}`
+        : 'github request failed';
     const reason = `${EXECUTION_FAILED}${detail}`.slice(0, 500);
     const record = await buildAuditRecord({
       request: req,
@@ -144,7 +189,7 @@ export async function act(
       id: attestationId,
       ...signed,
     });
-    await attest(record);
+    await attestAfterExecution(record);
     return { ok: false, code: 'github_error', reason, attestationId };
   }
 
@@ -156,6 +201,6 @@ export async function act(
     ...signed,
     ...(githubUrl !== undefined ? { githubUrl } : {}),
   });
-  await attest(record);
+  await attestAfterExecution(record);
   return { ok: true, attestationId, ...(githubUrl !== undefined ? { githubUrl } : {}) };
 }

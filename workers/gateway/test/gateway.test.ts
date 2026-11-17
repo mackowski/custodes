@@ -1,14 +1,9 @@
 import { env } from 'cloudflare:workers';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import worker, { AGENT_STRIPPED_HEADERS, agentWorker } from '../src/index.js';
 import { AgentKeys, type ApprovalRequest, type AuditRecord } from '@custodes/schema';
-import { toBase64Url } from '@custodes/core';
-import {
-  agentKeysPage,
-  listAgentKeys,
-  type HeldKey,
-  type KeyAdminLike,
-} from '../src/agent-keys.js';
+import { type PublicKeyInfo, toBase64Url } from '@custodes/core';
+import { agentKeysPage, listAgentKeys, type KeyAdminLike } from '../src/agent-keys.js';
 import {
   buildAuditRecord,
   generateAgentKeyPair,
@@ -66,6 +61,30 @@ describe('gateway', () => {
       ctx,
     );
     expect(res.status).toBe(202);
+  });
+  it('answers 400 to a signed body that is not JSON (a hook left on form encoding)', async () => {
+    const body = 'payload=%7B%7D';
+    const key = await crypto.subtle.importKey(
+      'raw',
+      new TextEncoder().encode(testEnv().GITHUB_WEBHOOK_SECRET),
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['sign'],
+    );
+    const sig = Array.from(
+      new Uint8Array(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(body))),
+      (b) => b.toString(16).padStart(2, '0'),
+    ).join('');
+    const res = await worker.fetch(
+      new Request('https://x/webhooks/github', {
+        method: 'POST',
+        body,
+        headers: { 'x-hub-signature-256': `sha256=${sig}`, 'x-github-event': 'issues' },
+      }),
+      testEnv(),
+      ctx,
+    );
+    expect(res.status).toBe(400);
   });
   describe('webhook queues after the cutovers (each agent consumes its own)', () => {
     const deliver = async (
@@ -584,6 +603,15 @@ describe('public /verify (ADR 0018, R1)', () => {
     });
   });
 
+  it("is invalid when the record names one agent and the key is another agent's", async () => {
+    // brokerWith lists the key under cheatsheet-review; the signed record says pr-gate.
+    const broker = await brokerWith((r) => ({ ...r, agentId: 'pr-gate' }));
+    expect(await verify(broker)).toMatchObject({
+      valid: false,
+      reason: 'key belongs to another agent',
+    });
+  });
+
   it('is invalid when the record claims an agent signature by a key that is not committed', async () => {
     const broker = await brokerWith((r) => ({
       ...r,
@@ -615,7 +643,7 @@ describe('agent Worker keys page (ADR 0018)', () => {
     },
     retired: {},
   });
-  const admin = (keys: HeldKey[]): KeyAdminLike => ({
+  const admin = (keys: PublicKeyInfo[]): KeyAdminLike => ({
     publicKeys: () => Promise.resolve(keys),
     rotate: () => Promise.reject(new Error('not in this test')),
   });
@@ -827,9 +855,9 @@ describe('bundle approval page (ADR 0019)', () => {
 
 describe('bundle result page', () => {
   const steps = [
-    { type: 'issue.assign', outcome: 'done' as const },
-    { type: 'issue.label.add', outcome: 'failed' as const, code: 'github_error' },
-    { type: 'issue.comment', outcome: 'not_run' as const },
+    { type: 'issue.assign' as const, outcome: 'done' as const },
+    { type: 'issue.label.add' as const, outcome: 'failed' as const, code: 'github_error' },
+    { type: 'issue.comment' as const, outcome: 'not_run' as const },
   ];
   const failed = { ok: false as const, code: 'github_error' as const, reason: 'x' };
 
@@ -845,10 +873,11 @@ describe('bundle result page', () => {
     const html = resultPage({
       result: 'ok',
       decision: 'approved',
+      executed: failed,
       steps: [
         { type: 'issue.comment', outcome: 'done', githubUrl: 'https://github.com/o/r/issues/1#c' },
-        { type: '<b>x</b>', outcome: 'done', githubUrl: 'https://evil.example.com/x' },
-        { type: 'issue.assign', outcome: 'failed', code: '<script>' },
+        { type: 'issue.label.add', outcome: 'done', githubUrl: 'https://evil.example.com/x' },
+        { type: 'issue.assign', outcome: 'failed', code: '<b>x</b><script>' },
       ],
     });
     expect(html).toContain('<a href="https://github.com/o/r/issues/1#c">');
@@ -957,6 +986,30 @@ describe("admin writes forward the operator's own Access token to the broker (#1
     return { res, seen, jwt };
   };
 
+  it('says the outcome is unknown when the broker answers a decision with an error', async () => {
+    const link =
+      '/admin/approvals/link/9d7c1e9e-2b1a-4b6e-9a2e-1f7d1c2b3a44.1900000000.abcdefghijklmnopqrstuvwxyz0123456789ABCDEFG';
+    for (const [reply, status, text] of [
+      [new Response('Internal Server Error', { status: 500 }), 502, 'The outcome is not known'],
+      // A 200 that is not a decision outcome (broker and gateway out of step): unknown as well.
+      [Response.json({ result: 'ok' }), 502, 'The outcome is not known'],
+      // A refusal comes before the broker looks at the approval: nothing can have been posted.
+      [Response.json({ error: 'forbidden' }, { status: 403 }), 403, 'Nothing was decided'],
+    ] as const) {
+      const res = await worker.fetch(
+        new Request(`https://custodes.work${link}`, {
+          method: 'POST',
+          headers: { 'cf-access-jwt-assertion': await token(approver()) },
+          body: new URLSearchParams({ decision: 'approve' }),
+        }),
+        { ...testEnv(), BROKER: { fetch: () => Promise.resolve(reply) } as unknown as Fetcher },
+        ctx,
+      );
+      expect(res.status).toBe(status);
+      expect(await res.text()).toContain(text);
+    }
+  });
+
   it("halts through the broker with the caller's token and no identity of its own", async () => {
     const { res, seen, jwt } = await send(
       '/admin/agents/pr-gate/halt',
@@ -973,6 +1026,20 @@ describe("admin writes forward the operator's own Access token to the broker (#1
         body: '{"reason":"test halt"}',
       },
     ]);
+  });
+
+  it("logs a halt with the broker's status, after the broker answered", async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    try {
+      await send('/admin/agents/pr-gate/halt', 'any-operator@example.com', {
+        reason: 'test halt',
+      });
+      const lines = log.mock.calls.map((c) => String(c[0])).filter((l) => l.includes('admin.halt'));
+      expect(lines).toHaveLength(1);
+      expect(JSON.parse(lines[0] ?? '{}')).toMatchObject({ event: 'admin.halt', status: 200 });
+    } finally {
+      log.mockRestore();
+    }
   });
 
   it('refuses resume and broker key rotation to a non-approver before calling the broker', async () => {

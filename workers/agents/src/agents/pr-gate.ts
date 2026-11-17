@@ -9,8 +9,15 @@ import {
   type JevState,
   type JevTransport,
 } from '@custodes/llm';
+import { VerdictRequest, type ComparisonRow } from '@custodes/schema';
 import type { AgentsEnv } from '../env.js';
-import { instanceOf, OWASP_INSTANCE, UnknownInstanceError, unknownInstance } from '../instances.js';
+import {
+  instanceOf,
+  noSuchAction,
+  OWASP_INSTANCE,
+  UnknownInstanceError,
+  unknownInstance,
+} from '../instances.js';
 import { closeComment } from './pr-gate/comment.js';
 import { decide, type Decision } from './pr-gate/decide.js';
 import { APPROVAL_QUESTIONS } from './pr-gate/approval.js';
@@ -60,38 +67,6 @@ export const CLEF_BUDGET_PER_POLL_MS = 60_000;
 /** Jev vs Clef rows are kept this long (ADR 0015): enough to decide on an agreement mode. */
 export const COMPARISON_RETENTION_DAYS = 180;
 
-/** The operator's answer to one question about one PR (ADR 0015). */
-export const VerdictRequest = z
-  .object({
-    pr: z.number().int().positive().max(1_000_000),
-    question: z.enum(['minor', 'approval']),
-    answer: z.enum(['yes', 'no']),
-  })
-  .strict();
-
-export interface ComparisonRow {
-  id: number;
-  pr: number;
-  head_sha: string;
-  state_sha256: string;
-  question: string;
-  jev_model: string | null;
-  jev_p: number | null;
-  jev_choice: string | null;
-  jev_ms: number;
-  jev_tokens: number | null;
-  jev_error: string | null;
-  clef_model: string | null;
-  clef_p: number | null;
-  clef_choice: string | null;
-  clef_ms: number;
-  clef_tokens: number | null;
-  clef_error: string | null;
-  outcome: string | null;
-  human_verdict: string | null;
-  decided_at: string;
-}
-
 type StoredOutcome = 'skip' | SummaryOutcome;
 
 interface PrGateState {
@@ -111,7 +86,6 @@ interface EventRow {
   outcome: StoredOutcome;
   detail: string;
   decided_at: string;
-  github_url: string | null;
   attestation_id: string | null;
 }
 
@@ -123,7 +97,6 @@ interface DecisionRow {
   outcome: StoredOutcome;
   detail: string;
   decided_at: string;
-  github_url: string | null;
   attestation_id: string | null;
 }
 
@@ -208,7 +181,6 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
       outcome        TEXT NOT NULL,
       detail         TEXT NOT NULL,
       decided_at     TEXT NOT NULL,
-      github_url     TEXT,
       attestation_id TEXT,
       reported_at    TEXT
     )`;
@@ -226,7 +198,6 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
       outcome        TEXT NOT NULL,
       detail         TEXT NOT NULL,
       decided_at     TEXT NOT NULL,
-      github_url     TEXT,
       attestation_id TEXT,
       reported_at    TEXT
     )`;
@@ -254,9 +225,9 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
       decided_at    TEXT NOT NULL
     )`;
     if (!hadEvents)
-      this.sql`INSERT INTO events (pr, title, outcome, detail, decided_at, github_url,
-          attestation_id, reported_at)
-        SELECT pr, title, outcome, detail, decided_at, github_url, attestation_id, NULL
+      this.sql`INSERT INTO events (pr, title, outcome, detail, decided_at, attestation_id,
+          reported_at)
+        SELECT pr, title, outcome, detail, decided_at, attestation_id, NULL
         FROM decisions WHERE reported_at IS NULL`;
   }
 
@@ -626,9 +597,7 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
     runId: string,
     now: Date,
     turn: Turn,
-  ): Promise<
-    { ok: true; githubUrl?: string; attestationId: string } | { ok: false; code: string }
-  > {
+  ): Promise<{ ok: true; attestationId: string } | { ok: false; code: string }> {
     const body = closeComment({
       rule: d.rule,
       issues: d.issues,
@@ -644,11 +613,7 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
         { turn },
       );
       if (!res.ok) return { ok: false, code: res.code };
-      return {
-        ok: true,
-        attestationId: res.attestationId,
-        ...(res.githubUrl !== undefined ? { githubUrl: res.githubUrl } : {}),
-      };
+      return { ok: true, attestationId: res.attestationId };
     } catch (err) {
       return { ok: false, code: err instanceof AgentHaltedError ? 'halted' : describeError(err) };
     }
@@ -659,29 +624,27 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
     outcome: StoredOutcome,
     detail: Detail,
     now: Date,
-    acted?: { githubUrl?: string; attestationId: string },
+    acted?: { attestationId: string },
   ): void {
     // Titles are kept (made inert at render time) so the summary needs no extra read.
     const title = pr.title.slice(0, 300);
     this.sql`INSERT INTO decisions (pr, head_sha, pr_updated_at, title, outcome, detail, decided_at,
-        github_url, attestation_id, reported_at)
+        attestation_id, reported_at)
       VALUES (${pr.number}, ${pr.head.sha}, ${pr.updated_at}, ${title}, ${outcome},
-        ${JSON.stringify(detail)}, ${now.toISOString()}, ${acted?.githubUrl ?? null},
-        ${acted?.attestationId ?? null}, NULL)
+        ${JSON.stringify(detail)}, ${now.toISOString()}, ${acted?.attestationId ?? null}, NULL)
       ON CONFLICT(pr) DO UPDATE SET head_sha = excluded.head_sha,
         pr_updated_at = excluded.pr_updated_at, title = excluded.title, outcome = excluded.outcome,
         detail = excluded.detail, decided_at = excluded.decided_at,
-        github_url = excluded.github_url, attestation_id = excluded.attestation_id,
+        attestation_id = excluded.attestation_id,
         reported_at = NULL`;
     // One event per change: a PR re-decided to the same outcome every poll adds nothing new.
     const last = this.sql<{ outcome: string; detail: string }>`SELECT outcome, detail FROM events
       WHERE pr = ${pr.number} ORDER BY id DESC LIMIT 1`[0];
     const same = last?.outcome === outcome && last.detail === JSON.stringify(detail);
     if (!same || acted !== undefined)
-      this
-        .sql`INSERT INTO events (pr, title, outcome, detail, decided_at, github_url, attestation_id)
+      this.sql`INSERT INTO events (pr, title, outcome, detail, decided_at, attestation_id)
         VALUES (${pr.number}, ${title}, ${outcome}, ${JSON.stringify(detail)}, ${now.toISOString()},
-          ${acted?.githubUrl ?? null}, ${acted?.attestationId ?? null})`;
+          ${acted?.attestationId ?? null})`;
     // Shadow bookkeeping runs after act(): it must never interrupt the poll.
     try {
       this.storeComparisons(pr, outcome, now);
@@ -809,7 +772,6 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
         ...(d.data.p !== undefined ? { p: d.data.p } : {}),
         ...(d.data.issues !== undefined ? { issues: d.data.issues } : {}),
         decidedAt: r.decided_at,
-        ...(r.github_url ? { githubUrl: r.github_url } : {}),
         ...(r.attestation_id ? { attestationId: r.attestation_id } : {}),
       });
     }
@@ -862,7 +824,12 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
       return { ok: false, detail };
     }
     this.markReported(stamp, lastId);
-    this.setState({ ...this.state, lastSummaryAt: stamp, lastErrors: [] });
+    // Clear only what was sent: a poll can record errors while the e-mail is being sent.
+    this.setState({
+      ...this.state,
+      lastSummaryAt: stamp,
+      lastErrors: this.state.lastErrors.filter((e) => !errors.includes(e)),
+    });
     return { ok: true, detail: `sent ${rows.length} row(s), ${skipped} skipped` };
   }
 
@@ -921,6 +888,8 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
       const { mail } = this.buildSummary(new Date());
       return Response.json(mail);
     }
+    const refused = noSuchAction(request);
+    if (refused) return refused;
     this.ensureSchema();
     return Response.json({
       manifest: this.manifest,

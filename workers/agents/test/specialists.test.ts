@@ -15,7 +15,6 @@ import {
   threadState,
   linkedPulls,
   labelAppliedAt,
-  referencingPulls,
   validateImplementationCheck,
   type RawImplementationCheck,
 } from '../src/agents/specialists/implementation.js';
@@ -27,6 +26,8 @@ import {
   PROPOSAL_PROMPT,
   readReferencedIssues,
   reviewProposal,
+  threadAuthor,
+  threadPeople as proposalThreadPeople,
   validateProposalReview,
 } from '../src/agents/specialists/proposal.js';
 import { lockHeld } from '../src/agents/specialists/agent.js';
@@ -132,6 +133,7 @@ const proposalCtx = {
   labels: ['ACK_OBTAINED', 'ACK_WAITING', 'HELP_WANTED', 'NEW_CS'],
   current: ['ACK_WAITING'],
   people: ['gqlwriter', 'maint1'],
+  author: 'gqlwriter',
   files,
 };
 
@@ -299,6 +301,72 @@ describe('validateProposalReview', () => {
     expect(stranger.dropped).toContain('volunteer not in the thread');
   });
 
+  it('keeps the commenters when a bot or a deleted account opened the issue, with nobody as the author', () => {
+    const c = cmt('first-commenter', '2026-10-02T00:00:00Z', 'NONE');
+    const bot = issue(1, { user: { login: 'github-actions[bot]', type: 'Bot' } });
+    expect(threadAuthor(bot)).toBeNull();
+    expect(proposalThreadPeople(bot, [c])).toEqual(['first-commenter']);
+    expect(threadAuthor(issue(1, { user: null }))).toBeNull();
+    expect(threadAuthor(issue(1, { user: { login: 'ghost', type: 'User' } }))).toBeNull();
+    expect(proposalThreadPeople(issue(1, { user: null }), [c])).toEqual(['first-commenter']);
+    expect(threadAuthor(issue(1, { user: { login: 'author' } }))).toBe('author');
+    expect(proposalThreadPeople(issue(1, { user: { login: 'author' } }), [c])).toEqual([
+      'author',
+      'first-commenter',
+    ]);
+  });
+
+  it('proposes the volunteer on a bot-opened issue, and never reads a commenter as the author', () => {
+    const ctx = { ...proposalCtx, people: ['helper', 'maint1'], author: null };
+    // The model calls the first commenter "the author who offered": that is not an author.
+    const offered = validateProposalReview(
+      rawProposal({ authorIntent: 'offered', volunteers: ['helper'] }),
+      ctx,
+    );
+    expect(offered).toMatchObject({ assignTo: 'helper', assignWhy: 'no author to ask' });
+    // Nobody offered: nobody is assigned, and nobody is asked in the author's place.
+    const nobody = validateProposalReview(
+      rawProposal({ authorIntent: 'unclear', askAuthor: true, suggestedComment: 'Thanks.' }),
+      ctx,
+    );
+    expect(nobody.assignTo).toBeNull();
+    expect(nobody.suggestedComment).not.toContain('@');
+    // {author} has nobody to name: the comment is dropped, not pointed at a commenter.
+    const named = validateProposalReview(
+      rawProposal({ suggestedComment: 'Thanks {author} and {commenter:1}.' }),
+      ctx,
+    );
+    expect(named.suggestedComment).toBe('');
+    expect(named.dropped).toContain('comment (bad placeholder)');
+    // A commenter can still be named.
+    const helper = validateProposalReview(
+      rawProposal({ suggestedComment: 'Thanks {commenter:1}.' }),
+      ctx,
+    );
+    expect(helper.suggestedComment).toBe('Thanks @helper.');
+  });
+
+  it('drops a comment that the appended question takes past the limit, keeping the rest', () => {
+    const r = validateProposalReview(
+      rawProposal({ suggestedComment: 'x'.repeat(3_000), askAuthor: true }),
+      proposalCtx,
+    );
+    if (r.suggestedComment !== '') expect(r.suggestedComment.length).toBeLessThanOrEqual(3_000);
+    else expect(r.dropped).toContain('comment (too long)');
+    expect(r.addLabels.length).toBeLessThanOrEqual(6);
+  });
+
+  it('does not add HELP_WANTED as a seventh label: triage-apply accepts six', () => {
+    const six = ['A', 'B', 'C', 'D', 'E', 'F'];
+    const r = validateProposalReview(rawProposal({ addLabels: six, helpWanted: true }), {
+      ...proposalCtx,
+      labels: [...six, 'HELP_WANTED'],
+      current: [],
+    });
+    expect(r.addLabels).toHaveLength(6);
+    expect(r.addLabels).not.toContain('HELP_WANTED');
+  });
+
   it('adds HELP_WANTED when nobody volunteered, never alongside an assignee', () => {
     expect(
       validateProposalReview(rawProposal({ helpWanted: true }), proposalCtx).addLabels,
@@ -365,10 +433,41 @@ describe('timeline helpers', () => {
   ];
 
   it('finds same-repo referencing PRs and their merge state', () => {
-    expect(referencingPulls(repo, timeline)).toEqual([
-      { number: 2196, merged: true },
-      { number: 2200, merged: false },
+    expect(linkedPulls(repo, timeline).map((p) => [p.number, p.state])).toEqual([
+      [2196, 'merged'],
+      [2200, 'closed'],
     ]);
+    // A second mention of a merged PR that does not say merged leaves it merged.
+    const again: TimelineEvent = {
+      event: 'cross-referenced',
+      source: {
+        issue: {
+          number: 2196,
+          state: 'closed',
+          pull_request: { merged_at: null },
+          repository: { full_name: 'OWASP/CheatSheetSeries' },
+        },
+      },
+    };
+    expect(linkedPulls(repo, [...timeline, again])[0]?.state).toBe('merged');
+    // Ten open pull requests that mention the issue first do not push a merged one out.
+    const mention = (number: number, mergedAt: string | null): TimelineEvent => ({
+      event: 'cross-referenced',
+      source: {
+        issue: {
+          number,
+          state: mergedAt === null ? 'open' : 'closed',
+          pull_request: { merged_at: mergedAt },
+          repository: { full_name: 'OWASP/CheatSheetSeries' },
+        },
+      },
+    });
+    const crowded = linkedPulls(repo, [
+      ...Array.from({ length: 12 }, (_, n) => mention(100 + n, null)),
+      mention(999, '2026-10-01T00:00:00Z'),
+    ]);
+    expect(crowded).toHaveLength(10);
+    expect(crowded.at(-1)).toMatchObject({ number: 999, state: 'merged' });
   });
 
   it('finds when a label was last applied', () => {

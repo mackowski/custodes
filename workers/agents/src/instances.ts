@@ -66,6 +66,16 @@ export function unknownInstance(): Response {
   return Response.json({ error: 'unknown instance' }, { status: 404 });
 }
 
+/**
+ * Response for a write the agent has no handler for. Without it every unmatched request fell
+ * through to the status read, so `custodes agents run <agent> --step <missing>` reported success.
+ */
+export function noSuchAction(request: Request): Response | null {
+  return request.method === 'GET' || request.method === 'HEAD'
+    ? null
+    : Response.json({ error: 'this agent has no such action' }, { status: 405 });
+}
+
 /** The agent classes the gateway may route to, as the Agents SDK names them (kebab-case). */
 export const AGENT_CLASSES: ReadonlySet<string> = new Set([
   'triage-agent',

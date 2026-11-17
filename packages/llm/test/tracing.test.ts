@@ -12,8 +12,7 @@ import { IDENTITY, RecordingTracer, turnOf } from './helpers/recording-tracer.js
 
 const GW = 'CANARY-GW-7f3a';
 const OR = 'CANARY-OR-91bc';
-const ANT = 'CANARY-ANT-5d20';
-const canaries = [GW, OR, ANT];
+const canaries = [GW, OR];
 
 const identityKeys = {
   'gen_ai.agent.name': IDENTITY.agentName,
@@ -48,12 +47,11 @@ const msgRes = (over: Partial<MessagesResponse> = {}) => ({
   usage: { input_tokens: 11, output_tokens: 22 },
   ...over,
 });
-const gateway = (fetchImpl: typeof fetch, withKey = true) =>
+const gateway = (fetchImpl: typeof fetch) =>
   new AnthropicGateway({
     accountId: 'acc',
     gatewayId: 'gw',
     gatewayToken: GW,
-    ...(withKey ? { anthropicApiKey: ANT } : {}),
     fetchImpl,
   });
 const ok = (body: unknown) =>

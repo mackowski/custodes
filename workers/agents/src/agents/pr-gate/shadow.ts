@@ -1,6 +1,7 @@
 // Clef as a shadow of Jev (ADR 0015): asked the same questions about the same state, never
 // deciding. Only Jev's answer reaches the ladder; both are reduced to numbers for the
 // model_comparisons table, so nothing from the state or the models is stored.
+import { sha256Hex } from '@custodes/core';
 import type { JevAnswer } from '@custodes/llm';
 import { describeError } from '../triage/errors.js';
 
@@ -47,11 +48,6 @@ export function reduce(question: ShadowQuestion, res: Answered, ms: number): Mod
     out.choice = /^[a-z_]{1,20}$/.test(choice.choice) ? choice.choice : 'other';
   if (res.usage) out.tokens = res.usage.input_tokens;
   return out;
-}
-
-export async function sha256Hex(s: string): Promise<string> {
-  const d = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s));
-  return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
 /**

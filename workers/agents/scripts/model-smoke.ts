@@ -121,6 +121,7 @@ try {
       labels,
       current: [],
       people: ['contributor'],
+      author: 'contributor',
       files,
     },
   );

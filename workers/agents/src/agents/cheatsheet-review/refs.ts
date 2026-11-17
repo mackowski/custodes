@@ -10,15 +10,20 @@ import { linkedIssueNumbers } from '../pr-gate/rules.js';
 /** References read per pull request. */
 export const MAX_REVIEW_REFS = 3;
 
-export function reviewIssueRefs(body: string | null | undefined, repo: string): number[] {
-  const out = [...linkedIssueNumbers(body, repo)];
+export function reviewIssueRefs(
+  body: string | null | undefined,
+  repo: string,
+  pull?: number,
+): number[] {
+  // The pull request's own number is not an issue it references: it must not take a place.
+  const out = [...linkedIssueNumbers(body, repo, pull)];
   const text = (body ?? '')
     .slice(0, 20_000)
     .replace(/```[\s\S]*?(```|$)/g, ' ')
     .replace(/`[^`\n]*`/g, ' ');
   for (const m of text.matchAll(/\bissues?[ \t]+#?(\d{1,7})\b/gi)) {
     const n = Number(m[1]);
-    if (n > 0 && !out.includes(n)) out.push(n);
+    if (n > 0 && n !== pull && !out.includes(n)) out.push(n);
   }
   return out.slice(0, MAX_REVIEW_REFS);
 }

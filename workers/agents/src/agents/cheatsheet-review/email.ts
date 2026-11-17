@@ -40,7 +40,6 @@ export function lowQualityMail(input: {
   repo: string;
   pull: number;
   author: string;
-  title: string;
   decision: ReviewDecision;
   reviewUrl: string | undefined;
   issues: readonly IssueFacts[];

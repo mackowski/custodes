@@ -1,11 +1,17 @@
 import {
   CALLER_AGENTS,
+  PINNED_AGENT_KEYS,
+  verificationKeys,
+  type AgentKeys,
+  type Attestation,
   type AuditDecision,
   type AuditRecord,
   type BrokerRequest,
   type CallerSignature,
   type PinnedAgentKey,
+  type PublicKeyEntry,
 } from '@custodes/schema';
+import { importPublicKey, verifyAttestation } from './attestation.js';
 import { canonicalJson, sha256Hex } from './canonical.js';
 import { SIGNATURE_WINDOW_MS, verifyRecordedCallerSignature } from './request-signature.js';
 
@@ -34,7 +40,6 @@ export async function buildAuditRecord(input: AuditInput): Promise<AuditRecord> 
     actionHash: await sha256Hex(canonicalJson(request.action)),
     decision: input.decision,
   };
-  if (request.onBehalfOf !== undefined) record.onBehalfOf = request.onBehalfOf;
   if (request.approvalId !== undefined) record.approvalId = request.approvalId;
   if (input.reason !== undefined) record.reason = input.reason;
   if (input.githubUrl !== undefined) record.githubUrl = input.githubUrl;
@@ -67,7 +72,6 @@ export function signedRequestOf(record: AuditRecord): BrokerRequest {
     agentVersion: record.agentVersion,
     runId: record.runId,
     triggeredBy: record.triggeredBy,
-    ...(record.onBehalfOf !== undefined ? { onBehalfOf: record.onBehalfOf } : {}),
     ...(record.approvalId !== undefined ? { approvalId: record.approvalId } : {}),
     action: record.action,
   };
@@ -108,4 +112,55 @@ export async function verifyCallerIntent(
   if (record.githubUrl !== undefined && !githubUrlMatches(record.githubUrl, record.action))
     return { status: 'invalid', reason: 'inconsistent' };
   return { status: 'valid', caller: sig.caller, kid: sig.kid };
+}
+
+/** What `verifyRecord` found; `attestation` is present once the record parsed and its signature held. */
+export interface RecordVerdict {
+  valid: boolean;
+  reason?: string;
+  agentSignature?: CallerIntent;
+  attestation?: Attestation;
+}
+
+/**
+ * The one check behind the public `/verify/:id` and `custodes audit verify`, so they cannot
+ * disagree: the broker's signature with a key published for that record's agent, the record id,
+ * and the agent's own signature (ADR 0018, R1) against the keys committed in the repository and
+ * built into the caller, never keys the broker serves. An agent signature of `none` proves
+ * nothing: records from approvals carry none.
+ */
+export async function verifyRecord(
+  attestation: unknown,
+  id: string,
+  brokerKeys: readonly PublicKeyEntry[],
+  pinned: AgentKeys = PINNED_AGENT_KEYS,
+): Promise<RecordVerdict> {
+  const keyId = (attestation as { keyId?: unknown } | null)?.keyId;
+  const key = brokerKeys.find((k) => k.keyId === keyId);
+  if (!key) return { valid: false, reason: 'unknown key' };
+  const result = await verifyAttestation(attestation, await importPublicKey(key.jwk));
+  if (!result.valid || !result.attestation)
+    return {
+      valid: false,
+      ...(result.reason !== undefined ? { reason: result.reason } : {}),
+      ...(result.attestation !== undefined ? { attestation: result.attestation } : {}),
+    };
+  const att = result.attestation;
+  // A row copied under another id (for example the one in a comment trailer) is not that record.
+  if (att.record.id !== id)
+    return { valid: false, reason: 'record id does not match', attestation: att };
+  // The broker signs each record with that agent's own key; another agent's key proves nothing.
+  if (key.agentId !== att.record.agentId)
+    return { valid: false, reason: 'key belongs to another agent', attestation: att };
+  const agentSignature = await verifyCallerIntent(att.record, (caller) =>
+    verificationKeys(pinned, caller),
+  );
+  if (agentSignature.status === 'invalid')
+    return {
+      valid: false,
+      reason: `agent signature: ${agentSignature.reason}`,
+      agentSignature,
+      attestation: att,
+    };
+  return { valid: true, agentSignature, attestation: att };
 }

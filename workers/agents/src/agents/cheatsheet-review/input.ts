@@ -151,6 +151,8 @@ export interface LinkInput {
   excerpt: string;
   /** The URL this link replaced, for a moved link (#89). */
   previous?: string;
+  /** Code-built `file:line` list of the further sentences in `context`, for the finding's text. */
+  also?: string;
 }
 
 export function linkMessage(links: readonly LinkInput[]): string {

@@ -1,4 +1,6 @@
 import { env } from 'cloudflare:workers';
+import { runInDurableObject } from 'cloudflare:test';
+import { getAgentByName } from 'agents';
 import { describe, expect, it, vi } from 'vitest';
 import evalSystemPrompt from '../../../evals/agents/triage/system.txt?raw';
 import worker from '../src/index.js';
@@ -145,6 +147,38 @@ describe('renderDigest', () => {
 describe('BrokerGitHubReader', () => {
   const runId = '9d7c1e9e-2b1a-4b6e-9a2e-1f7d1c2b3a44';
 
+  it('says where to resume when a full page may hide more behind pull requests', async () => {
+    const at = (n: number) =>
+      `2026-09-22T10:${String(n % 60).padStart(2, '0')}:${String(Math.floor(n / 60)).padStart(2, '0')}Z`;
+    const list = (data: unknown[]) =>
+      new BrokerGitHubReader(
+        { fetch: () => Promise.resolve(Response.json({ ok: true, data })) },
+        'triage',
+        runId,
+      ).listUpdatedIssues('OWASP/CheatSheetSeries', '2026-09-01T00:00:00Z');
+    // A short page: every issue on it, and nothing more to resume.
+    const many = await list([1, 2, 3, 4, 5].map((n) => issue(n, { updated_at: at(n) })));
+    expect(many.issues.map((i) => i.number)).toEqual([1, 2, 3, 4, 5]);
+    expect(many.resumeAt).toBeNull();
+    // A full page of 100 with two issues among pull requests: more may follow the last item.
+    const full = await list(
+      Array.from({ length: 100 }, (_, n) =>
+        n < 2
+          ? issue(n + 1, { updated_at: at(n) })
+          : { ...issue(n + 1, { updated_at: at(n) }), pull_request: {} },
+      ),
+    );
+    expect(full.issues.map((i) => i.number)).toEqual([1, 2]);
+    expect(full.resumeAt).toBe(at(99));
+    // A full page that ends at the time asked for would be read again for ever: step past it.
+    const flat = await list(
+      Array.from({ length: 100 }, (_, n) => issue(n + 1, { updated_at: '2026-09-01T00:00:00Z' })),
+    );
+    expect(flat.resumeAt).toBe('2026-09-01T00:00:01.000Z');
+    // A short page under the limit: everything was seen.
+    expect((await list([issue(1)])).resumeAt).toBeNull();
+  });
+
   it('reads through the broker with a named resource, never a URL, and filters out pull requests', async () => {
     const fetch = vi.fn((_u: string, _i?: RequestInit) =>
       Promise.resolve(
@@ -152,12 +186,12 @@ describe('BrokerGitHubReader', () => {
       ),
     );
     const reader = new BrokerGitHubReader({ fetch }, 'triage', runId);
-    const issues = await reader.listUpdatedIssues(
+    const { issues, resumeAt } = await reader.listUpdatedIssues(
       'OWASP/CheatSheetSeries',
       '2026-09-01T00:00:00Z',
-      10,
     );
     expect(issues.map((i) => i.number)).toEqual([1]);
+    expect(resumeAt).toBeNull();
     const [url, init] = fetch.mock.calls[0] ?? [];
     expect(url).toBe('https://broker.internal/v1/read');
     const body = JSON.parse(init?.body as string) as Record<string, unknown>;
@@ -221,7 +255,7 @@ function deps(
       listLabels: () => Promise.resolve(known.labels),
       listCheatSheets: () => Promise.resolve(known.cheatSheets),
       listRecentIssueTitles: () => Promise.resolve([{ number: 3, title: 'older' }]),
-      listUpdatedIssues: () => Promise.resolve(issues),
+      listUpdatedIssues: () => Promise.resolve({ issues, resumeAt: null }),
     },
     complete: () => Promise.resolve(JSON.stringify(raw())),
     store: memStore(saved),
@@ -263,12 +297,32 @@ describe('runTriage', () => {
     expect(d.saved).toEqual([]);
   });
 
-  it('resumes from the last issue reached when the batch is capped', async () => {
-    const many = Array.from({ length: MAX_PER_RUN }, (_, i) =>
-      issue(i + 1, { updated_at: `2026-09-22T10:${String(i).padStart(2, '0')}:00Z` }),
-    );
-    const r = await runTriage('OWASP/CheatSheetSeries', '2026-09-21T00:00:00Z', deps({}, many));
-    expect(r.nextSince).toBe(`2026-09-22T10:${String(MAX_PER_RUN - 1).padStart(2, '0')}:00Z`);
+  it('caps the issues it works on, not the ones it skips: a batch sharing one timestamp cannot block the cursor', async () => {
+    // A bulk label gives 20 issues the same updated_at. Run 1 takes 15 and resumes at that time;
+    // run 2 gets the same list, skips the 15 it has, and must reach the other 5.
+    const same = '2026-09-22T10:00:00Z';
+    const batch = Array.from({ length: 20 }, (_, i) => issue(i + 1, { updated_at: same }));
+    const done = new Set<number>();
+    const store = {
+      ...memStore([]),
+      isCurrent: (n: number) => done.has(n),
+      save: (i: PublicIssue) => void done.add(i.number),
+    };
+    const first = await runTriage('OWASP/CheatSheetSeries', 'x', deps({ store }, batch));
+    expect(first.assessed).toBe(MAX_PER_RUN);
+    expect(first.nextSince).toBe(same);
+    const second = await runTriage('OWASP/CheatSheetSeries', same, deps({ store }, batch));
+    expect(second.assessed).toBe(20 - MAX_PER_RUN);
+    expect(done.size).toBe(20);
+    expect(second.nextSince).not.toBe(same);
+  });
+
+  it('resumes where the reader stopped when it did not see everything', async () => {
+    const d = deps({}, [issue(1)]);
+    d.reader.listUpdatedIssues = () =>
+      Promise.resolve({ issues: [issue(1)], resumeAt: '2026-09-22T10:14:00Z' });
+    const r = await runTriage('OWASP/CheatSheetSeries', '2026-09-21T00:00:00Z', d);
+    expect(r.nextSince).toBe('2026-09-22T10:14:00Z');
   });
 });
 
@@ -289,6 +343,58 @@ describe('triage agent wiring', () => {
     );
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ manifest: { id: 'triage' }, recent: [] });
+  });
+
+  it('answers 405 to a write it has no handler for, instead of the status', async () => {
+    const res = await triageWorker.fetch(
+      new Request('https://x/agents/triage-agent/custodes-sandbox/summary', { method: 'POST' }),
+      testEnv,
+    );
+    expect(res.status).toBe(405);
+  });
+
+  it('refuses, as a read-only agent, to ask for any side effect before reaching the broker', async () => {
+    const stub = await getAgentByName(testEnv.TriageAgent, 'owasp-cheatsheetseries');
+    const errors = await runInDurableObject(stub, async (agent) => {
+      const a = agent as unknown as {
+        act(...args: unknown[]): Promise<unknown>;
+        requestApproval(...args: unknown[]): Promise<unknown>;
+        requestBundleApproval(...args: unknown[]): Promise<unknown>;
+      };
+      const out: string[] = [];
+      for (const call of [
+        () => a.act({}, 'run', { kind: 'schedule' }),
+        () => a.requestApproval({}, 'why', 'run', { kind: 'schedule' }),
+        () => a.requestBundleApproval({}, 'why', 'run', { kind: 'schedule' }),
+      ])
+        out.push(
+          await call().then(
+            () => 'resolved',
+            (e: unknown) => (e instanceof Error ? e.message : 'threw'),
+          ),
+        );
+      return out;
+    });
+    for (const e of errors) expect(e).toContain('read-only');
+  });
+
+  it('keeps agent state server-owned: a WebSocket client cannot overwrite it', async () => {
+    const stub = await getAgentByName(testEnv.TriageAgent, 'owasp-cheatsheetseries');
+    await runInDurableObject(stub, (agent) => {
+      const a = agent as unknown as {
+        validateStateChange(next: unknown, source: unknown): void;
+        shouldConnectionBeReadonly(): boolean;
+      };
+      // Any Access identity can open a WebSocket through the gateway; the SDK would otherwise
+      // apply its cf_agent_state frame (the cursor, daily counters, lastErrors).
+      expect(() => {
+        a.validateStateChange({ since: null }, { id: 'client' });
+      }).toThrow('server-owned');
+      expect(() => {
+        a.validateStateChange({ since: null }, 'server');
+      }).not.toThrow();
+      expect(a.shouldConnectionBeReadonly()).toBe(true);
+    });
   });
 });
 
@@ -379,8 +485,12 @@ describe('failure handling (the 2026-09-29 outage)', () => {
       '2026-09-21T00:00:00Z',
       deps({ complete: calls }, many),
     );
-    expect(calls).toHaveBeenCalledTimes(MAX_CONSECUTIVE_INFRA_FAILURES);
-    expect(r.errors.at(-1)).toBe('stopped after 3 consecutive infrastructure failures');
+    // Three issues, then one probe to tell an outage from refused issues.
+    expect(calls).toHaveBeenCalledTimes(MAX_CONSECUTIVE_INFRA_FAILURES + 1);
+    expect(r.errors.slice(-2)).toEqual([
+      'stopped after 3 consecutive infrastructure failures',
+      'probe refused too (GatewayError 400 invalid_request_error)',
+    ]);
     // infrastructure failures hold the cursor at the first failed issue so nothing is skipped
     expect(r.nextSince).toBe('2026-09-22T10:00:00Z');
   });
@@ -389,6 +499,63 @@ describe('failure handling (the 2026-09-29 outage)', () => {
     const d = deps({ complete: badRequest });
     for (let i = 0; i < 5; i++) await runTriage('OWASP/CheatSheetSeries', 'x', d);
     expect(d.store.failures(5, issue(5).updated_at)).toBe(0);
+  });
+
+  it('counts a failure against an issue when others in the same run were assessed, then frees the cursor', async () => {
+    const poison = issue(5, { updated_at: '2026-09-22T10:00:00Z' });
+    const store = memStore([]);
+    const complete = (_s: string, _u: string, n: number) =>
+      n === 5 ? badRequest() : Promise.resolve(JSON.stringify(raw()));
+    const run = (other: number) => {
+      const d = deps({ complete, store }, [
+        poison,
+        issue(other, { updated_at: `2026-09-22T11:0${other - 6}:00Z` }),
+      ]);
+      return runTriage('OWASP/CheatSheetSeries', '2026-09-21T00:00:00Z', d);
+    };
+    // Each poll also assesses a new issue, so this is not an outage: the failure is about #5.
+    const runs = [await run(6), await run(7), await run(8), await run(9)];
+    expect(runs[0]?.nextSince).toBe(poison.updated_at);
+    expect(runs[2]?.errors.at(-1)).toBe(
+      '#5: gave up after 3 attempts (refused while other requests were answered)',
+    );
+    expect(store.failures(5, poison.updated_at)).toBe(3);
+    // Skipped from now on, so the cursor moves past it.
+    expect(runs[3]?.errors).toEqual([]);
+    expect(runs[3]?.nextSince).not.toBe(poison.updated_at);
+  });
+
+  it('counts refused issues when nothing was assessed but the probe is answered', async () => {
+    const store = memStore([]);
+    const three = [1, 2, 3].map((n) => issue(n, { updated_at: `2026-09-22T10:0${n}:00Z` }));
+    // Every real issue is refused; the fixed probe (issue 0) gets an answer.
+    const complete = (_s: string, _u: string, n: number) =>
+      n === 0 ? Promise.resolve('anything') : badRequest();
+    const run = () =>
+      runTriage('OWASP/CheatSheetSeries', '2026-09-21T00:00:00Z', deps({ complete, store }, three));
+    const runs = [await run(), await run(), await run(), await run()];
+    expect(runs[0]?.nextSince).toBe('2026-09-22T10:01:00Z');
+    expect(store.failures(1, '2026-09-22T10:01:00Z')).toBe(3);
+    // All three are skipped from now on: the cursor is free and no model call is made.
+    expect(runs[3]).toMatchObject({ assessed: 0, skipped: 3, errors: [] });
+    expect(runs[3]?.nextSince).not.toBe('2026-09-22T10:01:00Z');
+  });
+
+  it('never counts a rate limit, a server error or a timeout against an issue, even when others were assessed', async () => {
+    const store = memStore([]);
+    for (const status of [429, 503, 408]) {
+      const complete = (_s: string, _u: string, n: number) =>
+        n === 5
+          ? Promise.reject(new GatewayError(status, 'x', 'overloaded_error'))
+          : Promise.resolve(JSON.stringify(raw()));
+      for (let other = 60; other < 64; other++)
+        await runTriage(
+          'OWASP/CheatSheetSeries',
+          '2026-09-21T00:00:00Z',
+          deps({ complete, store }, [issue(5), issue(other + status)]),
+        );
+    }
+    expect(store.failures(5, issue(5).updated_at)).toBe(0);
   });
 
   it('gives up on an issue with unusable output after three attempts and frees the cursor', async () => {

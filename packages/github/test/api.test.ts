@@ -1,9 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import { INLINE_COMMENT_MARKER } from '@custodes/schema';
 import { executeAction, GitHubRest } from '../src/api.js';
+import { GitHubReadClient } from '../src/read.js';
 import type { GitHubIdentity } from '../src/identity.js';
 
-const id: GitHubIdentity = { kind: 'pat', agentId: 'triage', token: () => Promise.resolve('tok') };
+const id: GitHubIdentity = { agentId: 'triage', token: () => Promise.resolve('tok') };
 
 describe('GitHubRest', () => {
   it('sends a bearer token and appends trailers to comments', async () => {
@@ -33,6 +34,20 @@ describe('GitHubRest', () => {
     await expect(api.createIssueComment('x/y', 1, 'SECRET-BODY')).rejects.not.toThrow(
       /SECRET-BODY/,
     );
+  });
+});
+
+describe('executeAction retired actions', () => {
+  it('cannot post a plain review (it could approve) or a pull request comment', async () => {
+    const fetchMock = vi.fn(() => Promise.resolve(Response.json({})));
+    const api = new GitHubRest(id, fetchMock);
+    const repo = 'mackowski/custodes-sandbox';
+    for (const action of [
+      { type: 'pr.review', repo, pull: 1, event: 'APPROVE', body: 'x' },
+      { type: 'pr.comment', repo, pull: 1, body: 'x' },
+    ] as const)
+      await expect(executeAction(api, action, (b) => b)).rejects.toThrow('retired');
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
 
@@ -148,6 +163,10 @@ describe('GitHubRest default fetch', () => {
     });
     try {
       await new GitHubRest(id).createIssueComment('x/y', 1, 'hi');
+      expect(receiver).toBeUndefined();
+      // The read client shares the default: every /v1/read broke this way on 2026-09-29.
+      receiver = 'not called';
+      await new GitHubReadClient(id).get('/repos/x/y/issues/1');
       expect(receiver).toBeUndefined();
     } finally {
       vi.unstubAllGlobals();

@@ -172,6 +172,7 @@ describe('validateProposalReview() properties', () => {
             labels,
             current,
             people: ['gqlwriter', 'maint1'],
+            author: 'gqlwriter',
             files: new Map(),
             assignees,
             linkedPrs: [
@@ -241,6 +242,7 @@ describe('renderDigestHtml() properties', () => {
             labels: [],
             current: [],
             people: [],
+            author: null,
             files: new Map(),
           },
         );

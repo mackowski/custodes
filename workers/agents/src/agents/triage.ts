@@ -1,8 +1,15 @@
 import { getAgentByName } from 'agents';
 import { CustodesAgent } from '@custodes/core/agent';
 import { AnthropicGateway, inertText } from '@custodes/llm';
+import { ApprovalToken } from '@custodes/schema';
 import type { AgentsEnv } from '../env.js';
-import { instanceOf, OWASP_INSTANCE, UnknownInstanceError, unknownInstance } from '../instances.js';
+import {
+  instanceOf,
+  noSuchAction,
+  OWASP_INSTANCE,
+  UnknownInstanceError,
+  unknownInstance,
+} from '../instances.js';
 import { PendingResults, type SpecialistJob } from './specialists/agent.js';
 import { ImplementationCheck } from './specialists/implementation.js';
 import { ProposalReview } from './specialists/proposal.js';
@@ -33,8 +40,6 @@ import { runTriage, type TriageStore } from './triage/run.js';
 
 /** One-click links per digest; the rest are listed as "without a link" (ADR 0019). */
 const MAX_APPLY_LINKS = 20;
-/** `<approvalId>.<exp>.<hmac>`, as ApprovalCreated in @custodes/schema. */
-const APPROVAL_TOKEN = /^[0-9a-f-]{36}\.\d{1,12}\.[A-Za-z0-9_-]{20,100}$/;
 
 export { TRIAGE_MANIFEST } from '../manifests.js';
 import { TRIAGE_MANIFEST } from '../manifests.js';
@@ -552,7 +557,7 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
         out = { ok: false, reason: `triage-apply unreachable (${describeError(err)})` };
       }
       // The token goes into a URL: only the broker's own format is accepted.
-      if (out.ok && APPROVAL_TOKEN.test(out.token))
+      if (out.ok && ApprovalToken.safeParse(out.token).success)
         links.set(p.issue, {
           url: `${base}/${out.token}`,
           expiresAt: out.expiresAt,
@@ -584,6 +589,8 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
           : await this.poll({ prepare: true }),
       );
     }
+    const refused = noSuchAction(request);
+    if (refused) return refused;
     this.ensureSchema();
     const recent = this
       .sql<AssessmentRow>`SELECT issue, title, issue_updated_at, assessment, assessed_at

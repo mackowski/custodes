@@ -12,6 +12,7 @@
 // Needs CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID. Prints ids only, never the token.
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { isLive, mustRefuse, type WranglerConfig } from './do-namespace-rules.ts';
 
 interface Namespace {
   class?: string;
@@ -22,11 +23,6 @@ interface Page {
   result?: Namespace[];
   result_info?: { total_count?: number };
 }
-interface WranglerConfig {
-  exports?: Record<string, { state?: string } | undefined>;
-  durable_objects?: { bindings?: { class_name: string; script_name?: string }[] };
-}
-
 const PER_PAGE = 100;
 const MAX_PAGES = 50;
 
@@ -64,15 +60,11 @@ function declaresLive(dir: string, className: string): boolean {
     .map((l) => (/^\s*\/\//.test(l) ? '' : l))
     .join('\n')
     .replace(/,(\s*[}\]])/g, '$1');
-  const config = JSON.parse(text) as WranglerConfig;
-  const exported = config.exports?.[className];
-  const liveExport = exported !== undefined && exported.state === undefined;
-  const ownBinding = (config.durable_objects?.bindings ?? []).some(
-    (b) => b.class_name === className && b.script_name === undefined,
-  );
-  return liveExport || ownBinding;
+  return isLive(JSON.parse(text) as WranglerConfig, className);
 }
 
+// Runs whenever the file is executed, with no condition: the rules the unit test imports live in
+// do-namespace-rules.ts, so nothing here can be switched off by the environment.
 const [classArg = '', flag, dir, script] = process.argv.slice(2);
 const classes = classArg.split(',');
 const token = process.env['CLOUDFLARE_API_TOKEN'];
@@ -98,7 +90,7 @@ if (flag === undefined && classes.length === 1) {
   let refused = false;
   for (const c of classes) {
     const owner = ownerOf(c);
-    if (declaresLive(dir, c) && owner !== script) {
+    if (mustRefuse(declaresLive(dir, c), owner, script)) {
       console.error(
         `${dir} declares ${c} live, but its namespace belongs to '${owner || 'nobody'}', not ${script}. ` +
           'After a cutover, merge its follow-up PR first (docs/runbooks/agent-cutover.md).',

@@ -13,7 +13,6 @@
     "ACCESS_TEAM": "ai-custodes",
     // Application Audience (AUD) tag of the Access application; from `terraform output`.
     "ACCESS_AUD": "0cb7808f9edd99f93ee4cb7ee333f46eb7ee2ad9cc8abd4a05667344cd8c595e",
-    "EMAIL_DOMAIN": "custodes.work",
     // Comma-separated Access identities allowed to decide approvals (link page and CLI).
     "APPROVER_EMAILS": "jkb.mackowski@gmail.com",
   },

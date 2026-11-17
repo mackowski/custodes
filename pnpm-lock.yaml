@@ -107,39 +107,11 @@ importers:
         specifier: 4.1.12
         version: 4.1.12(@opentelemetry/api@1.10.0)(@types/node@22.20.5)(vite@8.3.3(@types/node@22.20.5)(esbuild@0.28.2)(yaml@2.9.1))
 
-  packages/email:
-    dependencies:
-      '@custodes/core':
-        specifier: workspace:*
-        version: link:../core
-      '@custodes/schema':
-        specifier: workspace:*
-        version: link:../schema
-    devDependencies:
-      '@cloudflare/workers-types':
-        specifier: 5.20261113.1
-        version: 5.20261113.1
-      '@custodes/config':
-        specifier: workspace:*
-        version: link:../config
-      typescript:
-        specifier: 5.9.3
-        version: 5.9.3
-      vitest:
-        specifier: 4.1.12
-        version: 4.1.12(@opentelemetry/api@1.10.0)(@types/node@22.20.5)(vite@8.3.3(@types/node@22.20.5)(esbuild@0.28.2)(yaml@2.9.1))
-
   packages/github:
     dependencies:
-      '@custodes/core':
-        specifier: workspace:*
-        version: link:../core
       '@custodes/schema':
         specifier: workspace:*
         version: link:../schema
-      zod:
-        specifier: 4.6.7
-        version: 4.6.7
     devDependencies:
       '@cloudflare/workers-types':
         specifier: 5.20261113.1
@@ -206,12 +178,6 @@ importers:
       '@custodes/core':
         specifier: workspace:*
         version: link:../../packages/core
-      '@custodes/email':
-        specifier: workspace:*
-        version: link:../../packages/email
-      '@custodes/github':
-        specifier: workspace:*
-        version: link:../../packages/github
       '@custodes/llm':
         specifier: workspace:*
         version: link:../../packages/llm

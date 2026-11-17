@@ -15,8 +15,6 @@ export const BrokerRequest = z.object({
   /** One id per agent run; groups several actions in the audit log. */
   runId: z.uuid(),
   triggeredBy: Trigger,
-  /** GitHub login of the human this action is done for, when there is one. */
-  onBehalfOf: z.string().max(39).optional(),
   /** Approval id for actions that policy marks as requiring approval. */
   approvalId: z.uuid().optional(),
   action: BrokerAction,

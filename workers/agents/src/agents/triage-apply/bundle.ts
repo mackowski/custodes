@@ -5,7 +5,13 @@
  */
 import { z } from 'zod';
 import {
+  commentProblem as sharedCommentProblem,
+  mentionsIn,
+  type CommentProblem,
+} from '@custodes/core';
+import {
   type ApprovalBundle,
+  ApprovalToken,
   type BrokerAction,
   BrokerActionType,
   GitHubLogin,
@@ -13,16 +19,20 @@ import {
 } from '@custodes/schema';
 import { issueLabels, type IssueComment, type PublicIssue } from '../triage/github.js';
 
+/** Limits of a proposal. proposal-review keeps its output within them, or the link is refused. */
+export const MAX_PROPOSAL_LABELS = 6;
+export const MAX_PROPOSAL_COMMENT = 3_000;
+
 /** What triage hands over for one issue: the stored proposal, nothing the model wrote unchecked. */
 export const ProposalInput = z.object({
   repo: z.string().regex(/^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/),
   issue: z.number().int().positive().max(1_000_000),
-  addLabels: z.array(z.string().min(1).max(50)).max(6),
+  addLabels: z.array(z.string().min(1).max(50)).max(MAX_PROPOSAL_LABELS),
   removeLabels: z.array(z.string().min(1).max(50)).max(6),
   /** Chosen by code from GitHub-set fields (the assignment rule), never by the model alone. */
   assignee: GitHubLogin.nullable(),
   /** Placeholders already replaced by code with logins from GitHub; "" for no comment. */
-  comment: z.string().max(3_000),
+  comment: z.string().max(MAX_PROPOSAL_COMMENT),
   /** One line for the operator's approval page: why this proposal. */
   reason: z.string().max(300),
 });
@@ -32,7 +42,7 @@ export type ProposalInput = z.infer<typeof ProposalInput>;
 export const ProposeResult = z.discriminatedUnion('ok', [
   z.object({
     ok: z.literal(true),
-    token: z.string().regex(/^[0-9a-f-]{36}\.\d{1,12}\.[A-Za-z0-9_-]{20,100}$/),
+    token: ApprovalToken,
     expiresAt: z.iso.datetime(),
     actions: z.array(BrokerActionType).min(1).max(4),
     dropped: z.array(z.string().max(100)).max(10),
@@ -50,6 +60,10 @@ const lower = (s: string) => s.toLowerCase();
 /** The snapshot the broker compares against: sorted names, the comment count GitHub reports. */
 export function snapshotOf(issue: PublicIssue, commentsDigest: string): IssueSnapshot | null {
   if (issue.state !== 'open' && issue.state !== 'closed') return null;
+  const assignees = (issue.assignees ?? []).map((a) => a.login);
+  // An assignee whose login we do not accept is still an assignee: leaving it out would make the
+  // issue look unassigned and let a bundle assign a second person. No snapshot, as the broker does.
+  if (!assignees.every((l) => GitHubLogin.safeParse(l).success)) return null;
   return {
     updatedAt: issue.updated_at,
     commentsDigest,
@@ -57,10 +71,7 @@ export function snapshotOf(issue: PublicIssue, commentsDigest: string): IssueSna
     labels: issueLabels(issue)
       .filter((l) => l.length > 0)
       .sort(),
-    assignees: (issue.assignees ?? [])
-      .map((a) => a.login)
-      .filter((l) => GitHubLogin.safeParse(l).success)
-      .sort(),
+    assignees: assignees.sort(),
     comments: issue.comments,
   };
 }
@@ -77,22 +88,17 @@ export function threadPeople(issue: PublicIssue, comments: IssueComment[]): stri
   return out;
 }
 
-/** Same rules as the broker's `commentProblem` (it checks again): see there for why. */
-export function commentProblem(body: string, repo: string): string | null {
-  if (/&(#|[A-Za-z][A-Za-z0-9]*;)/.test(body)) return 'HTML character reference';
-  if (body.includes('<!--') || body.includes('-->')) return 'HTML comment marker';
-  if (/https?:|www\./i.test(body)) return 'link';
-  for (const m of body.matchAll(/([A-Za-z0-9-]+\/[A-Za-z0-9._-]+)#\d+/g))
-    if (m[1]?.toLowerCase() !== repo.toLowerCase()) return 'reference to another repository';
-  return null;
-}
+const PROBLEM_TEXT: Record<CommentProblem, string> = {
+  character_reference: 'HTML character reference',
+  comment_marker: 'HTML comment marker',
+  link: 'link',
+  other_repository: 'reference to another repository',
+};
 
-/** Same rule as the broker's `mentionsIn`: `@name` not after a letter or digit. */
-export function mentionsIn(body: string): string[] {
-  const out = new Set<string>();
-  for (const m of body.matchAll(/(?<![A-Za-z0-9])@([A-Za-z0-9-]{1,39})/g))
-    if (m[1] !== undefined) out.add(m[1]);
-  return [...out];
+/** The shared rule (`@custodes/core`, which the broker applies again), in this agent's words. */
+export function commentProblem(body: string, repo: string): string | null {
+  const problem = sharedCommentProblem(body, repo);
+  return problem === null ? null : PROBLEM_TEXT[problem];
 }
 
 /**

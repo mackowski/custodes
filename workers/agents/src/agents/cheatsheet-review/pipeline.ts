@@ -18,6 +18,8 @@ import {
   isExternal,
   knownTargetForm,
   maskedLine,
+  mergeCitation,
+  citedText,
   scanLinks,
   type AddedLink,
   MAX_EXTERNAL_LINKS,
@@ -50,11 +52,32 @@ export interface PipelineDeps extends RunnerDeps {
   fetchSource: (url: string) => Promise<SourceDoc>;
 }
 
+export type BlockingDimension = 'Security' | 'Links & sources';
+
+/**
+ * Which dimensions a security or links reviewer blocked. Both uses read this: the pipeline never
+ * promotes such a review to MERGE, and the agent posts it as REQUEST_CHANGES. Two copies of the
+ * role list could disagree the next time the lineup changes.
+ */
+export function blockingDimensions(
+  reports: readonly { role: ReviewerRole; report: ReviewerReport }[],
+): Set<BlockingDimension> {
+  const out = new Set<BlockingDimension>();
+  for (const x of reports) {
+    if (x.report.verdict !== 'BLOCK') continue;
+    if (x.role === 'security-reviewer' || x.role === 'security-second-voice') out.add('Security');
+    if (x.role === 'link-auditor') out.add('Links & sources');
+  }
+  return out;
+}
+
 export interface PipelineResult {
   changeClass: ChangeClass;
   classWhy: string;
   outcomes: RoleOutcome[];
   reports: { role: ReviewerRole; report: ReviewerReport }[];
+  /** The dimensions whose reviewer said BLOCK: one rule for "never MERGE" and "REQUEST_CHANGES". */
+  blockedBy: ReadonlySet<BlockingDimension>;
   decision: ReviewDecision | undefined;
   /** Why nothing may be published, or null. */
   breach: string | null;
@@ -101,6 +124,7 @@ async function linkStage(snap: Snapshot, deps: PipelineDeps): Promise<LinkStage>
   const notes: string[] = [];
   const allowed = new Set<string>();
   const external: { link: AddedLink }[] = [];
+  const externalByUrl = new Map<string, { link: AddedLink }>();
   for (const f of snap.files.filter((x) => isSheet(x.file.filename))) {
     const self = f.file.filename.split('/').pop() ?? f.file.filename;
     const own = snap.contents.get(f.file.filename);
@@ -128,7 +152,16 @@ async function linkStage(snap: Snapshot, deps: PipelineDeps): Promise<LinkStage>
         continue;
       }
       if (isExternal(link.url)) {
-        external.push({ link });
+        // One fetch and one verdict per URL, at its first place, for every sentence that cites it
+        // (mergeCitation). scanLinks dedupes within a file only; the auditor answers by URL, so the
+        // same URL in two sheets got both answers on the first one and used two of the
+        // MAX_EXTERNAL_LINKS places.
+        const prior = externalByUrl.get(link.url);
+        if (prior === undefined) {
+          const entry = { link };
+          externalByUrl.set(link.url, entry);
+          external.push(entry);
+        } else mergeCitation(prior.link, link);
         continue;
       }
       // javascript:, data:, mailto: and other schemes are never fetched; a person has to look.
@@ -165,6 +198,20 @@ async function linkStage(snap: Snapshot, deps: PipelineDeps): Promise<LinkStage>
       ...(link.previous !== undefined ? { previous: link.previous } : {}),
     });
   for (const { link } of external.slice(0, MAX_EXTERNAL_LINKS)) {
+    // The reason comes first: the note is cut at 400 characters when rendered.
+    if (link.unaudited)
+      notes.push(
+        `not audited: further sentences at ${link.unaudited
+          .slice(0, 5)
+          .map((u) => `${u.file}:${u.line}`)
+          .join(
+            ', ',
+          )}${link.unaudited.length > 5 ? ' and more' : ''} cite ${link.url.slice(0, 200)}`,
+      );
+    for (const m of (link.movedAt ?? []).slice(0, 5))
+      notes.push(
+        `move not judged: at ${m.file}:${m.line} ${link.url.slice(0, 150)} replaces ${m.previous.slice(0, 150)}`,
+      );
     await deps.guard();
     const got = await deps.limit(() => deps.fetchLink(link.url));
     if (got.kind === 'broken') check(link, `broken (HTTP ${got.status})`);
@@ -184,7 +231,10 @@ async function linkStage(snap: Snapshot, deps: PipelineDeps): Promise<LinkStage>
         url: link.url,
         file: link.file,
         line: link.line,
-        context: link.context,
+        context: citedText(link),
+        ...(link.more?.length
+          ? { also: link.more.map((m) => `${m.file}:${m.line}`).join(', ') }
+          : {}),
         title: got.title,
         excerpt: got.excerpt,
         ...(link.previous !== undefined ? { previous: link.previous } : {}),
@@ -211,7 +261,7 @@ async function linkStage(snap: Snapshot, deps: PipelineDeps): Promise<LinkStage>
         severity: status === 'LOW-AUTHORITY' || status === 'STALE' ? 'MINOR' : 'BLOCKER',
         file: page.file,
         line: page.line,
-        problem: `${status}: \`${page.url.slice(0, 300)}\`${page.previous !== undefined ? ` (moved from \`${page.previous.slice(0, 300)}\`)` : ''}: ${v.reason}`,
+        problem: `${status}: \`${page.url.slice(0, 300)}\`${page.previous !== undefined ? ` (moved from \`${page.previous.slice(0, 300)}\`)` : ''}${page.also ? ` (also cited at ${page.also})` : ''}: ${v.reason}`,
       });
       if (status !== 'LOW-AUTHORITY' && status !== 'STALE') allowed.delete(page.url);
     }
@@ -356,13 +406,8 @@ export async function reviewPipeline(snap: Snapshot, deps: PipelineDeps): Promis
   );
   // The original reports minus REFUTED findings only (reportsForJudge): a NOT-FOUND claim never
   // lowers a reviewer's BLOCK. The agent reads the same reports for reviewEvent.
-  const reviewerBlocked = judgedReports.some(
-    (x) =>
-      x.report.verdict === 'BLOCK' &&
-      (x.role === 'security-reviewer' ||
-        x.role === 'security-second-voice' ||
-        x.role === 'link-auditor'),
-  );
+  const blockedBy = blockingDimensions(judgedReports);
+  const reviewerBlocked = blockedBy.size > 0;
   const scoped = (d: ReviewDecision): ReviewDecision => {
     // #91: an entry must name a maintainer whose request was shown; anything else is dropped.
     const shown = new Set((snap.requests ?? []).map((r) => r.by.toLowerCase()));
@@ -382,6 +427,7 @@ export async function reviewPipeline(snap: Snapshot, deps: PipelineDeps): Promis
     classWhy: scope.why,
     outcomes,
     reports: judgedReports,
+    blockedBy,
     decision: enforced && scoped(enforced.decision),
     breach: invariantBreach(outcomes),
     allowed: links?.allowed ?? new Set(),

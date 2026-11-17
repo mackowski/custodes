@@ -38,6 +38,17 @@ describe('attestation', () => {
     expect(res.reason).toBe('bad signature');
   });
 
+  it('reads a signature that is not base64url as invalid instead of throwing', async () => {
+    const { publicJwk, privateJwk } = await generateAgentKeyPair();
+    const record = await buildAuditRecord({ request, decision: 'allowed', now: new Date(0) });
+    const att = await signAuditRecord(record, await importPrivateKey(privateJwk), 'triage-test');
+    const pub = await importPublicKey(publicJwk);
+    for (const signature of ['a!b', 'abcde', 'AAAA']) {
+      const res = await verifyAttestation({ ...att, signature }, pub);
+      expect(res.valid, signature).toBe(false);
+    }
+  });
+
   it('audit record hash is stable for the same action', async () => {
     const a = await buildAuditRecord({
       request,

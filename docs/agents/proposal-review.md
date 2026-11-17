@@ -25,6 +25,10 @@ The model reports only what people said: `authorIntent` (`offered | declined | u
 3. The author declined, or 48 h passed since our question without a comment from them: propose
    the first volunteer in thread order; nobody (and `HELP_WANTED`) when nobody offered. At the end
    of the 48 h the specialist reviews the issue again by itself (`recheckAt`).
+4. Nobody is the author (a bot or a deleted account opened the issue): propose the first volunteer
+   in thread order. A commenter is never read as the author: nobody is asked in the author's
+   place, and `{author}` in a comment drops the comment. The broker accepts such an issue and
+   leaves the bot out of the people who may be assigned or named.
 
 Comments name people with `{author}` and `{commenter:N}` only. Code fills in logins from GitHub, and
 an unknown placeholder drops the comment.

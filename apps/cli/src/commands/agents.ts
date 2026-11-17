@@ -6,7 +6,11 @@ import { loadConfig } from '../config.js';
 import { print, rows } from '../output.js';
 
 const Registry = z.array(AgentManifest);
-const Status = z.object({
+/**
+ * Loose on purpose: every agent adds its own fields (pr-gate `enforcing`, specialists `queued`,
+ * `recent`…), and a strict object dropped them all, also from `--json`.
+ */
+export const Status = z.looseObject({
   manifest: AgentManifest,
   state: z.unknown(),
   killSwitch: KillSwitchState,
@@ -56,7 +60,7 @@ export function agentsCommand(): Command {
   cmd
     .command('run <agent>')
     .description(
-      'trigger one run of an agent instance now (sandbox instances only for triage and pr-gate)',
+      'trigger one run now: triage and pr-gate only, on sandbox instances (other agents answer 405)',
     )
     .option('--instance <name>', 'instance name', 'default')
     .option(

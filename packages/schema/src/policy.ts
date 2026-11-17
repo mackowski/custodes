@@ -51,7 +51,7 @@ export const AgentPolicy = z
     maxPendingApprovals: z.number().int().min(1).max(200).optional(),
     /**
      * `hidden`: comments carry only the HTML-comment trailer (agent and attestation id, read by
-     * /verify and parseTrailers) and no visible footer. Operator decision for triage-apply (#108).
+     * /verify) and no visible footer. Operator decision for triage-apply (#108).
      */
     trailer: z.enum(['visible', 'hidden']).default('visible'),
     /**

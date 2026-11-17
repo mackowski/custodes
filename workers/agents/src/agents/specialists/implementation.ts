@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import { CheatSheetFile } from '@custodes/schema';
 import { clip, parseStructured, untrusted, UNTRUSTED_DATA_RULES } from '@custodes/llm';
 import { inertNoLinks, inertNoLinksWords } from '../triage/assess.js';
 import {
@@ -12,7 +11,14 @@ import { isSafeName, safeLogin } from '../triage/prompt.js';
 import { list, numbers, text, unit } from './lenient.js';
 import { RawEvidence, sanitizeComment, VerifiedEvidence, verifyEvidence } from './evidence.js';
 import { loadCheatSheets, type SpecialistDeps } from './run.js';
-import { buildSelectMessage, RawSelection, SELECT_PROMPT, validateSelection } from './select.js';
+import {
+  buildSelectMessage,
+  offerableCheatSheets,
+  RawSelection,
+  SELECT_PROMPT,
+  validateSelection,
+} from './select.js';
+import { MAINTAINER_ASSOCIATIONS } from '../pr-gate/rules.js';
 
 /**
  * evals/agents/implementation-check/system.txt must match it byte for byte; a test enforces that.
@@ -109,9 +115,6 @@ export const ImplementationCheck = z.object({
 });
 export type ImplementationCheck = z.infer<typeof ImplementationCheck>;
 
-/** `author_association` values GitHub gives people with write access or org membership. */
-const MAINTAINER_ASSOCIATIONS = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
-
 export function isMaintainer(c: Pick<IssueComment, 'author_association'>): boolean {
   return MAINTAINER_ASSOCIATIONS.has(c.author_association ?? '');
 }
@@ -172,22 +175,6 @@ export interface PullRef {
   files: string[];
 }
 
-/** Pull requests in the same repository that reference the issue, from its timeline. */
-export function referencingPulls(
-  repo: string,
-  timeline: TimelineEvent[],
-): Omit<PullRef, 'files'>[] {
-  const seen = new Map<number, boolean>();
-  for (const e of timeline) {
-    const src = e.source?.issue;
-    if (e.event !== 'cross-referenced' || !src?.pull_request) continue;
-    if (src.repository?.full_name.toLowerCase() !== repo.toLowerCase()) continue;
-    const merged = typeof src.pull_request.merged_at === 'string';
-    seen.set(src.number, (seen.get(src.number) ?? false) || merged);
-  }
-  return [...seen].map(([number, merged]) => ({ number, merged }));
-}
-
 export interface LinkedPull {
   number: number;
   state: 'open' | 'merged' | 'closed';
@@ -204,8 +191,9 @@ export function linkedPulls(repo: string, timeline: TimelineEvent[]): LinkedPull
     const src = e.source?.issue;
     if (e.event !== 'cross-referenced' || !src?.pull_request) continue;
     if (src.repository?.full_name.toLowerCase() !== repo.toLowerCase()) continue;
+    // A PR is cross-referenced once per mention: one that says merged is not undone by another.
     const state =
-      typeof src.pull_request.merged_at === 'string'
+      typeof src.pull_request.merged_at === 'string' || out.get(src.number)?.state === 'merged'
         ? 'merged'
         : src.state === 'open'
           ? 'open'
@@ -217,7 +205,13 @@ export function linkedPulls(repo: string, timeline: TimelineEvent[]): LinkedPull
       title: clip(src.title ?? '', 150),
     });
   }
-  return [...out.values()].slice(0, 10);
+  // Ten at most, in timeline order, and a merged one is never among those left out: anyone can
+  // open pull requests that mention an issue, and ten of those must not hide the one that did
+  // the work.
+  const all = [...out.values()];
+  const merged = all.filter((p) => p.state === 'merged').slice(0, 10);
+  const rest = all.filter((p) => p.state !== 'merged').slice(0, 10 - merged.length);
+  return all.filter((p) => merged.includes(p) || rest.includes(p));
 }
 
 /** When the label was last applied, from the timeline; null when the timeline does not show it. */
@@ -396,17 +390,17 @@ export async function checkImplementation(
     deps.reader.listTimeline(repo, issueNumber),
     deps.reader.listCheatSheets(repo),
   ]);
-  // Names the broker would refuse to read are never offered to the model.
-  const cheatSheets = allCheatSheets.filter(
-    (n) => isSafeName(n) && CheatSheetFile.safeParse(n).success,
-  );
+  const cheatSheets = offerableCheatSheets(allCheatSheets);
   const ackAt = labelAppliedAt(timeline, 'ACK_OBTAINED');
   const pulls: PullRef[] = [];
-  for (const p of referencingPulls(repo, timeline).slice(0, 10)) {
-    const withFiles = p.merged && pulls.filter((x) => x.files.length).length < MAX_PRS_WITH_FILES;
+  const linkedPrs = linkedPulls(repo, timeline);
+  for (const p of linkedPrs) {
+    const merged = p.state === 'merged';
+    const withFiles = merged && pulls.filter((x) => x.files.length).length < MAX_PRS_WITH_FILES;
     const files = withFiles ? await deps.reader.listPullFiles(repo, p.number) : [];
     pulls.push({
-      ...p,
+      number: p.number,
+      merged,
       files: files
         .filter((f) => f.startsWith('cheatsheets/'))
         .map((f) => f.slice('cheatsheets/'.length))
@@ -424,7 +418,6 @@ export async function checkImplementation(
   const assignees = (issue.assignees ?? [])
     .map((a) => safeLogin(a.login))
     .filter((l) => l !== 'unknown');
-  const linkedPrs = linkedPulls(repo, timeline);
   // The timeline has no PR activity date; read the open ones (bounded) for their updated_at.
   const openPrs: OpenLinkedPull[] = [];
   // Only PRs by an assignee count: anyone can open a fork PR that mentions the issue.

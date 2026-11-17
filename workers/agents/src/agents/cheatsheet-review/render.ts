@@ -5,6 +5,7 @@
  * comments; the rest stay in the body as text. Pure.
  */
 import { inertText } from '@custodes/llm';
+import { INLINE_COMMENT_BODY_MAX } from '@custodes/schema';
 import { DIMENSION, type ClaimResult } from './claims.js';
 import { inOneHunk, type Hunk } from './diff.js';
 import { LINEUP, model, type Role, type RoleOutcome } from './lineup.js';
@@ -128,13 +129,20 @@ export function checkSuggestions(
       reject('another suggestion covers these lines');
       continue;
     }
+    const body = `${inertMarkdown(s.rationale, allowed, 400)}\n\n\`\`\`\`suggestion\n${s.replacement}\n\`\`\`\``;
+    // Escaping can grow the rationale fourfold. Cutting the body to fit would cut the suggestion
+    // block, and one click would then commit a truncated replacement.
+    if (body.length > INLINE_COMMENT_BODY_MAX) {
+      reject('too long for an inline comment; apply it by hand if it is right');
+      continue;
+    }
     taken.add(key);
     out.comments.push({
       path: s.file,
       line: s.line,
       ...(s.startLine !== undefined && s.startLine < s.line ? { startLine: s.startLine } : {}),
       side: 'RIGHT',
-      body: `${inertMarkdown(s.rationale, allowed, 400)}\n\n\`\`\`\`suggestion\n${s.replacement}\n\`\`\`\``,
+      body,
     });
     if (out.comments.length === 20) break;
   }

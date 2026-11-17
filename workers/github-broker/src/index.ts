@@ -372,7 +372,7 @@ adminApp.get('/v1/attestations/:id', async (c) => {
 
 adminApp.get('/v1/attestations', async (c) => {
   const agent = c.req.query('agent');
-  const limit = Math.min(Number(c.req.query('limit') ?? 50), 200);
+  const limit = AuditStore.listLimit(c.req.query('limit'));
   if (agent !== undefined && !AgentId.safeParse(agent).success)
     return c.json({ error: 'bad agent id' }, 400);
   return c.json(await new AuditStore(c.env.AUDIT).list(agent, limit));

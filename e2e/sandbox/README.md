@@ -50,9 +50,10 @@ One-time setup (operator):
 On `/admin` the service token is read-only (the gateway refuses its writes). It can run agents on
 the sandbox and read status, but it cannot approve, halt, resume or rotate anything.
 
-A full run costs about $1–2 of Claude and expects 4 pr-gate closes. Specialists work at most 10
-jobs per UTC day per instance, so the second full run of a day already fills it (5 reviews each);
-later runs that day report `verdict=-` with a cap note instead of waiting. The broker allows 5 closes per
+A full run costs about $1–2 of Claude and expects 4 pr-gate closes. pr-gate closes at most 10 pull
+requests per UTC day per instance, so the third full run of a day reports its closes as
+`outcome=would_close`. Specialists work at most 40 jobs per UTC day on the sandbox instance (5
+reviews per run); once that is used, runs report `verdict=-` with a cap note instead of waiting. The broker allows 5 closes per
 hour **per repository**, so sandbox runs never touch OWASP's budget, but run them at most once an hour.
 
 ## What is covered

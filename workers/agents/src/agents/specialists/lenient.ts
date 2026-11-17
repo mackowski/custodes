@@ -14,11 +14,17 @@ export const list = <T extends z.ZodType>(item: T, max: number) =>
 /** 0..1, clamped. */
 export const unit = z.number().transform((n) => Math.min(1, Math.max(0, n)));
 
+/** An issue or PR number given as 123 or "#123", or null. One definition of the accepted range. */
+export function toIssueNumber(v: number | string): number | null {
+  const n = typeof v === 'number' ? v : Number(v.replace(/^#/, ''));
+  return Number.isInteger(n) && n > 0 && n <= 1_000_000 ? n : null;
+}
+
 /** Issue or PR numbers given as 123 or "#123"; anything else is dropped. */
 export const numbers = (max: number) =>
   z.array(z.union([z.number(), z.string()])).transform((a) =>
     a
-      .map((v) => (typeof v === 'number' ? v : Number(v.replace(/^#/, ''))))
-      .filter((n) => Number.isInteger(n) && n > 0 && n <= 1_000_000)
+      .map(toIssueNumber)
+      .filter((n): n is number => n !== null)
       .slice(0, max),
   );

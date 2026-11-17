@@ -93,7 +93,9 @@ export async function decide(
   const softFlag = disc === 'multiple';
 
   const author = pr.user?.login ?? '';
-  const refs = linkedIssueNumbers(pr.body, repo).filter((n) => n !== pr.number);
+  // The PR's own number is left out before the list is cut: filtered afterwards, it used up one
+  // of the MAX_LINKED + 1 places and hid that a further reference was cut.
+  const refs = linkedIssueNumbers(pr.body, repo, pr.number);
   // More references than we read: the PR's own issue may be among the unread ones, so a missing
   // approval below is not proof. Such a PR can still be skipped, but never closed.
   const overflow = refs.length > MAX_LINKED;

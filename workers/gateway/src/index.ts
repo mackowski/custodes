@@ -1,25 +1,19 @@
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { z } from 'zod';
-import {
-  accessTokenOf,
-  importPublicKey,
-  verifyAttestation,
-  verifyCallerIntent,
-} from '@custodes/core';
+import { accessTokenOf, type PublicKeyInfo, verifyRecord } from '@custodes/core';
 import { verifyGitHubWebhookSignature } from '@custodes/github';
 import {
   AgentId,
   ApprovalRequest,
   GitHubWebhookEnvelope,
+  DecideOutcome,
   HaltRequest,
   type AdminActor,
   type InboundEvent,
   type PublicKeyEntry,
-  PINNED_AGENT_KEYS,
-  verificationKeys,
   CallerName,
 } from '@custodes/schema';
-import { agentKeysPage, type HeldKey, keyAdminOf, listAgentKeys } from './agent-keys.js';
+import { agentKeysPage, keyAdminOf, listAgentKeys } from './agent-keys.js';
 import { AgentFlag, killSwitchPage } from './kill-switch-page.js';
 import { adminWriteAllowed, agentWriteAllowed, crossSiteWrite, verifyAccessJwt } from './access.js';
 import {
@@ -28,7 +22,8 @@ import {
   isApprover,
   PAGE_HEADERS,
   resultPage,
-  type DecideResult,
+  refusedPage,
+  unknownOutcomePage,
 } from './approval-page.js';
 import type { GatewayEnv } from './env.js';
 
@@ -48,39 +43,12 @@ app.get('/verify/:id', async (c) => {
   const attRes = await c.env.BROKER.fetch(`https://broker.internal/v1/attestations/${id}`);
   if (attRes.status === 404) return c.json({ error: 'not found' }, 404);
   if (!attRes.ok) return c.json({ error: 'broker unavailable' }, 502);
-  const att = await attRes.json<{ keyId: string }>();
+  const att: unknown = await attRes.json();
   const keysRes = await c.env.BROKER.fetch('https://broker.internal/v1/keys');
   if (!keysRes.ok) return c.json({ error: 'broker unavailable' }, 502);
   const keys = await keysRes.json<PublicKeyEntry[]>();
-  const key = keys.find((k) => k.keyId === att.keyId);
-  if (!key) return c.json({ valid: false, reason: 'unknown key' });
-  const result = await verifyAttestation(att, await importPublicKey(key.jwk));
-  if (!result.valid || !result.attestation)
-    return c.json({ valid: false, reason: result.reason, attestation: result.attestation });
-  const record = result.attestation.record;
-  // A row copied under another id (for example the one in a comment trailer) is not that record.
-  if (record.id !== id)
-    return c.json({
-      valid: false,
-      reason: 'record id does not match',
-      attestation: result.attestation,
-    });
-  /*
-   * The agent's own signature (ADR 0018, R1), checked against the keys committed in the repository
-   * and built into this Worker, never keys served by the broker. `none` proves nothing: records
-   * from the shared Worker and actions run on an operator's approval carry no agent signature.
-   */
-  const agentSignature = await verifyCallerIntent(record, (caller) =>
-    verificationKeys(PINNED_AGENT_KEYS, caller),
-  );
-  if (agentSignature.status === 'invalid')
-    return c.json({
-      valid: false,
-      reason: `agent signature: ${agentSignature.reason}`,
-      agentSignature,
-      attestation: result.attestation,
-    });
-  return c.json({ valid: true, agentSignature, attestation: result.attestation });
+  // The same check as `custodes audit verify`, so the two cannot disagree.
+  return c.json(await verifyRecord(att, id, keys));
 });
 
 // ---------- GitHub webhooks (optional per repo; polling is the default) ----------
@@ -133,7 +101,14 @@ app.post('/webhooks/github', async (c) => {
   if (!ok) return c.json({ error: 'bad signature' }, 401);
   const event = c.req.header('x-github-event') ?? 'unknown';
   const deliveryId = c.req.header('x-github-delivery') ?? crypto.randomUUID();
-  const parsed = GitHubWebhookEnvelope.safeParse(JSON.parse(raw));
+  // A hook left on GitHub's default form encoding is signed correctly but is not JSON.
+  let payload: unknown;
+  try {
+    payload = JSON.parse(raw);
+  } catch {
+    return c.json({ error: 'unsupported payload' }, 400);
+  }
+  const parsed = GitHubWebhookEnvelope.safeParse(payload);
   if (!parsed.success) return c.json({ error: 'unsupported payload' }, 400);
   const msg: InboundEvent = {
     id: crypto.randomUUID(),
@@ -197,13 +172,33 @@ function asOperator(c: { req: { raw: Request } }, body?: unknown): RequestInit {
   };
 }
 
+/**
+ * Forwards a halt or resume to the broker and logs it with the outcome: after the broker answered,
+ * so a refused halt never reads as done, and also when the call itself fails.
+ */
+async function loggedKillSwitch(
+  c: Context<{ Bindings: GatewayEnv; Variables: Vars }>,
+  event: 'admin.halt' | 'admin.resume',
+  id: string,
+  action: 'halt' | 'resume',
+  init: RequestInit,
+): Promise<Response> {
+  let status: number | 'error' = 'error';
+  try {
+    const res = await proxy(c.env.BROKER, `/v1/agents/${encodeURIComponent(id)}/${action}`, init);
+    status = res.status;
+    return res;
+  } finally {
+    console.log(JSON.stringify({ event, agentId: id, by: c.get('actor').subject, status }));
+  }
+}
+
 admin.post('/agents/:id/halt', async (c) => {
   const id = c.req.param('id');
   if (id !== '*' && !AgentId.safeParse(id).success) return c.json({ error: 'bad agent id' }, 400);
   const body = HaltRequest.safeParse(await c.req.json().catch(() => null));
   if (!body.success) return c.json({ error: body.error.message }, 400);
-  console.log(JSON.stringify({ event: 'admin.halt', agentId: id, by: c.get('actor').subject }));
-  return proxy(c.env.BROKER, `/v1/agents/${encodeURIComponent(id)}/halt`, asOperator(c, body.data));
+  return loggedKillSwitch(c, 'admin.halt', id, 'halt', asOperator(c, body.data));
 });
 
 admin.post('/agents/:id/resume', async (c) => {
@@ -212,8 +207,7 @@ admin.post('/agents/:id/resume', async (c) => {
   // Resuming lets an agent act again: approvers only (the broker checks again).
   if (!isApprover(c.get('actor'), c.env.APPROVER_EMAILS))
     return c.json({ error: 'only an approver may resume an agent' }, 403);
-  console.log(JSON.stringify({ event: 'admin.resume', agentId: id, by: c.get('actor').subject }));
-  return proxy(c.env.BROKER, `/v1/agents/${encodeURIComponent(id)}/resume`, asOperator(c));
+  return loggedKillSwitch(c, 'admin.resume', id, 'resume', asOperator(c));
 });
 
 // The kill switch in a browser (phone): state, Halt and Resume forms. Same rules as the JSON routes
@@ -289,7 +283,26 @@ admin.post('/approvals/link/:token', async (c) => {
     asOperator(c, { decision: choice === 'approve' ? 'approved' : 'rejected' }),
   );
   if (res.status === 404) return c.body(invalidPage(), 404, PAGE_HEADERS);
-  const out = await res.json<DecideResult>();
+  // 200 and 409 carry a decision result. Anything else (a refusal, or an error after the approval
+  // was already used up) does not, and the operator must not read it as "nothing happened".
+  if (!res.ok && res.status !== 409) {
+    console.log(JSON.stringify({ event: 'admin.approval.link.failed', status: res.status }));
+    // The broker answers 4xx before it looks at the approval; only a 5xx can follow one that was
+    // already used up.
+    return c.body(
+      res.status < 500 ? refusedPage() : unknownOutcomePage(),
+      res.status < 500 ? 403 : 502,
+      PAGE_HEADERS,
+    );
+  }
+  // A reply that is not a decision outcome (the broker and the gateway out of step, a body cut
+  // short) is an unknown outcome too.
+  const parsed = DecideOutcome.safeParse(await res.json().catch(() => null));
+  if (!parsed.success) {
+    console.log(JSON.stringify({ event: 'admin.approval.link.failed', status: res.status }));
+    return c.body(unknownOutcomePage(), 502, PAGE_HEADERS);
+  }
+  const out = parsed.data;
   console.log(
     JSON.stringify({ event: 'admin.approval.link', decision: choice, result: out.result }),
   );
@@ -326,7 +339,7 @@ admin.post('/agent-keys/:caller/rotate', async (c) => {
   if (!caller.success) return c.json({ error: 'unknown caller' }, 404);
   const admin = keyAdminOf(c.env, caller.data);
   if (!admin) return c.json({ error: 'that Worker is not reachable yet' }, 409);
-  let next: HeldKey;
+  let next: PublicKeyInfo;
   try {
     next = await admin.rotate();
   } catch {

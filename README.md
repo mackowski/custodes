@@ -34,18 +34,18 @@ Read more: [architecture](docs/architecture/overview.md) · [threat model](docs/
 
 ## Repository layout
 
-| Path                                                | Contents                                                                        |
-| --------------------------------------------------- | ------------------------------------------------------------------------------- |
-| `packages/schema`                                   | zod schemas for every wire format                                               |
-| `packages/core`                                     | attestations, approval tokens, kill switch, policy evaluation, agent base class |
-| `packages/github`, `packages/llm`, `packages/email` | adapters                                                                        |
-| `workers/gateway`                                   | public ingress and Access-protected admin API                                   |
-| `workers/agents`                                    | the agents                                                                      |
-| `workers/github-broker`                             | the policy enforcement point                                                    |
-| `apps/cli`                                          | operator CLI                                                                    |
-| `infra/terraform`                                   | Cloudflare platform resources                                                   |
-| `.claude/`                                          | skills, subagents, hooks and settings for Claude Code                           |
-| `docs/`, `evals/`                                   | documentation, promptfoo evals                                                  |
+| Path                              | Contents                                                                        |
+| --------------------------------- | ------------------------------------------------------------------------------- |
+| `packages/schema`                 | zod schemas for every wire format                                               |
+| `packages/core`                   | attestations, approval tokens, kill switch, policy evaluation, agent base class |
+| `packages/github`, `packages/llm` | adapters                                                                        |
+| `workers/gateway`                 | public ingress and Access-protected admin API                                   |
+| `workers/agents`                  | the agents                                                                      |
+| `workers/github-broker`           | the policy enforcement point                                                    |
+| `apps/cli`                        | operator CLI                                                                    |
+| `infra/terraform`                 | Cloudflare platform resources                                                   |
+| `.claude/`                        | skills, subagents, hooks and settings for Claude Code                           |
+| `docs/`, `evals/`                 | documentation, promptfoo evals                                                  |
 
 ## Getting started
 
