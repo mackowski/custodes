@@ -36,6 +36,20 @@ describe('GitHubRest', () => {
   });
 });
 
+describe('executeAction retired actions', () => {
+  it('cannot post a plain review (it could approve) or a pull request comment', async () => {
+    const fetchMock = vi.fn(() => Promise.resolve(Response.json({})));
+    const api = new GitHubRest(id, fetchMock);
+    const repo = 'mackowski/custodes-sandbox';
+    for (const action of [
+      { type: 'pr.review', repo, pull: 1, event: 'APPROVE', body: 'x' },
+      { type: 'pr.comment', repo, pull: 1, body: 'x' },
+    ] as const)
+      await expect(executeAction(api, action, (b) => b)).rejects.toThrow('retired');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
 describe('executeAction pr.close', () => {
   const action = { type: 'pr.close' as const, repo: 'o/r', pull: 7, body: 'reason' };
 

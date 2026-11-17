@@ -70,12 +70,6 @@ export class GitHubRest {
       { assignees },
     );
   }
-  createPullReview(repo: string, pull: number, event: string, body: string) {
-    return this.call<{ html_url: string }>('POST', `/repos/${repo}/pulls/${pull}/reviews`, {
-      event,
-      body,
-    });
-  }
   /** A review with inline comments on the new side of the diff, pinned to `commitId`. */
   createInlinePullReview(
     repo: string,
@@ -113,10 +107,6 @@ export async function executeAction(
       const r = await api.createIssueComment(action.repo, action.issue, decorate(action.body));
       return { githubUrl: r.html_url };
     }
-    case 'pr.comment': {
-      const r = await api.createIssueComment(action.repo, action.pull, decorate(action.body));
-      return { githubUrl: r.html_url };
-    }
     case 'issue.label.add':
       await api.addLabels(action.repo, action.issue, action.labels);
       return {};
@@ -136,15 +126,12 @@ export async function executeAction(
         );
       return {};
     }
-    case 'pr.review': {
-      const r = await api.createPullReview(
-        action.repo,
-        action.pull,
-        action.event,
-        decorate(action.body),
-      );
-      return { githubUrl: r.html_url };
-    }
+    // Retired: no agent ever used them and no policy granted them, and `pr.review` could approve a
+    // pull request. The variants stay in the schema only so that an old audit record still parses;
+    // they cannot be executed, whatever a policy says.
+    case 'pr.comment':
+    case 'pr.review':
+      throw new Error(`action ${action.type} is retired and cannot be executed`);
     case 'pr.review.inline': {
       // Trailers go on the review body; each inline comment gets a fixed marker instead.
       const r = await api.createInlinePullReview(action.repo, action.pull, {

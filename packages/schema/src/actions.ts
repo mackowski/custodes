@@ -68,6 +68,8 @@ export const BrokerAction = z.discriminatedUnion('type', [
     ...issueRef,
     assignees: z.array(GitHubLogin).length(1),
   }),
+  // `pr.comment` and `pr.review` are retired: kept so old audit records parse, never executed
+  // (`executeAction` in @custodes/github refuses them). Use `issue.comment` and `pr.review.inline`.
   z.object({ type: z.literal('pr.comment'), ...pullRef, body }),
   z.object({
     type: z.literal('pr.review'),
