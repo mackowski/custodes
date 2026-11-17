@@ -148,14 +148,20 @@ export class JevClient {
     }
     return chat(turn, { provider: 'openrouter', model: req.model }, async (span) => {
       span.payload('gen_ai.input.messages', decisionInput(req));
-      const res = await withTimeout(this.cfg.timeoutMs ?? JEV_TIMEOUT_MS, (signal) =>
-        this.fetchImpl(this.url, { method: 'POST', headers, body: JSON.stringify(body), signal }),
-      );
-      if (!res.ok) {
-        const text = await res.text();
-        throw new GatewayError(res.status, text.slice(0, 300), openRouterCode(text));
-      }
-      const parsed = JevResponse.safeParse(await res.json());
+      // The body is read inside the bound: headers that arrive before a stalled body would
+      // otherwise end the timeout.
+      const res = await withTimeout(this.cfg.timeoutMs ?? JEV_TIMEOUT_MS, async (signal) => {
+        const r = await this.fetchImpl(this.url, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(body),
+          signal,
+        });
+        return { ok: r.ok, status: r.status, text: await r.text() };
+      });
+      if (!res.ok)
+        throw new GatewayError(res.status, res.text.slice(0, 300), openRouterCode(res.text));
+      const parsed = JevResponse.safeParse(JSON.parse(res.text) as unknown);
       if (!parsed.success) throw new JevOutputError('(response)');
       decisionOutput(span, parsed.data);
       for (const [name, q] of Object.entries(req.questions)) {

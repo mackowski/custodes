@@ -176,8 +176,10 @@ export class OpenRouterGateway implements ChatModel {
     return chat(turn, { provider: this.provider, model: req.model }, async (span) => {
       requestPayloads(span, req);
       const metadata = gatewayMetadata(req.metadata);
-      const res = await withTimeout(this.cfg.timeoutMs ?? DEFAULT_TIMEOUT_MS, (signal) =>
-        this.fetchImpl(this.url, {
+      // The body is read inside the bound: headers that arrive before a stalled body would
+      // otherwise end the timeout.
+      const res = await withTimeout(this.cfg.timeoutMs ?? DEFAULT_TIMEOUT_MS, async (signal) => {
+        const r = await this.fetchImpl(this.url, {
           method: 'POST',
           headers: {
             'content-type': 'application/json',
@@ -187,17 +189,16 @@ export class OpenRouterGateway implements ChatModel {
           },
           body: JSON.stringify(body),
           signal,
-        }),
-      );
-      if (!res.ok) {
-        const text = await res.text();
+        });
+        return { ok: r.ok, status: r.status, text: await r.text() };
+      });
+      if (!res.ok)
         throw new GatewayError(
           res.status,
-          text.slice(0, 500),
-          errorTypeOf(text) ?? openRouterCode(text),
+          res.text.slice(0, 500),
+          errorTypeOf(res.text) ?? openRouterCode(res.text),
         );
-      }
-      const { out, finish } = readCompletion(await res.json(), req.model);
+      const { out, finish } = readCompletion(JSON.parse(res.text) as unknown, req.model);
       resultAttributes(span, out, finish);
       return out;
     });

@@ -1,4 +1,4 @@
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { z } from 'zod';
 import {
   accessTokenOf,
@@ -212,26 +212,33 @@ function asOperator(c: { req: { raw: Request } }, body?: unknown): RequestInit {
   };
 }
 
+/**
+ * Forwards a halt or resume to the broker and logs it with the outcome: after the broker answered,
+ * so a refused halt never reads as done, and also when the call itself fails.
+ */
+async function loggedKillSwitch(
+  c: Context<{ Bindings: GatewayEnv; Variables: Vars }>,
+  event: 'admin.halt' | 'admin.resume',
+  id: string,
+  action: 'halt' | 'resume',
+  init: RequestInit,
+): Promise<Response> {
+  let status: number | 'error' = 'error';
+  try {
+    const res = await proxy(c.env.BROKER, `/v1/agents/${encodeURIComponent(id)}/${action}`, init);
+    status = res.status;
+    return res;
+  } finally {
+    console.log(JSON.stringify({ event, agentId: id, by: c.get('actor').subject, status }));
+  }
+}
+
 admin.post('/agents/:id/halt', async (c) => {
   const id = c.req.param('id');
   if (id !== '*' && !AgentId.safeParse(id).success) return c.json({ error: 'bad agent id' }, 400);
   const body = HaltRequest.safeParse(await c.req.json().catch(() => null));
   if (!body.success) return c.json({ error: body.error.message }, 400);
-  const res = await proxy(
-    c.env.BROKER,
-    `/v1/agents/${encodeURIComponent(id)}/halt`,
-    asOperator(c, body.data),
-  );
-  // After the broker answered, with its status, so a refused halt never reads as done.
-  console.log(
-    JSON.stringify({
-      event: 'admin.halt',
-      agentId: id,
-      by: c.get('actor').subject,
-      status: res.status,
-    }),
-  );
-  return res;
+  return loggedKillSwitch(c, 'admin.halt', id, 'halt', asOperator(c, body.data));
 });
 
 admin.post('/agents/:id/resume', async (c) => {
@@ -240,20 +247,7 @@ admin.post('/agents/:id/resume', async (c) => {
   // Resuming lets an agent act again: approvers only (the broker checks again).
   if (!isApprover(c.get('actor'), c.env.APPROVER_EMAILS))
     return c.json({ error: 'only an approver may resume an agent' }, 403);
-  const res = await proxy(
-    c.env.BROKER,
-    `/v1/agents/${encodeURIComponent(id)}/resume`,
-    asOperator(c),
-  );
-  console.log(
-    JSON.stringify({
-      event: 'admin.resume',
-      agentId: id,
-      by: c.get('actor').subject,
-      status: res.status,
-    }),
-  );
-  return res;
+  return loggedKillSwitch(c, 'admin.resume', id, 'resume', asOperator(c));
 });
 
 // The kill switch in a browser (phone): state, Halt and Resume forms. Same rules as the JSON routes
