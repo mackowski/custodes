@@ -23,7 +23,6 @@ export default defineConfig({
     cloudflareTest({
       wrangler: { configPath: './wrangler.jsonc' },
       miniflare: {
-        kvNamespaces: ['KILL_SWITCH'],
         // Test doubles for the secrets normally set with `wrangler secret put`.
         bindings: { GITHUB_WEBHOOK_SECRET: "It's a Secret to Everybody" },
         // The real broker and agents Workers are separate deployables; stub them here.

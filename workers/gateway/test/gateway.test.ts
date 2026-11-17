@@ -1,5 +1,5 @@
 import { env } from 'cloudflare:workers';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import worker, { AGENT_STRIPPED_HEADERS, agentWorker } from '../src/index.js';
 import { AgentKeys, type ApprovalRequest, type AuditRecord } from '@custodes/schema';
 import { toBase64Url } from '@custodes/core';
@@ -66,6 +66,30 @@ describe('gateway', () => {
       ctx,
     );
     expect(res.status).toBe(202);
+  });
+  it('answers 400 to a signed body that is not JSON (a hook left on form encoding)', async () => {
+    const body = 'payload=%7B%7D';
+    const key = await crypto.subtle.importKey(
+      'raw',
+      new TextEncoder().encode(testEnv().GITHUB_WEBHOOK_SECRET),
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['sign'],
+    );
+    const sig = Array.from(
+      new Uint8Array(await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(body))),
+      (b) => b.toString(16).padStart(2, '0'),
+    ).join('');
+    const res = await worker.fetch(
+      new Request('https://x/webhooks/github', {
+        method: 'POST',
+        body,
+        headers: { 'x-hub-signature-256': `sha256=${sig}`, 'x-github-event': 'issues' },
+      }),
+      testEnv(),
+      ctx,
+    );
+    expect(res.status).toBe(400);
   });
   describe('webhook queues after the cutovers (each agent consumes its own)', () => {
     const deliver = async (
@@ -1003,6 +1027,20 @@ describe("admin writes forward the operator's own Access token to the broker (#1
         body: '{"reason":"test halt"}',
       },
     ]);
+  });
+
+  it("logs a halt with the broker's status, after the broker answered", async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    try {
+      await send('/admin/agents/pr-gate/halt', 'any-operator@example.com', {
+        reason: 'test halt',
+      });
+      const lines = log.mock.calls.map((c) => String(c[0])).filter((l) => l.includes('admin.halt'));
+      expect(lines).toHaveLength(1);
+      expect(JSON.parse(lines[0] ?? '{}')).toMatchObject({ event: 'admin.halt', status: 200 });
+    } finally {
+      log.mockRestore();
+    }
   });
 
   it('refuses resume and broker key rotation to a non-approver before calling the broker', async () => {

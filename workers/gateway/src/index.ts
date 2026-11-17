@@ -141,7 +141,14 @@ app.post('/webhooks/github', async (c) => {
   if (!ok) return c.json({ error: 'bad signature' }, 401);
   const event = c.req.header('x-github-event') ?? 'unknown';
   const deliveryId = c.req.header('x-github-delivery') ?? crypto.randomUUID();
-  const parsed = GitHubWebhookEnvelope.safeParse(JSON.parse(raw));
+  // A hook left on GitHub's default form encoding is signed correctly but is not JSON.
+  let payload: unknown;
+  try {
+    payload = JSON.parse(raw);
+  } catch {
+    return c.json({ error: 'unsupported payload' }, 400);
+  }
+  const parsed = GitHubWebhookEnvelope.safeParse(payload);
   if (!parsed.success) return c.json({ error: 'unsupported payload' }, 400);
   const msg: InboundEvent = {
     id: crypto.randomUUID(),
@@ -210,8 +217,21 @@ admin.post('/agents/:id/halt', async (c) => {
   if (id !== '*' && !AgentId.safeParse(id).success) return c.json({ error: 'bad agent id' }, 400);
   const body = HaltRequest.safeParse(await c.req.json().catch(() => null));
   if (!body.success) return c.json({ error: body.error.message }, 400);
-  console.log(JSON.stringify({ event: 'admin.halt', agentId: id, by: c.get('actor').subject }));
-  return proxy(c.env.BROKER, `/v1/agents/${encodeURIComponent(id)}/halt`, asOperator(c, body.data));
+  const res = await proxy(
+    c.env.BROKER,
+    `/v1/agents/${encodeURIComponent(id)}/halt`,
+    asOperator(c, body.data),
+  );
+  // After the broker answered, with its status, so a refused halt never reads as done.
+  console.log(
+    JSON.stringify({
+      event: 'admin.halt',
+      agentId: id,
+      by: c.get('actor').subject,
+      status: res.status,
+    }),
+  );
+  return res;
 });
 
 admin.post('/agents/:id/resume', async (c) => {
@@ -220,8 +240,20 @@ admin.post('/agents/:id/resume', async (c) => {
   // Resuming lets an agent act again: approvers only (the broker checks again).
   if (!isApprover(c.get('actor'), c.env.APPROVER_EMAILS))
     return c.json({ error: 'only an approver may resume an agent' }, 403);
-  console.log(JSON.stringify({ event: 'admin.resume', agentId: id, by: c.get('actor').subject }));
-  return proxy(c.env.BROKER, `/v1/agents/${encodeURIComponent(id)}/resume`, asOperator(c));
+  const res = await proxy(
+    c.env.BROKER,
+    `/v1/agents/${encodeURIComponent(id)}/resume`,
+    asOperator(c),
+  );
+  console.log(
+    JSON.stringify({
+      event: 'admin.resume',
+      agentId: id,
+      by: c.get('actor').subject,
+      status: res.status,
+    }),
+  );
+  return res;
 });
 
 // The kill switch in a browser (phone): state, Halt and Resume forms. Same rules as the JSON routes
