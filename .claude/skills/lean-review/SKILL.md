@@ -116,6 +116,10 @@ wrong, ask a question in the report instead of proposing a cut.
 - configuration that is a control even when nothing reads it in code: `policy.json` entries, rate
   limits and approval modes, safe-default flags (`TRACE_PAYLOADS`, `PR_GATE_ENFORCE`), workflow
   `permissions:` blocks, CODEOWNERS, Terraform Access policies and token durations
+- tests and assertions that guard wiring instead of behaviour (the broker callers test, bindings
+  and cutover tests, the secret-set checks in `deploy-workers.yml`), timeouts and races,
+  approval-token expiry and single-use checks, scanner configuration (`.gitleaks.toml`, Semgrep,
+  `security.yml`)
 - exact dependency pins, SHA-pinned actions, anything in `.claude/hooks/`, the settings deny list,
   `tools:` and `permissionMode` in `.claude/agents/*`, the supply-chain settings in
   `pnpm-workspace.yaml`, workflow `environment:` gates and `persist-credentials`
