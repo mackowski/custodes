@@ -67,8 +67,6 @@ export const CLEF_BUDGET_PER_POLL_MS = 60_000;
 /** Jev vs Clef rows are kept this long (ADR 0015): enough to decide on an agreement mode. */
 export const COMPARISON_RETENTION_DAYS = 180;
 
-export type { ComparisonRow };
-
 type StoredOutcome = 'skip' | SummaryOutcome;
 
 interface PrGateState {

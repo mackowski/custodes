@@ -5,8 +5,6 @@ import { ApiClient } from '../client.js';
 import { loadConfig } from '../config.js';
 import { print, rows } from '../output.js';
 
-export { ComparisonRow };
-
 const COLUMNS = Object.keys(ComparisonRow.shape) as (keyof ComparisonRow)[];
 
 /** RFC 4180 CSV. Every value is an id, a number or a short code, but quote anyway. */

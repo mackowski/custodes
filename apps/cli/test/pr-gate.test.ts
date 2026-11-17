@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { toCsv, type ComparisonRow } from '../src/commands/pr-gate.js';
+import type { ComparisonRow } from '@custodes/schema';
+import { toCsv } from '../src/commands/pr-gate.js';
 
 const row: ComparisonRow = {
   id: 1,
