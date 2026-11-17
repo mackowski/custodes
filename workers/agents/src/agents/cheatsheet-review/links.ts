@@ -4,6 +4,7 @@
  * `untrusted()`. Like upstream's link check, 401/403/429/5xx and timeouts mean "verify manually",
  * never "broken".
  */
+import { cutWhole } from '@custodes/llm';
 import type { DiffLine, Hunk } from './diff.js';
 
 export interface AddedLink {
@@ -405,7 +406,8 @@ const ENTITIES: Record<string, string> = {
   nbsp: ' ',
 };
 
-const HIDDEN_BLOCK = /^<(script|style|noscript|svg|template)/i;
+// The name must end there: <svg-icon> or <template-row> is an ordinary tag, not a hidden block.
+const HIDDEN_BLOCK = /^<(script|style|noscript|svg|template)(?=[\s/>])/i;
 
 /**
  * `html` without comments, hidden blocks (script, style, noscript, svg, template) and tags, in one
@@ -476,7 +478,7 @@ export function pageText(html: string): { title: string; text: string } {
     /&(amp|lt|gt|quot|#39|nbsp);/g,
     (_, e: string) => ENTITIES[e] ?? ' ',
   );
-  return { title: decoded.replace(/\s+/g, ' ').trim().slice(0, 200), text };
+  return { title: cutWhole(decoded.replace(/\s+/g, ' ').trim(), 200), text };
 }
 
 /** At most `max` bytes of the body; `over` when the body had more. */
@@ -585,7 +587,7 @@ export async function fetchLink(url: string, fetchImpl: typeof fetch): Promise<F
       status: res.status,
       finalUrl,
       title,
-      excerpt: text.slice(0, EXCERPT_CHARS),
+      excerpt: cutWhole(text, EXCERPT_CHARS),
     };
   } catch (err) {
     return { kind: 'unreachable', why: failure(err, ac.signal) };

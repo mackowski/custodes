@@ -491,8 +491,8 @@ describe('decide', () => {
 
   it('flags when the PR mentions its own number and a sixth issue is cut off unread', async () => {
     const pr = pull({ body: '' });
-    const body = `${tick(true, false)}\nfollow-up to #1, this is #${pr.number}, see #2 #3 #4 #5`;
-    // #5 is cut by the reference cap; without the fix the own number hid that.
+    const body = `${tick(true, false)}\nfollow-up to #1, this is #${pr.number}, see #2 #3 #4 #5 #6`;
+    // #6 is cut by the reference cap; without the fix the own number hid that.
     const d = deps({
       getIssue: vi.fn((n: number) => Promise.resolve(issue({ number: n, labels: [] }))),
       listFiles: vi.fn(() => Promise.resolve([file({ status: 'added' })])),

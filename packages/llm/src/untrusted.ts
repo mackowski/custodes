@@ -23,7 +23,7 @@ export function untrusted(source: string, content: string): string {
  * The first `maxChars` UTF-16 units, minus a trailing half of a surrogate pair: an emoji cut in two
  * is invalid UTF-16, and a provider may refuse the whole request for it.
  */
-function cutWhole(s: string, maxChars: number): string {
+export function cutWhole(s: string, maxChars: number): string {
   return s.slice(0, maxChars).replace(/[\uD800-\uDBFF]$/, '');
 }
 

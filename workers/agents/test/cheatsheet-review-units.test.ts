@@ -472,6 +472,17 @@ describe('links.pageText', () => {
     expect(pageText('a < b and c').text).toBe('a < b and c');
   });
 
+  it('treats a custom element whose name starts like a hidden block as an ordinary tag', () => {
+    expect(
+      pageText('a <svg-icon name="x"></svg-icon> b <template-row>c</template-row> d').text,
+    ).toBe('a b c d');
+  });
+
+  it('never ends the title on half of a surrogate pair', () => {
+    const title = `${'t'.repeat(199)}\u{1F600}`;
+    expect(pageText(`<title>${title}</title>`).title).toBe('t'.repeat(199));
+  });
+
   it('stays fast on a page built to make a regex rescan (author-chosen URL)', () => {
     for (const unit of ['<svg ', '<!-- ', '< ', '<title ', '<title>']) {
       const started = Date.now();
