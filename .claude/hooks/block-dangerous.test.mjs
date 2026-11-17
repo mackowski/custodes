@@ -4,10 +4,15 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 const hook = fileURLToPath(new URL('./block-dangerous.sh', import.meta.url));
+/**
+ * Runs the hook as Claude Code does and returns its exit status (2 = denied).
+ * @param {string} command
+ * @returns {number | null}
+ */
 const run = (command) =>
   spawnSync('bash', [hook], { input: JSON.stringify({ tool_input: { command } }) }).status;
 
-test('denies git commands that write files or run commands', () => {
+void test('denies git commands that write files or run commands', () => {
   for (const command of [
     'git log -1 --format=x --output=.claude/hooks/block-dangerous.sh',
     'git log -1 --format=x --"output"=x.sh',
@@ -21,7 +26,7 @@ test('denies git commands that write files or run commands', () => {
   }
 });
 
-test('allows the git commands a review needs', () => {
+void test('allows the git commands a review needs', () => {
   for (const command of [
     'git diff origin/main...HEAD -- a.ts',
     "git log --oneline --format='%h %s' -5",
