@@ -25,7 +25,7 @@ const tree = () => {
  * @param {string} cwd
  * @param {Record<string, string>} tool_input
  */
-const grep = (cwd, tool_input) => refusal({ tool_name: 'Grep', cwd, tool_input });
+const grep = (cwd, tool_input) => refusal({ tool_name: 'Grep', cwd, tool_input }, cwd);
 
 void test('knows secret-bearing files and directories', () => {
   for (const p of [
@@ -95,6 +95,21 @@ void test('allows a Grep that cannot reach one', () => {
   assert.equal(grep(root, { pattern: 'x', glob: 'workers/*/src/**' }), null);
   assert.equal(grep(root, { pattern: 'x', glob: '[a-z]*.ts' }), null);
   assert.equal(grep(root, { pattern: 'x', glob: '.d*', path: 'workers/gateway/src' }), null);
+});
+
+void test('outside the repository a Grep without a glob is checked too', () => {
+  const home = tree(); // nothing here is git-ignored for a search that starts outside the project
+  const project = join(home, 'workers/gateway/src');
+  const outside = refusal(
+    { tool_name: 'Grep', cwd: home, tool_input: { pattern: 'token' } },
+    project,
+  );
+  assert.match(outside ?? '', /outside the repository reaches a secret-bearing file/);
+  const inside = refusal(
+    { tool_name: 'Grep', cwd: project, tool_input: { pattern: 'x' } },
+    project,
+  );
+  assert.equal(inside, null);
 });
 
 void test('splits several globs but not the alternatives inside braces', () => {

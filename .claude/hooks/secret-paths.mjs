@@ -5,7 +5,7 @@ import { join, relative, resolve, sep } from 'node:path';
 /** Paths that hold secrets. Tested against an absolute path with `/` separators. */
 const SECRET = [
   /\.dev\.vars/,
-  /secret[^/]*\.tfvars$/,
+  /secret.*\.tfvars$/,
   /\/backend\.hcl$/,
   /\/secrets\//,
   /\.pem$/,
@@ -149,9 +149,13 @@ export function globSelects(pattern, file) {
  * `.dev.vars` although no part of the call spells that name. Without a glob ripgrep skips
  * git-ignored files, and every secret-bearing path in the repository is git-ignored.
  * @param {unknown} event the PreToolUse hook input
+ * @param {string} [project] the repository root; the session's project directory when left out
  * @returns {string | null}
  */
-export function refusal(event) {
+export function refusal(
+  event,
+  project = resolve(process.env['CLAUDE_PROJECT_DIR'] ?? process.cwd()),
+) {
   const e = /** @type {{ tool_name?: unknown, cwd?: unknown, tool_input?: unknown } | null} */ (
     typeof event === 'object' ? event : null
   );
@@ -172,13 +176,20 @@ export function refusal(event) {
     }
     if (isSecretPath(given) || isSecretPath(real)) return `secret-bearing file: ${text(k)}`;
   }
+  if (e?.tool_name !== 'Grep') return null;
   const glob = text('glob');
-  if (!glob) return null;
-  if (isSecretPath(`/${glob}`)) return `secret-bearing file: ${glob}`;
+  if (glob && isSecretPath(`/${glob}`)) return `secret-bearing file: ${glob}`;
   const root = resolve(cwd, text('path') || '.');
+  // Without a glob ripgrep skips git-ignored files, and in this repository every secret-bearing
+  // path is git-ignored. Outside it nothing hides them (`~/.wrangler`, `~/.cloudflared`).
+  const inProject = root === project || root.startsWith(`${project}${sep}`);
+  if (!glob && inProject) return null;
   const files = secretFilesUnder(root);
-  if (files === null)
-    return `too many files under ${root} to check a glob against: narrow the path`;
+  if (files === null) return `too many files under ${root} to check: narrow the path`;
+  if (!glob)
+    return files[0] === undefined
+      ? null
+      : `the search outside the repository reaches a secret-bearing file: ${files[0]}`;
   const patterns = globPatterns(glob);
   const hit = files.find((f) => patterns.some((p) => globSelects(p, f)));
   return hit === undefined ? null : `the glob selects a secret-bearing file: ${hit}`;
