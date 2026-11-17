@@ -16,7 +16,7 @@ Work through the checklist in the security-reviewer system prompt. Also verify:
 
 - `workers/github-broker/policy/policy.json` diff: any new repo, action, or higher rate limit must
   cite an ADR or issue.
-- New `BrokerAction` variants have a denial test and a `summariseAction` case.
+- New `BrokerAction` variants have a denial test.
 - New agent classes: registry, wrangler bindings, migration tag, docs page, evals all present.
 - `.claude/settings.json` or hooks changed: does anything weaken the deny list?
 - GitHub Actions: SHA-pinned, `permissions` minimal, no secrets on `pull_request` from forks.

@@ -22,7 +22,7 @@ CheatSheetSeries (issue triage, PR review). Security and AI security come first.
 ```
 packages/schema   zod wire formats (source of truth for types)
 packages/core     attestation, approval tokens, kill switch, policy eval, CustodesAgent base
-packages/github|llm|email   adapters (no policy decisions)
+packages/github|llm   adapters (no policy decisions)
 workers/gateway   public ingress: webhooks, approval e-mail, Access-protected admin API, /verify
 workers/agents    agent code (Agents SDK); each agent deploys as its own Worker (workers/<agent>, ADR 0018); registry.ts lists them
 workers/github-broker   THE policy enforcement point: policy → kill switch → approval → rate limit → execute → audit → sign

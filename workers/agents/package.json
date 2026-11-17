@@ -14,7 +14,6 @@
   },
   "dependencies": {
     "@custodes/core": "workspace:*",
-    "@custodes/email": "workspace:*",
     "@custodes/github": "workspace:*",
     "@custodes/llm": "workspace:*",
     "@custodes/schema": "workspace:*",

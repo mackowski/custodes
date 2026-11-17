@@ -10,7 +10,7 @@ user-invocable: false
 
 ```
 apps/cli ─┐
-workers/* ─┼─> packages/{github,llm,email} ─> packages/core ─> packages/schema
+workers/* ─┼─> packages/{github,llm} ─> packages/core ─> packages/schema
            └────────────────────────────────────────────────────┘
 ```
 
@@ -18,7 +18,7 @@ workers/* ─┼─> packages/{github,llm,email} ─> packages/core ─> package
   and inferred as types. Never hand-write an interface for something that crosses a boundary.
 - `packages/core`: pure logic runnable in node and workerd: canonical JSON, attestations,
   approval tokens, kill switch, policy evaluation, `CustodesAgent` base class (`@custodes/core/agent`).
-- `packages/github|llm|email`: adapters. No policy decisions live here.
+- `packages/github|llm`: adapters. No policy decisions live here.
 - `workers/github-broker`: the only code allowed to hold a GitHub token or call api.github.com.
 - `workers/agents`: agents reason and _request_ actions with `this.act()`. They never execute them.
 - `workers/gateway`: the only internet-facing Worker. Access on `/admin` and `/agents`.
