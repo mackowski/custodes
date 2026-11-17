@@ -240,6 +240,23 @@ export class BrokerGitHubReader {
     return entries.filter((e) => e.type === 'file' && e.name.endsWith('.md')).map((e) => e.name);
   }
 
+  /**
+   * Reads pages of 100 until a short one, at most `maxPages`. `truncated` when the last page read
+   * was still full: there may be more. One loop for every list this reader pages through.
+   */
+  private async paged<T>(
+    maxPages: number,
+    readPage: (page: number) => Promise<T[]>,
+  ): Promise<{ items: T[]; truncated: boolean }> {
+    const items: T[] = [];
+    for (let page = 1; page <= maxPages; page++) {
+      const batch = await readPage(page);
+      items.push(...batch);
+      if (batch.length < 100) return { items, truncated: false };
+    }
+    return { items, truncated: true };
+  }
+
   /** Open issues carrying `label`, oldest first. Pull requests are dropped. */
   async listOpenIssuesWithLabel(repo: string, label: string): Promise<PublicIssue[]> {
     return (await this.listOpenIssuesWithLabelChecked(repo, label)).issues;
@@ -250,21 +267,15 @@ export class BrokerGitHubReader {
     repo: string,
     label: string,
   ): Promise<{ issues: PublicIssue[]; truncated: boolean }> {
-    const out: PublicIssue[] = [];
-    for (let page = 1; page <= 3; page++) {
-      const q: ReadQuery = {
-        state: 'open',
-        labels: label,
-        sort: 'created',
-        direction: 'asc',
-        per_page: 100,
-        page,
-      };
-      const batch = await this.read(repo, 'issues', q, z.array(PublicIssue));
-      out.push(...batch.filter((i) => i.pull_request === undefined));
-      if (batch.length < 100) return { issues: out, truncated: false };
-    }
-    return { issues: out, truncated: true };
+    const { items, truncated } = await this.paged(3, (page) =>
+      this.read(
+        repo,
+        'issues',
+        { state: 'open', labels: label, sort: 'created', direction: 'asc', per_page: 100, page },
+        z.array(PublicIssue),
+      ),
+    );
+    return { issues: items.filter((i) => i.pull_request === undefined), truncated };
   }
 
   /**
@@ -275,21 +286,15 @@ export class BrokerGitHubReader {
     repo: string,
     since: string,
   ): Promise<{ issues: PublicIssue[]; truncated: boolean }> {
-    const out: PublicIssue[] = [];
-    for (let page = 1; page <= 3; page++) {
-      const q: ReadQuery = {
-        state: 'all',
-        sort: 'updated',
-        direction: 'desc',
-        since,
-        per_page: 100,
-        page,
-      };
-      const batch = await this.read(repo, 'issues', q, z.array(PublicIssue));
-      out.push(...batch.filter((i) => i.pull_request === undefined));
-      if (batch.length < 100) return { issues: out, truncated: false };
-    }
-    return { issues: out, truncated: true };
+    const { items, truncated } = await this.paged(3, (page) =>
+      this.read(
+        repo,
+        'issues',
+        { state: 'all', sort: 'updated', direction: 'desc', since, per_page: 100, page },
+        z.array(PublicIssue),
+      ),
+    );
+    return { issues: items.filter((i) => i.pull_request === undefined), truncated };
   }
 
   async getIssue(repo: string, number: number): Promise<PublicIssue> {
@@ -298,19 +303,11 @@ export class BrokerGitHubReader {
 
   /** Up to the first 300 timeline events (label history is near the start). */
   async listTimeline(repo: string, number: number): Promise<TimelineEvent[]> {
-    const out: TimelineEvent[] = [];
-    for (let page = 1; page <= 3; page++) {
-      const batch = await this.read(
-        repo,
-        'timeline',
-        { per_page: 100, page },
-        z.array(TimelineEvent),
-        { number },
-      );
-      out.push(...batch);
-      if (batch.length < 100) break;
-    }
-    return out;
+    return (
+      await this.paged(3, (page) =>
+        this.read(repo, 'timeline', { per_page: 100, page }, z.array(TimelineEvent), { number }),
+      )
+    ).items;
   }
 
   /** A pull request's reviews, oldest first (the first 100). */
@@ -338,20 +335,15 @@ export class BrokerGitHubReader {
 
   /** Open pull requests, oldest first, up to 300; `truncated` if there are more. */
   async listOpenPulls(repo: string): Promise<{ pulls: PublicPull[]; truncated: boolean }> {
-    const out: PublicPull[] = [];
-    for (let page = 1; page <= 3; page++) {
-      const q: ReadQuery = {
-        state: 'open',
-        sort: 'created',
-        direction: 'asc',
-        per_page: 100,
-        page,
-      };
-      const batch = await this.read(repo, 'pulls', q, z.array(PublicPull));
-      out.push(...batch);
-      if (batch.length < 100) return { pulls: out, truncated: false };
-    }
-    return { pulls: out, truncated: true };
+    const { items, truncated } = await this.paged(3, (page) =>
+      this.read(
+        repo,
+        'pulls',
+        { state: 'open', sort: 'created', direction: 'asc', per_page: 100, page },
+        z.array(PublicPull),
+      ),
+    );
+    return { pulls: items, truncated };
   }
 
   /** The 100 pull requests closed or merged most recently (by last update). */
@@ -372,19 +364,11 @@ export class BrokerGitHubReader {
 
   /** Every timeline event, up to 1000 (the broker serves at most 10 pages of 100). */
   async listTimelineAll(repo: string, number: number): Promise<TimelineEvent[]> {
-    const out: TimelineEvent[] = [];
-    for (let page = 1; page <= 10; page++) {
-      const batch = await this.read(
-        repo,
-        'timeline',
-        { per_page: 100, page },
-        z.array(TimelineEvent),
-        { number },
-      );
-      out.push(...batch);
-      if (batch.length < 100) break;
-    }
-    return out;
+    return (
+      await this.paged(10, (page) =>
+        this.read(repo, 'timeline', { per_page: 100, page }, z.array(TimelineEvent), { number }),
+      )
+    ).items;
   }
 
   /** A cheat sheet or draft (`cheatsheets/…` or `cheatsheets_draft/…`) at a commit. */

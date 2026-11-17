@@ -352,14 +352,7 @@ export class CheatsheetReviewAgent extends CustodesAgent<AgentsEnv, CheatsheetRe
     const hunks = new Map(snap.files.map((f) => [f.file.filename, f.hunks]));
     const checked = checkSuggestions(d.suggestions, hunks, result.allowed);
     const ownPull = pr.user?.login.toLowerCase() === trigger.actor.toLowerCase();
-    const confirmed = new Set<'Security' | 'Links & sources'>();
-    for (const x of result.reports) {
-      if (x.report.verdict !== 'BLOCK') continue;
-      if (x.role === 'security-reviewer' || x.role === 'security-second-voice')
-        confirmed.add('Security');
-      if (x.role === 'link-auditor') confirmed.add('Links & sources');
-    }
-    const event = reviewEvent(d, ownPull, confirmed);
+    const event = reviewEvent(d, ownPull, result.blockedBy);
     const body = reviewBody({
       decision: d,
       outcomes: result.outcomes,

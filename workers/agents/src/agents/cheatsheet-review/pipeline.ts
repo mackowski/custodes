@@ -50,11 +50,32 @@ export interface PipelineDeps extends RunnerDeps {
   fetchSource: (url: string) => Promise<SourceDoc>;
 }
 
+export type BlockingDimension = 'Security' | 'Links & sources';
+
+/**
+ * Which dimensions a security or links reviewer blocked. Both uses read this: the pipeline never
+ * promotes such a review to MERGE, and the agent posts it as REQUEST_CHANGES. Two copies of the
+ * role list could disagree the next time the lineup changes.
+ */
+export function blockingDimensions(
+  reports: readonly { role: ReviewerRole; report: ReviewerReport }[],
+): Set<BlockingDimension> {
+  const out = new Set<BlockingDimension>();
+  for (const x of reports) {
+    if (x.report.verdict !== 'BLOCK') continue;
+    if (x.role === 'security-reviewer' || x.role === 'security-second-voice') out.add('Security');
+    if (x.role === 'link-auditor') out.add('Links & sources');
+  }
+  return out;
+}
+
 export interface PipelineResult {
   changeClass: ChangeClass;
   classWhy: string;
   outcomes: RoleOutcome[];
   reports: { role: ReviewerRole; report: ReviewerReport }[];
+  /** The dimensions whose reviewer said BLOCK: one rule for "never MERGE" and "REQUEST_CHANGES". */
+  blockedBy: ReadonlySet<BlockingDimension>;
   decision: ReviewDecision | undefined;
   /** Why nothing may be published, or null. */
   breach: string | null;
@@ -359,13 +380,8 @@ export async function reviewPipeline(snap: Snapshot, deps: PipelineDeps): Promis
   );
   // The original reports minus REFUTED findings only (reportsForJudge): a NOT-FOUND claim never
   // lowers a reviewer's BLOCK. The agent reads the same reports for reviewEvent.
-  const reviewerBlocked = judgedReports.some(
-    (x) =>
-      x.report.verdict === 'BLOCK' &&
-      (x.role === 'security-reviewer' ||
-        x.role === 'security-second-voice' ||
-        x.role === 'link-auditor'),
-  );
+  const blockedBy = blockingDimensions(judgedReports);
+  const reviewerBlocked = blockedBy.size > 0;
   const scoped = (d: ReviewDecision): ReviewDecision => {
     // #91: an entry must name a maintainer whose request was shown; anything else is dropped.
     const shown = new Set((snap.requests ?? []).map((r) => r.by.toLowerCase()));
@@ -385,6 +401,7 @@ export async function reviewPipeline(snap: Snapshot, deps: PipelineDeps): Promis
     classWhy: scope.why,
     outcomes,
     reports: judgedReports,
+    blockedBy,
     decision: enforced && scoped(enforced.decision),
     breach: invariantBreach(outcomes),
     allowed: links?.allowed ?? new Set(),
