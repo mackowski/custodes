@@ -7,7 +7,7 @@
  * - CONFIRMED marks the finding "verified against <host>, <locator>" where the judge kept it; the
  *   judge has the last word, so a dropped finding stays dropped (OWASP PR 3001: a confirmed claim
  *   can refute its own finding, as when a reviewer doubts that a real source exists);
- * - NOT-FOUND moves it out of the review into "Claims to verify manually";
+ * - NOT-FOUND leaves the finding to the judge and also lists it under "Claims to verify manually";
  * - REFUTED removes it from the review and records it for the operator.
  *
  * Every failure (no PR link, over the limit, fetch, PDF, verifier) is NOT-FOUND with a code-written

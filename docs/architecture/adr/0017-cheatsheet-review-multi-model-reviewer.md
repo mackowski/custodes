@@ -349,7 +349,8 @@ request's process state.
 
 **Accepted risk (operator, 2026-11-18): the judge can drop a true, verified finding.** Nothing
 brings it back; the review says every point is to be double-checked, and on OWASP the operator
-approves each review. Owner: operator.
+approves each review. The confirming source can be a page the PR author controls, and unlike a
+REFUTED claim, a dropped CONFIRMED one is not listed for the operator. Owner: operator.
 
 **Evals:** judge cases for the 3001 shape (MERGE, no RFC 10027 finding) and the 2901 shape (no
 process request, no `unclear`); link-auditor cases for two false UNSUPPORTED verdicts from the same
