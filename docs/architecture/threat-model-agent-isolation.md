@@ -142,8 +142,8 @@ GitHub Actions (service token, read) ─► gateway /admin/agent-keys (public ke
 7. Done for the keyholder: rotation keeps the old key until the broker accepts the next one (D1). Page and workflow show
    fingerprints (S4).
 8. Cutover runbook: halt, reject the agent's pending approvals (they were created through the
-   shared Worker, where any code could have asked as this agent, and `isolated` is not checked when
-   an approval is decided), export `model_comparisons`, deploy (old crons and consumer removed),
+   shared Worker, where any code could have asked as this agent, and the `isolated` flag of that
+   time was not checked when an approval was decided), export `model_comparisons`, deploy (old crons and consumer removed),
    sandbox run, resume (T3, T4).
 
 ## Accepted risks
