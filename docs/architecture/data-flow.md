@@ -6,7 +6,7 @@ of this diagram it touches, before and after, and updates this file when the flo
 (`docs/sdlc.md`, `.github/workflows/pr-architecture.yml`). Derived from the Workers' `wrangler.jsonc` files, the broker policy and the
 gateway routes, not from memory; when they disagree, the code is right and this file is stale.
 
-Last checked against the code: 2026-11-17 (the gateway lost its unused `EMAIL_DOMAIN` var; no flow change).
+Last checked against the code: 2026-11-18 (triage keeps to new issues, drops its `timeline` read and stops calling implementation-check; the digest carries the author's inert text).
 
 ## The whole system
 
