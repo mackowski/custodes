@@ -337,6 +337,10 @@ The label can also be removed from the repository's label list; nothing triggers
 - A model can be wrong in a way all reviewers share (common training data). Mitigated by the
   notice to authors and the operator's own reading. Owner: operator.
 - Fetching author-supplied URLs reveals Cloudflare egress to those sites. Owner: operator.
+- The judge can drop a true, source-verified finding, and nothing brings it back (operator decision
+  2026-11-18, ADR 0017 amendment, after a confirmed claim refuted its own finding on OWASP PR 3001).
+  An injected diff comment could steer that; an injection eval covers the 2878 shape, the agent
+  never posts APPROVE, and the operator approves every OWASP review. Owner: operator.
 - A wrong claim verdict (one cheap model) keeps or removes one finding; refutations need the cited
   passage and are shown to the operator, and the check that a judge item is "about" a removed
   claim is a text heuristic (#90). Owner: operator.
