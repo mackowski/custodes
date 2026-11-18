@@ -35,8 +35,8 @@ an unknown placeholder drops the comment.
 
 ## Trigger
 
-Called by triage once a day at 05:30 UTC, before the 07:00 digest, for every pending issue that has
-no `ACK_OBTAINED` label and is not spam. Each issue version (`updated_at`) is reviewed once, and an
+Called by triage once a day at 05:30 UTC, before the 07:00 digest, for every pending new issue
+(nobody assigned, `ACK_WAITING` or no `ACK_*` label; triage 0.3) that is not spam. Each issue version (`updated_at`) is reviewed once, and an
 issue at most once a day.
 
 ## How a job runs

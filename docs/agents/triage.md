@@ -1,24 +1,35 @@
 # triage
 
-- Version: 0.2.0 · Mode: **readonly** · Repositories: OWASP/CheatSheetSeries; mackowski/custodes-sandbox for tests (ADR 0012, run on demand only)
+- Version: 0.3.0 · Mode: **readonly** · Repositories: OWASP/CheatSheetSeries; mackowski/custodes-sandbox for tests (ADR 0012, run on demand only)
 - Class: `workers/agents/src/agents/triage.ts` · Logic: `workers/agents/src/agents/triage/`
 - Policy: no `agents` entry (read-only agents may request no side effects, and the broker denies
   `readonly` agents even if one is added). A `reads` entry allows GET-only reads of this repository.
 
 ## Purpose
 
-Help maintainers keep up with issues without the agent ever acting on GitHub. Every four hours it
-reads open issues updated since its last run, and for each one suggests labels (from the repo's real
+Help maintainers decide on new issues without the agent ever acting on GitHub. Every four hours it
+reads open issues updated since its last run and keeps the **new** ones: nobody assigned, and
+`ACK_WAITING` or no `ACK_*` label at all (the issue templates apply `ACK_WAITING`; an issue that
+bypassed them has none). Accepted (`ACK_OBTAINED`) and assigned issues are the backlog, which
+backlog-review is meant to take (#132); they cost no model call. For each new issue it suggests labels (from the repo's real
 label set), the cheat sheet affected (from the real file list), possible duplicates (from recent
 open issues), the kind of issue, and whether a maintainer should look soon. Once a day it e-mails
 the suggestions to the operator.
 
-Since 0.2 (ADR 0010) triage also routes work to two read-only specialists over Durable Object RPC:
-issues without `ACK_OBTAINED` go to [proposal-review](proposal-review.md), and issues accepted more
-than a week ago (measured from when the label was applied) go to
-[implementation-check](implementation-check.md). Their results appear in the same digest under
-recommended actions. Accepted issues are otherwise left out of the digest (only a count is shown),
-unless triage flags them as needing a maintainer or as possible injection.
+Since 0.2 (ADR 0010) triage hands the pending new issues (not spam) to the read-only
+[proposal-review](proposal-review.md) specialist over Durable Object RPC; its results appear in the
+same digest under recommended actions. Since 0.3 it no longer routes accepted issues to
+[implementation-check](implementation-check.md) (paused until #132). An issue accepted or assigned
+after triage saw it leaves the digest (only a count is shown), unless it was flagged as needing a
+maintainer or as possible injection.
+
+Each card is ordered for a decision without opening the issue: the recommended actions and the
+one-click link (ADR 0019) first, then GitHub facts (author, opened date and age, comment count,
+current labels) and the **author's own text**, then the review that supports the recommendation.
+The author's text is the answers to the issue template sections (`triage/excerpt.ts`): template
+hints in HTML comments are removed, up to 4 sections of 300 characters, or the first 600 characters
+of a body without headings. It is stored at assessment time (table `issue_context`), never the full
+body, and only after `inertNoLinksWords`: no links, no hidden characters, one line per section.
 Polls only read open issues, so before sending, the digest asks the broker which issues were closed
 since the oldest pending item and leaves those out, counting them in one line. Any of those that were
 flagged for possible prompt injection are still listed by number under problems.
@@ -30,7 +41,7 @@ The HTML part escapes every issue and model string, uses inline styles only, and
 ## Inputs (all untrusted)
 
 Public repository data read through the broker's GET-only `/v1/read` endpoint (issues, labels, the
-`cheatsheets/` listing, and issue timelines to date `ACK_OBTAINED`). The agent holds no GitHub credential; the broker uses `PAT_READONLY`, a
+`cheatsheets/` listing). The agent holds no GitHub credential; the broker uses `PAT_READONLY`, a
 fine-grained token limited to public repositories with no permissions, and builds every URL itself.
 Issue text and recent titles are wrapped with `untrusted()`.
 
@@ -46,13 +57,13 @@ Issue text and recent titles are wrapped with `untrusted()`.
 
 Worker cron triggers of `custodes-triage` (`workers/triage/wrangler.jsonc`):
 
-- poll `17 */4 * * *`: triage of changed issues and a refresh of accepted issues;
-- prepare `30 5 * * *`: the same poll, then the pending issues go to the specialists, so their
+- poll `17 */4 * * *`: triage of changed new issues;
+- prepare `30 5 * * *`: the same poll, then the pending issues go to proposal-review, so its
   reviews are at most 90 minutes old when the digest goes out;
 - digest `0 7 * * *`.
 
 Before sending, the digest re-reads issues changed since their items were seen. It drops closed
-issues and issues accepted since, and removes recommendations already carried out.
+issues and issues accepted or assigned since, and removes label changes already carried out.
 At most 15 issues are assessed per run; a capped run resumes from the last issue reached.
 
 ## Model
@@ -82,13 +93,14 @@ Set KV key `halt:triage` (or `halt:*`), see `docs/runbooks/kill-switch.md`.
 **Assets:** operator attention and trust in the digest; model spend; the project's reputation if a
 suggestion were ever acted on blindly.
 
-| Threat                                          | Control                                                                                                                                                                                                                                                                   |
-| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Prompt injection in an issue steers suggestions | `untrusted()` envelope with break-out neutralisation; structured output; every label, cheat sheet and duplicate is checked against real repo data and dropped otherwise (`validateAssessment`); `injectionDetected` flag surfaces attempts in the digest; injection evals |
-| Injection turns the agent into a GitHub actor   | impossible by construction: the agent has no token and reads only through the broker's GET-only, allow-listed `/v1/read`; the read PAT has no permissions; `readonly` mode refused by `CustodesAgent.act()` and by the broker policy                                      |
-| Phishing links in the digest                    | model summary has links stripped; issue URLs are rebuilt from the issue number; titles are control-character stripped and clipped                                                                                                                                         |
-| Exfiltration of secrets through the model       | the agent's prompt contains no secrets; errors never include model output or issue text                                                                                                                                                                                   |
-| Spam or flood of issues inflating cost          | 15 issues per run, 700 output tokens, AI Gateway rate and spend limits                                                                                                                                                                                                    |
-| Operator acts on a wrong suggestion             | digest states suggestions are model-generated and untrusted; confidence shown; dropped suggestions listed                                                                                                                                                                 |
+| Threat                                            | Control                                                                                                                                                                                                                                                                   |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Prompt injection in an issue steers suggestions   | `untrusted()` envelope with break-out neutralisation; structured output; every label, cheat sheet and duplicate is checked against real repo data and dropped otherwise (`validateAssessment`); `injectionDetected` flag surfaces attempts in the digest; injection evals |
+| Injection turns the agent into a GitHub actor     | impossible by construction: the agent has no token and reads only through the broker's GET-only, allow-listed `/v1/read`; the read PAT has no permissions; `readonly` mode refused by `CustodesAgent.act()` and by the broker policy                                      |
+| Phishing links in the digest                      | model summary has links stripped; issue URLs are rebuilt from the issue number; titles are control-character stripped and clipped                                                                                                                                         |
+| Author's text in the digest misleads the operator | shown under the label "author's text (untrusted, unchecked, links removed)", links and hidden characters removed, bounded; HTML-escaped; never sent to a model from the stored excerpt; shown even for flagged issues so the operator can judge the attempt               |
+| Exfiltration of secrets through the model         | the agent's prompt contains no secrets; errors never include model output or issue text                                                                                                                                                                                   |
+| Spam or flood of issues inflating cost            | 15 issues per run, 700 output tokens, AI Gateway rate and spend limits                                                                                                                                                                                                    |
+| Operator acts on a wrong suggestion               | digest states suggestions are model-generated and untrusted; confidence shown; dropped suggestions listed                                                                                                                                                                 |
 
 **Accepted risks:** label and cheat-sheet names are shown to the model outside the untrusted envelope (reduced to a safe charset, and only names that pass it unchanged are used); a maintainer could plant an instruction-like label name. A leaked `PAT_READONLY` exposes only what is already public. Owner: operator.

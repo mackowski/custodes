@@ -5,6 +5,10 @@
 - Policy: no `agents` entry. `reads.implementation-check` allows `issue`, `comments`, `timeline`,
   `pull`, `pull_files`, `cheatsheets`, `cheatsheet` (ADR 0010 and its 2026-11-05 amendment).
 
+> **Paused since 2026-11-18.** Triage 0.3 keeps to new issues and no longer hands accepted issues to
+> this agent; its Worker stays deployed but is not called. Accepted issues belong to backlog-review
+> (#132), which is meant to absorb this logic. The rest of this page describes how it ran.
+
 ## Purpose
 
 For issues accepted (`ACK_OBTAINED`) more than a week ago, check whether the current cheat sheets

@@ -37,7 +37,7 @@ flowchart LR
   end
 
   subgraph AGENTS["Agent Workers: one per agent, own Keyholder key (ADR 0018)"]
-    TRI["custodes-triage<br/>triage, implementation-check, proposal-review<br/>crons; secret: AI_GATEWAY_TOKEN"]:::secret
+    TRI["custodes-triage<br/>triage (new issues only), proposal-review,<br/>implementation-check (paused)<br/>crons; secret: AI_GATEWAY_TOKEN"]:::secret
     TAP["custodes-triage-apply<br/>no model, no secret"]
     PRG["custodes-pr-gate<br/>crons and queue<br/>secrets: AI_GATEWAY_TOKEN, OPENROUTER_API_KEY"]:::secret
     CSR["custodes-cheatsheet-review<br/>queue; secret: AI_GATEWAY_TOKEN<br/>Workers AI toMarkdown for PR-cited PDFs"]:::secret
@@ -90,7 +90,7 @@ flowchart LR
   AIG --> ANT
   AIG --> ORT
   AIG --> WAI
-  TRI -- "digest" --> OUTMAIL
+  TRI -- "digest, incl. inert author text" --> OUTMAIL
   PRG -- "summary" --> OUTMAIL
   CSR -- "approval link" --> OUTMAIL
   INMAIL --> ER
