@@ -6,7 +6,9 @@ of this diagram it touches, before and after, and updates this file when the flo
 (`docs/sdlc.md`, `.github/workflows/pr-architecture.yml`). Derived from the Workers' `wrangler.jsonc` files, the broker policy and the
 gateway routes, not from memory; when they disagree, the code is right and this file is stale.
 
-Last checked against the code: 2026-11-18 (triage keeps to new issues, drops its `timeline` read and stops calling implementation-check; the digest carries the author's inert text).
+Last checked against the code: 2026-11-18 (tombstones, the `isolated` policy flag and the cutover
+workflow removed; the gateway lost its unused `EMAIL_DOMAIN` var; triage keeps to new issues, drops
+its `timeline` read and stops calling implementation-check; the digest carries the author's inert text).
 
 ## The whole system
 

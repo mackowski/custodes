@@ -150,19 +150,133 @@ describe('pr-gate summary', () => {
 });
 
 describe('pr-gate poll budgets', () => {
-  it('evaluates a settled PR in the first four polls of a day and not in the fifth', async () => {
+  it('evaluates a settled PR up to the per-PR cap and reports the first refusal once', async () => {
+    const cap = MAX_EVALUATIONS_PER_PR_PER_DAY;
     const results = await inAgent([pull(9101)], async (agent) => {
       const out: Result[] = [];
-      for (let n = 0; n <= MAX_EVALUATIONS_PER_PR_PER_DAY; n++) out.push(await agent.poll());
-      return { out, errors: agent.state.lastErrors };
+      const errorsAfter: string[][] = [];
+      for (let n = 0; n < cap + 2; n++) {
+        out.push(await agent.poll());
+        errorsAfter.push([...agent.state.lastErrors]);
+      }
+      return { out, errorsAfter };
     });
-    expect(MAX_EVALUATIONS_PER_PR_PER_DAY).toBe(4);
-    expect(results.out.map((r) => r.ok)).toEqual([true, true, true, true, true]);
-    expect(results.out.slice(0, 4).map((r) => r.detail)).toEqual(
-      Array(4).fill('1 open, 1 evaluated, 0 close attempt(s)'),
+    expect(cap).toBe(12);
+    expect(results.out.map((r) => r.ok)).toEqual(Array(cap + 2).fill(true));
+    expect(results.out.slice(0, cap).map((r) => r.detail)).toEqual(
+      Array(cap).fill('1 open, 1 evaluated, 0 close attempt(s)'),
     );
-    expect(results.out[4]?.detail).toBe('1 open, 0 evaluated, 0 close attempt(s)');
-    expect(results.errors.some((e) => e.includes('#9101: evaluated 4 times today'))).toBe(true);
+    expect(results.out.slice(cap).map((r) => r.detail)).toEqual(
+      Array(2).fill('1 open, 0 evaluated, 0 close attempt(s)'),
+    );
+    const refusal = (e: string) =>
+      e.startsWith('#9101: not evaluated again today (12 evaluations)');
+    // Reaching the cap is not a problem; only a refused evaluation is, and only once a day.
+    expect(results.errorsAfter[cap - 1]?.some(refusal)).toBe(false);
+    expect(results.errorsAfter[cap + 1]?.filter(refusal)).toHaveLength(1);
+  });
+
+  it('never refuses sandbox manual runs, and they cannot hide the next refusal', async () => {
+    const cap = MAX_EVALUATIONS_PER_PR_PER_DAY;
+    const r = await inAgent([pull(9102)], async (agent) => {
+      const manual: Result[] = [];
+      for (let n = 0; n < cap + 2; n++) manual.push(await agent.poll({ manual: true }));
+      const scheduled = await agent.poll();
+      return { manual, scheduled, errors: agent.state.lastErrors };
+    });
+    expect(r.manual.map((x) => x.detail)).toEqual(
+      Array(cap + 2).fill('1 open, 1 evaluated, 0 close attempt(s)'),
+    );
+    expect(r.scheduled.detail).toBe('1 open, 0 evaluated, 0 close attempt(s)');
+    expect(
+      r.errors.filter((e) => e.startsWith('#9102: not evaluated again today (12 evaluations)')),
+    ).toHaveLength(1);
+  });
+
+  it('flags a close whose broker answer is lost and does not try it again', async () => {
+    // A blank disclosure closes at the rules, with no other read.
+    const p = pull(9103, { body: BODY.replace('[x]', '[ ]') });
+    let acts = 0;
+    const r = await runInDurableObject(await stub(), async (agent: PrGateAgent) => {
+      const i = agent as unknown as Internals;
+      const original = i.env;
+      const reads = fakeBroker([p]);
+      i.env = Object.create(original, {
+        BROKER: {
+          value: withHaltState({
+            fetch: (url: string, init: RequestInit) => {
+              if (url !== 'https://broker.internal/v1/act') return reads.fetch(url, init);
+              acts++;
+              // The comment may be posted; the answer never arrives.
+              return new Response('upstream crashed', { status: 502 });
+            },
+          }),
+        },
+      }) as AgentsEnv;
+      try {
+        const first = await agent.poll();
+        const second = await agent.poll();
+        const row = i.sql<{ outcome: string; detail: string }>`SELECT outcome, detail
+          FROM decisions WHERE pr = ${p.number}`[0];
+        return {
+          first,
+          second,
+          row,
+          errors: agent.state.lastErrors,
+          closes: agent.state.closesToday,
+        };
+      } finally {
+        i.env = original;
+      }
+    });
+    expect(acts).toBe(1);
+    // It may have closed, so it counts towards the daily close cap.
+    expect(r.closes).toBe(1);
+    expect(r.first.detail).toBe('1 open, 1 evaluated, 1 close attempt(s)');
+    expect(r.second.detail).toBe('1 open, 0 evaluated, 0 close attempt(s)');
+    expect(r.row?.outcome).toBe('flag');
+    expect(JSON.parse(r.row?.detail ?? '{}')).toMatchObject({ why: 'close_unknown' });
+    expect(r.errors).toContain(
+      '#9103: close outcome unknown; the PR may be commented or closed, check by hand',
+    );
+  });
+
+  it('retries a close the broker refused before executing (signature), without a flag', async () => {
+    const p = pull(9104, { body: BODY.replace('[x]', '[ ]') });
+    let acts = 0;
+    const r = await runInDurableObject(await stub(), async (agent: PrGateAgent) => {
+      const i = agent as unknown as Internals;
+      const original = i.env;
+      const reads = fakeBroker([p]);
+      i.env = Object.create(original, {
+        BROKER: {
+          value: withHaltState({
+            fetch: (url: string, init: RequestInit) =>
+              url === 'https://broker.internal/v1/act'
+                ? (acts++,
+                  Response.json(
+                    { ok: false, code: 'unauthenticated', reason: 'bad_signature' },
+                    { status: 401 },
+                  ))
+                : reads.fetch(url, init),
+          }),
+        },
+      }) as AgentsEnv;
+      try {
+        await agent.poll();
+        await agent.poll();
+        const row = i.sql<{ outcome: string }>`SELECT outcome FROM decisions
+          WHERE pr = ${p.number}`[0];
+        return { row, errors: agent.state.lastErrors, closes: agent.state.closesToday };
+      } finally {
+        i.env = original;
+      }
+    });
+    // Nothing ran: an ordinary error, tried again at the next poll, and no close slot spent.
+    expect(acts).toBe(2);
+    expect(r.row?.outcome).toBe('error');
+    expect(r.closes).toBe(0);
+    expect(r.errors).toContain('#9104: close refused (unauthenticated)');
   });
 
   it('stops evaluating when the daily budget is spent and says so', async () => {

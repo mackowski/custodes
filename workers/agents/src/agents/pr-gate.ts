@@ -26,6 +26,7 @@ import { agree, shadowed, type Comparison } from './pr-gate/shadow.js';
 import {
   ACK_LABEL,
   CLOSE_FAILED,
+  CLOSE_UNKNOWN,
   nextSlot,
   nextStep,
   REOPENED,
@@ -58,8 +59,11 @@ export const MAX_CLOSES_PER_RUN = 5;
 export const MAX_EVALUATIONS_PER_RUN = 30;
 /** And per UTC day: wake-ups can run a poll every 5 minutes, so the per-poll cap alone is no bound. */
 export const MAX_EVALUATIONS_PER_DAY = 300;
-/** And per PR per UTC day, so a few PRs edited over and over cannot use up the daily budget. */
-export const MAX_EVALUATIONS_PER_PR_PER_DAY = 4;
+/**
+ * And per PR per UTC day, so a few PRs edited over and over cannot use up the daily budget. Each
+ * edit needs a 30-minute grace period first, and most evaluations end at the rules without Jev.
+ */
+export const MAX_EVALUATIONS_PER_PR_PER_DAY = 12;
 /** A poll flag older than this belongs to a poll that hung; the next poll may start. */
 export const POLL_LOCK_MS = 15 * 60_000;
 /**
@@ -421,12 +425,15 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
         overBudget = true;
         continue;
       }
-      const evaluationsOfPr = this.countEvaluation(pr.number, day, skipGrace);
-      if (evaluationsOfPr === null) continue;
-      if (evaluationsOfPr === MAX_EVALUATIONS_PER_PR_PER_DAY)
+      const counted = this.countEvaluation(pr.number, day, skipGrace);
+      if (counted === 'refused') {
+        // Reported once per PR and day: a change or a retry after an error waits for tomorrow.
         errors.push(
-          `#${pr.number}: evaluated ${MAX_EVALUATIONS_PER_PR_PER_DAY} times today; next try tomorrow`,
+          `#${pr.number}: not evaluated again today (${MAX_EVALUATIONS_PER_PR_PER_DAY} evaluations); next try tomorrow`,
         );
+        continue;
+      }
+      if (counted === 'spent') continue;
       evaluated++;
       this.setState({ ...this.state, evaluationsToday: (this.state.evaluationsToday ?? 0) + 1 });
       const turn = this.turn(this.repo, pr.number, runId);
@@ -547,6 +554,15 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
             errors.push(
               `#${pr.number}: close failed at GitHub; the comment may be posted, check by hand`,
             );
+          } else if (outcome.code === 'unknown_outcome') {
+            // The answer was lost: the comment may be posted and the PR may even be closed (and a
+            // maintainer may reopen it). Never retried; a maintainer decides, as after a reopen.
+            // It may have closed, so it counts towards the daily close cap.
+            this.setState({ ...this.state, closesToday: this.state.closesToday + 1 });
+            this.store(pr, 'flag', { ...detail, why: CLOSE_UNKNOWN, rung: 'human' }, now);
+            errors.push(
+              `#${pr.number}: close outcome unknown; the PR may be commented or closed, check by hand`,
+            );
           } else {
             // Refused before execution (rate limit, approval, halted): nothing happened, retry later.
             this.store(pr, 'error', { ...detail, why: `close ${outcome.code}`.slice(0, 60) }, now);
@@ -597,18 +613,25 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
   }
 
   /**
-   * Counts one evaluation of `pr` today and returns the new count, or null when the PR has had its
-   * share today. Operator runs in the sandbox (`manual`) are counted but never refused.
+   * Counts one evaluation of `pr` today ('counted'), or refuses it when the PR has had its share
+   * today: 'refused' the first time (to be reported), 'spent' after that. The refusal is stored as
+   * one count over the cap. Operator runs in the sandbox (`manual`) are never refused and are
+   * counted only up to the cap, so they cannot pass for that stored refusal.
    */
-  private countEvaluation(pr: number, day: string, manual: boolean): number | null {
+  private countEvaluation(
+    pr: number,
+    day: string,
+    manual: boolean,
+  ): 'counted' | 'refused' | 'spent' {
     const n =
       this.sql<{ n: number }>`SELECT n FROM evaluations WHERE pr = ${pr} AND day = ${day}`[0]?.n ??
       0;
-    if (!manual && n >= MAX_EVALUATIONS_PER_PR_PER_DAY) return null;
+    if (manual && n >= MAX_EVALUATIONS_PER_PR_PER_DAY) return 'counted';
+    if (n > MAX_EVALUATIONS_PER_PR_PER_DAY) return 'spent';
     this.sql`INSERT INTO evaluations (pr, day, n) VALUES (${pr}, ${day}, 1)
       ON CONFLICT(pr) DO UPDATE SET n = CASE WHEN day = excluded.day THEN n + 1 ELSE 1 END,
         day = excluded.day`;
-    return n + 1;
+    return n === MAX_EVALUATIONS_PER_PR_PER_DAY ? 'refused' : 'counted';
   }
 
   /** One wake-up per slot: the slot is the payload, which is what idempotent schedules match on. */
@@ -642,7 +665,18 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
       if (!res.ok) return { ok: false, code: res.code };
       return { ok: true, attestationId: res.attestationId };
     } catch (err) {
-      return { ok: false, code: err instanceof AgentHaltedError ? 'halted' : describeError(err) };
+      if (err instanceof AgentHaltedError) return { ok: false, code: 'halted' };
+      console.warn(
+        JSON.stringify({
+          event: 'pr-gate.close.unknown_outcome',
+          runId,
+          pr: pr.number,
+          error: errorType(err),
+        }),
+      );
+      // No readable answer: the broker may have posted the comment and not closed. Retrying could
+      // post it again on every evaluation, so this is as final as a GitHub error.
+      return { ok: false, code: 'unknown_outcome' };
     }
   }
 

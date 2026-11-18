@@ -4,10 +4,8 @@ import {
   CALLER_AGENTS,
   type CallerName,
   PINNED_AGENT_KEYS,
-  type Policy,
 } from '@custodes/schema';
 import type { BrokerEnv } from './env.js';
-import { policy } from './policy.js';
 import { NonceStore } from './store.js';
 
 /** The committed pinned keys (packages/schema/src/agent-keys.json); a malformed file fails fast. */
@@ -21,14 +19,6 @@ export const CALLER_ENTRYPOINTS = {
   TriageBroker: 'custodes-triage',
   TriageApplyBroker: 'custodes-triage-apply',
 } as const satisfies Record<string, CallerName>;
-
-/** An agent moved to its own Worker: the default entrypoint must refuse it. */
-export function isIsolated(agentId: string, p: Policy = policy): boolean {
-  return (
-    (Object.hasOwn(p.agents, agentId) && p.agents[agentId]?.isolated === true) ||
-    (Object.hasOwn(p.reads, agentId) && p.reads[agentId]?.isolated === true)
-  );
-}
 
 /** What a verified request carries forward into the audit record. */
 export interface VerifiedCall {

@@ -37,12 +37,6 @@ export const AgentPolicy = z
      */
     labels: z.array(z.string().min(1).max(50)).min(1).optional(),
     /**
-     * Moved to its own Worker (ADR 0018). Since every agent has moved, the broker's default
-     * entrypoint refuses every agent in code, whatever this says; the flag is kept as a record of
-     * the move (cutover-moves.test.ts reads it) until a later PR drops it.
-     */
-    isolated: z.boolean().default(false),
-    /**
      * How long this agent's approval requests stay open; the broker default is 24 h. Longer is a
      * widening (invariant 4): triage-apply's 168 h follows ADR 0019 (a daily digest read weekly).
      */
@@ -90,11 +84,6 @@ export const ReadPolicy = z.object({
   repos: z.array(GitHubRepo).min(1),
   /** The only resources this agent may read. Explicit, so a new resource is never granted by default. */
   resources: z.array(ReadResource).min(1),
-  /**
-   * Moved to its own Worker (ADR 0018). A record of the move only: the default entrypoint refuses
-   * every agent in code (see `isolated` on agent policies).
-   */
-  isolated: z.boolean().default(false),
 });
 export type ReadPolicy = z.infer<typeof ReadPolicy>;
 
