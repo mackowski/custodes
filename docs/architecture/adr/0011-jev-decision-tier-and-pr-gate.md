@@ -255,5 +255,6 @@ budget) and was accepted. The summary now names a PR only when the cap refuses a
 per day, instead of when the last allowed evaluation runs.
 
 A close whose broker answer is lost (a crash or an unreadable response after the request was sent)
-is now flagged `close_failed` like a failed close instead of being retried: with the higher cap a
-retry could otherwise post the close comment up to 12 times a day.
+is now flagged `close_unknown` and left to a maintainer instead of being retried: with the higher
+cap a retry could otherwise post the close comment up to 12 times a day, and the close may have
+happened, so a maintainer's reopen must stay final (as with `reopened_after_close`).

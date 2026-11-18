@@ -26,6 +26,7 @@ import { agree, shadowed, type Comparison } from './pr-gate/shadow.js';
 import {
   ACK_LABEL,
   CLOSE_FAILED,
+  CLOSE_UNKNOWN,
   nextSlot,
   nextStep,
   REOPENED,
@@ -519,15 +520,19 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
           if (outcome.ok) {
             this.setState({ ...this.state, closesToday: this.state.closesToday + 1 });
             this.store(pr, 'close', detail, now, outcome);
-          } else if (outcome.code === 'github_error' || outcome.code === 'unknown_outcome') {
-            // GitHub may have taken the comment and refused the close, or the answer was lost.
-            // Retrying would post the comment again every poll, so this is final until the author
-            // pushes new commits.
+          } else if (outcome.code === 'github_error') {
+            // GitHub may have taken the comment and refused the close. Retrying would post the
+            // comment again every poll, so this is final until the author pushes new commits.
             this.store(pr, 'flag', { ...detail, why: CLOSE_FAILED, rung: 'human' }, now);
             errors.push(
-              outcome.code === 'github_error'
-                ? `#${pr.number}: close failed at GitHub; the comment may be posted, check by hand`
-                : `#${pr.number}: close outcome unknown; the comment may be posted, check by hand`,
+              `#${pr.number}: close failed at GitHub; the comment may be posted, check by hand`,
+            );
+          } else if (outcome.code === 'unknown_outcome') {
+            // The answer was lost: the comment may be posted and the PR may even be closed (and a
+            // maintainer may reopen it). Never retried; a maintainer decides, as after a reopen.
+            this.store(pr, 'flag', { ...detail, why: CLOSE_UNKNOWN, rung: 'human' }, now);
+            errors.push(
+              `#${pr.number}: close outcome unknown; the PR may be commented or closed, check by hand`,
             );
           } else {
             // Refused before execution (rate limit, approval, halted): nothing happened, retry later.
@@ -632,6 +637,14 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
       return { ok: true, attestationId: res.attestationId };
     } catch (err) {
       if (err instanceof AgentHaltedError) return { ok: false, code: 'halted' };
+      console.warn(
+        JSON.stringify({
+          event: 'pr-gate.close.unknown_outcome',
+          runId,
+          pr: pr.number,
+          error: errorType(err),
+        }),
+      );
       // No readable answer: the broker may have posted the comment and not closed. Retrying could
       // post it again on every evaluation, so this is as final as a GitHub error.
       return { ok: false, code: 'unknown_outcome' };

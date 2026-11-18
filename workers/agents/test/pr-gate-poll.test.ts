@@ -224,9 +224,9 @@ describe('pr-gate poll budgets', () => {
     expect(r.first.detail).toBe('1 open, 1 evaluated, 1 close attempt(s)');
     expect(r.second.detail).toBe('1 open, 0 evaluated, 0 close attempt(s)');
     expect(r.row?.outcome).toBe('flag');
-    expect(JSON.parse(r.row?.detail ?? '{}')).toMatchObject({ why: 'close_failed' });
+    expect(JSON.parse(r.row?.detail ?? '{}')).toMatchObject({ why: 'close_unknown' });
     expect(r.errors).toContain(
-      '#9103: close outcome unknown; the comment may be posted, check by hand',
+      '#9103: close outcome unknown; the PR may be commented or closed, check by hand',
     );
   });
 
