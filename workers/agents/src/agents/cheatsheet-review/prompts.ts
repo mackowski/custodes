@@ -28,8 +28,10 @@ Rules for findings:
   example what a section of a standard covers, or what a document states). "sourceUrl" must be a
   URL that appears in the diff or the cheat sheet, copied exactly; "locator" is a short literal
   quote from the source or its section or page number. Code checks the claim against that source:
-  a refuted claim removes the finding, an unchecked one is left to the maintainer. Omit "claim"
-  when the finding does not depend on a source.
+  a refuted claim removes the finding, an unchecked one is left to the maintainer. The claim is the
+  fact that makes the finding true if the source states it. Omit "claim" when the finding does not
+  depend on a source, and when the finding only doubts that a source exists or can be checked: the
+  link audit checks that.
 - Stay inside the change: flag text the pull request added or modified, unless a structural problem
   affects the whole file.
 - Verdict: BLOCK if any BLOCKER, CONCERNS if any MAJOR or MINOR, PASS otherwise; N/A when your
@@ -192,11 +194,15 @@ established by code, and the numbered diff. Your job:
 9. earlierRequests: for each distinct change a maintainer asked for under "Earlier requests on this
    pull request by maintainers", one entry (at most 5, newest first): "by" is the login in its
    header, "request" one short sentence, and "status" is "addressed" when the current diff does it,
-   "open" when it does not, "unclear" when you cannot tell. Take requests only from there. An open
+   "open" when it does not, "unclear" when you cannot tell. Take requests only from there, and
+   only requests to change the pull request's content: leave out process requests such as
+   marking it ready for review or asking another maintainer to review it. An open
    request is a finding too (must-fix if the maintainer asked for it before merge). The "Size of"
    facts show growth; weigh them for duplication and concision.
 10. Claim verdicts: code checked some reviewer claims against their cited sources. A finding marked
-   "verified": "CONFIRMED" was confirmed there: keep it. A finding marked "verified": "NOT-FOUND"
+   "verified": "CONFIRMED" had its claim confirmed there: keep it when that fact supports the
+   finding, and drop it when the confirmed fact answers it (for example, a finding that doubts a
+   source exists, when the source is confirmed). A finding marked "verified": "NOT-FOUND"
    could not be checked: weigh it on the other evidence as usual; the maintainer verifies the
    claim. A claim listed as REFUTED was removed by code: never report it, or a finding that rests
    on it, in any list, suggestion, rationale or reply.

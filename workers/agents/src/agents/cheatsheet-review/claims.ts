@@ -4,8 +4,10 @@
  * chose: only URLs that are links in the pull request's cheat sheets are fetched. The verifier gets
  * the text around the locator inside `untrusted()`, and code applies the verdict to the finding:
  *
- * - CONFIRMED keeps the finding, marked "verified against <host>, <locator>";
- * - NOT-FOUND moves it out of the review into "Claims to verify manually";
+ * - CONFIRMED marks the finding "verified against <host>, <locator>" where the judge kept it; the
+ *   judge has the last word, so a dropped finding stays dropped (OWASP PR 3001: a confirmed claim
+ *   can refute its own finding, as when a reviewer doubts that a real source exists);
+ * - NOT-FOUND leaves the finding to the judge and also lists it under "Claims to verify manually";
  * - REFUTED removes it from the review and records it for the operator.
  *
  * Every failure (no PR link, over the limit, fetch, PDF, verifier) is NOT-FOUND with a code-written
@@ -487,9 +489,8 @@ function withoutSentences(text: string, gone: readonly ClaimedFinding[]): string
  * own suggestion; another reviewer's corroborating finding in another dimension survives. No
  * sentence about a REFUTED claim stays in the rationale, close reasons, reply, dimension headlines
  * or earlier-request summaries. NOT-FOUND changes nothing here (it is also listed for the
- * maintainer). A CONFIRMED finding stays: its item is marked verified, or code adds it back when
- * the judge dropped it (a BLOCKER or MAJOR then makes MERGE a REQUEST_CHANGES). Runs before
- * normaliseDecision.
+ * maintainer). A CONFIRMED finding is marked verified where the judge kept it; code never adds a
+ * dropped finding back and never changes the verdict. Runs before normaliseDecision.
  */
 export function enforceClaims(
   d: ReviewDecision,
@@ -545,7 +546,7 @@ export function enforceClaims(
     }));
   }
 
-  // Confirmed findings: marked where the judge kept them, added back where it did not.
+  // Confirmed findings: marked where the judge kept them. One the judge dropped stays dropped.
   const mark = (i: Item): Item => {
     const r = confirmed.find((c) => refersTo(i, c.finding));
     if (!r) return i;
@@ -558,27 +559,10 @@ export function enforceClaims(
     nits: lists.nits.map(mark),
     outOfScope: lists.outOfScope.map(mark),
   };
-  const all = [...lists.mustFix, ...lists.shouldFix, ...lists.nits, ...lists.outOfScope];
-  let verdict = d.verdict;
-  for (const r of confirmed) {
-    if (all.some((i) => refersTo(i, r.finding))) continue;
-    const f = r.finding;
-    const note = verifiedNote(r);
-    marked.mustFix.push({
-      dimension: DIMENSION[r.role],
-      severity: f.severity,
-      file: f.file,
-      ...(f.line !== undefined ? { line: f.line } : {}),
-      text: `${f.problem.slice(0, 800 - note.length)}${note}`,
-    });
-    if (verdict === 'MERGE' && (f.severity === 'BLOCKER' || f.severity === 'MAJOR'))
-      verdict = 'REQUEST_CHANGES';
-  }
   return {
     decision: {
       ...rest,
       ...marked,
-      verdict,
       suggestions,
       closeReasons,
       rationale,

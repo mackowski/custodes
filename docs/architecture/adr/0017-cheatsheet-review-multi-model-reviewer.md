@@ -268,7 +268,8 @@ could not refute a false one ("rand 0.10.3 does not exist"). Decisions from `/gr
   the rest are NOT-FOUND with a note. The PDF conversion has its own 15 s bound.
 - **Verdicts, enforced by code after the judge:** CONFIRMED keeps the finding, marked "verified
   against <host>, <locator>", and code adds it back (MERGE becomes REQUEST_CHANGES for a BLOCKER or
-  MAJOR) if the judge dropped it. **NOT-FOUND never removes or downgrades a finding:** it stays in
+  MAJOR) if the judge dropped it (the add-back is superseded by the 2026-11-18 amendment: CONFIRMED
+  now only marks a finding the judge kept). **NOT-FOUND never removes or downgrades a finding:** it stays in
   the judge's input marked by code `"verified": "NOT-FOUND"`, in the reviewer verdicts code reads
   (`reviewerBlocked`, the review event), and wherever the judge puts it; it is also listed under
   "Claims to verify manually". REFUTED removes the claimant's own finding: it leaves the judge's
@@ -294,7 +295,8 @@ the model proposes (SSRF and injection boundary), REFUTED from the start of a do
 keeping PDFs at 2 MB (most NIST documents would be NOT-FOUND).
 
 **Accepted risks:** the verifier is one cheap model; a wrong CONFIRMED keeps a finding the judge
-would have dropped (the review still says to double-check), a wrong REFUTED removes one (only with
+would have dropped (the review still says to double-check; superseded by the 2026-11-18
+amendment, where CONFIRMED no longer brings a finding back), a wrong REFUTED removes one (only with
 the cited passage in front of it, and visible to the operator). The code check that a judge item
 "speaks about" a removed finding is a text heuristic (same file and line, plus locator, URL or
 shared words; the locator matched like the excerpt locator; an item without a line never matches a
@@ -312,3 +314,48 @@ the record comes from that token, never from the request body. Only a person on 
 the broker's keys and resuming an agent; the kill switch is now written only by the broker. A
 compromised gateway can still replay a token it sees during the operator's session for another
 link it also sees; that residual risk is recorded in `docs/architecture/threat-model.md`.
+
+## Amendment (2026-11-18): the judge has the last word on confirmed claims
+
+Supersedes the "code adds it back" part of the 2026-11-16 claim-verification amendment.
+
+**Context.** On OWASP PR 3001 the security reviewer raised a MAJOR finding that nothing showed
+RFC 10027 (BCP 247) to exist, and attached a claim describing that RFC. The verifier fetched
+rfc-editor.org and returned CONFIRMED, which was right: the RFC exists with that title, number and
+sections. The judge saw the confirmation, dropped the finding and decided MERGE. `enforceClaims`
+then read CONFIRMED as "the finding is right", added the finding back as a must-fix and turned MERGE
+into REQUEST_CHANGES. A confirmed claim can refute its own finding, and code cannot tell which way a
+claim points. The operator caught it on the approval page before anything was posted.
+
+**Decision (operator, 2026-11-18, /grill-plan).**
+
+- CONFIRMED only marks a finding the judge kept ("verified against <host>, <locator>"). Code never
+  adds a dropped finding back and never changes the verdict.
+- The reviewer prompt (`FINDING_FORMAT`) says the claim is the fact that makes the finding true,
+  and that a finding which only doubts that a source exists or can be checked carries no claim:
+  the link audit checks that.
+- The judge prompt (rule 10) keeps a CONFIRMED finding when the confirmed fact supports it and
+  drops it when the fact answers it.
+- Same change set, from the same day's reviews: the judge lists only requests to change the
+  content under earlier requests (process requests such as "mark it ready" were always `unclear`,
+  OWASP PR 2901); a target swapped to another site is shown as "new (replaces …)" while still
+  audited as new (OWASP PR 3005).
+
+**Ruled out.** Adding a dropped CONFIRMED finding back without raising the verdict (the wrong
+finding would still be posted); listing judge-dropped CONFIRMED findings in the approval note
+(operator decision: the judge has the last word); adding `MicrosoftDocs → learn.microsoft.com` to
+`ORG_DOMAINS` (each pair is a trust decision for a softer audit); giving the judge the pull
+request's process state.
+
+**Accepted risk (operator, 2026-11-18): the judge can drop a true, verified finding.** Nothing
+brings it back; the review says every point is to be double-checked, and on OWASP the operator
+approves each review. The confirming source can be a page the PR author controls, and unlike a
+REFUTED claim, a dropped CONFIRMED one is not listed for the operator. Owner: operator.
+
+**Evals:** judge cases for the 3001 shape (MERGE, no RFC 10027 finding) and the 2901 shape (no
+process request, no `unclear`); link-auditor cases for two false UNSUPPORTED verdicts from the same
+day (OWASP PRs 2976 and 3005); a security-reviewer case where a finding that only doubts a real
+source carries no claim (3001 shape); and an injection case where a hidden comment in the diff
+tells the judge the confirmed claim answers the finding (the judge must keep the 2878 must-fix).
+The 2878 judge case (a CONFIRMED wrong section number stays a must-fix) is unchanged. The judge's
+input now says that code removes REFUTED findings and that CONFIRMED ones are the judge's to weigh.

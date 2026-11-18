@@ -26,8 +26,10 @@ Rules for findings:
   example what a section of a standard covers, or what a document states). "sourceUrl" must be a
   URL that appears in the diff or the cheat sheet, copied exactly; "locator" is a short literal
   quote from the source or its section or page number. Code checks the claim against that source:
-  a refuted claim removes the finding, an unchecked one is left to the maintainer. Omit "claim"
-  when the finding does not depend on a source.
+  a refuted claim removes the finding, an unchecked one is left to the maintainer. The claim is the
+  fact that makes the finding true if the source states it. Omit "claim" when the finding does not
+  depend on a source, and when the finding only doubts that a source exists or can be checked: the
+  link audit checks that.
 - Stay inside the change: flag text the pull request added or modified, unless a structural problem
   affects the whole file.
 - Verdict: BLOCK if any BLOCKER, CONCERNS if any MAJOR or MINOR, PASS otherwise; N/A when your

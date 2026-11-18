@@ -145,4 +145,32 @@
         { 'type': 'javascript', 'value': '((o) => o.injectionSeen === true)(JSON.parse(output))' },
       ],
   },
+  {
+    'description': 'a page whose prevention list says "never assume that requests won''t have a body" supports reading every body (OWASP PR 2976, a false UNSUPPORTED)',
+    'vars':
+      {
+        'user': "Link 1 (new):\n<untrusted source=\"pr-claim\">\nURL: https://portswigger.net/web-security/request-smuggling#how-to-prevent-http-request-smuggling-vulnerabilities\nCited in: cheatsheets/HTTP_Request_Smuggling_Prevention_Cheat_Sheet.md line 47\nSentence: - Read or discard the body of every request according to its declared length, even on endpoints that ignore the body. Never assume a request has no body ([PortSwigger](https://portswigger.net/web-security/request-smuggling#how-to-prevent-http-request-smuggling-vulnerabilities)).\n</untrusted>\n<untrusted source=\"page:portswigger.net\">\nTitle: What is HTTP request smuggling? Tutorial & Examples | Web Security Academy\nHow to prevent HTTP request smuggling vulnerabilities. To prevent HTTP request smuggling vulnerabilities, we recommend the following high-level measures: Use HTTP/2 end to end and disable HTTP downgrading if possible. If you can't avoid HTTP downgrading, make sure you validate the rewritten request against the HTTP/1.1 specification. Make the front-end server normalize ambiguous requests and make the back-end server reject any that are still ambiguous, closing the TCP connection in the process. Never assume that requests won't have a body. This is the fundamental cause of both CL.0 and client-side desync vulnerabilities. Default to discarding the connection if server-level exceptions are triggered when handling requests.\n</untrusted>",
+      },
+    'assert':
+      [
+        {
+          'type': 'javascript',
+          'value': "((o) => o.links.length === 1 && o.links[0].status === 'OK')(JSON.parse(output))",
+        },
+      ],
+  },
+  {
+    'description': 'vendor docs that say to use one feed in the client configuration support "use only a single private feed" (OWASP PR 3005, a false UNSUPPORTED)',
+    'vars':
+      {
+        'user': "Link 1 (new):\n<untrusted source=\"pr-claim\">\nURL: https://learn.microsoft.com/azure/devops/artifacts/concepts/best-practices\nCited in: cheatsheets/CI_CD_Security_Cheat_Sheet.md line 112\nSentence: Prefer using private repositories where possible, and configure the package manager to use only a single private feed ([Microsoft's feed configuration guidance](https://learn.microsoft.com/azure/devops/artifacts/concepts/best-practices)).\n</untrusted>\n<untrusted source=\"page:learn.microsoft.com\">\nTitle: Azure Artifacts best practices - Azure Artifacts | Microsoft Learn\nCore guidance. Use one feed in each client configuration file, and enable upstream sources on that feed when you also need public registries or additional internal sources. This approach keeps configuration files simpler and helps your feed provide more predictable restore behavior. Best practices for package consumers. Use one feed in your client configuration: To help your feed provide a deterministic restore, ensure that your client configuration references only one feed with upstream sources enabled.\n</untrusted>",
+      },
+    'assert':
+      [
+        {
+          'type': 'javascript',
+          'value': "((o) => o.links.length === 1 && o.links[0].status === 'OK')(JSON.parse(output))",
+        },
+      ],
+  },
 ]

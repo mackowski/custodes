@@ -1011,19 +1011,30 @@ describe('claims.enforceClaims: the judge cannot bring a removed finding back', 
     );
   });
 
-  it('adds back a CONFIRMED finding the judge dropped, and MERGE becomes REQUEST_CHANGES', () => {
-    const d = decision({ verdict: 'MERGE', mustFix: [] });
-    const { decision: out } = enforceClaims(d, [result('CONFIRMED', finding())]);
-    expect(out.verdict).toBe('REQUEST_CHANGES');
-    expect(out.mustFix).toEqual([
+  it('never adds back a CONFIRMED finding the judge dropped, and keeps its verdict (OWASP PR 3001)', () => {
+    // The reviewer doubted that a real RFC exists; the verifier confirmed the RFC's title, which
+    // refutes the finding. The judge dropped it; code must not bring it back or change the verdict.
+    const doubt = finding(
       {
-        dimension: 'Security',
         severity: 'MAJOR',
-        file: SHEET,
-        line: 3,
-        text: `${finding().problem} (verified against nvlpubs.nist.gov, 3.1.3)`,
+        line: 89,
+        problem:
+          'Nothing establishes that RFC 10027 is published, that it is BCP 247, or its sections.',
       },
-    ]);
+      {
+        text: 'RFC 10027 is BCP 247, Best Current Practice for Security of Cross-Device Flows.',
+        sourceUrl: 'https://www.rfc-editor.org/rfc/rfc10027.html',
+        locator: 'Best Current Practice for Security of Cross-Device Flows',
+      },
+    );
+    const d = decision({
+      verdict: 'MERGE',
+      mustFix: [],
+      shouldFix: [item('Say that the prompts do not stop the phishing case.', { line: 93 })],
+    });
+    const { decision: out, removed } = enforceClaims(d, [result('CONFIRMED', doubt)]);
+    expect(out).toEqual(d);
+    expect(removed).toBe(0);
   });
 
   it('leaves the decision alone when there are no claims', () => {
