@@ -3,7 +3,7 @@
 > **History.** All three moves below are done, and so is the clean-up. A new agent starts in its
 > own Worker and never moves, so the cutover workflow (`agent-cutover.yml`), the code that wrote its
 > per-phase configs and the transfer rehearsal (`scripts/do-transfer-test/`) were removed. They are
-> in the repository history at commit `38608ce`. The sections "Before PR #106", "Before a cutover" and
+> in the repository history at commit `8eae2d1`. The sections "Before PR #106", "Before a cutover" and
 > "Cutover" are kept as the record of how it was done; they can no longer be run as written. What
 > still runs on every deploy is the guard described under "After".
 

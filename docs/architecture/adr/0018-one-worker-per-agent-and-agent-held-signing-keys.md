@@ -154,4 +154,4 @@ agent and has no secret, binding to the broker, cron or queue; it only answers t
 listing, and stays for that (operator, 2026-11-16). The default entrypoint was not removed, as the
 Decision says, but closed: a Worker always has a default export, so it now refuses every request
 but `/healthz` in code (PR #122), and a binding test fails if any Worker binds it. The `isolated`
-flags stay in the policy as a record of the moves. The operator accepted the ADR on 2026-11-16.
+flags that recorded the moves were dropped on 2026-11-16 (#146). The operator accepted the ADR on 2026-11-16.

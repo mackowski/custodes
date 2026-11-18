@@ -25,6 +25,6 @@
   // Worker cannot go back to `migrations`, so the key stays, empty. Every class moved out with its
   // data (custodes-triage, custodes-pr-gate, custodes-cheatsheet-review) or was deleted (HelloAgent,
   // #103); their tombstones were dropped once Cloudflare reported them stale (2026-11-16). Do not
-  // declare a class here: a new agent gets its own Worker (scripts/do-namespace-owner.ts guards it).
+  // declare a class here: a new agent gets its own Worker (packages/core/test/cutover-moves.test.ts fails if one appears).
   "exports": {},
 }
