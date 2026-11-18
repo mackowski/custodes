@@ -1829,24 +1829,10 @@ describe('render.inertCode and rejected suggestions', () => {
     ]);
   });
 
-  it('keeps a link the pull request already has, never a "[removed]" link (OWASP PRs 2976, 3008)', () => {
-    const FETCH = 'https://fetch.spec.whatwg.org/#cors-protocol-and-credentials';
+  it('keeps a link the link audit accepted, never a "[removed]" link (OWASP PR 2976)', () => {
     const RFC = 'https://www.rfc-editor.org/rfc/rfc9112.html#section-6.3';
-    // 3008: the link was on a removed line; 2976: the link audit fetched it.
-    const hunks = new Map([
-      [
-        'cheatsheets/A.md',
-        parsePatch(['@@ -1,2 +1,2 @@', ` see [Fetch](${FETCH})`, '-b', '+B'].join('\n')),
-      ],
-    ]);
     const out = checkSuggestions(
       [
-        {
-          file: 'cheatsheets/A.md',
-          line: 2,
-          replacement: `B ([Fetch](${FETCH})).`,
-          rationale: 'r',
-        },
         {
           file: 'cheatsheets/A.md',
           line: 99,
@@ -1854,7 +1840,7 @@ describe('render.inertCode and rejected suggestions', () => {
           rationale: 'r',
         },
       ],
-      hunks,
+      new Map([['cheatsheets/A.md', parsePatch(PATCH)]]),
       new Set([RFC]),
     );
     const body = reviewBody({
@@ -1867,65 +1853,11 @@ describe('render.inertCode and rejected suggestions', () => {
       linkNotes: [],
       allowed: new Set<string>(),
     });
-    expect(out.rejected).toHaveLength(2);
-    expect(body).toContain(`B ([Fetch](${FETCH})).`);
     expect(body).toContain(`B ([RFC 9112](${RFC})).`);
     expect(body).not.toContain('[removed]');
   });
 
-  it('shows a rejected code suggestion whose mention or HTML the sheet already had (#154 review)', () => {
-    const hunks = new Map([
-      [
-        'cheatsheets/A.md',
-        parsePatch(['@@ -1,2 +1,2 @@', ' @Override <br>', '-b', '+B'].join('\n')),
-      ],
-    ]);
-    const out = checkSuggestions(
-      [{ file: 'cheatsheets/A.md', line: 99, replacement: '@Override <br> fixed', rationale: 'r' }],
-      hunks,
-      new Set(),
-    );
-    expect(out.rejected[0]).toMatchObject({ text: '@Override <br> fixed' });
-    expect(inertCode(out.rejected[0]?.text ?? '', out.rejected[0]?.keep)).toBe(
-      '@Override <br> fixed',
-    );
-  });
-
-  it('skips over-long lines when collecting known tokens, so a hostile line cannot stall the run', () => {
-    const long = `${'<a'.repeat(3_000)} https://ok.example/x`;
-    const hunks = new Map([
-      ['cheatsheets/A.md', parsePatch(['@@ -1,2 +1,2 @@', ` ${long}`, '-b', '+B'].join('\n'))],
-    ]);
-    const out = checkSuggestions(
-      [
-        {
-          file: 'cheatsheets/A.md',
-          line: 99,
-          replacement: 'see https://ok.example/x',
-          rationale: 'r',
-        },
-      ],
-      hunks,
-      new Set(),
-    );
-    // The link sits only on a skipped line, so it counts as unknown and the text is not shown.
-    expect(out.rejected[0]).toMatchObject({ text: '', keep: [] });
-  });
-
-  it('does not trust a link only because the author added it on a "+" line (#154 review)', () => {
-    const EVIL = 'https://evil.example/login';
-    const hunks = new Map([
-      ['cheatsheets/A.md', parsePatch(['@@ -1,1 +1,2 @@', ' a', `+see [x](${EVIL})`].join('\n'))],
-    ]);
-    const out = checkSuggestions(
-      [{ file: 'cheatsheets/A.md', line: 99, replacement: `B ([x](${EVIL})).`, rationale: 'r' }],
-      hunks,
-      new Set(),
-    );
-    expect(out.rejected[0]).toMatchObject({ text: '', keep: [] });
-  });
-
-  it('shows no text for a suggestion that adds a link the pull request does not have', () => {
+  it('shows no text for a suggestion with a link the link audit did not accept', () => {
     const hunks = new Map([['cheatsheets/A.md', parsePatch(PATCH)]]);
     const out = checkSuggestions(
       [

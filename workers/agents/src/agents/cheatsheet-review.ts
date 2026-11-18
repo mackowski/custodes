@@ -33,7 +33,7 @@ import {
   type Snapshot,
 } from './cheatsheet-review/input.js';
 import { fetchLink, fetchSource, type ToMarkdown } from './cheatsheet-review/links.js';
-import { claimLog, claimsToVerify, refutedNote } from './cheatsheet-review/claims.js';
+import { claimLog, refutedNote } from './cheatsheet-review/claims.js';
 import { reviewPipeline } from './cheatsheet-review/pipeline.js';
 import { limiter } from './cheatsheet-review/runner.js';
 import { checkSuggestions, reviewBody, reviewEvent } from './cheatsheet-review/render.js';
@@ -355,7 +355,14 @@ export class CheatsheetReviewAgent extends CustodesAgent<AgentsEnv, CheatsheetRe
 
     // 5. Post one review, then remove the label.
     const hunks = new Map(snap.files.map((f) => [f.file.filename, f.hunks]));
-    const checked = checkSuggestions(d.suggestions, hunks, result.allowed);
+    // Only links the auditor accepted may stay in paste-ready text: `allowed` also holds
+    // LOW-AUTHORITY or STALE links, and every fetched link when the auditor was down (#154 review).
+    const accepted = new Set(
+      result.linkChecks
+        .filter((c) => c.status === 'OK' || c.status === 'SAME-RESOURCE')
+        .map((c) => c.url),
+    );
+    const checked = checkSuggestions(d.suggestions, hunks, accepted);
     const ownPull = pr.user?.login.toLowerCase() === trigger.actor.toLowerCase();
     const event = reviewEvent(d, ownPull, result.blockedBy);
     const body = reviewBody({
@@ -368,7 +375,6 @@ export class CheatsheetReviewAgent extends CustodesAgent<AgentsEnv, CheatsheetRe
       linkNotes: result.linkNotes,
       linkChecks: result.linkChecks,
       allowed: result.allowed,
-      claimsToVerify: claimsToVerify(result.claims, d),
     });
     const trig = { kind: 'webhook' as const, ref: `label:${labelEvent}` };
     // The label is the operator's go-ahead: if it was removed, or the author pushed, during the

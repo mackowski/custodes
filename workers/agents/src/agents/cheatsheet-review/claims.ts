@@ -8,7 +8,7 @@
  *   judge has the last word, so a dropped finding stays dropped (OWASP PR 3001: a confirmed claim
  *   can refute its own finding, as when a reviewer doubts that a real source exists);
  * - NOT-FOUND leaves the finding to the judge: an item the judge kept is marked "claim not
- *   confirmed against its source", any other is listed under "Claims to verify manually";
+ *   confirmed against its source", and one the judge dropped stays dropped;
  * - REFUTED removes it from the review and records it for the operator.
  *
  * Every failure (no PR link, over the limit, fetch, PDF, verifier) is NOT-FOUND with a code-written
@@ -496,7 +496,7 @@ function withoutSentences(text: string, gone: readonly ClaimedFinding[]): string
  * own suggestion; another reviewer's corroborating finding in another dimension survives. No
  * sentence about a REFUTED claim stays in the rationale, close reasons, reply, dimension headlines
  * or earlier-request summaries. A NOT-FOUND finding the judge kept is marked "claim not confirmed
- * against its source" (claimsToVerify lists only the others). A CONFIRMED finding is marked verified where the judge kept it; code never adds a
+ * against its source". A CONFIRMED finding is marked verified where the judge kept it; code never adds a
  * dropped finding back and never changes the verdict. Runs before normaliseDecision.
  */
 export function enforceClaims(
@@ -559,8 +559,8 @@ export function enforceClaims(
   // verify manually", and an unchecked claim must not read as a checked one (#154 review).
   const mark = (i: Item): Item => {
     const r = confirmed.find((c) => refersTo(i, c.finding));
-    const unchecked = r ? undefined : notFound.find((c) => refersTo(i, c.finding));
-    const note = r ? verifiedNote(r) : unchecked ? UNCHECKED_NOTE : '';
+    const unchecked = notFound.some((c) => refersTo(i, c.finding));
+    const note = `${r ? verifiedNote(r) : ''}${unchecked ? UNCHECKED_NOTE : ''}`;
     return note ? { ...i, text: `${i.text.slice(0, 800 - note.length)}${note}` } : i;
   };
   const marked = {
@@ -618,21 +618,6 @@ export function claimLog(results: readonly ClaimResult[], removedItems: number) 
       })),
     },
   };
-}
-
-/**
- * NOT-FOUND claims for "Claims to verify manually": only those the judge did not take up. A claim
- * whose finding is already an item of the review would contradict it there (OWASP PR 2976: a
- * must-fix also listed as "not confirmed").
- */
-export function claimsToVerify(
-  results: readonly ClaimResult[],
-  d: Pick<ReviewDecision, 'mustFix' | 'shouldFix' | 'nits' | 'outOfScope'>,
-): ClaimResult[] {
-  const items = [...d.mustFix, ...d.shouldFix, ...d.nits, ...d.outOfScope];
-  return results.filter(
-    (r) => r.verdict === 'NOT-FOUND' && !items.some((i) => refersTo(i, r.finding)),
-  );
 }
 
 /**

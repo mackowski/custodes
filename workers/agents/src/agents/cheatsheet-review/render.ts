@@ -6,10 +6,8 @@
  */
 import { inertText } from '@custodes/llm';
 import { INLINE_COMMENT_BODY_MAX } from '@custodes/schema';
-import { DIMENSION, type ClaimResult } from './claims.js';
 import { inOneHunk, type Hunk } from './diff.js';
 import { LINEUP, model, type Role, type RoleOutcome } from './lineup.js';
-import { MAX_LINK_LINE } from './links.js';
 import type { ChangeClass } from './scope.js';
 import type { Dimension, Item, ReviewDecision } from './types.js';
 
@@ -81,30 +79,11 @@ export interface CheckedSuggestions {
   /**
    * Suggestions that could not be placed on the diff, rendered in the body instead.
    * `text`: the proposed replacement, shown inert so a maintainer can apply it by hand (#79.5).
-   * `keep`: links, mentions or HTML in it that the sheet already had, or links the link audit
-   * fetched, shown as they are.
-   * A replacement with any other link, mention or HTML is not shown at all (its text is empty):
-   * a "[removed]" link in paste-ready text is a dead link (OWASP PRs 2976, 3008).
+   * `keep`: links in it that the link audit fetched and accepted, shown as they are. A replacement
+   * with any other link, mention or HTML is not shown at all (its text is empty): a "[removed]"
+   * link in paste-ready text is a dead link (OWASP PRs 2976, 3008).
    */
   rejected: { file: string; line: number; why: string; text: string; keep: string[] }[];
-}
-
-/**
- * Risky tokens (links, mentions, HTML) already in the sheet before the pull request (context and
- * removed lines), plus links the link audit fetched and did not flag. Never an added line: the
- * author writes those, and the audit may have rejected the link there (#154 review). Lines over
- * MAX_LINK_LINE are skipped, as in links.ts: RISKY is not linear on hostile input, and a skipped
- * token only counts as unknown (its suggestion is not shown).
- */
-function knownTokens(
-  hunks: readonly Hunk[] | undefined,
-  allowed: ReadonlySet<string>,
-): Set<string> {
-  const known = new Set(allowed);
-  for (const l of (hunks ?? []).flatMap((h) => h.lines))
-    if (l.kind !== '+' && l.text.length <= MAX_LINK_LINE)
-      for (const t of l.text.match(RISKY) ?? []) known.add(t.trim());
-  return known;
 }
 
 /** The current text of new-side lines `start..end`, when the hunks show all of them. */
@@ -122,21 +101,18 @@ export function checkSuggestions(
 ): CheckedSuggestions {
   const out: CheckedSuggestions = { comments: [], rejected: [] };
   const taken = new Set<string>();
-  const knownByFile = new Map<string, Set<string>>();
   for (const s of suggestions) {
     const hunks = hunksByFile.get(s.file);
     const start = s.startLine ?? s.line;
     const reject = (why: string) => {
-      const known = knownByFile.get(s.file) ?? knownTokens(hunks, allowed);
-      knownByFile.set(s.file, known);
       const risky = (s.replacement.match(RISKY) ?? []).map((t) => t.trim());
-      const unknown = risky.filter((t) => !known.has(t));
+      const unknown = risky.filter((t) => !allowed.has(t));
       out.rejected.push(
         unknown.length > 0
           ? {
               file: s.file,
               line: s.line,
-              why: `${why} (not shown: it adds a link, mention or HTML the pull request does not have)`,
+              why: `${why} (not shown: it contains a link, mention or HTML the link audit did not accept)`,
               text: '',
               keep: [],
             }
@@ -307,16 +283,6 @@ export interface ReviewBodyInput {
     replaced?: string;
   }[];
   allowed: ReadonlySet<string>;
-  /** #90: NOT-FOUND claims, listed for the maintainer and kept out of the verdict. */
-  claimsToVerify?: readonly ClaimResult[];
-}
-
-/** #90: one unchecked claim, every piece of model text inert and nothing clickable. */
-function claimLine(c: ClaimResult): string {
-  const f = c.finding;
-  const where = `\`${inertText(f.file, 200).replace(/`/g, '')}${f.line ? `:${f.line}` : ''}\``;
-  const source = c.host ? `\`${inertText(c.host, 100).replace(/`/g, '')}\`` : 'not fetched';
-  return `- **${f.severity}** ${where} (${DIMENSION[c.role]}): ${inertMarkdown(f.problem, NONE, 400)} Claim: ${inertMarkdown(f.claim.text, NONE, 300)} Source: ${source}, at ${inertMarkdown(f.claim.locator, NONE, 80)}. Not confirmed: ${inertMarkdown(c.reason, NONE, 300)}`;
 }
 
 function items(title: string, list: readonly Item[], allowed: ReadonlySet<string>): string[] {
@@ -426,16 +392,6 @@ export function reviewBody(r: ReviewBodyInput): string {
                 : 'new';
         return `| ${url(c.url)} | ${change} | ${tableCell(inertText(c.status, 40))} |`;
       }),
-      '',
-    );
-  const claims = r.claimsToVerify ?? [];
-  if (claims.length > 0)
-    lines.push(
-      '### Claims to verify manually',
-      '',
-      'Code could not confirm or refute these claims against their cited sources. They are not part of the verdict; please check them by hand.',
-      '',
-      ...claims.map(claimLine),
       '',
     );
   if (r.linkNotes.length > 0)

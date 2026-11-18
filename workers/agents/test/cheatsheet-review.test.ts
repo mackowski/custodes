@@ -891,6 +891,40 @@ describe('cheatsheet-review: external links', () => {
     });
   };
 
+  it('never keeps a LOW-AUTHORITY link in paste-ready suggestion text (#154 review)', async () => {
+    const r = await drive({
+      scenario: withLink(),
+      fetchImpl: () =>
+        Promise.resolve(
+          new Response('<title>Doc</title><p>text</p>', {
+            headers: { 'content-type': 'text/html' },
+          }),
+        ),
+      script: (role, req) =>
+        role === 'link-auditor'
+          ? JSON.stringify({
+              links: [{ url: 'https://example.com/doc', status: 'LOW-AUTHORITY', reason: 'blog' }],
+            })
+          : defaultScript(
+              decisionJson({
+                suggestions: [
+                  {
+                    file: SHEET,
+                    line: 99,
+                    replacement: 'See https://example.com/doc instead.',
+                    rationale: 'r',
+                  },
+                ],
+              }),
+            )(role, req),
+    });
+    const body = reviewActs(r)[0]?.body ?? '';
+    expect(body).toMatch(
+      /not shown: it contains a link, mention or HTML the link audit did not accept/,
+    );
+    expect(body).not.toContain('See https://example.com/doc instead.');
+  });
+
   it('fetches the link with the injected fetch and shows the page to the link auditor in an envelope', async () => {
     const fetched: string[] = [];
     const r = await drive({
@@ -1154,7 +1188,7 @@ describe('cheatsheet-review: round 1 behaviour (#79)', () => {
     const body = reviewActs(r)[0]?.body ?? '';
     expect(body).toContain('Suggestions not placed inline');
     expect(body).toMatch(
-      /not shown: it adds a link, mention or HTML the pull request does not have/,
+      /not shown: it contains a link, mention or HTML the link audit did not accept/,
     );
     expect(body).not.toContain('````text');
     expect(body).not.toContain('[removed]');
@@ -1720,7 +1754,7 @@ describe('cheatsheet-review: claim verification (#90)', () => {
     expect(root?.children.map((c) => c.name)).toContain('invoke_agent claim-verifier');
   });
 
-  it('lists a claim whose source cannot be read under "Claims to verify manually" (HTTP 403)', async () => {
+  it('leaves out a NOT-FOUND finding the judge dropped: the judge has the last word (HTTP 403)', async () => {
     const r = await drive({
       scenario: withNist(),
       fetchImpl: pdfFetch([], 403),
@@ -1730,10 +1764,8 @@ describe('cheatsheet-review: claim verification (#90)', () => {
     // The judge still weighs it, marked by code.
     expect(calls(r, 'judge')[0]?.req.user).toContain('"verified":"NOT-FOUND"');
     const body = reviewActs(r)[0]?.body ?? '';
-    expect(body).toMatch(
-      /### Claims to verify manually[\s\S]*\*\*MAJOR\*\* `cheatsheets\/Foo_Cheat_Sheet\.md:3` \(Security\)[\s\S]*Not confirmed: source not read: HTTP 403/,
-    );
-    expect(body).not.toMatch(/Must-fix[\s\S]*Embedded malware/);
+    expect(body).not.toContain('Embedded malware');
+    expect(body).not.toContain('Claims to verify manually');
     expect(r.rows[0]).toMatchObject({ verdict: 'MERGE' });
   });
 
@@ -1763,8 +1795,8 @@ describe('cheatsheet-review: claim verification (#90)', () => {
     expect(r.rows[0]).toMatchObject({ verdict: 'REQUEST_CHANGES', event: 'REQUEST_CHANGES' });
     const body = reviewActs(r)[0]?.body ?? '';
     expect(body).toMatch(/Must-fix[\s\S]*\*\*BLOCKER\*\*[\s\S]*cite 3\.1\.4/);
-    // The judge kept it as a must-fix: listing it as unverified too would contradict it (#2976).
-    expect(body).not.toContain('### Claims to verify manually');
+    // The judge kept it: the item itself says the claim was not confirmed (#154).
+    expect(body).toMatch(/cite 3\.1\.4\. \(claim not confirmed against its source\)/);
     const judgeUser = calls(r, 'judge')[0]?.req.user ?? '';
     expect(judgeUser).toContain('"verdict":"BLOCK"');
     expect(judgeUser).toContain('"verified":"NOT-FOUND"');
@@ -1778,9 +1810,8 @@ describe('cheatsheet-review: claim verification (#90)', () => {
       script: script(verdict('CONFIRMED'), merge),
     });
     expect(r.out).toMatchObject({ ok: true, status: 'posted' });
-    expect(reviewActs(r)[0]?.body).toContain(
-      'Not confirmed: source not read: PDF conversion error',
-    );
+    // NOT-FOUND: the judge weighs it, marked by code; no error text reaches the review.
+    expect(calls(r, 'judge')[0]?.req.user).toContain('"verified":"NOT-FOUND"');
     expect(reviewActs(r)[0]?.body).not.toContain('bad pdf');
   });
 
@@ -1799,7 +1830,7 @@ describe('cheatsheet-review: claim verification (#90)', () => {
     expect(fetched.some((u) => new URL(u).hostname === 'crates.io')).toBe(false);
     expect(new Set(fetched)).toEqual(new Set([NIST]));
     expect(calls(r, 'claim-verifier')).toEqual([]);
-    expect(reviewActs(r)[0]?.body).toContain('Source: not fetched');
+    expect(calls(r, 'judge')[0]?.req.user).toContain('"verified":"NOT-FOUND"');
   });
 
   it('never confirms on an injected page, keeps it inside envelopes and names the verifier for the operator', async () => {
@@ -1818,7 +1849,7 @@ describe('cheatsheet-review: claim verification (#90)', () => {
     expect(calls(r, 'claim-verifier')[0]?.req.user).toContain(MARK);
     const body = pendingBody(r);
     expect(body).not.toContain('verified against');
-    expect(body).toContain('Not confirmed: instruction-like text in the claim or the source');
+    expect(calls(r, 'judge')[0]?.req.user).toContain('"verified":"NOT-FOUND"');
     const mail = r.mail.find((m) => m.subject.includes('approve the review'));
     expect(mail?.text).toMatch(/Possible prompt injection seen by: .*claim-verifier/);
   });

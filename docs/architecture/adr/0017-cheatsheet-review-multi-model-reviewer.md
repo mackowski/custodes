@@ -272,7 +272,7 @@ could not refute a false one ("rand 0.10.3 does not exist"). Decisions from `/gr
   now only marks a finding the judge kept). **NOT-FOUND never removes or downgrades a finding:** it stays in
   the judge's input marked by code `"verified": "NOT-FOUND"`, in the reviewer verdicts code reads
   (`reviewerBlocked`, the review event), and wherever the judge puts it; it is also listed under
-  "Claims to verify manually". REFUTED removes the claimant's own finding: it leaves the judge's
+  "Claims to verify manually" (superseded by the #154 amendment: that section is removed). REFUTED removes the claimant's own finding: it leaves the judge's
   input and the reviewer verdicts code reads, and `enforceClaims` removes judge items of the
   claimant's dimension that speak about it (another reviewer's corroborating finding in another
   dimension stays), the claimant's own suggestion, and sentences about it in the rationale, close
@@ -365,16 +365,16 @@ input now says that code removes REFUTED findings and that CONFIRMED ones are th
 A maintainer audit of five OWASP reviews found the verdicts right and the review text wrong in
 places. Decisions (operator, /grill-plan):
 
-- **NOT-FOUND claims are stated once.** A NOT-FOUND finding the judge kept is marked by code
-  "(claim not confirmed against its source)"; only the others are listed under "Claims to verify
-  manually". Before, a must-fix could also appear there as "not confirmed" (OWASP PR 2976). This
-  narrows the 2026-11-16 text "it is also listed under 'Claims to verify manually'".
+- **No "Claims to verify manually" section.** A NOT-FOUND finding the judge kept is marked by
+  code "(claim not confirmed against its source)"; one the judge dropped stays dropped, as any
+  dropped finding does (the judge has the last word, amendment 2026-11-18 above). The section is
+  removed: it listed must-fixes as "not confirmed" too (OWASP PR 2976). This replaces the
+  2026-11-16 text "it is also listed under 'Claims to verify manually'".
 - **Pages the agent cannot read are not audited.** A fetched page with no title and no text (a
   script-rendered shell) or a file that is not text (a PDF) is "verify manually", like a page that
   answers 403 or times out: it is not sent to the link auditor and not made clickable. Before, the
   auditor answered UNSUPPORTED for a correct source (OWASP PR 3008, crbug.com).
-- **Rejected suggestions keep known links.** Text shown for a maintainer to paste keeps links,
-  mentions and HTML that the sheet already had (context and removed lines, lines up to
-  `MAX_LINK_LINE`) or links the audit fetched; with anything else the text is not shown. Never a
-  "[removed]" link (OWASP PRs 2976, 3008). Added lines never count as known.
+- **Rejected suggestions keep audited links.** Text shown for a maintainer to paste keeps links
+  the link audit fetched and accepted; with any other link, mention or HTML the text is not shown.
+  Never a "[removed]" link (OWASP PRs 2976, 3008).
 - Size facts count every line; "verified against" shows the host without `www.`.
