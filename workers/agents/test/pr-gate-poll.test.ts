@@ -190,6 +190,46 @@ describe('pr-gate poll budgets', () => {
     ).toHaveLength(1);
   });
 
+  it('flags a close whose broker answer is lost and does not try it again', async () => {
+    // A blank disclosure closes at the rules, with no other read.
+    const p = pull(9103, { body: BODY.replace('[x]', '[ ]') });
+    let acts = 0;
+    const r = await runInDurableObject(await stub(), async (agent: PrGateAgent) => {
+      const i = agent as unknown as Internals;
+      const original = i.env;
+      const reads = fakeBroker([p]);
+      i.env = Object.create(original, {
+        BROKER: {
+          value: withHaltState({
+            fetch: (url: string, init: RequestInit) => {
+              if (url !== 'https://broker.internal/v1/act') return reads.fetch(url, init);
+              acts++;
+              // The comment may be posted; the answer never arrives.
+              return new Response('upstream crashed', { status: 502 });
+            },
+          }),
+        },
+      }) as AgentsEnv;
+      try {
+        const first = await agent.poll();
+        const second = await agent.poll();
+        const row = i.sql<{ outcome: string; detail: string }>`SELECT outcome, detail
+          FROM decisions WHERE pr = ${p.number}`[0];
+        return { first, second, row, errors: agent.state.lastErrors };
+      } finally {
+        i.env = original;
+      }
+    });
+    expect(acts).toBe(1);
+    expect(r.first.detail).toBe('1 open, 1 evaluated, 1 close attempt(s)');
+    expect(r.second.detail).toBe('1 open, 0 evaluated, 0 close attempt(s)');
+    expect(r.row?.outcome).toBe('flag');
+    expect(JSON.parse(r.row?.detail ?? '{}')).toMatchObject({ why: 'close_failed' });
+    expect(r.errors).toContain(
+      '#9103: close outcome unknown; the comment may be posted, check by hand',
+    );
+  });
+
   it('stops evaluating when the daily budget is spent and says so', async () => {
     const pulls = [pull(9111), pull(9112), pull(9113)];
     const r = await inAgent(pulls, async (agent) => {

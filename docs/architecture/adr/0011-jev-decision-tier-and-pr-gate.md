@@ -253,3 +253,7 @@ as before. The trade-off: 25 PRs edited all day (was 75) can now use up the dail
 the gate off until 00:00 UTC. That fails safe (nothing is closed, the summary reports the spent
 budget) and was accepted. The summary now names a PR only when the cap refuses an evaluation, once
 per day, instead of when the last allowed evaluation runs.
+
+A close whose broker answer is lost (a crash or an unreadable response after the request was sent)
+is now flagged `close_failed` like a failed close instead of being retried: with the higher cap a
+retry could otherwise post the close comment up to 12 times a day.

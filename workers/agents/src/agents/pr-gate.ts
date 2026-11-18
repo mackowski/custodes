@@ -519,12 +519,15 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
           if (outcome.ok) {
             this.setState({ ...this.state, closesToday: this.state.closesToday + 1 });
             this.store(pr, 'close', detail, now, outcome);
-          } else if (outcome.code === 'github_error') {
-            // GitHub may have taken the comment and refused the close. Retrying would post the
-            // comment again every poll, so this is final until the author pushes new commits.
+          } else if (outcome.code === 'github_error' || outcome.code === 'unknown_outcome') {
+            // GitHub may have taken the comment and refused the close, or the answer was lost.
+            // Retrying would post the comment again every poll, so this is final until the author
+            // pushes new commits.
             this.store(pr, 'flag', { ...detail, why: CLOSE_FAILED, rung: 'human' }, now);
             errors.push(
-              `#${pr.number}: close failed at GitHub; the comment may be posted, check by hand`,
+              outcome.code === 'github_error'
+                ? `#${pr.number}: close failed at GitHub; the comment may be posted, check by hand`
+                : `#${pr.number}: close outcome unknown; the comment may be posted, check by hand`,
             );
           } else {
             // Refused before execution (rate limit, approval, halted): nothing happened, retry later.
@@ -628,7 +631,10 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
       if (!res.ok) return { ok: false, code: res.code };
       return { ok: true, attestationId: res.attestationId };
     } catch (err) {
-      return { ok: false, code: err instanceof AgentHaltedError ? 'halted' : describeError(err) };
+      if (err instanceof AgentHaltedError) return { ok: false, code: 'halted' };
+      // No readable answer: the broker may have posted the comment and not closed. Retrying could
+      // post it again on every evaluation, so this is as final as a GitHub error.
+      return { ok: false, code: 'unknown_outcome' };
     }
   }
 
