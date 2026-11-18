@@ -2161,6 +2161,8 @@ describe('links.scanLinks', () => {
     );
     expect(r.links.map((l) => l.url)).toEqual(['https://github.com/g00d-org/lib']);
     expect(r.links[0]).not.toHaveProperty('previous');
+    // Display only: the review shows what it replaced, the audit still treats it as new.
+    expect(r.links[0]?.replaced).toBe('https://github.com/good-org/lib');
   });
 
   it('audits a URL re-cited for new text even if another line of the hunk cited it', () => {

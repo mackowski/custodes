@@ -108,6 +108,8 @@ export interface LinkCheck {
   status: string;
   /** For a moved link, the previous URL (shown so a swap is visible at a glance). */
   previous?: string;
+  /** For a new link that replaced a link on another site: the old URL, display only. */
+  replaced?: string;
 }
 
 interface LinkStage {
@@ -196,6 +198,7 @@ async function linkStage(snap: Snapshot, deps: PipelineDeps): Promise<LinkStage>
       moved: link.previous !== undefined,
       status,
       ...(link.previous !== undefined ? { previous: link.previous } : {}),
+      ...(link.replaced !== undefined ? { replaced: link.replaced } : {}),
     });
   for (const { link } of external.slice(0, MAX_EXTERNAL_LINKS)) {
     // The reason comes first: the note is cut at 400 characters when rendered.

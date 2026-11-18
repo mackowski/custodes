@@ -255,7 +255,13 @@ export interface ReviewBodyInput {
   rejected: CheckedSuggestions['rejected'];
   linkNotes: readonly string[];
   /** #89: every external link that was checked (code statuses or the auditor's enum). */
-  linkChecks?: readonly { url: string; moved: boolean; status: string; previous?: string }[];
+  linkChecks?: readonly {
+    url: string;
+    moved: boolean;
+    status: string;
+    previous?: string;
+    replaced?: string;
+  }[];
   allowed: ReadonlySet<string>;
   /** #90: NOT-FOUND claims, listed for the maintainer and kept out of the verdict. */
   claimsToVerify?: readonly ClaimResult[];
@@ -364,10 +370,18 @@ export function reviewBody(r: ReviewBodyInput): string {
       '',
       '| Link | Change | Status |',
       '| --- | --- | --- |',
-      ...checks.map(
-        (c) =>
-          `| \`${tableCell(inertText(c.url, 300).replace(/`/g, ''))}\` | ${c.moved && c.previous ? `moved from \`${tableCell(inertText(c.previous, 300).replace(/`/g, ''))}\`` : c.moved ? 'moved' : 'new'} | ${tableCell(inertText(c.status, 40))} |`,
-      ),
+      ...checks.map((c) => {
+        const url = (u: string) => `\`${tableCell(inertText(u, 300).replace(/`/g, ''))}\``;
+        const change =
+          c.moved && c.previous
+            ? `moved from ${url(c.previous)}`
+            : c.moved
+              ? 'moved'
+              : c.replaced
+                ? `new (replaces ${url(c.replaced)})`
+                : 'new';
+        return `| ${url(c.url)} | ${change} | ${tableCell(inertText(c.status, 40))} |`;
+      }),
       '',
     );
   const claims = r.claimsToVerify ?? [];

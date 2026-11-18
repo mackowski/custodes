@@ -16,6 +16,11 @@ export interface AddedLink {
   /** The target this link replaced, when its line changed nothing but link targets (#89). */
   previous?: string;
   /**
+   * The target this link replaced on another site. Display only: the link is audited as new,
+   * because a cross-site "move" is not trusted to be the same resource (sameSite).
+   */
+  replaced?: string;
+  /**
    * Found in link markup other than an inline Markdown link: a reference definition or an HTML
    * href/src value (#95). Inside a fenced code block that is a code sample, not a rendered link.
    */
@@ -350,7 +355,7 @@ export function scanLinks(
             context: l.text.slice(0, 600),
             ...flag(url),
           };
-          push(sameSite(previous, url) ? { ...base, previous } : base);
+          push(sameSite(previous, url) ? { ...base, previous } : { ...base, replaced: previous });
         });
         continue;
       }

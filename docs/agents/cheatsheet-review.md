@@ -71,7 +71,8 @@ defanged and mentions neutralised, so it can be applied by hand.
 **Earlier maintainer requests** (#91): the judge also sees the PR conversation comments and review
 summaries by maintainers (OWNER, MEMBER, COLLABORATOR; not bots, not the PR author, nothing an agent
 posted, quoted lines removed),
-the newest 10, enveloped and quoted, and reports each request as addressed, open or unclear. The
+the newest 10, enveloped and quoted, and reports each request to change the content as addressed,
+open or unclear; process requests (mark it ready, ask someone to review) are left out. The
 review lists them with logins as code spans. Process facts include each modified sheet's size
 before and after. ADR 0017 amendment 2026-11-05.
 
@@ -90,7 +91,8 @@ host (without www.), the same owner on owner-path hosts (github.com, gist, raw.g
 GitHub ones), or the listed pair `github.com/OWASP` and `owasp.org`. Anything else, including
 subdomain tenants of a shared host, archive copies (web.archive.org, archive.today and its mirrors
 archive.is, .li, .vn, .md) and lookalike domains, is audited as a new link. The table shows the
-previous URL. A link is any target that renders as one: inline Markdown links, reference definitions
+previous URL: "moved from" for a same-site move, and "new (replaces …)" for a target swapped to
+another site, which is still audited in full as new (display only; OWASP PR 3005). A link is any target that renders as one: inline Markdown links, reference definitions
 (`[1]: url`), HTML `href`/`src` values (taken as written, so an entity-encoded scheme stays encoded)
 and bare URLs, outside inline code; an `href`/`src` or reference definition inside a fenced code
 block is a code sample and is skipped (#95). Link targets must have a known form (http(s) with a plain host and no HTML entities, a sibling .md with an optional anchor,
@@ -109,8 +111,10 @@ After the reviewers and before the judge, `claims.ts`:
    to 10 MB through Workers AI `toMarkdown` (via the AI Gateway). Each source is fetched once;
 3. cuts ±3,000 characters around the locator (whitespace and case normalised), or the first 6,000
    when it is not found, and sends claim and excerpt to the `claim-verifier` in separate envelopes;
-4. applies the verdicts in code. CONFIRMED stays, marked "verified against <host>, <locator>" (and
-   is added back, as must-fix when BLOCKER or MAJOR, if the judge dropped it). NOT-FOUND never
+4. applies the verdicts in code. CONFIRMED is marked "verified against <host>, <locator>" where
+   the judge kept the finding; the judge has the last word, so code never adds a dropped finding
+   back or changes the verdict (a confirmed claim can refute its own finding: OWASP PR 3001).
+   NOT-FOUND never
    removes or downgrades a finding: the judge still sees it (marked `"verified": "NOT-FOUND"`), the
    reviewer's verdict and the review event are unchanged, and it is also listed under "Claims to
    verify manually" with the reason. REFUTED removes the claimant's own finding (from the judge's

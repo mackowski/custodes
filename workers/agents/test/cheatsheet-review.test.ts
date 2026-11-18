@@ -1233,6 +1233,32 @@ describe('cheatsheet-review: moved links (#89)', () => {
     expect(judged).toContain('"verdict":"BLOCK"');
     expect(r.rows[0]?.verdict).toBe('REQUEST_CHANGES');
   });
+
+  it('shows what a link on another site replaced, while auditing it as new (OWASP PR 3005 shape)', async () => {
+    const ELSEWHERE = 'https://docs.old-host.example.org/guide';
+    const r = await drive({
+      scenario: scenario({
+        files: [
+          {
+            filename: SHEET,
+            status: 'modified',
+            additions: 1,
+            deletions: 1,
+            patch: `@@ -1,4 +1,4 @@\n # Foo\n \n-${LINE3(ELSEWHERE)}\n+${LINE3(NEW)}\n Intro text.`,
+          },
+        ],
+        headText: `# Foo\n\n${LINE3(NEW)}\nIntro text.\n`,
+      }),
+      fetchImpl: html,
+      script: quiet(decisionJson({ mustFix: [], suggestions: [] }), audit('OK')),
+    });
+    expect(r.out).toMatchObject({ ok: true, status: 'posted' });
+    const body = reviewActs(r)[0]?.body ?? '';
+    expect(body).toContain(`| \`${NEW}\` | new (replaces \`${ELSEWHERE}\`) | OK |`);
+    const sent = r.models.calls.find((c) => c.role === 'link-auditor')?.req.user ?? '';
+    expect(sent).not.toContain('moved: only its target changed');
+    expect(sent).not.toContain(ELSEWHERE);
+  });
 });
 
 const outside = (s: string) => s.replace(/<untrusted source="[^"]*">[\s\S]*?<\/untrusted>/g, '');
@@ -1572,7 +1598,7 @@ describe('cheatsheet-review: claim verification (#90)', () => {
     return action?.type === 'pr.review.inline' ? action.body : '';
   };
 
-  it('keeps a CONFIRMED finding the judge dropped, marked verified (#2878 shape)', async () => {
+  it('leaves a CONFIRMED finding the judge dropped out, and keeps MERGE (#2878 shape, OWASP PR 3001)', async () => {
     const fetched: string[] = [];
     const r = await drive({
       scenario: withNist(),
@@ -1587,11 +1613,10 @@ describe('cheatsheet-review: claim verification (#90)', () => {
     expect(verifier?.req.user).toContain('Locator found in the source: yes');
     expect(calls(r, 'judge')[0]?.req.user).toContain('"verified":"CONFIRMED"');
     const body = reviewActs(r)[0]?.body ?? '';
-    expect(body).toMatch(
-      /Must-fix[\s\S]*Embedded malware.*\(verified against nvlpubs\.nist\.gov, 3\.1\.3\)/,
-    );
+    // The judge has the last word: code neither adds the finding back nor raises the verdict.
+    expect(body).not.toContain('Embedded malware');
     expect(body).toContain('claim check: @cf/deepseek-ai/deepseek-v4.1-flash-1017');
-    expect(r.rows[0]).toMatchObject({ verdict: 'REQUEST_CHANGES' });
+    expect(r.rows[0]).toMatchObject({ verdict: 'MERGE' });
     // The link stage and the claim stage each fetched the PR's own URL, nothing else.
     expect(new Set(fetched)).toEqual(new Set([NIST]));
   });
