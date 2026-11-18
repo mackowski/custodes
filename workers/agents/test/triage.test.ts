@@ -21,6 +21,7 @@ import {
   type IssueContext,
   issueContext,
   SPAM_EXCERPT,
+  STALE_HIDDEN,
   MAX_SECTIONS,
   SECTION_CHARS,
 } from '../src/agents/triage/excerpt.js';
@@ -377,6 +378,28 @@ describe('triage agent wiring', () => {
     expect(res.status).toBe(405);
   });
 
+  it('keeps the author text only while an issue is pending a digest', async () => {
+    const stub = await getAgentByName(testEnv.TriageAgent, 'custodes-sandbox');
+    const left = await runInDurableObject(stub, (agent) => {
+      const a = agent as unknown as {
+        ensureSchema(): void;
+        markDigested(rows: { issue: number }[], stamp: string): void;
+        sql<T>(s: TemplateStringsArray, ...v: unknown[]): T[];
+      };
+      a.ensureSchema();
+      for (const n of [901, 902])
+        a.sql`INSERT INTO assessments (issue, title, url, issue_updated_at, assessment, assessed_at)
+          VALUES (${n}, 't', 'https://github.com/x', '2026-11-18T00:00:00Z', '{}', '2026-11-18T00:00:00Z')`;
+      for (const n of [901, 902, 903])
+        a.sql`INSERT INTO issue_context (issue, context) VALUES (${n}, '{}')`;
+      a.markDigested([{ issue: 901 }], '2026-11-18T07:00:00Z');
+      return a.sql<{ issue: number }>`SELECT issue FROM issue_context ORDER BY issue`.map(
+        (r) => r.issue,
+      );
+    });
+    expect(left).toEqual([902]); // 901 was digested; 903 was never pending
+  });
+
   it('refuses, as a read-only agent, to ask for any side effect before reaching the broker', async () => {
     const stub = await getAgentByName(testEnv.TriageAgent, 'owasp-cheatsheetseries');
     const errors = await runInDurableObject(stub, async (agent) => {
@@ -672,10 +695,14 @@ describe('digest card contexts', () => {
   it('hides the author text of likely spam, refreshes labels and skips issues with nothing stored', () => {
     const out = digestContexts(
       [
-        { issue: 1, assessment: { kind: 'spam' } },
-        { issue: 2, assessment: { kind: 'update' } },
+        { issue: 1, assessment: { kind: 'spam', injectionDetected: false } },
+        { issue: 2, assessment: { kind: 'update', injectionDetected: false } },
+        { issue: 5, assessment: { kind: 'update', injectionDetected: true } },
       ],
-      [{ issue: 3 }, { issue: 4 }],
+      [
+        { issue: 3, result: { injectionDetected: false } },
+        { issue: 4, result: { injectionDetected: false } },
+      ],
       (n) => (n === 4 ? undefined : ctx(`p${n}`)),
       new Map([
         [
@@ -686,17 +713,29 @@ describe('digest card contexts', () => {
           },
         ],
         [3, { labels: ['ACK_WAITING'], updatedAt: '2026-11-17T00:00:00Z' }],
+        [5, { labels: ['ACK_WAITING'], updatedAt: '2026-11-18T05:00:00Z' }],
       ]),
     );
     expect(out.get(1)?.excerpt).toEqual([{ heading: null, text: SPAM_EXCERPT }]);
     expect(out.get(1)?.author).toBe('p1');
     expect(out.get(2)?.labels).toEqual(['ACK_WAITING', 'UPDATE_CS']);
     expect(out.get(3)?.excerpt[0]?.text).toBe('call p3 now');
-    expect(out.get(2)?.stale).toBe(true); // edited after the excerpt was read
+    // Edited after the excerpt was read: the old text may hold what the author removed.
+    expect(out.get(2)?.stale).toBe(true);
+    expect(out.get(2)?.excerpt).toEqual([{ heading: null, text: STALE_HIDDEN }]);
+    // Flagged: the old text is what the model judged, so it stays (marked).
+    expect(out.get(5)?.stale).toBe(true);
+    expect(out.get(5)?.excerpt[0]?.text).toBe('call p5 now');
     expect(out.get(3)?.stale).toBeUndefined(); // same version
     // The issue-state read failed: no text can be shown as current.
-    const partial = digestContexts([], [{ issue: 3 }], () => ctx('p3'), new Map(), false);
-    expect(partial.get(3)?.stale).toBe(true);
+    const partial = digestContexts(
+      [],
+      [{ issue: 3, result: { injectionDetected: false } }],
+      () => ctx('p3'),
+      new Map(),
+      false,
+    );
+    expect(partial.get(3)?.excerpt).toEqual([{ heading: null, text: STALE_HIDDEN }]);
     expect(out.has(4)).toBe(false);
   });
 });

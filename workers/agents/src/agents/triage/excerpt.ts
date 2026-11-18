@@ -7,6 +7,12 @@ import { isSafeName, safeLogin } from './prompt.js';
 export const SECTION_CHARS = 300;
 export const BODY_CHARS = 600;
 export const MAX_SECTIONS = 4;
+/**
+ * Shown instead of the author's text when the issue changed after it was read: the author may have
+ * removed something pasted by mistake (a token, personal data). Flagged issues keep the old text.
+ */
+export const STALE_HIDDEN =
+  '(not shown: the issue changed after this text was read; open the issue)';
 /** Shown instead of the author's text when triage reads the issue as likely spam. */
 export const SPAM_EXCERPT = '(not shown: likely spam)';
 /** Raw characters read: bounds every regex below on any issue body (GitHub allows 65,536). */
@@ -120,27 +126,35 @@ export function authorExcerpt(body: string | null | undefined): ExcerptPart[] {
  * phone numbers or "contact me at" stays out of the inbox; the facts stay).
  */
 export function digestContexts(
-  items: { issue: number; assessment: { kind: string } }[],
-  proposals: { issue: number }[],
+  items: { issue: number; assessment: { kind: string; injectionDetected: boolean } }[],
+  proposals: { issue: number; result: { injectionDetected: boolean } }[],
   stored: (issue: number) => IssueContext | undefined,
   current: ReadonlyMap<number, { labels: string[]; updatedAt: string }>,
   /** False when the issue-state read failed or was cut short: then every text may be stale. */
   complete = true,
 ): Map<number, IssueContext> {
   const spam = new Set(items.filter((i) => i.assessment.kind === 'spam').map((i) => i.issue));
+  // A possible injection is judged from the text the model saw, so flagged cards keep it.
+  const flagged = new Set([
+    ...items.filter((i) => i.assessment.injectionDetected).map((i) => i.issue),
+    ...proposals.filter((p) => p.result.injectionDetected).map((p) => p.issue),
+  ]);
   const out = new Map<number, IssueContext>();
   for (const n of new Set([...items.map((i) => i.issue), ...proposals.map((p) => p.issue)])) {
     const ctx = stored(n);
     if (!ctx) continue;
     const now = current.get(n);
+    // A newer version may have edited the text (or removed something pasted by mistake). The
+    // 05:30 poll re-reads changed new issues, so this is rare: a change after it, the run cap, a
+    // failed model call or a failed issue-state read.
+    const stale =
+      !complete || (now !== undefined && Date.parse(now.updatedAt) > Date.parse(ctx.readAt));
+    const hidden = spam.has(n) ? SPAM_EXCERPT : stale && !flagged.has(n) ? STALE_HIDDEN : null;
     out.set(n, {
       ...ctx,
       ...(now ? { labels: now.labels.filter(isSafeName) } : {}),
-      // A newer version may have edited the text (or removed something pasted by mistake).
-      ...(!complete || (now && Date.parse(now.updatedAt) > Date.parse(ctx.readAt))
-        ? { stale: true }
-        : {}),
-      ...(spam.has(n) ? { excerpt: [{ heading: null, text: SPAM_EXCERPT }] } : {}),
+      ...(stale ? { stale: true } : {}),
+      ...(hidden ? { excerpt: [{ heading: null, text: hidden }], hiddenComments: 0 } : {}),
     });
   }
   return out;

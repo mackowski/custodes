@@ -319,6 +319,10 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
   private markDigested(rows: { issue: number }[], stamp: string): void {
     for (const r of rows)
       this.sql`UPDATE assessments SET digested_at = ${stamp} WHERE issue = ${r.issue}`;
+    // The author's text is kept only while a digest may still show it: pending issues. An issue
+    // that changes again is re-assessed and its text read anew.
+    this.sql`DELETE FROM issue_context
+      WHERE issue NOT IN (SELECT issue FROM assessments WHERE digested_at IS NULL)`;
   }
 
   /** Marks proposal reviews reported, including those about closed issues, so none come back. */
