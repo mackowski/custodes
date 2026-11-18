@@ -147,19 +147,29 @@ describe('pr-gate summary', () => {
 });
 
 describe('pr-gate poll budgets', () => {
-  it('evaluates a settled PR in the first four polls of a day and not in the fifth', async () => {
+  it('evaluates a settled PR up to the per-PR cap and reports the first refusal once', async () => {
+    const cap = MAX_EVALUATIONS_PER_PR_PER_DAY;
     const results = await inAgent([pull(9101)], async (agent) => {
       const out: Result[] = [];
-      for (let n = 0; n <= MAX_EVALUATIONS_PER_PR_PER_DAY; n++) out.push(await agent.poll());
-      return { out, errors: agent.state.lastErrors };
+      const errorsAfter: string[][] = [];
+      for (let n = 0; n < cap + 2; n++) {
+        out.push(await agent.poll());
+        errorsAfter.push([...agent.state.lastErrors]);
+      }
+      return { out, errorsAfter };
     });
-    expect(MAX_EVALUATIONS_PER_PR_PER_DAY).toBe(4);
-    expect(results.out.map((r) => r.ok)).toEqual([true, true, true, true, true]);
-    expect(results.out.slice(0, 4).map((r) => r.detail)).toEqual(
-      Array(4).fill('1 open, 1 evaluated, 0 close attempt(s)'),
+    expect(cap).toBe(12);
+    expect(results.out.map((r) => r.ok)).toEqual(Array(cap + 2).fill(true));
+    expect(results.out.slice(0, cap).map((r) => r.detail)).toEqual(
+      Array(cap).fill('1 open, 1 evaluated, 0 close attempt(s)'),
     );
-    expect(results.out[4]?.detail).toBe('1 open, 0 evaluated, 0 close attempt(s)');
-    expect(results.errors.some((e) => e.includes('#9101: evaluated 4 times today'))).toBe(true);
+    expect(results.out.slice(cap).map((r) => r.detail)).toEqual(
+      Array(2).fill('1 open, 0 evaluated, 0 close attempt(s)'),
+    );
+    const refusal = (e: string) => e.startsWith('#9101: changed after 12 evaluations today');
+    // Reaching the cap is not a problem; only a refused evaluation is, and only once a day.
+    expect(results.errorsAfter[cap - 1]?.some(refusal)).toBe(false);
+    expect(results.errorsAfter[cap + 1]?.filter(refusal)).toHaveLength(1);
   });
 
   it('stops evaluating when the daily budget is spent and says so', async () => {
