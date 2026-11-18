@@ -103,8 +103,8 @@ export type FetchedLink =
   | { kind: 'unreachable'; why: string };
 
 export const MAX_EXTERNAL_LINKS = 15;
-/** Below this many non-space characters of title and text, a page is "verify manually", not audited. */
-export const MIN_READABLE_CHARS = 200;
+/** How a fetched file that is not text (a PDF, an image) starts its excerpt. */
+export const NON_TEXT_MARK = '(non-text content';
 const TIMEOUT_MS = 10_000;
 const MAX_BYTES = 2 * 1024 * 1024;
 const MAX_REDIRECTS = 5;
@@ -627,7 +627,7 @@ export async function fetchLink(url: string, fetchImpl: typeof fetch): Promise<F
         status: res.status,
         finalUrl,
         title: '',
-        excerpt: `(non-text content: ${type.slice(0, 60) || 'unknown'})`,
+        excerpt: `${NON_TEXT_MARK}: ${type.slice(0, 60) || 'unknown'})`,
       };
     }
     const body = await readCapped(res);

@@ -369,12 +369,10 @@ places. Decisions (operator, /grill-plan):
   "(claim not confirmed against its source)"; only the others are listed under "Claims to verify
   manually". Before, a must-fix could also appear there as "not confirmed" (OWASP PR 2976). This
   narrows the 2026-11-16 text "it is also listed under 'Claims to verify manually'".
-- **Unreadable pages are not audited.** A fetched page with under 200 non-space characters of title
-  and text (a script-rendered shell, a parked or login page, a PDF or other non-text file) is
-  "verify manually", is not sent to the link auditor and is not made clickable. Before, the auditor
-  answered UNSUPPORTED for a correct source (OWASP PR 3008, crbug.com). Risk raised by the #154 lean review, awaiting the operator's decision: a short
-  parked or login page that the auditor would have called WRONG-PAGE (a BLOCKER) is now a manual
-  check; an attacker could already get that result by answering 403 or timing out.
+- **Pages the agent cannot read are not audited.** A fetched page with no title and no text (a
+  script-rendered shell) or a file that is not text (a PDF) is "verify manually", like a page that
+  answers 403 or times out: it is not sent to the link auditor and not made clickable. Before, the
+  auditor answered UNSUPPORTED for a correct source (OWASP PR 3008, crbug.com).
 - **Rejected suggestions keep known links.** Text shown for a maintainer to paste keeps links,
   mentions and HTML that the sheet already had (context and removed lines, lines up to
   `MAX_LINK_LINE`) or links the audit fetched; with anything else the text is not shown. Never a
