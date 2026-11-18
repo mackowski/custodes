@@ -482,7 +482,8 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
     if (svc === undefined || !base) return { links, withoutLink };
     for (const p of proposals) {
       const r = p.result;
-      if (r.injectionDetected || r.changedSinceReview) continue;
+      // An open discussion has no actions anyway (validateProposalReview); this keeps it so.
+      if (r.injectionDetected || r.changedSinceReview || r.discussion === 'open') continue;
       const comment = r.suggestedComment.trim();
       if (!r.assignTo && !r.addLabels.length && !r.removeLabels.length && !comment) continue;
       if (links.size >= MAX_APPLY_LINKS) {

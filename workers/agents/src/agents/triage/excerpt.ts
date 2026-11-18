@@ -23,6 +23,10 @@ export const IssueContext = z.object({
   author: z.string(),
   openedAt: z.string(),
   comments: z.number().int().nonnegative(),
+  /** The issue version the excerpt was read from (GitHub `updated_at`). */
+  readAt: z.string(),
+  /** Set at send time when the issue changed after the excerpt was read. */
+  stale: z.boolean().optional(),
   labels: z.array(z.string()),
   excerpt: z.array(z.object({ heading: z.string().nullable(), text: z.string() })),
 });
@@ -109,17 +113,19 @@ export function digestContexts(
   items: { issue: number; assessment: { kind: string } }[],
   proposals: { issue: number }[],
   stored: (issue: number) => IssueContext | undefined,
-  current: ReadonlyMap<number, { labels: string[] }>,
+  current: ReadonlyMap<number, { labels: string[]; updatedAt: string }>,
 ): Map<number, IssueContext> {
   const spam = new Set(items.filter((i) => i.assessment.kind === 'spam').map((i) => i.issue));
   const out = new Map<number, IssueContext>();
   for (const n of new Set([...items.map((i) => i.issue), ...proposals.map((p) => p.issue)])) {
     const ctx = stored(n);
     if (!ctx) continue;
-    const labelsNow = current.get(n)?.labels;
+    const now = current.get(n);
     out.set(n, {
       ...ctx,
-      ...(labelsNow ? { labels: labelsNow.filter(isSafeName) } : {}),
+      ...(now ? { labels: now.labels.filter(isSafeName) } : {}),
+      // A newer version may have edited the text (or removed something pasted by mistake).
+      ...(now && Date.parse(now.updatedAt) > Date.parse(ctx.readAt) ? { stale: true } : {}),
       ...(spam.has(n) ? { excerpt: [{ heading: null, text: SPAM_EXCERPT }] } : {}),
     });
   }
@@ -131,6 +137,7 @@ export function issueContext(issue: PublicIssue): IssueContext {
     author: safeLogin(issue.user?.login),
     openedAt: issue.created_at,
     comments: issue.comments,
+    readAt: issue.updated_at,
     labels: issueLabels(issue).filter(isSafeName),
     excerpt: authorExcerpt(issue.body),
   };

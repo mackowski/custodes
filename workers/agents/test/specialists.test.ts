@@ -640,6 +640,7 @@ describe('digest with specialist results', () => {
       author: 'alice',
       openedAt: '2026-09-25T10:00:00Z',
       comments: 2,
+      readAt: '2026-09-25T10:00:00Z',
       labels: ['ACK_WAITING', 'NEW_CS'],
       excerpt: [
         { heading: 'What is missing or needs to be updated?', text: 'No guidance on passkeys.' },

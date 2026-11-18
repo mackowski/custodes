@@ -663,6 +663,7 @@ describe('digest card contexts', () => {
     author,
     openedAt: '2026-11-17T00:00:00Z',
     comments: 0,
+    readAt: '2026-11-17T00:00:00Z',
     labels: ['ACK_WAITING'],
     excerpt: [{ heading: null, text: `call ${author} now` }],
   });
@@ -674,12 +675,23 @@ describe('digest card contexts', () => {
       ],
       [{ issue: 3 }, { issue: 4 }],
       (n) => (n === 4 ? undefined : ctx(`p${n}`)),
-      new Map([[2, { labels: ['ACK_WAITING', 'UPDATE_CS', 'bad\u202elabel'] }]]),
+      new Map([
+        [
+          2,
+          {
+            labels: ['ACK_WAITING', 'UPDATE_CS', 'bad\u202elabel'],
+            updatedAt: '2026-11-18T05:00:00Z',
+          },
+        ],
+        [3, { labels: ['ACK_WAITING'], updatedAt: '2026-11-17T00:00:00Z' }],
+      ]),
     );
     expect(out.get(1)?.excerpt).toEqual([{ heading: null, text: SPAM_EXCERPT }]);
     expect(out.get(1)?.author).toBe('p1');
     expect(out.get(2)?.labels).toEqual(['ACK_WAITING', 'UPDATE_CS']);
     expect(out.get(3)?.excerpt[0]?.text).toBe('call p3 now');
+    expect(out.get(2)?.stale).toBe(true); // edited after the excerpt was read
+    expect(out.get(3)?.stale).toBeUndefined(); // same version
     expect(out.has(4)).toBe(false);
   });
 });

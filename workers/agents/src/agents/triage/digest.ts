@@ -83,13 +83,15 @@ export function factsLine(c: IssueContext, now: Date): string {
 
 export const NO_EXCERPT = '(no text stored; open the issue)';
 export const EXCERPT_LABEL = "author's text (untrusted, unchecked, links removed)";
+export const STALE_EXCERPT =
+  'the issue changed after this text was read; open the issue for the current version';
 
 /** The context block: facts, then the author's own words, each section on its own line. */
 function contextLines(c: IssueContext | undefined, now: Date): string[] {
   if (!c) return [`  ${EXCERPT_LABEL}: ${NO_EXCERPT}`];
   return [
     `  ${factsLine(c, now)}`,
-    `  ${EXCERPT_LABEL}:`,
+    `  ${EXCERPT_LABEL}${c.stale ? ` (${STALE_EXCERPT})` : ''}:`,
     ...(c.excerpt.length
       ? c.excerpt.map((p) => `    > ${p.heading ? `[${p.heading}] ` : ''}${p.text}`)
       : ['    > (empty)']),

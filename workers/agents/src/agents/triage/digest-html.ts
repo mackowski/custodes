@@ -13,6 +13,7 @@ import {
   issueUrl,
   NO_EXCERPT,
   openDiscussionLine,
+  STALE_EXCERPT,
   pct,
   planDigest,
   proposalActions,
@@ -128,6 +129,9 @@ function context(c: IssueContext | undefined, now: Date): string {
   return (
     `<div style="margin-top:8px;color:${C.muted};font-size:13px;line-height:19px;">${esc(factsLine(c, now))}</div>` +
     label(EXCERPT_LABEL) +
+    (c.stale
+      ? `<div style="margin:0 0 4px;color:${C.muted};font-size:12px;">${esc(STALE_EXCERPT)}</div>`
+      : '') +
     (c.excerpt.length ? c.excerpt.map(authorQuote).join('') : para('(empty)'))
   );
 }

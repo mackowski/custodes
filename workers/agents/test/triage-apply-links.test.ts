@@ -98,7 +98,15 @@ const ok = (token = TOKEN): ProposeResult => ({
 describe('triage applyLinks', () => {
   it('never asks for a link while the maintainers discuss the proposal (#2990)', async () => {
     const open = review({}, { discussion: 'open', openBecause: 'asked_maintainers' });
-    const { out, calls } = await run([{ issue: 2990, result: open }], () => ok());
+    // Even if a later change stopped emptying the actions, the link is refused on the field itself.
+    const withActions = { ...open, addLabels: ['ACK_OBTAINED'], assignTo: 'author' };
+    const { out, calls } = await run(
+      [
+        { issue: 2990, result: open },
+        { issue: 2991, result: withActions },
+      ],
+      () => ok(),
+    );
     expect(calls).toHaveLength(0);
     expect(out.links.size).toBe(0);
   });
