@@ -173,6 +173,23 @@ describe('pr-gate poll budgets', () => {
     expect(results.errorsAfter[cap + 1]?.filter(refusal)).toHaveLength(1);
   });
 
+  it('never refuses sandbox manual runs, and they cannot hide the next refusal', async () => {
+    const cap = MAX_EVALUATIONS_PER_PR_PER_DAY;
+    const r = await inAgent([pull(9102)], async (agent) => {
+      const manual: Result[] = [];
+      for (let n = 0; n < cap + 2; n++) manual.push(await agent.poll({ manual: true }));
+      const scheduled = await agent.poll();
+      return { manual, scheduled, errors: agent.state.lastErrors };
+    });
+    expect(r.manual.map((x) => x.detail)).toEqual(
+      Array(cap + 2).fill('1 open, 1 evaluated, 0 close attempt(s)'),
+    );
+    expect(r.scheduled.detail).toBe('1 open, 0 evaluated, 0 close attempt(s)');
+    expect(
+      r.errors.filter((e) => e.startsWith('#9102: not evaluated again today (12 evaluations)')),
+    ).toHaveLength(1);
+  });
+
   it('stops evaluating when the daily budget is spent and says so', async () => {
     const pulls = [pull(9111), pull(9112), pull(9113)];
     const r = await inAgent(pulls, async (agent) => {
