@@ -110,22 +110,23 @@ function evidence(items: VerifiedEvidence[]): string {
   );
 }
 
+/**
+ * One section of the author's text in its own box (dashed amber), heading inside and not bold, so
+ * an author cannot make it look like a digest section or checked evidence.
+ */
+function authorQuote(p: { heading: string | null; text: string }): string {
+  return `<div style="margin:4px 0 8px;padding:6px 10px;border:1px dashed ${TONES.amber[1]};border-radius:4px;background:${TONES.amber[0]};color:${C.text};font-size:13px;line-height:19px;">${
+    p.heading ? `<span style="color:${C.muted};">${esc(p.heading)}: </span>` : ''
+  }${esc(p.text)}</div>`;
+}
+
 /** GitHub facts, then the author's own words (inert: no links, no hidden characters, bounded). */
 function context(c: IssueContext | undefined, now: Date): string {
   if (!c) return label(EXCERPT_LABEL) + para(NO_EXCERPT);
   return (
     `<div style="margin-top:8px;color:${C.muted};font-size:13px;line-height:19px;">${esc(factsLine(c, now))}</div>` +
     label(EXCERPT_LABEL) +
-    (c.excerpt.length
-      ? c.excerpt
-          .map(
-            (p) =>
-              (p.heading
-                ? `<div style="margin:6px 0 0;color:${C.text};font-size:13px;font-weight:600;">${esc(p.heading)}</div>`
-                : '') + quote(p.text),
-          )
-          .join('')
-      : para('(empty)'))
+    (c.excerpt.length ? c.excerpt.map(authorQuote).join('') : para('(empty)'))
   );
 }
 

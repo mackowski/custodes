@@ -56,9 +56,17 @@ import {
   isNewIssue,
   pendingProposalJobs,
   withoutClosed,
+  withoutTaken,
 } from '../src/agents/triage/route.js';
 
 const repo = 'OWASP/CheatSheetSeries';
+const cur = (over: Partial<CurrentIssue> = {}): CurrentIssue => ({
+  state: 'open',
+  labels: [],
+  assigned: 0,
+  updatedAt: '2026-09-21T10:00:00Z',
+  ...over,
+});
 const baseDigestInput = () => ({
   repo,
   items: [],
@@ -573,16 +581,43 @@ describe('reviewProposal', () => {
 describe('triage routing', () => {
   it('sends pending, non-spam issues to proposal review at the assessed version', () => {
     expect(
-      pendingProposalJobs([
-        { issue: 1, issueUpdatedAt: '2026-09-20T10:00:00Z', kind: 'new_cheat_sheet' },
-        { issue: 2, issueUpdatedAt: '2026-09-20T10:00:00Z', kind: 'update' },
-        { issue: 3, issueUpdatedAt: '2026-09-20T10:00:00Z', kind: 'spam' },
-        { issue: 4, issueUpdatedAt: '2026-09-20T10:00:00Z', kind: null },
-      ]),
+      pendingProposalJobs(
+        [
+          { issue: 1, issueUpdatedAt: '2026-09-20T10:00:00Z', kind: 'new_cheat_sheet' },
+          { issue: 2, issueUpdatedAt: '2026-09-20T10:00:00Z', kind: 'update' },
+          { issue: 3, issueUpdatedAt: '2026-09-20T10:00:00Z', kind: 'spam' },
+          { issue: 4, issueUpdatedAt: '2026-09-20T10:00:00Z', kind: null },
+          { issue: 5, issueUpdatedAt: '2026-09-20T10:00:00Z', kind: 'update' },
+          { issue: 6, issueUpdatedAt: '2026-09-20T10:00:00Z', kind: 'update' },
+        ],
+        new Map([
+          [2, cur({ labels: ['ACK_WAITING'] })], // changed, still new
+          [5, cur({ labels: ['ACK_OBTAINED'] })], // accepted since: no review
+          [6, cur({ labels: ['ACK_WAITING'], assigned: 1 })], // assigned since: no review
+        ]),
+      ),
     ).toEqual([
       { issue: 1, issueUpdatedAt: '2026-09-20T10:00:00Z' },
       { issue: 2, issueUpdatedAt: '2026-09-20T10:00:00Z' },
     ]);
+  });
+
+  it('drops triage items of issues taken since, but never flagged ones', () => {
+    const item = (issue: number, needsMaintainer = false, injectionDetected = false) => ({
+      issue,
+      assessment: { needsMaintainer, injectionDetected },
+    });
+    const r = withoutTaken(
+      [item(1), item(2, true), item(3, false, true), item(4), item(5)],
+      new Map([
+        [1, cur({ labels: ['ACK_OBTAINED'] })],
+        [2, cur({ labels: ['ACK_OBTAINED'] })],
+        [3, cur({ assigned: 2 })],
+        [4, cur({ labels: ['ACK_WAITING'] })],
+      ]),
+    );
+    expect(r.kept.map((i) => i.issue)).toEqual([2, 3, 4, 5]);
+    expect(r.taken).toBe(1);
   });
 
   it('treats only unassigned issues waiting for acceptance as new', () => {
@@ -623,7 +658,7 @@ describe('digest with specialist results', () => {
       'recommended: add label ACK_OBTAINED, HELP_WANTED; remove label ACK_WAITING',
       'opened by @alice on 2026-09-25 (6 day(s) ago), 2 comment(s), labels: ACK_WAITING, NEW_CS',
       "author's text (untrusted, unchecked, links removed):",
-      '    | What is missing or needs to be updated?: No guidance on passkeys.',
+      '    > [What is missing or needs to be updated?] No guidance on passkeys.',
       'proposal review: real gap',
       'explanation (model-generated)',
     ].map((l) => d.text.indexOf(l));
@@ -774,7 +809,7 @@ describe('stored reviews are reconciled with the issue as it is now', () => {
   const now = (over: Partial<CurrentIssue> = {}): CurrentIssue => ({
     state: 'open',
     labels: ['ACK_WAITING'],
-    assignees: [],
+    assigned: 0,
     updatedAt: '2026-10-12T08:00:00Z',
     ...over,
   });
@@ -790,9 +825,7 @@ describe('stored reviews are reconciled with the issue as it is now', () => {
   });
 
   it('drops a review once somebody was assigned, even with ACK_WAITING still on', () => {
-    expect(
-      reconcileProposal(review(), '2026-10-12T08:00:00Z', now({ assignees: ['gqlwriter'] })),
-    ).toBe('taken');
+    expect(reconcileProposal(review(), '2026-10-12T08:00:00Z', now({ assigned: 1 }))).toBe('taken');
   });
 
   it('keeps a review flagged for possible injection even when the issue was taken since', () => {
@@ -804,7 +837,7 @@ describe('stored reviews are reconciled with the issue as it is now', () => {
       ],
       new Map([
         [1, now({ labels: ['ACK_OBTAINED'] })],
-        [2, now({ assignees: ['gqlwriter'] })],
+        [2, now({ assigned: 1 })],
       ]),
     );
     expect(r.taken).toBe(1);
@@ -1057,7 +1090,7 @@ describe('closed issues are left out of the digest', () => {
     expect(seen).toEqual(['2026-10-04T11:49:43.000Z']);
     expect(errors[0]).toMatch(/truncated/);
     expect([...closedIn(current)]).toEqual([1]);
-    expect(current.get(2)?.assignees).toEqual(['a']);
+    expect(current.get(2)?.assigned).toBe(1);
   });
 
   it('does not query when nothing is pending', async () => {

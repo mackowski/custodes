@@ -91,8 +91,8 @@ function contextLines(c: IssueContext | undefined, now: Date): string[] {
     `  ${factsLine(c, now)}`,
     `  ${EXCERPT_LABEL}:`,
     ...(c.excerpt.length
-      ? c.excerpt.map((p) => `    | ${p.heading ? `${p.heading}: ` : ''}${p.text}`)
-      : ['    | (empty)']),
+      ? c.excerpt.map((p) => `    > ${p.heading ? `[${p.heading}] ` : ''}${p.text}`)
+      : ['    > (empty)']),
   ];
 }
 
@@ -307,7 +307,7 @@ export function planDigest(input: DigestInput): DigestPlan {
   }).length;
   const attention =
     urgent.length +
-    input.proposals.filter((p) => {
+    proposals.filter((p) => {
       const t = byIssue.get(p.issue);
       return p.result.injectionDetected || (t !== undefined && flaggedTriage(t.assessment));
     }).length;

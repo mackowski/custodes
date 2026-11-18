@@ -23,15 +23,15 @@ import {
 } from './triage/digest.js';
 import { renderDigestHtml } from './triage/digest-html.js';
 import { describeError } from './triage/errors.js';
-import { IssueContext, issueContext } from './triage/excerpt.js';
+import { IssueContext, issueContext, SPAM_EXCERPT } from './triage/excerpt.js';
 import { isSafeName } from './triage/prompt.js';
 import {
   closedIn,
   currentSince,
-  isNewIssue,
   pendingProposalJobs,
   reconcileProposals,
   withoutClosed,
+  withoutTaken,
 } from './triage/route.js';
 import { triageRequest } from './triage/model.js';
 import { BrokerGitHubReader, type PublicIssue } from './triage/github.js';
@@ -129,9 +129,25 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
     return labelsNow ? { ...parsed.data, labels: labelsNow.filter(isSafeName) } : parsed.data;
   }
 
-  private pendingProposalJobs(): SpecialistJob[] {
-    const rows = this.sql<{ issue: number; issue_updated_at: string; assessment: string }>`
-      SELECT issue, issue_updated_at, assessment FROM assessments WHERE digested_at IS NULL`;
+  /** Pending issues for proposal review, minus those accepted or assigned since triage saw them. */
+  private async pendingProposalJobs(
+    reader: BrokerGitHubReader,
+    errors: string[],
+  ): Promise<SpecialistJob[]> {
+    const rows = this.sql<{
+      issue: number;
+      issue_updated_at: string;
+      assessment: string;
+      assessed_at: string;
+    }>`SELECT issue, issue_updated_at, assessment, assessed_at FROM assessments
+      WHERE digested_at IS NULL`;
+    // Fails open: on a read error nothing is filtered and the error is reported.
+    const current = await currentSince(
+      reader,
+      this.repo,
+      rows.map((r) => r.assessed_at),
+      errors,
+    );
     return pendingProposalJobs(
       rows.map((r) => {
         const parsed = Assessment.safeParse(JSON.parse(r.assessment));
@@ -141,6 +157,7 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
           kind: parsed.success ? parsed.data.kind : null,
         };
       }),
+      current,
     );
   }
 
@@ -261,7 +278,7 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
       let proposals = 0;
       if (opts.prepare === true)
         try {
-          proposals = await this.delegate(this.pendingProposalJobs());
+          proposals = await this.delegate(await this.pendingProposalJobs(reader, routeErrors));
         } catch (err) {
           routeErrors.push(`proposal review hand-off: ${describeError(err)}`);
         }
@@ -376,17 +393,9 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
     const proposalsOpen = withoutClosed(allProposals, closed);
     const omittedClosed = openItems.dropped + proposalsOpen.dropped;
     // Accepted or assigned after triage saw them: no longer new (#132's backlog), unless flagged.
-    let omittedTaken = 0;
-    const stillNew = openItems.kept.filter((i) => {
-      const now = current.get(i.issue);
-      const flagged = i.assessment.needsMaintainer || i.assessment.injectionDetected;
-      if (now && !isNewIssue(now.labels, now.assignees.length) && !flagged) {
-        omittedTaken++;
-        return false;
-      }
-      return true;
-    });
-    items.splice(0, items.length, ...stillNew);
+    const stillNew = withoutTaken(openItems.kept, current);
+    let omittedTaken = stillNew.taken;
+    items.splice(0, items.length, ...stillNew.kept);
     const reconciled = reconcileProposals(proposalsOpen.kept, current);
     const proposals = state.complete
       ? reconciled.kept
@@ -407,9 +416,15 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
     }
 
     const contexts = new Map<number, IssueContext>();
+    const spam = new Set(items.filter((i) => i.assessment.kind === 'spam').map((i) => i.issue));
     for (const n of new Set([...items.map((i) => i.issue), ...proposals.map((p) => p.issue)])) {
       const ctx = this.context(n, current.get(n)?.labels);
-      if (ctx) contexts.set(n, ctx);
+      // Scam text (phone numbers, "contact me at") stays out of the inbox; the facts stay.
+      if (ctx)
+        contexts.set(
+          n,
+          spam.has(n) ? { ...ctx, excerpt: [{ heading: null, text: SPAM_EXCERPT }] } : ctx,
+        );
     }
     const now = new Date();
     const apply = await this.applyLinks(proposals);

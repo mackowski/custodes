@@ -7,6 +7,12 @@ import { isSafeName, safeLogin } from './prompt.js';
 export const SECTION_CHARS = 300;
 export const BODY_CHARS = 600;
 export const MAX_SECTIONS = 4;
+/** Shown instead of the author's text when triage reads the issue as likely spam. */
+export const SPAM_EXCERPT = '(not shown: likely spam)';
+/** Raw characters read: bounds every regex below on any issue body (GitHub allows 65,536). */
+export const MAX_INPUT = 20_000;
+/** Raw characters of one section passed on to the link and character cleaning. */
+const SECTION_INPUT = 1_500;
 
 /**
  * What the digest shows about a new issue so the operator can decide without opening it: GitHub
@@ -37,18 +43,46 @@ function withoutComments(s: string): string {
   }
 }
 
-const HEADING = /^#{1,6}[ \t]+(.+?)[ \t#]*$/;
+/**
+ * An ATX heading's text, or null. A plain scan, no regex: a backtracking pattern over a long line
+ * of spaces could run for minutes inside a poll (security review 2026-11-18).
+ */
+function headingText(line: string): string | null {
+  const t = line.trim();
+  let i = 0;
+  while (i < t.length && i < 7 && t[i] === '#') i++;
+  if (i < 1 || i > 6 || (t[i] !== ' ' && t[i] !== '\t')) return null;
+  let end = Math.min(t.length, 200);
+  while (end > i && (t[end - 1] === '#' || t[end - 1] === ' ' || t[end - 1] === '\t')) end--;
+  const text = t.slice(i, end).trim();
+  return text.length ? text : null;
+}
+
+/**
+ * Defangs what mail clients turn into links even without a scheme: bare domains (`evil.example`,
+ * `Node.js` stays readable as `Node[.]js`) and e-mail addresses. Input is already bounded.
+ */
+export function defang(s: string): string {
+  return s
+    .replace(/@/g, '[at]')
+    .replace(/[a-z0-9-]+(?:\.[a-z0-9-]+)+/gi, (m) => m.replace(/\./g, '[.]'));
+}
+
+/** Untrusted author text for the digest: defanged, then no links or hidden characters, bounded. */
+function clean(s: string, maxChars: number): string {
+  return inertNoLinksWords(defang(s.slice(0, SECTION_INPUT)), maxChars);
+}
 
 /**
  * The author's answers to the issue template ("What is missing...", "How should this be
  * resolved?"), or the start of the body when it has no headings. Empty sections are skipped.
  */
 export function authorExcerpt(body: string | null | undefined): ExcerptPart[] {
-  const text = withoutComments(body ?? '');
+  const text = withoutComments((body ?? '').slice(0, MAX_INPUT));
   const parts: { heading: string | null; lines: string[] }[] = [{ heading: null, lines: [] }];
   for (const line of text.split('\n')) {
-    const h = HEADING.exec(line.trim());
-    if (h?.[1]) parts.push({ heading: h[1], lines: [] });
+    const h = headingText(line);
+    if (h !== null) parts.push({ heading: h, lines: [] });
     else parts.at(-1)?.lines.push(line);
   }
   const sections = parts.length > 1;
@@ -57,8 +91,8 @@ export function authorExcerpt(body: string | null | undefined): ExcerptPart[] {
     .filter((p) => p.text.length > 0)
     .slice(0, MAX_SECTIONS)
     .map((p) => ({
-      heading: p.heading === null ? null : inertNoLinks(p.heading, 80),
-      text: inertNoLinksWords(p.text, sections ? SECTION_CHARS : BODY_CHARS),
+      heading: p.heading === null ? null : inertNoLinks(defang(p.heading), 80),
+      text: clean(p.text, sections ? SECTION_CHARS : BODY_CHARS),
     }))
     .filter((p) => p.text.length > 0);
 }

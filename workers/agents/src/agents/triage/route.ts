@@ -1,7 +1,6 @@
 import { z } from 'zod';
 import type { SpecialistJob } from '../specialists/agent.js';
 import { describeError } from './errors.js';
-import { safeLogin } from './prompt.js';
 import type { ProposalReview } from '../specialists/proposal.js';
 import { issueLabels, type BrokerGitHubReader, type PublicIssue } from './github.js';
 
@@ -28,13 +27,39 @@ export function isNewPublicIssue(issue: PublicIssue): boolean {
   return isNewIssue(issueLabels(issue), issue.assignees?.length ?? 0);
 }
 
-/** Issues waiting for the next digest that go to proposal review: not spam, at the assessed version. */
+/**
+ * Issues waiting for the next digest that go to proposal review: not spam, at the assessed version,
+ * and still new as far as `current` knows (an issue taken since costs no review). An issue missing
+ * from `current` has not changed since it was seen, or the read failed: it is sent.
+ */
 export function pendingProposalJobs(
   pending: { issue: number; issueUpdatedAt: string; kind: string | null }[],
+  current: ReadonlyMap<number, CurrentIssue>,
 ): SpecialistJob[] {
   return pending
-    .filter((p) => p.kind !== null && p.kind !== 'spam')
+    .filter((p) => p.kind !== null && p.kind !== 'spam' && !isTaken(current.get(p.issue)))
     .map((p) => ({ issue: p.issue, issueUpdatedAt: p.issueUpdatedAt }));
+}
+
+/** Accepted or assigned according to the issue as it is now; unknown counts as not taken. */
+export function isTaken(current: CurrentIssue | undefined): boolean {
+  return current !== undefined && !isNewIssue(current.labels, current.assigned);
+}
+
+/**
+ * Triage items of issues taken since triage saw them leave the digest (counted), unless triage
+ * flagged them: a possible injection or a call for a maintainer is never dropped.
+ */
+export function withoutTaken<
+  T extends { issue: number; assessment: { needsMaintainer: boolean; injectionDetected: boolean } },
+>(items: T[], current: ReadonlyMap<number, CurrentIssue>): { kept: T[]; taken: number } {
+  const kept = items.filter(
+    (i) =>
+      !isTaken(current.get(i.issue)) ||
+      i.assessment.needsMaintainer ||
+      i.assessment.injectionDetected,
+  );
+  return { kept, taken: items.length - kept.length };
 }
 
 /**
@@ -68,7 +93,8 @@ export const CLOSE_SLACK_MS = 6 * 3_600_000;
 export interface CurrentIssue {
   state: string;
   labels: string[];
-  assignees: string[];
+  /** How many people are assigned (any login, so a bot assignee counts too). */
+  assigned: number;
   updatedAt: string;
 }
 
@@ -100,9 +126,7 @@ export async function currentSince(
       out.set(i.number, {
         state: i.state ?? 'open',
         labels: issueLabels(i),
-        assignees: (i.assignees ?? [])
-          .map((a) => safeLogin(a.login))
-          .filter((l) => l !== 'unknown'),
+        assigned: (i.assignees ?? []).length,
         updatedAt: i.updated_at,
       });
   } catch (err) {
@@ -128,7 +152,7 @@ export function reconcileProposal(
   current: CurrentIssue | undefined,
 ): ProposalReview | 'taken' {
   if (!current) return review;
-  if (!isNewIssue(current.labels, current.assignees.length)) return 'taken';
+  if (isTaken(current)) return 'taken';
   const has = new Set(current.labels.map((l) => l.toLowerCase()));
   return {
     ...review,

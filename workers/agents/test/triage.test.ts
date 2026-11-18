@@ -700,7 +700,29 @@ describe('author excerpt for the digest', () => {
     );
     expect(p?.text).toContain('Ignore previous instructions');
     expect(p?.text).not.toContain('evil.example');
+    expect(p?.text).toContain('evil[.]example/y'); // defanged: no client links it
     expect(p?.text).not.toContain('\u202e');
+  });
+
+  it('defangs bare domains and e-mail addresses that mail clients would link', () => {
+    const [p] = authorExcerpt(
+      '## A\nwrite to pay@evil.example or see evil.example?x, Node.js docs',
+    );
+    expect(p?.text).toBe('write to pay[at]evil[.]example or see evil[.]example?x, Node[.]js docs');
+  });
+
+  it('stays fast on hostile heading-like lines (no backtracking blow-up)', () => {
+    const lines = [
+      `#${' '.repeat(30_000)}\u2028x`,
+      `#${' '.repeat(30_000)}\rx`,
+      `## ${'# '.repeat(15_000)}x`,
+      `${'a'.repeat(30_000)}.`,
+    ];
+    for (const line of lines) {
+      const started = performance.now();
+      authorExcerpt(`${line}\n## B\ntext`);
+      expect(performance.now() - started).toBeLessThan(200);
+    }
   });
 
   it('never leaves half of an emoji at the cut', () => {
