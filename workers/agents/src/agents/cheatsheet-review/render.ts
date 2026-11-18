@@ -233,7 +233,7 @@ const INVISIBLE_CHARS = /[\p{Cc}\p{Cf}]/gu;
  * Model text shown in a code block for a human to copy: no hidden characters, every link, `//host`,
  * mention and HTML tag the suggestion checks reject replaced by "[removed]" (the text is meant to be
  * pasted, so a defanged link would still carry the attacker's target) unless it is in `keep` (a link
- * the pull request already has; checkSuggestions shows no text when any other remains), no run of four backticks
+ * the link auditor accepted; checkSuggestions shows no text when any other remains), no run of four backticks
  * that could close the block, at most 600 characters with a visible marker when clipped.
  */
 export function inertCode(s: string, keep: readonly string[] = []): string {
