@@ -3,7 +3,7 @@ import { runInDurableObject } from 'cloudflare:test';
 import { getAgentByName } from 'agents';
 import { describe, expect, it } from 'vitest';
 import { validateProposalReview } from '../src/agents/specialists/proposal.js';
-import type { ProposalReview } from '../src/agents/specialists/proposal.js';
+import type { ProposalReview, RawProposalReview } from '../src/agents/specialists/proposal.js';
 import type { ProposeResult } from '../src/agents/triage-apply/bundle.js';
 import type { ApplyLink } from '../src/agents/triage/digest.js';
 import type { AgentsEnv } from '../src/env.js';
@@ -14,7 +14,10 @@ const REPO = 'mackowski/custodes-sandbox';
 const BASE = 'https://custodes.work/admin/approvals/link';
 const TOKEN = `9d7c1e9e-2b1a-4b6e-9a2e-1f7d1c2b3a44.1900000000.${'A'.repeat(43)}`;
 
-const review = (over: Partial<ProposalReview> = {}): ProposalReview => ({
+const review = (
+  over: Partial<ProposalReview> = {},
+  raw: Partial<RawProposalReview> = {},
+): ProposalReview => ({
   ...validateProposalReview(
     {
       verdict: 'real_gap',
@@ -34,6 +37,7 @@ const review = (over: Partial<ProposalReview> = {}): ProposalReview => ({
       suggestedComment: 'Thanks {author}',
       injectionDetected: false,
       confidence: 0.8,
+      ...raw,
     },
     {
       repo: REPO,
@@ -92,6 +96,13 @@ const ok = (token = TOKEN): ProposeResult => ({
 });
 
 describe('triage applyLinks', () => {
+  it('never asks for a link while the maintainers discuss the proposal (#2990)', async () => {
+    const open = review({}, { discussion: 'open', openBecause: 'asked_maintainers' });
+    const { out, calls } = await run([{ issue: 2990, result: open }], () => ok());
+    expect(calls).toHaveLength(0);
+    expect(out.links.size).toBe(0);
+  });
+
   it('builds the link from the base and the token, and passes only the stored proposal', async () => {
     const { out, calls } = await run([{ issue: 7, result: review() }], () => ok());
     expect(out.links.get(7)).toEqual({

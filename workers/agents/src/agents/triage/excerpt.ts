@@ -60,12 +60,15 @@ function headingText(line: string): string | null {
 
 /**
  * Defangs what mail clients turn into links even without a scheme: bare domains (`evil.example`,
- * `Node.js` stays readable as `Node[.]js`) and e-mail addresses. Input is already bounded.
+ * `Node.js` stays readable as `Node[.]js`), including non-ASCII labels, combining marks and the
+ * ideographic and fullwidth dots, and e-mail addresses. Input is already bounded.
  */
 export function defang(s: string): string {
   return s
     .replace(/@/g, '[at]')
-    .replace(/[a-z0-9-]+(?:\.[a-z0-9-]+)+/gi, (m) => m.replace(/\./g, '[.]'));
+    .replace(/[\p{L}\p{N}\p{M}-]+(?:[.\u3002\uFF0E\uFF61][\p{L}\p{N}\p{M}-]+)+/gu, (m) =>
+      m.replace(/[.\u3002\uFF0E\uFF61]/g, '[.]'),
+    );
 }
 
 /** Untrusted author text for the digest: defanged, then no links or hidden characters, bounded. */

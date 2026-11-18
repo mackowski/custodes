@@ -711,6 +711,14 @@ describe('author excerpt for the digest', () => {
     expect(p?.text).toBe('write to pay[at]evil[.]example or see evil[.]example?x, Node[.]js docs');
   });
 
+  it('defangs non-ASCII domains, combining marks and fullwidth or ideographic dots', () => {
+    const [p] = authorExcerpt(
+      '## A\nsee пример.рф/login, evil\u0301.com, evil\uFF0Ecom and evil\u3002com',
+    );
+    expect(p?.text).not.toMatch(/[\p{L}\p{N}\p{M}][.\u3002\uFF0E\uFF61][\p{L}\p{N}]/u);
+    expect(p?.text).toContain('пример[.]рф');
+  });
+
   it('stays fast on hostile heading-like lines (no backtracking blow-up)', () => {
     const lines = [
       `#${' '.repeat(30_000)}\u2028x`,
