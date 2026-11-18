@@ -71,10 +71,9 @@ describe('agent moves (scripts/agent-moves.json)', () => {
     (_name, m) => {
       const target = jsonc(`${m.dir}/wrangler.jsonc`);
       for (const c of m.classes) {
-        expect(
-          target.durable_objects?.bindings?.some((b) => b.class_name === c),
-          c,
-        ).toBe(true);
+        // isLive: an own binding (no script_name) or a live export, the same rule the deploy
+        // guard checks ownership with; a binding through script_name would not prove it.
+        expect(isLive(target, c), `${c} is live in ${m.target}`).toBe(true);
         expect(target.exports?.[c]?.state, `${c} is live in ${m.target}`).toBeUndefined();
       }
     },

@@ -71,8 +71,9 @@ function readJsonc(path: string): WranglerConfig {
 const [agent = ''] = process.argv.slice(2);
 if (agent === 'moved') {
   // Moves none of whose classes custodes-agents still declares live (`isLive`, the deploy guard's
-  // own rule in do-namespace-rules.ts, so the two cannot disagree): one line each, `<Class,Class> <dir> <Worker>`, for the deploy guard
-  // (the target must still own them). Since the tombstones were dropped, every move counts as done.
+  // own rule in do-namespace-rules.ts, so the two cannot disagree): one line each,
+  // `<Class,Class> <dir> <Worker>`, for the deploy guard (the target must still own them).
+  // Since the tombstones were dropped, every move counts as done.
   const shared = readJsonc(join(root, 'workers/agents/wrangler.jsonc'));
   for (const m of Object.values(MOVES)) {
     const done = m.classes.every((c) => !isLive(shared, c));
