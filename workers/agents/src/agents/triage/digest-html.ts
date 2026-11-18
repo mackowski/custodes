@@ -6,11 +6,13 @@ import type { ProposalReview } from '../specialists/proposal.js';
 import { inertNoLinks as inert, type Assessment } from './assess.js';
 import {
   type ApplyLink,
+  discussionOpen,
   EXCERPT_LABEL,
   factsLine,
   INJECTED,
   issueUrl,
   NO_EXCERPT,
+  openDiscussionLine,
   pct,
   planDigest,
   proposalActions,
@@ -221,9 +223,11 @@ function proposalCard(
     label('Recommended') +
       (r.injectionDetected
         ? para(INJECTED)
-        : actions.length
-          ? list(actions.map(esc))
-          : para('No change')) +
+        : discussionOpen(r)
+          ? para(openDiscussionLine(r, now))
+          : actions.length
+            ? list(actions.map(esc))
+            : para('No change')) +
       (r.injectionDetected ? '' : applyBlock(apply)) +
       (r.reviewPr && !r.injectionDetected
         ? `<div style="margin-top:10px;">${button(pullUrl(repo, r.reviewPr), `Review PR #${r.reviewPr}`)}</div>`
@@ -314,6 +318,12 @@ export function renderDigestHtml(input: DigestInput): string {
           `${input.withoutLink} more proposal(s) without a one-click link (limit reached); apply them by hand.`,
         )
       : '',
+    section(
+      'Open maintainer discussion (nothing to apply)',
+      plan.openDiscussion.map((p) =>
+        proposalCard(p, plan.triageFor(p.issue), repo, plan.contextFor(p.issue), now),
+      ),
+    ),
     section(
       'Needs attention',
       plan.urgent.map((i) => triageCard(i, repo, plan.contextFor(i.issue), now)),

@@ -244,7 +244,13 @@ function proposalItem(
   return [
     `#${it.issue} ${inert(r.title, 120)}`,
     `  ${issueUrl(repo, it.issue)}`,
-    `  recommended: ${r.injectionDetected ? INJECTED : actions.join('; ') || '(no change)'}`,
+    `  recommended: ${
+      r.injectionDetected
+        ? INJECTED
+        : discussionOpen(r)
+          ? openDiscussionLine(r, now)
+          : actions.join('; ') || '(no change)'
+    }`,
     ...applyLine(apply),
     ...contextLines(c, now),
     `  proposal review: ${VERDICT[r.verdict]}   makes sense: ${r.makesSense ? 'yes' : 'no'}   confidence: ${pct(r.confidence)}`,
@@ -271,6 +277,34 @@ function proposalItem(
   ];
 }
 
+const OPEN_BECAUSE: Record<NonNullable<ProposalReview['openBecause']>, string> = {
+  direction_change: 'a maintainer proposed a different direction',
+  asked_maintainers: 'a maintainer asked other maintainers for their view',
+  maintainer_question: 'a maintainer raised a question nobody settled',
+};
+
+/**
+ * Why a proposal waits on the maintainers, worded by code: the model only picks the reason; who
+ * spoke last and when come from GitHub-set fields. Past WAIT_MS it suggests a ping.
+ */
+export function openDiscussionLine(r: ProposalReview, now: Date): string {
+  const why = r.openBecause ? OPEN_BECAUSE[r.openBecause] : 'the maintainers have not settled it';
+  const t = r.thread;
+  if (!t?.lastByMaintainer) return `discussion open: ${why}; nothing to apply until it is settled`;
+  const days = Math.max(0, Math.floor((now.getTime() - Date.parse(t.lastCommentAt)) / DAY_MS));
+  return (
+    `discussion open: ${why} (last comment by maintainer @${t.lastCommentBy} on ${t.lastCommentAt.slice(0, 10)}); ` +
+    `nothing to apply until it is settled` +
+    (recent(t.lastCommentAt, now)
+      ? ''
+      : `; no answer for ${days} day(s), consider pinging the maintainers`)
+  );
+}
+
+/** An open maintainer discussion, unless the review is flagged (flagged ones keep a full card). */
+export const discussionOpen = (r: ProposalReview) =>
+  r.discussion === 'open' && !r.injectionDetected;
+
 export function proposalWaitReason(r: ProposalReview): string {
   return r.thread
     ? `last comment by maintainer @${r.thread.lastCommentBy} on ${r.thread.lastCommentAt.slice(0, 10)}`
@@ -280,6 +314,8 @@ export function proposalWaitReason(r: ProposalReview): string {
 /** Which item goes in which section, shared by the text and HTML renderings. */
 export interface DigestPlan {
   proposals: SpecialistItem<ProposalReview>[];
+  /** Proposals the maintainers are still discussing: full cards, nothing to apply. */
+  openDiscussion: SpecialistItem<ProposalReview>[];
   /** Proposals where the author has the next step (one line each). */
   waitingProposals: SpecialistItem<ProposalReview>[];
   triageFor: (issue: number) => DigestItem | undefined;
@@ -299,20 +335,25 @@ export function planDigest(input: DigestInput): DigestPlan {
   const remaining = items.filter((i) => !reviewed.has(i.issue));
   const urgent = remaining.filter((i) => flaggedTriage(i.assessment));
   const rest = remaining.filter((i) => !urgent.includes(i));
-  const waitingProposals = input.proposals.filter((p) => proposalWaiting(p.result, input.now));
-  const proposals = input.proposals.filter((p) => !waitingProposals.includes(p));
+  const openDiscussion = input.proposals.filter((p) => discussionOpen(p.result));
+  const waitingProposals = input.proposals.filter(
+    (p) => !openDiscussion.includes(p) && proposalWaiting(p.result, input.now),
+  );
+  const proposals = input.proposals.filter(
+    (p) => !openDiscussion.includes(p) && !waitingProposals.includes(p),
+  );
   const oneClick = proposals.filter((p) => {
     const a = input.applyLinks?.get(p.issue);
     return a !== undefined && 'url' in a;
   }).length;
   const attention =
     urgent.length +
-    proposals.filter((p) => {
+    [...proposals, ...openDiscussion].filter((p) => {
       const t = byIssue.get(p.issue);
       return p.result.injectionDetected || (t !== undefined && flaggedTriage(t.assessment));
     }).length;
   // Proposals waiting on the author need no decision, so they are not counted.
-  const issues = proposals.length + remaining.length;
+  const issues = proposals.length + openDiscussion.length + remaining.length;
   const day = input.now.toISOString().slice(0, 10);
   const counts = [
     issues ? `${issues} new issue(s)` : null,
@@ -321,6 +362,7 @@ export function planDigest(input: DigestInput): DigestPlan {
   ].filter(Boolean);
   return {
     proposals,
+    openDiscussion,
     waitingProposals,
     triageFor: (issue) => byIssue.get(issue),
     contextFor: (issue) => input.contexts?.get(issue),
@@ -360,6 +402,12 @@ export function renderDigest(input: DigestInput): Omit<Digest, 'html'> {
           ]
         : []),
     ]),
+    ...section(
+      'Open maintainer discussion (nothing to apply)',
+      plan.openDiscussion.flatMap((p) =>
+        proposalItem(p, plan.triageFor(p.issue), repo, plan.contextFor(p.issue), now),
+      ),
+    ),
     ...section(
       'Needs attention',
       urgent.flatMap((i) => triageItem(i, repo, plan.contextFor(i.issue), now)),

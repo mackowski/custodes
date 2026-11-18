@@ -26,6 +26,8 @@ const review = (over: Partial<ProposalReview> = {}): ProposalReview => ({
       authorIntent: 'offered',
       volunteers: [],
       askAuthor: false,
+      discussion: 'settled',
+      openBecause: null,
       reviewPr: null,
       helpWanted: false,
       explanation: 'x',

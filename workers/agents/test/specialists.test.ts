@@ -119,6 +119,8 @@ const rawProposal = (over: Partial<RawProposalReview> = {}): RawProposalReview =
   authorIntent: 'unclear',
   volunteers: [],
   askAuthor: false,
+  discussion: 'settled',
+  openBecause: null,
   reviewPr: null,
   helpWanted: false,
   explanation: 'Not covered yet.',
@@ -2031,5 +2033,97 @@ describe('proposal review follows maintainer decisions in referenced issues', ()
       expect(r?.priorDecision).toBeNull();
       expect(r?.dropped).toContain('decision in #4242');
     });
+  });
+});
+
+describe('open maintainer discussion (the #2990 case)', () => {
+  const thread = (at: string) => ({
+    lastCommentAt: at,
+    lastCommentBy: 'mackowski',
+    lastByMaintainer: true,
+  });
+  const openReview = (at = '2026-11-17T07:11:59Z') =>
+    validateProposalReview(
+      rawProposal({
+        authorIntent: 'offered',
+        helpWanted: true,
+        askAuthor: true,
+        discussion: 'open',
+        openBecause: 'asked_maintainers',
+      }),
+      { ...proposalCtx, thread: thread(at) },
+    );
+
+  it('keeps no action while the maintainers discuss, but keeps the assessment', () => {
+    const r = openReview();
+    expect(r).toMatchObject({
+      verdict: 'real_gap',
+      addLabels: [],
+      removeLabels: [],
+      assignTo: null,
+      assignWhy: null,
+      helpWanted: false,
+      suggestedComment: '',
+      mentions: [],
+      discussion: 'open',
+      openBecause: 'asked_maintainers',
+    });
+    expect(r.explanation).toBe('Not covered yet.');
+  });
+
+  it('reads a missing or unknown answer as open (fail-safe), and an old stored result as settled', () => {
+    const { discussion: _d, openBecause: _o, ...without } = rawProposal();
+    expect(RawProposalReview.parse(without).discussion).toBe('open');
+    expect(RawProposalReview.parse({ ...without, discussion: 'maybe' }).discussion).toBe('open');
+    expect(RawProposalReview.parse({ ...without, openBecause: 'trust me' }).openBecause).toBeNull();
+    const stored = validateProposalReview(rawProposal(), proposalCtx);
+    const { discussion: _sd, openBecause: _so, ...old } = stored;
+    expect(ProposalReview.parse(old).discussion).toBe('settled');
+  });
+
+  it('settled keeps today’s recommendation', () => {
+    const r = validateProposalReview(rawProposal({ authorIntent: 'offered' }), proposalCtx);
+    expect(r.addLabels).toContain('ACK_OBTAINED');
+    expect(r.assignTo).toBe('gqlwriter');
+    expect(r.openBecause).toBeNull();
+  });
+
+  it('gets its own section with a code-worded reason and no one-click link', () => {
+    const d = renderDigest({
+      ...baseDigestInput(),
+      now: new Date('2026-11-18T07:00:00Z'),
+      proposals: [{ issue: 2990, result: openReview() }],
+    });
+    expect(d.text).toContain('== Open maintainer discussion (nothing to apply) ==');
+    expect(d.text).toContain(
+      'recommended: discussion open: a maintainer asked other maintainers for their view (last comment by maintainer @mackowski on 2026-11-17); nothing to apply until it is settled',
+    );
+    expect(d.text).not.toContain('Community proposals: recommended actions');
+    expect(d.text).not.toContain('apply in one click');
+    expect(d.text).not.toContain('consider pinging');
+    expect(d.subject).toContain('1 new issue(s)');
+    const html = renderDigestHtml({
+      ...baseDigestInput(),
+      now: new Date('2026-11-18T07:00:00Z'),
+      proposals: [{ issue: 2990, result: openReview() }],
+    });
+    expect(html).toContain('Open maintainer discussion (nothing to apply)');
+    expect(html).not.toContain('Review and apply');
+  });
+
+  it('suggests a ping once the maintainers have been silent for 14 days', () => {
+    const d = renderDigest({
+      ...baseDigestInput(),
+      now: new Date('2026-12-05T07:00:00Z'),
+      proposals: [{ issue: 2990, result: openReview() }],
+    });
+    expect(d.text).toContain('no answer for 17 day(s), consider pinging the maintainers');
+  });
+
+  it('keeps an injection-flagged review in full view, not in the discussion section', () => {
+    const r = { ...openReview(), injectionDetected: true };
+    const d = renderDigest({ ...baseDigestInput(), proposals: [{ issue: 2990, result: r }] });
+    expect(d.text).not.toContain('== Open maintainer discussion');
+    expect(d.text).toContain('recommended: review by hand (possible prompt injection');
   });
 });

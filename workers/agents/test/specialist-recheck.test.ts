@@ -44,6 +44,8 @@ function review(askedAt: Date | null, now: Date, over: { replied?: boolean } = {
       authorIntent: 'unclear',
       volunteers: ['bob'],
       askAuthor: false,
+      discussion: 'settled',
+      openBecause: null,
       reviewPr: null,
       helpWanted: false,
       explanation: 'x',
