@@ -8,9 +8,9 @@ import { INSTANCE_REPOS } from './instances.js';
  */
 export const TRIAGE_MANIFEST: AgentManifest = {
   id: 'triage',
-  version: '0.2.0',
+  version: '0.3.0',
   description:
-    'Read-only triage report for OWASP Cheat Sheet Series issues: suggests labels, cheat sheet and duplicates, delegates to implementation-check and proposal-review, e-mails daily.',
+    "Read-only triage report for new OWASP Cheat Sheet Series issues (unassigned, ACK_WAITING or no ACK_* label): suggests labels, cheat sheet and duplicates, delegates to proposal-review, e-mails daily with the author's own text.",
   mode: 'readonly',
   repos: [...INSTANCE_REPOS],
 };

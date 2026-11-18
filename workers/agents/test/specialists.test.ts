@@ -9,7 +9,6 @@ import { sanitizeComment, verifyEvidence } from '../src/agents/specialists/evide
 import {
   buildImplementationMessage,
   checkImplementation,
-  ImplementationCheck,
   IMPLEMENTATION_PROMPT,
   maintainersInThread,
   threadState,
@@ -33,7 +32,6 @@ import {
 import { lockHeld } from '../src/agents/specialists/agent.js';
 import type { SpecialistDeps } from '../src/agents/specialists/run.js';
 import {
-  followUp,
   proposalActions,
   proposalWaiting,
   renderDigest,
@@ -49,21 +47,35 @@ import {
   type TimelineEvent,
 } from '../src/agents/triage/github.js';
 import {
-  ACK_STALE_MS,
   closedIn,
   currentSince,
   reconcileProposal,
   reconcileProposals,
-  markChangedChecks,
   type CurrentIssue,
   earliest,
-  MAX_ACK_LOOKUPS,
+  isNewIssue,
   pendingProposalJobs,
-  sweepAcks,
   withoutClosed,
+  withoutTaken,
 } from '../src/agents/triage/route.js';
 
 const repo = 'OWASP/CheatSheetSeries';
+const cur = (over: Partial<CurrentIssue> = {}): CurrentIssue => ({
+  state: 'open',
+  labels: [],
+  assigned: 0,
+  updatedAt: '2026-09-21T10:00:00Z',
+  ...over,
+});
+const baseDigestInput = () => ({
+  repo,
+  items: [],
+  proposals: [],
+  omittedTaken: 0,
+  errors: [],
+  since: null,
+  now: new Date('2026-10-02T07:00:00Z'),
+});
 const PWD = [
   '# Password Storage Cheat Sheet',
   '',
@@ -107,6 +119,8 @@ const rawProposal = (over: Partial<RawProposalReview> = {}): RawProposalReview =
   authorIntent: 'unclear',
   volunteers: [],
   askAuthor: false,
+  discussion: 'settled',
+  openBecause: null,
   reviewPr: null,
   helpWanted: false,
   explanation: 'Not covered yet.',
@@ -567,7 +581,7 @@ describe('reviewProposal', () => {
 });
 
 describe('triage routing', () => {
-  it('sends pending, unaccepted, non-spam issues to proposal review at the assessed version', () => {
+  it('sends pending, non-spam issues to proposal review at the assessed version', () => {
     expect(
       pendingProposalJobs(
         [
@@ -575,86 +589,134 @@ describe('triage routing', () => {
           { issue: 2, issueUpdatedAt: '2026-09-20T10:00:00Z', kind: 'update' },
           { issue: 3, issueUpdatedAt: '2026-09-20T10:00:00Z', kind: 'spam' },
           { issue: 4, issueUpdatedAt: '2026-09-20T10:00:00Z', kind: null },
+          { issue: 5, issueUpdatedAt: '2026-09-20T10:00:00Z', kind: 'update' },
+          { issue: 6, issueUpdatedAt: '2026-09-20T10:00:00Z', kind: 'update' },
         ],
-        new Set([2]),
+        new Map([
+          [2, cur({ labels: ['ACK_WAITING'] })], // changed, still new
+          [5, cur({ labels: ['ACK_OBTAINED'] })], // accepted since: no review
+          [6, cur({ labels: ['ACK_WAITING'], assigned: 1 })], // assigned since: no review
+        ]),
       ),
-    ).toEqual([{ issue: 1, issueUpdatedAt: '2026-09-20T10:00:00Z' }]);
+    ).toEqual([
+      { issue: 1, issueUpdatedAt: '2026-09-20T10:00:00Z' },
+      { issue: 2, issueUpdatedAt: '2026-09-20T10:00:00Z' },
+    ]);
   });
 
-  it('dates acceptance from the timeline, reuses known dates and delegates only stale ones', async () => {
-    const now = new Date('2026-10-01T00:00:00Z');
-    const recent = new Date(now.getTime() - ACK_STALE_MS + 86_400_000).toISOString();
-    const listTimeline = vi.fn((_r: string, n: number) =>
-      Promise.resolve<TimelineEvent[]>([
-        {
-          event: 'labeled',
-          created_at: n === 2 ? recent : '2024-01-01T00:00:00Z',
-          label: { name: 'ACK_OBTAINED' },
-        },
+  it('drops triage items of issues taken since, but never flagged ones', () => {
+    const item = (issue: number, needsMaintainer = false, injectionDetected = false) => ({
+      issue,
+      assessment: { needsMaintainer, injectionDetected },
+    });
+    const r = withoutTaken(
+      [item(1), item(2, true), item(3, false, true), item(4), item(5)],
+      new Map([
+        [1, cur({ labels: ['ACK_OBTAINED'] })],
+        [2, cur({ labels: ['ACK_OBTAINED'] })],
+        [3, cur({ assigned: 2 })],
+        [4, cur({ labels: ['ACK_WAITING'] })],
       ]),
     );
-    const sweep = await sweepAcks(
-      repo,
-      new Map([[1, '2023-01-01T00:00:00Z']]),
-      {
-        listOpenIssuesWithLabel: () => Promise.resolve([issue(1), issue(2), issue(3)]),
-        listTimeline,
-      },
-      now,
-    );
-    expect(listTimeline.mock.calls.map((c) => c[1])).toEqual([2, 3]);
-    expect([...sweep.acks.keys()]).toEqual([1, 2, 3]);
-    expect(sweep.staleJobs.map((j) => j.issue)).toEqual([1, 3]);
+    expect(r.kept.map((i) => i.issue)).toEqual([2, 3, 4, 5]);
+    expect(r.taken).toBe(1);
   });
 
-  it('bounds timeline lookups per poll', async () => {
-    const many = Array.from({ length: MAX_ACK_LOOKUPS + 5 }, (_, i) => issue(i + 1));
-    const sweep = await sweepAcks(
-      repo,
-      new Map(),
-      {
-        listOpenIssuesWithLabel: () => Promise.resolve(many),
-        listTimeline: () => Promise.resolve([]),
-      },
-      new Date('2026-10-01T00:00:00Z'),
-    );
-    expect(sweep.lookups).toBe(MAX_ACK_LOOKUPS);
-    expect(sweep.acks.size).toBe(MAX_ACK_LOOKUPS);
+  it('treats only unassigned issues waiting for acceptance as new', () => {
+    expect(isNewIssue(['ACK_WAITING', 'UPDATE_CS'], 0)).toBe(true);
+    expect(isNewIssue([], 0)).toBe(true); // template bypassed: no ACK_* label at all
+    expect(isNewIssue(['NEW_CS'], 0)).toBe(true);
+    expect(isNewIssue(['ACK_WAITING'], 1)).toBe(false); // somebody is on it
+    expect(isNewIssue(['ACK_OBTAINED'], 0)).toBe(false); // accepted: the backlog (#132)
+    expect(isNewIssue(['ACK_WAITING', 'ACK_OBTAINED'], 0)).toBe(false); // ACK_WAITING left behind
+    expect(isNewIssue(['ACK_SOMETHING_ELSE'], 0)).toBe(false);
   });
 });
 
 describe('digest with specialist results', () => {
-  it('puts verified evidence links and the suggested comment under recommended actions', () => {
-    const impl = validateImplementationCheck(
-      rawImpl({ mergedPrs: [2196], suggestedComment: 'Closing, see https://evil.example' }),
-      implCtx,
-    );
+  it('puts the decision first, then what the author asks for, then the review', () => {
     const review = validateProposalReview(rawProposal({ helpWanted: true }), proposalCtx);
+    const context = {
+      author: 'alice',
+      openedAt: '2026-09-25T10:00:00Z',
+      comments: 2,
+      readAt: '2026-09-25T10:00:00Z',
+      hiddenComments: 2,
+      labels: ['ACK_WAITING', 'NEW_CS'],
+      excerpt: [
+        { heading: 'What is missing or needs to be updated?', text: 'No guidance on passkeys.' },
+      ],
+    };
     const d = renderDigest({
       repo,
       items: [],
-      implementation: [{ issue: 1288, result: impl }],
       proposals: [{ issue: 1710, result: review }],
-      omittedAck: 4,
+      contexts: new Map([[1710, context]]),
+      omittedTaken: 4,
       errors: [],
       since: null,
       now: new Date('2026-10-02T07:00:00Z'),
     });
-    expect(d.subject).toBe(
-      '[custodes] OWASP/CheatSheetSeries triage 2026-10-02: 2 recommendation(s)',
-    );
-    expect(d.text).toContain(
-      'suggested action: close the issue with a comment pointing to the evidence',
-    );
-    expect(d.text).toContain(
-      '    | - https://github.com/OWASP/CheatSheetSeries/blob/HEAD/cheatsheets/Password_Storage_Cheat_Sheet.md#L4',
-    );
-    expect(d.text).toContain('    | - https://github.com/OWASP/CheatSheetSeries/pull/2196');
-    expect(d.text).toContain(
+    expect(d.subject).toBe('[custodes] OWASP/CheatSheetSeries triage 2026-10-02: 1 new issue(s)');
+    const order = [
       'recommended: add label ACK_OBTAINED, HELP_WANTED; remove label ACK_WAITING',
+      'opened by @alice on 2026-09-25 (6 day(s) ago), 2 comment(s), labels: ACK_WAITING, NEW_CS',
+      "author's text (untrusted, unchecked, links removed):",
+      '    > [What is missing or needs to be updated?] No guidance on passkeys.',
+      'proposal review: real gap',
+      'explanation (model-generated)',
+    ].map((l) => d.text.indexOf(l));
+    expect(order.every((i) => i >= 0)).toBe(true);
+    expect([...order].sort((x, y) => x - y)).toEqual(order);
+    expect(d.text).toContain('4 issue(s) accepted or assigned since triage saw them were left out');
+    expect(d.text).not.toContain('HTML comment(s) not shown'); // only on flagged cards
+    const flagged = renderDigest({
+      ...baseDigestInput(),
+      proposals: [{ issue: 1710, result: { ...review, injectionDetected: true } }],
+      contexts: new Map([[1710, { ...context, labels: ['evil.example/login'] }]]),
+    }).text;
+    expect(flagged).toContain('2 HTML comment(s) not shown');
+    expect(flagged).toContain('labels: evil[.]example/login');
+    expect(
+      renderDigestHtml({
+        ...baseDigestInput(),
+        proposals: [{ issue: 1710, result: review }],
+        contexts: new Map([[1710, context]]),
+      }),
+    ).toContain('No guidance on passkeys.');
+  });
+
+  it('says so when no author text was stored for an issue', () => {
+    const review = validateProposalReview(rawProposal({}), proposalCtx);
+    const d = renderDigest({ ...baseDigestInput(), proposals: [{ issue: 1710, result: review }] });
+    expect(d.text).toContain(
+      "author's text (untrusted, unchecked, links removed): (no text stored; open the issue)",
     );
-    expect(d.text).toContain('4 updated issue(s) already accepted (ACK_OBTAINED) were left out');
-    expect(d.text).not.toContain('evil.example');
+  });
+
+  it('counts one-click links and flagged issues in the subject', () => {
+    const ok = validateProposalReview(rawProposal({}), proposalCtx);
+    const flagged = { ...ok, injectionDetected: true };
+    const d = renderDigest({
+      ...baseDigestInput(),
+      proposals: [
+        { issue: 1, result: ok },
+        { issue: 2, result: flagged },
+      ],
+      applyLinks: new Map([
+        [
+          1,
+          {
+            url: 'https://custodes.work/admin/approvals/link/x',
+            expiresAt: '2026-10-09T07:00:00Z',
+            actions: ['issue.label'],
+          },
+        ],
+      ]),
+    });
+    expect(d.subject).toBe(
+      '[custodes] OWASP/CheatSheetSeries triage 2026-10-02: 2 new issue(s), 1 with one-click, 1 need attention',
+    );
   });
 });
 
@@ -667,9 +729,8 @@ describe('digest safety', () => {
     const d = renderDigest({
       repo,
       items: [],
-      implementation: [],
       proposals: [{ issue: 1713, result: r }],
-      omittedAck: 0,
+      omittedTaken: 0,
       errors: [],
       since: null,
       now: new Date('2026-10-02T07:00:00Z'),
@@ -760,7 +821,7 @@ describe('stored reviews are reconciled with the issue as it is now', () => {
   const now = (over: Partial<CurrentIssue> = {}): CurrentIssue => ({
     state: 'open',
     labels: ['ACK_WAITING'],
-    assignees: [],
+    assigned: 0,
     updatedAt: '2026-10-12T08:00:00Z',
     ...over,
   });
@@ -772,10 +833,14 @@ describe('stored reviews are reconciled with the issue as it is now', () => {
   it('drops a review once a maintainer accepted the issue (the #2770 case)', () => {
     expect(
       reconcileProposal(review(), '2026-10-12T08:00:00Z', now({ labels: ['ACK_OBTAINED'] })),
-    ).toBe('accepted');
+    ).toBe('taken');
   });
 
-  it('keeps a review flagged for possible injection even when the issue was accepted since', () => {
+  it('drops a review once somebody was assigned, even with ACK_WAITING still on', () => {
+    expect(reconcileProposal(review(), '2026-10-12T08:00:00Z', now({ assigned: 1 }))).toBe('taken');
+  });
+
+  it('keeps a review flagged for possible injection even when the issue was taken since', () => {
     const flagged = { ...review(), injectionDetected: true };
     const r = reconcileProposals(
       [
@@ -784,10 +849,10 @@ describe('stored reviews are reconciled with the issue as it is now', () => {
       ],
       new Map([
         [1, now({ labels: ['ACK_OBTAINED'] })],
-        [2, now({ labels: ['ACK_OBTAINED'] })],
+        [2, now({ assigned: 1 })],
       ]),
     );
-    expect(r.accepted).toBe(1);
+    expect(r.taken).toBe(1);
     expect(r.kept.map((k) => k.issue)).toEqual([2]);
   });
 
@@ -795,26 +860,23 @@ describe('stored reviews are reconciled with the issue as it is now', () => {
     const r = reconcileProposal(
       review(),
       '2026-10-12T08:00:00Z',
-      now({ labels: ['NEW_CS'], assignees: ['gqlwriter'], updatedAt: '2026-10-12T14:00:00Z' }),
+      now({ labels: ['NEW_CS'], updatedAt: '2026-10-12T14:00:00Z' }),
     );
-    expect(r).not.toBe('accepted');
-    if (r === 'accepted') return;
+    expect(r).not.toBe('taken');
+    if (r === 'taken') return;
     expect(r.addLabels).toEqual(['ACK_OBTAINED']);
     expect(r.removeLabels).toEqual([]); // ACK_WAITING is no longer on the issue
-    expect(r.assignTo).toBeNull();
-    expect(r.assignees).toEqual(['gqlwriter']);
     expect(r.changedSinceReview).toBe(true);
     const text = renderDigest({
       repo,
       items: [],
-      implementation: [],
       proposals: [{ issue: 2770, result: r }],
-      omittedAck: 0,
+      omittedTaken: 0,
       errors: [],
       since: null,
       now: new Date('2026-10-13T07:00:00Z'),
     }).text;
-    expect(text).toContain('already assigned to @gqlwriter');
+    expect(text).toContain('add label ACK_OBTAINED');
     expect(text).toContain('the issue changed after this review');
   });
 });
@@ -1017,13 +1079,6 @@ describe('closed issues are left out of the digest', () => {
       ok,
     );
     expect(ok.complete).toBe(true);
-    const item = {
-      issue: 9,
-      issueUpdatedAt: '2026-10-20T00:00:00Z',
-      result: { changedSinceCheck: undefined as boolean | undefined },
-    };
-    expect(markChangedChecks([item], new Map(), false)[0]?.result.changedSinceCheck).toBe(true);
-    expect(markChangedChecks([item], new Map())[0]?.result.changedSinceCheck).toBeUndefined();
   });
 
   it('reports a truncated closed-issue list and starts before the earliest time seen open', async () => {
@@ -1047,7 +1102,7 @@ describe('closed issues are left out of the digest', () => {
     expect(seen).toEqual(['2026-10-04T11:49:43.000Z']);
     expect(errors[0]).toMatch(/truncated/);
     expect([...closedIn(current)]).toEqual([1]);
-    expect(current.get(2)?.assignees).toEqual(['a']);
+    expect(current.get(2)?.assigned).toBe(1);
   });
 
   it('does not query when nothing is pending', async () => {
@@ -1060,9 +1115,8 @@ describe('closed issues are left out of the digest', () => {
     const d = renderDigest({
       repo,
       items: [],
-      implementation: [],
       proposals: [],
-      omittedAck: 0,
+      omittedTaken: 0,
       omittedClosed: 3,
       errors: ['x'],
       since: null,
@@ -1083,9 +1137,8 @@ describe('HTML digest', () => {
     const html = renderDigestHtml({
       repo,
       items: [],
-      implementation: [],
       proposals: [{ issue: 1710, result: review }],
-      omittedAck: 2,
+      omittedTaken: 2,
       errors: [],
       since: '2026-10-04T07:00:09.204Z',
       now: new Date('2026-10-05T07:00:00Z'),
@@ -1282,124 +1335,6 @@ describe('implementation message with the thread', () => {
   });
 });
 
-describe('follow-up decided from the thread', () => {
-  const now = new Date('2026-11-01T00:00:00Z');
-  const ago = (ms: number) => new Date(now.getTime() - ms).toISOString();
-  const day = 86_400_000;
-  const result = (
-    over: Partial<ImplementationCheck> = {},
-    raw: Partial<RawImplementationCheck> = {},
-  ): ImplementationCheck => ({
-    ...validateImplementationCheck(raw.implemented ? rawImpl(raw) : rawImpl(raw), implCtx),
-    ...over,
-  });
-  const thread = (by: boolean, at: string) => ({
-    lastCommentAt: at,
-    lastCommentBy: 'someone',
-    lastByMaintainer: by,
-  });
-  // implemented 'no' with no evidence yields a non-close recommendation
-  const keepRaw = { implemented: 'no' as const, evidence: [], suggestedComment: '' };
-
-  it('keeps close even with a fresh maintainer comment or a fresh open PR', () => {
-    const r = result({
-      thread: thread(true, ago(day)),
-      openPrs: [{ number: 5, author: 'a', updatedAt: ago(day) }],
-    });
-    expect(r.recommendation).toBe('close');
-    expect(followUp(r, now)).toBe('close');
-  });
-
-  it('always gives an injection-flagged result a full review card', () => {
-    const r = result({ thread: thread(true, ago(day)), injectionDetected: true }, keepRaw);
-    expect(r.recommendation).toBe('keep');
-    expect(followUp(r, now)).toBe('review');
-    const nonMaint = result({ thread: thread(false, ago(day)), injectionDetected: true }, keepRaw);
-    expect(followUp(nonMaint, now)).toBe('review');
-  });
-
-  it('waits after a maintainer comment under 14 days old', () => {
-    expect(followUp(result({ thread: thread(true, ago(13 * day)) }, keepRaw), now)).toBe('wait');
-  });
-
-  it('falls back to the model recommendation once the maintainer comment is 14 days old or older', () => {
-    const exactly = result({ thread: thread(true, ago(WAIT_MS)) }, keepRaw);
-    expect(followUp(exactly, now)).toBe(exactly.recommendation);
-    const older = result({ thread: thread(true, ago(WAIT_MS + 1)) }, keepRaw);
-    expect(followUp(older, now)).toBe(older.recommendation);
-    expect(followUp(result({ thread: thread(true, ago(WAIT_MS - 1)) }, keepRaw), now)).toBe('wait');
-  });
-
-  it('waits while an open PR was updated under 14 days ago, even after a stale maintainer comment', () => {
-    const r = result(
-      {
-        thread: thread(true, ago(60 * day)),
-        openPrs: [{ number: 5, author: 'a', updatedAt: ago(2 * day) }],
-      },
-      keepRaw,
-    );
-    expect(followUp(r, now)).toBe('wait');
-    const stale = result(
-      { openPrs: [{ number: 5, author: 'a', updatedAt: ago(WAIT_MS) }] },
-      keepRaw,
-    );
-    expect(followUp(stale, now)).toBe(stale.recommendation);
-  });
-
-  it('asks for a reply when the last comment is not from a maintainer', () => {
-    expect(followUp(result({ thread: thread(false, ago(90 * day)) }, keepRaw), now)).toBe('reply');
-  });
-
-  it('never collapses a check of an issue that changed after it', () => {
-    const r = result(
-      {
-        thread: thread(true, ago(day)),
-        openPrs: [{ number: 5, author: 'a', updatedAt: ago(day) }],
-        changedSinceCheck: true,
-      },
-      keepRaw,
-    );
-    expect(followUp(r, now)).toBe(r.recommendation);
-    const current = new Map([
-      [1, { state: 'open', labels: [], assignees: [], updatedAt: '2026-10-21T00:00:00Z' }],
-      [2, { state: 'open', labels: [], assignees: [], updatedAt: '2026-10-20T00:00:00Z' }],
-    ]);
-    const base = result({}, keepRaw);
-    const marked = markChangedChecks(
-      [
-        { issue: 1, issueUpdatedAt: '2026-10-20T00:00:00Z', result: base },
-        { issue: 2, issueUpdatedAt: '2026-10-20T00:00:00Z', result: base },
-        { issue: 3, issueUpdatedAt: '2026-10-20T00:00:00Z', result: base },
-      ],
-      current,
-    );
-    expect(marked.map((m) => m.result.changedSinceCheck === true)).toEqual([true, false, false]);
-  });
-
-  it('a fresh open PR does not hide a contributor question', () => {
-    const r = result(
-      {
-        thread: thread(false, ago(day)),
-        openPrs: [{ number: 5, author: 'anyone', updatedAt: ago(day) }],
-      },
-      keepRaw,
-    );
-    expect(followUp(r, now)).toBe('reply');
-  });
-
-  it('uses the model recommendation without a thread or PRs', () => {
-    const r = result({ thread: null, openPrs: [] }, keepRaw);
-    expect(followUp(r, now)).toBe(r.recommendation);
-  });
-
-  it('parses a result stored before thread and openPrs existed', () => {
-    const { thread: _t, openPrs: _o, ...old } = result();
-    const parsed = ImplementationCheck.parse(old);
-    expect(parsed.thread).toBeNull();
-    expect(parsed.openPrs).toEqual([]);
-  });
-});
-
 describe('checkImplementation reads the thread', () => {
   const pullEvent = (
     n: number,
@@ -1550,129 +1485,6 @@ describe('checkImplementation reads the thread', () => {
     const r = await checkImplementation(repo, 1, deps);
     expect(r?.recommendation).toBe('close');
     expect(r?.openPrs.map((p) => p.number)).toEqual([14]);
-  });
-});
-
-describe('digest sections from the thread', () => {
-  const now = new Date('2026-11-01T00:00:00Z');
-  const day = 86_400_000;
-  const ago = (ms: number) => new Date(now.getTime() - ms).toISOString();
-  const base = (over: Partial<ImplementationCheck>): ImplementationCheck => ({
-    ...validateImplementationCheck(
-      rawImpl({
-        implemented: 'no',
-        evidence: [],
-        suggestedComment: 'Is anyone still working on this?',
-      }),
-      implCtx,
-    ),
-    ...over,
-  });
-  const input = (impl: { issue: number; result: ImplementationCheck }[]) => ({
-    repo,
-    items: [],
-    implementation: impl,
-    proposals: [],
-    omittedAck: 0,
-    errors: [],
-    since: null,
-    now,
-  });
-  const waiting = base({
-    title: 'Waiting issue',
-    thread: { lastCommentAt: ago(2 * day), lastCommentBy: 'maint', lastByMaintainer: true },
-  });
-  const replying = base({
-    title: 'Replying issue',
-    suggestedComment: 'Thanks, here is the answer.',
-    thread: {
-      lastCommentAt: '2026-10-20T08:00:00Z',
-      lastCommentBy: 'asker',
-      lastByMaintainer: false,
-    },
-  });
-
-  it('lists a waiting item as one line with its reason and no suggested comment', () => {
-    const d = renderDigest(input([{ issue: 5, result: waiting }]));
-    expect(d.text).toContain('== Accepted issues in progress (nothing to do) ==');
-    expect(d.text).toContain(
-      `- #5 Waiting issue: last comment by maintainer @maint on ${waiting.thread?.lastCommentAt.slice(0, 10)}`,
-    );
-    expect(d.text).not.toContain('Is anyone still working on this?');
-    expect(d.subject).not.toContain('recommendation(s)');
-
-    const html = renderDigestHtml(input([{ issue: 5, result: waiting }]));
-    expect(html).toContain('<details');
-    expect(html).toContain('last comment by maintainer @maint');
-    expect(html).not.toContain('Is anyone still working on this?');
-  });
-
-  it('shows a reply item in full and counts it in the subject', () => {
-    const d = renderDigest(input([{ issue: 6, result: replying }]));
-    expect(d.text).toContain('== Accepted issues where a contributor is waiting for an answer ==');
-    expect(d.text).toContain(
-      'suggested action: answer the latest comment (by @asker on 2026-10-20)',
-    );
-    expect(d.text).toContain('Thanks, here is the answer.');
-    expect(d.subject).toContain('1 recommendation(s)');
-
-    const html = renderDigestHtml(input([{ issue: 6, result: replying }]));
-    expect(html).toContain('answer the latest comment (by @asker on 2026-10-20)');
-    expect(html).toContain('Thanks, here is the answer.');
-  });
-
-  it('counts the reply but not the waiting item', () => {
-    const d = renderDigest(
-      input([
-        { issue: 5, result: waiting },
-        { issue: 6, result: replying },
-      ]),
-    );
-    expect(d.subject).toContain('1 recommendation(s)');
-  });
-
-  it('marks a check of an issue that changed after it, in text and HTML', () => {
-    const changed = {
-      ...waiting,
-      changedSinceCheck: true,
-      implemented: 'partially' as const,
-      recommendation: 'review' as const,
-    };
-    const d = renderDigest(input([{ issue: 5, result: changed }]));
-    expect(d.text).not.toContain('Accepted issues in progress');
-    expect(d.text).toContain('note: the issue changed after this check');
-    expect(renderDigestHtml(input([{ issue: 5, result: changed }]))).toContain(
-      'Changed after this check',
-    );
-  });
-
-  it('renders an injection-flagged item in full despite a fresh maintainer comment', () => {
-    const flagged = {
-      ...waiting,
-      injectionDetected: true,
-      implemented: 'partially' as const,
-      recommendation: 'review' as const,
-    };
-    const d = renderDigest(input([{ issue: 5, result: flagged }]));
-    expect(d.text).not.toContain('Accepted issues in progress');
-    expect(d.text).toContain('review by hand (possible prompt injection; no comment suggested)');
-    expect(d.text).toContain('== Accepted issues that may be partly implemented ==');
-    expect(d.text).not.toContain('Is anyone still working on this?');
-    const html = renderDigestHtml(input([{ issue: 5, result: flagged }]));
-    expect(html).not.toContain('<details');
-    expect(html).toContain('possible prompt injection');
-  });
-
-  it('never reduces a flagged "not implemented" result to a one-line entry', () => {
-    const flagged = {
-      ...waiting,
-      injectionDetected: true,
-      implemented: 'no' as const,
-      recommendation: 'keep' as const,
-    };
-    const d = renderDigest(input([{ issue: 5, result: flagged }]));
-    expect(d.text).not.toContain('Accepted issues still open work');
-    expect(d.text).toContain('review by hand (possible prompt injection; no comment suggested)');
   });
 });
 
@@ -2044,9 +1856,8 @@ describe('proposal review follows maintainer decisions in referenced issues', ()
     const input = (proposals: { issue: number; result: ProposalReview }[]) => ({
       repo,
       items: [],
-      implementation: [],
       proposals,
-      omittedAck: 0,
+      omittedTaken: 0,
       errors: [],
       since: null,
       now,
@@ -2058,7 +1869,7 @@ describe('proposal review follows maintainer decisions in referenced issues', ()
       expect(d.text).toContain('== Community proposals waiting on the author (nothing to do) ==');
       expect(d.text).toContain('- #7 Waiting proposal: last comment by maintainer @maint on');
       expect(d.text).not.toContain('Community proposals: recommended actions');
-      expect(d.subject).not.toContain('recommendation(s)');
+      expect(d.subject).not.toContain('new issue(s)');
       const html = renderDigestHtml(input([{ issue: 7, result }]));
       expect(html).toContain('<details');
       expect(html).toContain('Community proposals waiting on the author');
@@ -2078,7 +1889,7 @@ describe('proposal review follows maintainer decisions in referenced issues', ()
         'recommended: answer the latest comment (by @stranger on 2026-10-30)',
       );
       expect(d.text).not.toContain('waiting on the author');
-      expect(d.subject).toContain('1 recommendation(s)');
+      expect(d.subject).toContain('1 new issue(s)');
       expect(renderDigestHtml(input([{ issue: 8, result }]))).toContain(
         'answer the latest comment (by @stranger on 2026-10-30)',
       );
@@ -2093,7 +1904,7 @@ describe('proposal review follows maintainer decisions in referenced issues', ()
           { issue: 8, result: acts },
         ]),
       );
-      expect(d.subject).toContain('1 recommendation(s)');
+      expect(d.subject).toContain('1 new issue(s)');
     });
 
     it('does not collapse a flagged proposal even after a fresh maintainer comment', () => {
@@ -2232,5 +2043,118 @@ describe('proposal review follows maintainer decisions in referenced issues', ()
       expect(r?.priorDecision).toBeNull();
       expect(r?.dropped).toContain('decision in #4242');
     });
+  });
+});
+
+describe('open maintainer discussion (the #2990 case)', () => {
+  const thread = (at: string) => ({
+    lastCommentAt: at,
+    lastCommentBy: 'mackowski',
+    lastByMaintainer: true,
+  });
+  const openReview = (at = '2026-11-17T07:11:59Z') =>
+    validateProposalReview(
+      rawProposal({
+        authorIntent: 'offered',
+        helpWanted: true,
+        askAuthor: true,
+        discussion: 'open',
+        openBecause: 'asked_maintainers',
+      }),
+      { ...proposalCtx, thread: thread(at) },
+    );
+
+  it('keeps no action while the maintainers discuss, but keeps the assessment', () => {
+    const r = openReview();
+    expect(r).toMatchObject({
+      verdict: 'real_gap',
+      addLabels: [],
+      removeLabels: [],
+      assignTo: null,
+      assignWhy: null,
+      helpWanted: false,
+      suggestedComment: '',
+      mentions: [],
+      discussion: 'open',
+      openBecause: 'asked_maintainers',
+    });
+    expect(r.explanation).toBe('Not covered yet.');
+  });
+
+  it('reads a missing or unknown answer as open (fail-safe), and an old stored result as settled', () => {
+    const { discussion: _d, openBecause: _o, ...without } = rawProposal();
+    expect(RawProposalReview.parse(without).discussion).toBe('open');
+    expect(RawProposalReview.parse({ ...without, discussion: 'maybe' }).discussion).toBe('open');
+    expect(RawProposalReview.parse({ ...without, openBecause: 'trust me' }).openBecause).toBeNull();
+    const stored = validateProposalReview(rawProposal(), proposalCtx);
+    const { discussion: _sd, openBecause: _so, ...old } = stored;
+    expect(ProposalReview.parse(old).discussion).toBe('settled');
+  });
+
+  it('settled keeps today’s recommendation', () => {
+    const r = validateProposalReview(rawProposal({ authorIntent: 'offered' }), proposalCtx);
+    expect(r.addLabels).toContain('ACK_OBTAINED');
+    expect(r.assignTo).toBe('gqlwriter');
+    expect(r.openBecause).toBeNull();
+  });
+
+  it('gets its own section with a code-worded reason and no one-click link', () => {
+    const d = renderDigest({
+      ...baseDigestInput(),
+      now: new Date('2026-11-18T07:00:00Z'),
+      proposals: [{ issue: 2990, result: openReview() }],
+    });
+    expect(d.text).toContain('== Open maintainer discussion (nothing to apply) ==');
+    expect(d.text).toContain(
+      'recommended: discussion open: a maintainer asked other maintainers for their view (last comment by maintainer @mackowski on 2026-11-17); nothing to apply until it is settled',
+    );
+    expect(d.text).not.toContain('Community proposals: recommended actions');
+    expect(d.text).not.toContain('apply in one click');
+    expect(d.text).not.toContain('consider pinging');
+    expect(d.subject).toContain('1 new issue(s)');
+    const html = renderDigestHtml({
+      ...baseDigestInput(),
+      now: new Date('2026-11-18T07:00:00Z'),
+      proposals: [{ issue: 2990, result: openReview() }],
+    });
+    expect(html).toContain('Open maintainer discussion (nothing to apply)');
+    expect(html).not.toContain('Review and apply');
+  });
+
+  it('offers nothing to post or review on an open discussion, even with evidence or a linked PR', () => {
+    const r = {
+      ...openReview(),
+      reviewPr: 5,
+      evidence: [
+        {
+          file: 'Laravel_Cheat_Sheet.md',
+          line: 4,
+          quote: 'Routes can be excluded with the $except property.',
+          url: 'https://github.com/OWASP/CheatSheetSeries/blob/HEAD/cheatsheets/Laravel_Cheat_Sheet.md#L4',
+        },
+      ],
+    };
+    const input = { ...baseDigestInput(), proposals: [{ issue: 2990, result: r }] };
+    expect(renderDigest(input).text).not.toContain('suggested comment');
+    const html = renderDigestHtml(input);
+    expect(html).not.toContain('Suggested comment');
+    expect(html).not.toContain('Review PR #5');
+    expect(html).toContain('Laravel_Cheat_Sheet.md line 4');
+  });
+
+  it('suggests a ping once the maintainers have been silent for 14 days', () => {
+    const d = renderDigest({
+      ...baseDigestInput(),
+      now: new Date('2026-12-05T07:00:00Z'),
+      proposals: [{ issue: 2990, result: openReview() }],
+    });
+    expect(d.text).toContain('no answer for 17 day(s), consider pinging the maintainers');
+  });
+
+  it('keeps an injection-flagged review in full view, not in the discussion section', () => {
+    const r = { ...openReview(), injectionDetected: true };
+    const d = renderDigest({ ...baseDigestInput(), proposals: [{ issue: 2990, result: r }] });
+    expect(d.text).not.toContain('== Open maintainer discussion');
+    expect(d.text).toContain('recommended: review by hand (possible prompt injection');
   });
 });

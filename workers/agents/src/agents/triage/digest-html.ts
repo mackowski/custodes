@@ -2,25 +2,30 @@
 // HTML-escaped, and the only links are ones code builds from validated numbers and file names.
 import { ApprovalToken } from '@custodes/schema';
 import type { VerifiedEvidence } from '../specialists/evidence.js';
-import type { ImplementationCheck } from '../specialists/implementation.js';
 import type { ProposalReview } from '../specialists/proposal.js';
 import { inertNoLinks as inert, type Assessment } from './assess.js';
 import {
   type ApplyLink,
-  actionLine,
+  discussionOpen,
+  EXCERPT_LABEL,
+  factsLine,
+  hiddenCommentsLine,
   INJECTED,
   issueUrl,
+  NO_EXCERPT,
+  openDiscussionLine,
+  STALE_EXCERPT,
   pct,
   planDigest,
   proposalActions,
   proposalWaitReason,
   pullUrl,
   VERDICT,
-  waitReason,
   type DigestInput,
   type DigestItem,
   type SpecialistItem,
 } from './digest.js';
+import type { IssueContext } from './excerpt.js';
 
 const ESCAPES: Record<string, string> = {
   '&': '&amp;',
@@ -97,22 +102,49 @@ function list(items: string[]): string {
     .join('')}</ul>`;
 }
 
-function evidence(items: VerifiedEvidence[], prs: number[], repo: string): string {
-  if (!items.length && !prs.length) return '';
-  const rows = [
-    ...items.map(
-      (e) =>
-        `${link(e.url, `${e.file} line ${e.line}`)}<div style="margin:4px 0 8px;padding:6px 10px;border-left:3px solid ${C.border};background:${C.quote};color:${C.text};font-size:13px;line-height:19px;">${esc(e.quote)}</div>`,
-    ),
-    ...prs.map((n) => `Merged ${link(pullUrl(repo, n), `PR #${n}`)}`),
-  ];
-  return label('Evidence (checked against the repository)') + list(rows);
+function quote(text: string): string {
+  return `<div style="margin:4px 0 8px;padding:6px 10px;border-left:3px solid ${C.border};background:${C.quote};color:${C.text};font-size:13px;line-height:19px;">${esc(text)}</div>`;
+}
+
+function evidence(items: VerifiedEvidence[]): string {
+  if (!items.length) return '';
+  return (
+    label('Evidence (checked against the repository)') +
+    list(items.map((e) => `${link(e.url, `${e.file} line ${e.line}`)}${quote(e.quote)}`))
+  );
+}
+
+/**
+ * One section of the author's text in its own box (dashed amber), heading inside and not bold, so
+ * an author cannot make it look like a digest section or checked evidence.
+ */
+function authorQuote(p: { heading: string | null; text: string }): string {
+  return `<div style="margin:4px 0 8px;padding:6px 10px;border:1px dashed ${TONES.amber[1]};border-radius:4px;background:${TONES.amber[0]};color:${C.text};font-size:13px;line-height:19px;">${
+    p.heading ? `<span style="color:${C.muted};">${esc(p.heading)}: </span>` : ''
+  }${esc(p.text)}</div>`;
+}
+
+/** GitHub facts, then the author's own words (inert: no links, no hidden characters, bounded). */
+function context(c: IssueContext | undefined, now: Date, flagged: boolean): string {
+  if (!c) return label(EXCERPT_LABEL) + para(NO_EXCERPT);
+  return (
+    `<div style="margin-top:8px;color:${C.muted};font-size:13px;line-height:19px;">${esc(factsLine(c, now))}</div>` +
+    label(EXCERPT_LABEL) +
+    (c.stale
+      ? `<div style="margin:0 0 4px;color:${C.muted};font-size:12px;">${esc(STALE_EXCERPT)}</div>`
+      : '') +
+    (c.excerpt.length ? c.excerpt.map(authorQuote).join('') : para('(empty)')) +
+    (flagged && c.hiddenComments > 0
+      ? `<div style="margin:0 0 4px;color:${C.muted};font-size:12px;">${esc(hiddenCommentsLine(c.hiddenComments))}</div>`
+      : '')
+  );
 }
 
 /** The comment to paste, then the evidence links code appends; white-space keeps its lines. */
 function comment(text: string, links: string[]): string {
+  // Links alone are no comment (dropped, or an open discussion): the evidence lists them anyway.
+  if (!text.trim()) return '';
   const body = [text, ...(links.length ? ['', ...links.map((l) => `- ${l}`)] : [])].join('\n');
-  if (!body.trim()) return '';
   return (
     label('Suggested comment (model-generated, review before posting)') +
     `<div style="padding:10px 12px;border:1px dashed ${C.border};border-radius:6px;background:${C.quote};color:${C.text};font-size:14px;line-height:21px;white-space:pre-wrap;word-break:break-word;">${esc(body)}</div>`
@@ -140,7 +172,7 @@ ${inner}
 </div>`;
 }
 
-function triageDetails(a: Assessment): string {
+function triageDetails(a: Assessment, withSummary = true): string {
   const meta = [
     `kind ${a.kind}`,
     `confidence ${pct(a.confidence)}`,
@@ -157,48 +189,12 @@ function triageDetails(a: Assessment): string {
       a.kind === 'spam' ? badge('Likely spam', 'amber') : '',
     ].join('')}</div>` +
     `<div style="color:${C.muted};font-size:13px;line-height:19px;">${esc(meta.join(' · '))}</div>` +
-    label('Summary (model-generated)') +
-    para(a.summary) +
+    (withSummary ? label('Summary (model-generated)') + para(a.summary) : '') +
     (a.dropped.length
       ? `<div style="margin-top:8px;color:${C.muted};font-size:12px;">Dropped invalid suggestions: ${esc(
           a.dropped.map((d) => inert(d, 80)).join(', '),
         )}</div>`
       : '')
-  );
-}
-
-const IMPLEMENTED_TONE: Record<ImplementationCheck['implemented'], Tone> = {
-  yes: 'green',
-  partially: 'amber',
-  no: 'gray',
-  unclear: 'gray',
-};
-
-function implementationCard(
-  it: SpecialistItem<ImplementationCheck>,
-  repo: string,
-  now: Date,
-): string {
-  const r = it.result;
-  const links = [...r.evidence.map((e) => e.url), ...r.mergedPrs.map((n) => pullUrl(repo, n))];
-  return card(
-    it.issue,
-    r.title,
-    repo,
-    `<div>${badge(`Implemented: ${r.implemented}`, IMPLEMENTED_TONE[r.implemented])}${badge(
-      `Confidence ${pct(r.confidence)}`,
-      'gray',
-    )}${r.ackAt ? badge(`Accepted ${r.ackAt.slice(0, 10)}`, 'blue') : ''}</div>` +
-      (r.changedSinceCheck
-        ? `<div style="margin-top:8px;">${badge('Changed after this check', 'amber')}</div>`
-        : '') +
-      label('Suggested action') +
-      para(actionLine(r, now)) +
-      evidence(r.evidence, r.mergedPrs, repo) +
-      label('Explanation (model-generated)') +
-      para(r.explanation) +
-      (r.injectionDetected ? '' : comment(r.suggestedComment, links)) +
-      flags(r),
   );
 }
 
@@ -222,30 +218,36 @@ function proposalCard(
   it: SpecialistItem<ProposalReview>,
   triage: DigestItem | undefined,
   repo: string,
+  ctx: IssueContext | undefined,
+  now: Date,
   apply?: ApplyLink,
 ): string {
   const r = it.result;
   const actions = proposalActions(r);
+  // Decision first, then what the author asks for, then the review behind the recommendation.
   return card(
     it.issue,
     r.title,
     repo,
-    `<div>${badge(VERDICT[r.verdict], VERDICT_TONE[r.verdict])}${badge(
-      r.makesSense ? 'Makes sense' : 'Does not make sense',
-      r.makesSense ? 'green' : 'red',
-    )}${badge(`Confidence ${pct(r.confidence)}`, 'gray')}</div>` +
-      (r.changedSinceReview
-        ? `<div style="margin-top:8px;">${badge('Changed after this review', 'amber')}</div>`
-        : '') +
-      label('Recommended') +
+    label('Recommended') +
       (r.injectionDetected
         ? para(INJECTED)
-        : actions.length
-          ? list(actions.map(esc))
-          : para('No change')) +
+        : discussionOpen(r)
+          ? para(openDiscussionLine(r, now))
+          : actions.length
+            ? list(actions.map(esc))
+            : para('No change')) +
       (r.injectionDetected ? '' : applyBlock(apply)) +
-      (r.reviewPr && !r.injectionDetected
+      (r.reviewPr && !r.injectionDetected && !discussionOpen(r)
         ? `<div style="margin-top:10px;">${button(pullUrl(repo, r.reviewPr), `Review PR #${r.reviewPr}`)}</div>`
+        : '') +
+      context(ctx, now, r.injectionDetected || triage?.assessment.injectionDetected === true) +
+      `<div style="margin-top:12px;">${badge(VERDICT[r.verdict], VERDICT_TONE[r.verdict])}${badge(
+        r.makesSense ? 'Makes sense' : 'Does not make sense',
+        r.makesSense ? 'green' : 'red',
+      )}${badge(`Confidence ${pct(r.confidence)}`, 'gray')}</div>` +
+      (r.changedSinceReview
+        ? `<div style="margin-top:8px;">${badge('Changed after this review', 'amber')}</div>`
         : '') +
       (r.priorDecision
         ? label('Follows a maintainer decision') +
@@ -263,7 +265,7 @@ function proposalCard(
             ),
           )
         : '') +
-      evidence(r.evidence, [], repo) +
+      evidence(r.evidence) +
       label('Explanation (model-generated)') +
       para(r.explanation) +
       (r.injectionDetected
@@ -274,13 +276,24 @@ function proposalCard(
           )) +
       flags(r) +
       (triage
-        ? `<div style="margin-top:12px;padding-top:10px;border-top:1px solid ${C.border};">${label('Triage')}${triageDetails(triage.assessment)}</div>`
+        ? `<div style="margin-top:12px;padding-top:10px;border-top:1px solid ${C.border};">${label('Triage')}${triageDetails(triage.assessment, false)}</div>`
         : ''),
   );
 }
 
-function triageCard(item: DigestItem, repo: string): string {
-  return card(item.issue, item.title, repo, triageDetails(item.assessment));
+function triageCard(
+  item: DigestItem,
+  repo: string,
+  ctx: IssueContext | undefined,
+  now: Date,
+): string {
+  return card(
+    item.issue,
+    item.title,
+    repo,
+    context(ctx, now, item.assessment.injectionDetected) +
+      `<div style="margin-top:12px;">${triageDetails(item.assessment)}</div>`,
+  );
 }
 
 function section(title: string, cards: string[]): string {
@@ -293,18 +306,21 @@ function note(text: string): string {
 }
 
 export function renderDigestHtml(input: DigestInput): string {
-  const { repo } = input;
+  const { repo, now } = input;
   const plan = planDigest(input);
   const summary = plan.subject.replace(/^\[custodes\] /, '');
   const body = [
     section(
-      'Accepted issues that look implemented',
-      plan.close.map((i) => implementationCard(i, repo, input.now)),
-    ),
-    section(
       'Community proposals: recommended actions',
       plan.proposals.map((p) =>
-        proposalCard(p, plan.triageFor(p.issue), repo, input.applyLinks?.get(p.issue)),
+        proposalCard(
+          p,
+          plan.triageFor(p.issue),
+          repo,
+          plan.contextFor(p.issue),
+          now,
+          input.applyLinks?.get(p.issue),
+        ),
       ),
     ),
     input.withoutLink
@@ -313,20 +329,18 @@ export function renderDigestHtml(input: DigestInput): string {
         )
       : '',
     section(
-      'Accepted issues where a contributor is waiting for an answer',
-      plan.reply.map((i) => implementationCard(i, repo, input.now)),
-    ),
-    section(
-      'Accepted issues that may be partly implemented',
-      plan.review.map((i) => implementationCard(i, repo, input.now)),
+      'Open maintainer discussion (nothing to apply)',
+      plan.openDiscussion.map((p) =>
+        proposalCard(p, plan.triageFor(p.issue), repo, plan.contextFor(p.issue), now),
+      ),
     ),
     section(
       'Needs attention',
-      plan.urgent.map((i) => triageCard(i, repo)),
+      plan.urgent.map((i) => triageCard(i, repo, plan.contextFor(i.issue), now)),
     ),
     section(
-      'Other updated issues',
-      plan.rest.map((i) => triageCard(i, repo)),
+      'Other new issues',
+      plan.rest.map((i) => triageCard(i, repo, plan.contextFor(i.issue), now)),
     ),
     plan.waitingProposals.length
       ? `<details style="margin:22px 0 10px;"><summary style="font-size:15px;font-weight:600;color:${C.text};cursor:pointer;">Community proposals waiting on the author, nothing to do <span style="color:${C.muted};font-weight:400;">(${plan.waitingProposals.length})</span></summary>` +
@@ -338,28 +352,9 @@ export function renderDigestHtml(input: DigestInput): string {
         ) +
         '</details>'
       : '',
-    plan.wait.length
-      ? `<details style="margin:22px 0 10px;"><summary style="font-size:15px;font-weight:600;color:${C.text};cursor:pointer;">Accepted issues in progress, nothing to do <span style="color:${C.muted};font-weight:400;">(${plan.wait.length})</span></summary>` +
-        list(
-          plan.wait.map(
-            (i) =>
-              `${link(issueUrl(repo, i.issue), `#${i.issue}`)} ${esc(inert(i.result.title, 100))}: ${esc(waitReason(i.result, input.now))}`,
-          ),
-        ) +
-        '</details>'
-      : '',
-    plan.keep.length
-      ? `<h2 style="margin:22px 0 10px;font-size:15px;color:${C.text};">Accepted issues still open work</h2>` +
-        list(
-          plan.keep.map(
-            (i) =>
-              `${link(issueUrl(repo, i.issue), `#${i.issue}`)} ${esc(inert(i.result.title, 100))}: not implemented yet (${pct(i.result.confidence)})`,
-          ),
-        )
-      : '',
-    input.omittedAck
+    input.omittedTaken
       ? note(
-          `${input.omittedAck} updated issue(s) already accepted (ACK_OBTAINED) were left out; those accepted over a week ago are checked for an existing implementation.`,
+          `${input.omittedTaken} issue(s) accepted or assigned since triage saw them were left out.`,
         )
       : '',
     input.omittedClosed
@@ -378,10 +373,10 @@ export function renderDigestHtml(input: DigestInput): string {
 <div style="display:none;max-height:0;overflow:hidden;">${esc(summary)}</div>
 <div style="max-width:640px;margin:0 auto;padding:16px 12px 24px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:${C.text};">
 <div style="color:${C.muted};font-size:12px;">Custodes · ${esc(repo)}</div>
-<h1 style="margin:4px 0 6px;font-size:20px;line-height:26px;">Triage ${esc(input.now.toISOString().slice(0, 10))}</h1>
+<h1 style="margin:4px 0 6px;font-size:20px;line-height:26px;">New issues ${esc(input.now.toISOString().slice(0, 10))}</h1>
 <div style="color:${C.muted};font-size:13px;line-height:19px;">${esc(summary.replace(/^.*?: /, ''))}${input.since ? ` · since ${esc(input.since.slice(0, 16).replace('T', ' '))} UTC` : ''}</div>
-<p style="margin:12px 0 0;padding:8px 10px;border-radius:6px;background:${TONES.amber[0]};color:${TONES.amber[1]};font-size:12px;line-height:18px;">Read-only: nothing was posted to GitHub. Titles, explanations and comments come from untrusted issue text and a model; quotes and links were checked against the repository.</p>
+<p style="margin:12px 0 0;padding:8px 10px;border-radius:6px;background:${TONES.amber[0]};color:${TONES.amber[1]};font-size:12px;line-height:18px;">Read-only: nothing was posted to GitHub. Titles, author text, explanations and comments come from untrusted issue text and a model; quotes and links were checked against the repository.</p>
 ${body}
-<p style="margin:24px 0 0;color:${C.muted};font-size:12px;line-height:18px;">Custodes triage agent (read-only), with implementation-check and proposal-review. Halt them with the kill switch: halt:triage, halt:implementation-check, halt:proposal-review.</p>
+<p style="margin:24px 0 0;color:${C.muted};font-size:12px;line-height:18px;">Custodes triage agent (read-only), with proposal-review. New issues only: open, unassigned, ACK_WAITING or no ACK_* label. Halt them with the kill switch: halt:triage, halt:proposal-review.</p>
 </div></body></html>`;
 }

@@ -35,8 +35,8 @@ an unknown placeholder drops the comment.
 
 ## Trigger
 
-Called by triage once a day at 05:30 UTC, before the 07:00 digest, for every pending issue that has
-no `ACK_OBTAINED` label and is not spam. Each issue version (`updated_at`) is reviewed once, and an
+Called by triage once a day at 05:30 UTC, before the 07:00 digest, for every pending new issue
+(nobody assigned, `ACK_WAITING` or no `ACK_*` label; triage 0.3) that is not spam. Each issue version (`updated_at`) is reviewed once, and an
 issue at most once a day.
 
 ## How a job runs
@@ -57,12 +57,21 @@ issue at most once a day.
    from the rule above and only when nobody is assigned yet, `reviewPr` must be an open
    linked PR (then nobody is assigned), `HELP_WANTED` is added only when nobody is or will be on it,
    and "covered" verdicts need verified evidence or become "unclear". `priorDecision` must name an
-   issue whose maintainer comments were shown, or it is dropped.
+   issue whose maintainer comments were shown, or it is dropped. The model also answers
+   `discussion`: `open` when a maintainer proposed another direction, asked other maintainers or
+   raised a question about the work that nobody settled since (only the code-built maintainer list
+   counts), with `openBecause` from a closed list. While it is open, code drops every label change,
+   the assignee, `HELP_WANTED`, the question to the author and the comment, so there is no
+   one-click link. A missing or unknown answer counts as `open` (fail-safe); results stored before
+   the field read as `settled`.
 
 The digest (code, from GitHub-set data, at send time): a proposal whose last comment is a
 maintainer's from the last 14 days and that has nothing left to do (no labels, assignee, PR to
 review or closing verdict), and that did not change after the review, is one line under "waiting on the author". A non-maintainer comment last
-adds "answer the latest comment". A review flagged for possible injection is always shown in full.
+adds "answer the latest comment". A proposal with an open maintainer discussion goes to "Open
+maintainer discussion (nothing to apply)" with the reason worded by code, who spoke last and when,
+and after 14 days without an answer a hint to ping the maintainers. A review flagged for possible
+injection is always shown in full.
 
 ## Outputs, limits, failure modes, halting
 

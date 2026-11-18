@@ -66,7 +66,8 @@
     "triage": {
       "tokenBinding": "PAT_READONLY",
       "repos": ["OWASP/CheatSheetSeries", "mackowski/custodes-sandbox"],
-      "resources": ["issues", "labels", "cheatsheets", "timeline"]
+      "resources": ["issues", "labels", "cheatsheets"],
+      "$comment_timeline": "timeline dropped 2026-11-18: triage keeps to new issues and no longer dates ACK_OBTAINED for implementation-check (#132)."
     },
     "implementation-check": {
       "tokenBinding": "PAT_READONLY",

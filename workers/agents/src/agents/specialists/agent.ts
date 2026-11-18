@@ -54,7 +54,7 @@ export const MAX_JOBS_PER_DAY = 10;
 export const MAX_JOBS_PER_DAY_SANDBOX = 40;
 /**
  * A job whose model answer is unusable this many times is parked for PARK_MS. It is not deleted:
- * triage sends every stale accepted issue again on each prepare, and a deleted job came back with
+ * triage sends every pending issue again on each prepare, and a deleted job came back with
  * attempts 0, so giving up never held. A newer version of the issue resets the row and runs at once.
  */
 export const MAX_ATTEMPTS = 4;

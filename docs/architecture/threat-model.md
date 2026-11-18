@@ -14,14 +14,14 @@ Proposed change: [agent isolation (ADR 0018)](threat-model-agent-isolation.md).
 
 ## Trust boundaries
 
-| Boundary                      | Trusted side                   | Untrusted side                                                                         |
-| ----------------------------- | ------------------------------ | -------------------------------------------------------------------------------------- |
-| GitHub content → agent prompt | agent code, system prompt      | issue bodies, PR diffs, commit messages, user names                                    |
-| Model → agent                 | schema-validated output        | raw model text                                                                         |
-| Agent → broker                | broker policy                  | agent request (agents share a Worker; an agent bug or injection can craft any request) |
-| Internet → gateway            | Access-authenticated operators | webhooks, e-mails, anyone hitting `/verify`                                            |
-| CI → Cloudflare               | reviewed `main`                | pull requests, dependencies, actions                                                   |
-| Agent → operator e-mail       | code-built links, escaping     | issue titles, model explanations and suggested comments shown in the digest            |
+| Boundary                      | Trusted side                   | Untrusted side                                                                                                                                  |
+| ----------------------------- | ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| GitHub content → agent prompt | agent code, system prompt      | issue bodies, PR diffs, commit messages, user names                                                                                             |
+| Model → agent                 | schema-validated output        | raw model text                                                                                                                                  |
+| Agent → broker                | broker policy                  | agent request (agents share a Worker; an agent bug or injection can craft any request)                                                          |
+| Internet → gateway            | Access-authenticated operators | webhooks, e-mails, anyone hitting `/verify`                                                                                                     |
+| CI → Cloudflare               | reviewed `main`                | pull requests, dependencies, actions                                                                                                            |
+| Agent → operator e-mail       | code-built links, escaping     | issue titles, model explanations, suggested comments and the author's own issue text (inert, defanged, bounded; triage 0.3) shown in the digest |
 
 Agents do not bind the kill-switch KV namespace: a KV binding can write, so agent code could clear
 its own halt flag. They read their state from the broker (`/v1/state`, fail closed); only the broker

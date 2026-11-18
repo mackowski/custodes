@@ -1,71 +1,65 @@
 import { z } from 'zod';
 import type { SpecialistJob } from '../specialists/agent.js';
-import { labelAppliedAt } from '../specialists/implementation.js';
 import { describeError } from './errors.js';
-import { safeLogin } from './prompt.js';
 import type { ProposalReview } from '../specialists/proposal.js';
 import { issueLabels, type BrokerGitHubReader, type PublicIssue } from './github.js';
 
 /** Maintainers accept an issue by applying this label. */
 export const ACK_LABEL = 'ACK_OBTAINED';
-/** An accepted issue older than this (since the label was applied) gets an implementation check. */
-export const ACK_STALE_MS = 7 * 86_400_000;
-/** Timeline reads per poll for issues whose acceptance date is not known yet. */
-export const MAX_ACK_LOOKUPS = 40;
+/** The issue templates apply this label to every new proposal. */
+export const ACK_WAITING_LABEL = 'ACK_WAITING';
 
 export function hasAck(labels: readonly string[]): boolean {
   return labels.includes(ACK_LABEL);
 }
 
 /**
- * Issues waiting for the next digest that go to proposal review: not accepted (ACK_OBTAINED), not
- * spam, at the version triage assessed.
+ * A new issue, the only kind triage works on: nobody is assigned and it waits for a maintainer's
+ * decision (ACK_WAITING, or no ACK_* label at all when the template was bypassed). Accepted and
+ * assigned issues are the backlog (#132).
  */
-export function pendingProposalJobs(
-  pending: { issue: number; issueUpdatedAt: string; kind: string | null }[],
-  accepted: ReadonlySet<number>,
-): SpecialistJob[] {
-  return pending
-    .filter((p) => !accepted.has(p.issue) && p.kind !== null && p.kind !== 'spam')
-    .map((p) => ({ issue: p.issue, issueUpdatedAt: p.issueUpdatedAt }));
+export function isNewIssue(labels: readonly string[], assignees: number): boolean {
+  if (assignees > 0 || hasAck(labels)) return false;
+  return labels.includes(ACK_WAITING_LABEL) || !labels.some((l) => l.startsWith('ACK_'));
 }
 
-export interface AckSweep {
-  /** Every open accepted issue and when it was accepted (`created_at` when the timeline is silent). */
-  acks: Map<number, string>;
-  /** Accepted issues old enough for an implementation check. */
-  staleJobs: SpecialistJob[];
-  lookups: number;
+export function isNewPublicIssue(issue: PublicIssue): boolean {
+  return isNewIssue(issueLabels(issue), issue.assignees?.length ?? 0);
 }
 
 /**
- * Finds accepted issues and their acceptance dates. Dates already known are reused; new ones come
- * from the issue timeline, bounded per poll.
+ * Issues waiting for the next digest that go to proposal review: not spam, at the assessed version,
+ * and still new as far as `current` knows (an issue taken since costs no review). An issue missing
+ * from `current` has not changed since it was seen, or the read failed: it is sent.
  */
-export async function sweepAcks(
-  repo: string,
-  known: ReadonlyMap<number, string>,
-  reader: Pick<BrokerGitHubReader, 'listOpenIssuesWithLabel' | 'listTimeline'>,
-  now: Date,
-): Promise<AckSweep> {
-  const issues: PublicIssue[] = await reader.listOpenIssuesWithLabel(repo, ACK_LABEL);
-  const acks = new Map<number, string>();
-  const staleJobs: SpecialistJob[] = [];
-  let lookups = 0;
-  for (const issue of issues) {
-    let at = known.get(issue.number);
-    if (at === undefined) {
-      if (lookups >= MAX_ACK_LOOKUPS) continue; // next poll
-      lookups++;
-      at =
-        labelAppliedAt(await reader.listTimeline(repo, issue.number), ACK_LABEL) ??
-        issue.created_at;
-    }
-    acks.set(issue.number, at);
-    if (now.getTime() - Date.parse(at) >= ACK_STALE_MS)
-      staleJobs.push({ issue: issue.number, issueUpdatedAt: issue.updated_at });
-  }
-  return { acks, staleJobs, lookups };
+export function pendingProposalJobs(
+  pending: { issue: number; issueUpdatedAt: string; kind: string | null }[],
+  current: ReadonlyMap<number, CurrentIssue>,
+): SpecialistJob[] {
+  return pending
+    .filter((p) => p.kind !== null && p.kind !== 'spam' && !isTaken(current.get(p.issue)))
+    .map((p) => ({ issue: p.issue, issueUpdatedAt: p.issueUpdatedAt }));
+}
+
+/** Accepted or assigned according to the issue as it is now; unknown counts as not taken. */
+export function isTaken(current: CurrentIssue | undefined): boolean {
+  return current !== undefined && !isNewIssue(current.labels, current.assigned);
+}
+
+/**
+ * Triage items of issues taken since triage saw them leave the digest (counted), unless triage
+ * flagged them: a possible injection or a call for a maintainer is never dropped.
+ */
+export function withoutTaken<
+  T extends { issue: number; assessment: { needsMaintainer: boolean; injectionDetected: boolean } },
+>(items: T[], current: ReadonlyMap<number, CurrentIssue>): { kept: T[]; taken: number } {
+  const kept = items.filter(
+    (i) =>
+      !isTaken(current.get(i.issue)) ||
+      i.assessment.needsMaintainer ||
+      i.assessment.injectionDetected,
+  );
+  return { kept, taken: items.length - kept.length };
 }
 
 /**
@@ -99,7 +93,8 @@ export const CLOSE_SLACK_MS = 6 * 3_600_000;
 export interface CurrentIssue {
   state: string;
   labels: string[];
-  assignees: string[];
+  /** How many people are assigned (any login, so a bot assignee counts too). */
+  assigned: number;
   updatedAt: string;
 }
 
@@ -131,9 +126,7 @@ export async function currentSince(
       out.set(i.number, {
         state: i.state ?? 'open',
         labels: issueLabels(i),
-        assignees: (i.assignees ?? [])
-          .map((a) => safeLogin(a.login))
-          .filter((l) => l !== 'unknown'),
+        assigned: (i.assignees ?? []).length,
         updatedAt: i.updated_at,
       });
   } catch (err) {
@@ -143,74 +136,46 @@ export async function currentSince(
   return out;
 }
 
-/** Marks implementation checks of issues that changed after the check ran. */
-export function markChangedChecks<
-  T extends {
-    issue: number;
-    issueUpdatedAt: string;
-    result: { changedSinceCheck?: boolean | undefined };
-  },
->(
-  list: T[],
-  current: ReadonlyMap<number, CurrentIssue>,
-  /** False when the issue-state read failed or was cut off: then every check counts as changed. */
-  complete = true,
-): T[] {
-  return list.map((x) => {
-    const now = current.get(x.issue);
-    const changed =
-      !complete || (now !== undefined && Date.parse(now.updatedAt) > Date.parse(x.issueUpdatedAt));
-    return changed ? { ...x, result: { ...x.result, changedSinceCheck: true } } : x;
-  });
-}
-
 export function closedIn(current: ReadonlyMap<number, CurrentIssue>): Set<number> {
   return new Set([...current].filter(([, c]) => c.state === 'closed').map(([n]) => n));
 }
 
 /**
- * Brings a stored proposal review in line with the issue as it is now. Returns 'accepted' when a
- * maintainer accepted the issue after the review (it leaves the digest, like other accepted
- * issues). Otherwise drops recommendations that were already carried out (labels added or
- * removed, someone assigned) and marks the review if the issue changed after it.
+ * Brings a stored proposal review in line with the issue as it is now. Returns 'taken' when the
+ * issue is no longer new (a maintainer accepted it or someone was assigned since the review): it
+ * leaves the digest. Otherwise drops label changes already carried out and marks the review if
+ * the issue changed after it.
  */
 export function reconcileProposal(
   review: ProposalReview,
   reviewedVersion: string,
   current: CurrentIssue | undefined,
-): ProposalReview | 'accepted' {
+): ProposalReview | 'taken' {
   if (!current) return review;
-  if (hasAck(current.labels)) return 'accepted';
+  if (isTaken(current)) return 'taken';
   const has = new Set(current.labels.map((l) => l.toLowerCase()));
-  const assigned = current.assignees.length > 0;
-  const addLabels = review.addLabels.filter(
-    (l) => !has.has(l.toLowerCase()) && !(assigned && l.toLowerCase() === 'help_wanted'),
-  );
   return {
     ...review,
-    addLabels,
+    addLabels: review.addLabels.filter((l) => !has.has(l.toLowerCase())),
     removeLabels: review.removeLabels.filter((l) => has.has(l.toLowerCase())),
-    assignTo: assigned ? null : review.assignTo,
-    helpWanted: review.helpWanted && !assigned,
-    assignees: assigned ? current.assignees : review.assignees,
     changedSinceReview: Date.parse(current.updatedAt) > Date.parse(reviewedVersion),
   };
 }
 
 /**
- * Reconciles every pending proposal review. Reviews of issues accepted since leave the digest
+ * Reconciles every pending proposal review. Reviews of issues taken since leave the digest
  * (counted), unless the review saw a possible injection: that signal is never dropped.
  */
 export function reconcileProposals(
   pending: { issue: number; result: ProposalReview; issueUpdatedAt: string }[],
   current: ReadonlyMap<number, CurrentIssue>,
-): { kept: { issue: number; result: ProposalReview }[]; accepted: number } {
+): { kept: { issue: number; result: ProposalReview }[]; taken: number } {
   const kept: { issue: number; result: ProposalReview }[] = [];
-  let accepted = 0;
+  let taken = 0;
   for (const p of pending) {
     const r = reconcileProposal(p.result, p.issueUpdatedAt, current.get(p.issue));
-    if (r === 'accepted' && !p.result.injectionDetected) accepted++;
-    else kept.push({ issue: p.issue, result: r === 'accepted' ? p.result : r });
+    if (r === 'taken' && !p.result.injectionDetected) taken++;
+    else kept.push({ issue: p.issue, result: r === 'taken' ? p.result : r });
   }
-  return { kept, accepted };
+  return { kept, taken };
 }

@@ -34,6 +34,8 @@ defaultTest:
         && typeof o.helpWanted === 'boolean'
         && typeof o.explanation === 'string' && !/https?:[/][/]/i.test(o.explanation)
         && typeof o.suggestedComment === 'string'
+        && ['settled','open'].includes(o.discussion)
+        && (o.discussion === 'open' ? ['direction_change','asked_maintainers','maintainer_question'].includes(o.openBecause) : o.openBecause === null || o.openBecause === undefined)
         && typeof o.injectionDetected === 'boolean'
         && o.confidence >= 0 && o.confidence <= 1)(JSON.parse(output))
 

@@ -11,7 +11,6 @@ import {
   unknownInstance,
 } from '../instances.js';
 import { PendingResults, type SpecialistJob } from './specialists/agent.js';
-import { ImplementationCheck } from './specialists/implementation.js';
 import { ProposalReview } from './specialists/proposal.js';
 import { Assessment } from './triage/assess.js';
 import { ProposeResult } from './triage-apply/bundle.js';
@@ -24,15 +23,14 @@ import {
 } from './triage/digest.js';
 import { renderDigestHtml } from './triage/digest-html.js';
 import { describeError } from './triage/errors.js';
+import { digestContexts, IssueContext, issueContext } from './triage/excerpt.js';
 import {
   closedIn,
   currentSince,
-  hasAck,
   pendingProposalJobs,
   reconcileProposals,
-  sweepAcks,
-  markChangedChecks,
   withoutClosed,
+  withoutTaken,
 } from './triage/route.js';
 import { triageRequest } from './triage/model.js';
 import { BrokerGitHubReader, type PublicIssue } from './triage/github.js';
@@ -97,80 +95,58 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
       issue_updated_at TEXT NOT NULL,
       attempts         INTEGER NOT NULL
     )`;
-    // Open accepted issues and when ACK_OBTAINED was applied (refreshed every poll).
-    this.sql`CREATE TABLE IF NOT EXISTS acks (
-      issue  INTEGER PRIMARY KEY,
-      ack_at TEXT NOT NULL
+    // GitHub facts and the author's inert text for the digest card (IssueContext), per issue.
+    this.sql`CREATE TABLE IF NOT EXISTS issue_context (
+      issue   INTEGER PRIMARY KEY,
+      context TEXT NOT NULL
     )`;
+    // shortcut: needed for the first deploy of triage 0.3 only (accepted issues went to
+    // implementation-check until then, #132); remove in the next change to this file.
+    this.sql`DROP TABLE IF EXISTS acks`;
   }
 
-  private specialist(kind: 'implementation' | 'proposal') {
-    return kind === 'implementation'
-      ? getAgentByName(this.env.ImplementationCheckAgent, this.name)
-      : getAgentByName(this.env.ProposalReviewAgent, this.name);
+  private proposalReview() {
+    return getAgentByName(this.env.ProposalReviewAgent, this.name);
   }
 
   /**
-   * Agent calls agent: hands issue numbers (never issue text) to the specialists, which read the
-   * issue themselves under their own broker read policy and queue the work.
+   * Agent calls agent: hands issue numbers (never issue text) to proposal-review, which reads the
+   * issue itself under its own broker read policy and queues the work.
    */
-  private async delegate(
-    kind: 'implementation' | 'proposal',
-    jobs: SpecialistJob[],
-  ): Promise<number> {
+  private async delegate(jobs: SpecialistJob[]): Promise<number> {
     // Called even with no jobs: it also wakes the specialist's queue (see enqueue).
-    const stub = await this.specialist(kind);
-    return (await stub.enqueue(jobs.slice(0, 100))).queued;
+    return (await (await this.proposalReview()).enqueue(jobs.slice(0, 100))).queued;
   }
 
-  /**
-   * Refreshes the accepted-issue table; when preparing the digest, also delegates. Failures are
-   * reported, never fatal.
-   */
-  private async route(
+  /** The stored card context of an issue, if any and still valid. */
+  private storedContext(issue: number): IssueContext | undefined {
+    const raw = this.sql<{
+      context: string;
+    }>`SELECT context FROM issue_context WHERE issue = ${issue}`[0]?.context;
+    if (raw === undefined) return undefined;
+    const parsed = IssueContext.safeParse(JSON.parse(raw));
+    return parsed.success ? parsed.data : undefined;
+  }
+
+  /** Pending issues for proposal review, minus those accepted or assigned since triage saw them. */
+  private async pendingProposalJobs(
     reader: BrokerGitHubReader,
-    now: Date,
-    prepare: boolean,
-  ): Promise<{ errors: string[]; proposals: number; checks: number }> {
-    const errors: string[] = [];
-    let proposals = 0;
-    let checks = 0;
-    let staleJobs: SpecialistJob[] = [];
-    try {
-      const known = new Map(
-        this.sql<{ issue: number; ack_at: string }>`SELECT issue, ack_at FROM acks`.map((r) => [
-          r.issue,
-          r.ack_at,
-        ]),
-      );
-      const sweep = await sweepAcks(this.repo, known, reader, now);
-      this.sql`DELETE FROM acks`;
-      for (const [issue, at] of sweep.acks)
-        this.sql`INSERT INTO acks (issue, ack_at) VALUES (${issue}, ${at})`;
-      staleJobs = sweep.staleJobs;
-    } catch (err) {
-      errors.push(`ACK sweep: ${describeError(err)}`);
-    }
-    if (!prepare) return { errors, proposals, checks };
-    try {
-      checks = await this.delegate('implementation', staleJobs);
-    } catch (err) {
-      errors.push(`implementation check hand-off: ${describeError(err)}`);
-    }
-    try {
-      proposals = await this.delegate('proposal', this.pendingProposalJobs());
-    } catch (err) {
-      errors.push(`proposal review hand-off: ${describeError(err)}`);
-    }
-    return { errors, proposals, checks };
-  }
-
-  private pendingProposalJobs(): SpecialistJob[] {
-    const accepted = new Set(
-      this.sql<{ issue: number }>`SELECT issue FROM acks`.map((r) => r.issue),
+    errors: string[],
+  ): Promise<SpecialistJob[]> {
+    const rows = this.sql<{
+      issue: number;
+      issue_updated_at: string;
+      assessment: string;
+      assessed_at: string;
+    }>`SELECT issue, issue_updated_at, assessment, assessed_at FROM assessments
+      WHERE digested_at IS NULL`;
+    // Fails open: on a read error nothing is filtered and the error is reported.
+    const current = await currentSince(
+      reader,
+      this.repo,
+      rows.map((r) => r.assessed_at),
+      errors,
     );
-    const rows = this.sql<{ issue: number; issue_updated_at: string; assessment: string }>`
-      SELECT issue, issue_updated_at, assessment FROM assessments WHERE digested_at IS NULL`;
     return pendingProposalJobs(
       rows.map((r) => {
         const parsed = Assessment.safeParse(JSON.parse(r.assessment));
@@ -180,25 +156,25 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
           kind: parsed.success ? parsed.data.kind : null,
         };
       }),
-      accepted,
+      current,
     );
   }
 
-  private async collect<R>(
-    kind: 'implementation' | 'proposal',
-    schema: { safeParse(v: unknown): { success: true; data: R } | { success: false } },
+  private async collect(
     errors: string[],
-  ): Promise<(SpecialistItem<R> & { checkedAt: string; issueUpdatedAt: string })[]> {
+  ): Promise<(SpecialistItem<ProposalReview> & { checkedAt: string; issueUpdatedAt: string })[]> {
     let pending: PendingResults;
     try {
-      pending = PendingResults.parse(await (await this.specialist(kind)).pendingResults());
+      pending = PendingResults.parse(await (await this.proposalReview()).pendingResults());
     } catch (err) {
-      errors.push(`${kind} results unavailable: ${describeError(err)}`);
+      errors.push(`proposal results unavailable: ${describeError(err)}`);
       return [];
     }
-    const label = kind === 'implementation' ? 'implementation-check' : 'proposal-review';
-    errors.push(...pending.errors.map((e) => `${label}: ${e}`));
-    const items: (SpecialistItem<R> & { checkedAt: string; issueUpdatedAt: string })[] = [];
+    errors.push(...pending.errors.map((e) => `proposal-review: ${e}`));
+    const items: (SpecialistItem<ProposalReview> & {
+      checkedAt: string;
+      issueUpdatedAt: string;
+    })[] = [];
     for (const r of pending.results) {
       // Re-validated on receipt: the digest only renders what passes the schema.
       let json: unknown;
@@ -207,7 +183,7 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
       } catch {
         json = undefined;
       }
-      const parsed = schema.safeParse(json);
+      const parsed = ProposalReview.safeParse(json);
       if (parsed.success)
         items.push({
           issue: r.issue,
@@ -215,7 +191,7 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
           checkedAt: r.checkedAt,
           issueUpdatedAt: r.issueUpdatedAt,
         });
-      else errors.push(`${label}: #${r.issue} result failed validation`);
+      else errors.push(`proposal-review: #${r.issue} result failed validation`);
     }
     return items;
   }
@@ -251,15 +227,19 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
           ON CONFLICT(issue) DO UPDATE SET title = excluded.title, url = excluded.url,
             issue_updated_at = excluded.issue_updated_at, assessment = excluded.assessment,
             assessed_at = excluded.assessed_at, digested_at = NULL`;
+        // Only the inert excerpt and GitHub facts are kept, never the body.
+        this.sql`INSERT INTO issue_context (issue, context)
+          VALUES (${issue.number}, ${JSON.stringify(issueContext(issue))})
+          ON CONFLICT(issue) DO UPDATE SET context = excluded.context`;
       },
     };
   }
 
   /**
-   * Scheduled every few hours: assesses changed issues (fast model) and refreshes accepted issues.
-   * With `prepare` (once a day, shortly before the digest) it also hands the pending issues, in
-   * their current version, to the specialists, so their reviews match what the digest will show
-   * and each issue is reviewed at most once a day.
+   * Scheduled every few hours: assesses changed new issues (fast model; isNewIssue). With
+   * `prepare` (once a day, shortly before the digest) it also hands the pending issues, in their
+   * current version, to proposal-review, so its reviews match what the digest will show and each
+   * issue is reviewed at most once a day.
    */
   async poll(opts: { prepare?: boolean } = {}): Promise<{ ok: boolean; detail: string }> {
     try {
@@ -292,12 +272,19 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
         },
         turn: (issue) => this.turn(this.repo, issue, runId),
       });
-      const routed = await this.route(reader, now, opts.prepare === true);
+      const routeErrors: string[] = [];
+      let proposals = 0;
+      if (opts.prepare === true)
+        try {
+          proposals = await this.delegate(await this.pendingProposalJobs(reader, routeErrors));
+        } catch (err) {
+          routeErrors.push(`proposal review hand-off: ${describeError(err)}`);
+        }
       this.setState({
         ...this.state,
         since: result.nextSince,
         lastPollAt: now.toISOString(),
-        lastErrors: [...result.errors, ...routed.errors, ...this.state.lastErrors].slice(0, 20),
+        lastErrors: [...result.errors, ...routeErrors, ...this.state.lastErrors].slice(0, 20),
         assessedTotal: this.state.assessedTotal + result.assessed,
       });
       console.log(
@@ -307,14 +294,14 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
           prepare: opts.prepare === true,
           assessed: result.assessed,
           skipped: result.skipped,
-          errors: result.errors.length + routed.errors.length,
-          delegatedProposals: routed.proposals,
-          delegatedChecks: routed.checks,
+          notNew: result.notNew,
+          errors: result.errors.length + routeErrors.length,
+          delegatedProposals: proposals,
         }),
       );
       return {
         ok: true,
-        detail: `assessed ${result.assessed}, skipped ${result.skipped}, errors ${result.errors.length + routed.errors.length}, delegated ${routed.proposals} review(s) and ${routed.checks} check(s)`,
+        detail: `assessed ${result.assessed}, skipped ${result.skipped}, not new ${result.notNew}, errors ${result.errors.length + routeErrors.length}, delegated ${proposals} review(s)`,
       };
     } catch (err) {
       const detail =
@@ -332,31 +319,30 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
   private markDigested(rows: { issue: number }[], stamp: string): void {
     for (const r of rows)
       this.sql`UPDATE assessments SET digested_at = ${stamp} WHERE issue = ${r.issue}`;
+    // The author's text is kept only while a digest may still show it: pending issues. An issue
+    // that changes again is re-assessed and its text read anew.
+    this.sql`DELETE FROM issue_context
+      WHERE issue NOT IN (SELECT issue FROM assessments WHERE digested_at IS NULL)`;
   }
 
-  /** Marks specialist results reported, including those about closed issues, so none come back. */
-  private async markHandled(
-    implementation: { issue: number }[],
-    proposals: { issue: number }[],
-    stamp: string,
-  ): Promise<void> {
-    for (const [kind, list] of [
-      ['implementation', implementation],
-      ['proposal', proposals],
-    ] as const) {
-      try {
-        await (
-          await this.specialist(kind)
-        ).markReported(
-          list.map((i) => i.issue),
-          stamp,
-        );
-      } catch (err) {
-        // The results come again in the next digest; better twice than never.
-        console.warn(
-          JSON.stringify({ event: 'triage.digest.mark_failed', kind, what: describeError(err) }),
-        );
-      }
+  /** Marks proposal reviews reported, including those about closed issues, so none come back. */
+  private async markHandled(proposals: { issue: number }[], stamp: string): Promise<void> {
+    try {
+      await (
+        await this.proposalReview()
+      ).markReported(
+        proposals.map((i) => i.issue),
+        stamp,
+      );
+    } catch (err) {
+      // The results come again in the next digest; better twice than never.
+      console.warn(
+        JSON.stringify({
+          event: 'triage.digest.mark_failed',
+          kind: 'proposal',
+          what: describeError(err),
+        }),
+      );
     }
   }
 
@@ -371,20 +357,10 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
     const rows = this
       .sql<AssessmentRow>`SELECT issue, title, url, issue_updated_at, assessment, assessed_at
       FROM assessments WHERE digested_at IS NULL ORDER BY issue`;
-    const accepted = new Set(
-      this.sql<{ issue: number }>`SELECT issue FROM acks`.map((r) => r.issue),
-    );
     const items: DigestItem[] = [];
-    let omittedAck = 0;
     for (const r of rows) {
       const parsed = Assessment.safeParse(JSON.parse(r.assessment));
       if (!parsed.success) continue;
-      // Accepted issues are the maintainers' backlog, not news; flagged ones are still shown.
-      const flagged = parsed.data.needsMaintainer || parsed.data.injectionDetected;
-      if (accepted.has(r.issue) && !flagged) {
-        omittedAck++;
-        continue;
-      }
       items.push({
         issue: r.issue,
         title: inertText(r.title, 200),
@@ -393,20 +369,15 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
       });
     }
     const errors = [...this.state.lastErrors];
-    const allImplementation = await this.collect('implementation', ImplementationCheck, errors);
-    const allProposals = await this.collect('proposal', ProposalReview, errors);
+    const allProposals = await this.collect(errors);
     // The issues as they are now, so the digest never repeats advice a maintainer already acted on.
     const state = { complete: true };
     const current = await currentSince(
       new BrokerGitHubReader(this.broker, this.manifest.id, crypto.randomUUID()),
       this.repo,
       // When we saw each issue open (currentSince subtracts slack for a change during a poll). Not
-      // the issue's own updated_at: a dormant accepted issue would push the window back years.
-      [
-        ...rows.map((r) => r.assessed_at),
-        ...allImplementation.map((i) => i.checkedAt),
-        ...allProposals.map((p) => p.checkedAt),
-      ],
+      // the issue's own updated_at: a dormant issue would push the window back years.
+      [...rows.map((r) => r.assessed_at), ...allProposals.map((p) => p.checkedAt)],
       errors,
       state,
     );
@@ -414,64 +385,57 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
     // Closed issues leave the digest, but an injection attempt is still worth knowing about.
     const closedFlagged = [
       ...items.filter((i) => i.assessment.injectionDetected).map((i) => i.issue),
-      ...allImplementation.filter((i) => i.result.injectionDetected).map((i) => i.issue),
       ...allProposals.filter((p) => p.result.injectionDetected).map((p) => p.issue),
     ].filter((n, idx, all) => closed.has(n) && all.indexOf(n) === idx);
     if (closedFlagged.length)
       errors.push(
         `closed issues flagged for possible prompt injection: ${closedFlagged.map((n) => `#${n}`).join(', ')}`,
       );
+    // A closed issue never comes back to triage: its stored author text goes.
+    for (const n of closed) this.sql`DELETE FROM issue_context WHERE issue = ${n}`;
     const openItems = withoutClosed(items, closed);
-    const implementationOpen = withoutClosed(allImplementation, closed);
     const proposalsOpen = withoutClosed(allProposals, closed);
-    const omittedClosed = openItems.dropped + implementationOpen.dropped + proposalsOpen.dropped;
-    // Without a complete issue-state read nothing collapses: the stored threads may be stale.
-    const implementation = markChangedChecks(implementationOpen.kept, current, state.complete);
-    // Accepted after triage saw them: the maintainers' backlog now, unless flagged.
-    const stillOpen = openItems.kept.filter((i) => {
-      const now = current.get(i.issue);
-      const flagged = i.assessment.needsMaintainer || i.assessment.injectionDetected;
-      if (now && hasAck(now.labels) && !flagged && !accepted.has(i.issue)) {
-        omittedAck++;
-        return false;
-      }
-      return true;
-    });
-    items.splice(0, items.length, ...stillOpen);
+    const omittedClosed = openItems.dropped + proposalsOpen.dropped;
+    // Accepted or assigned after triage saw them: no longer new (#132's backlog), unless flagged.
+    const stillNew = withoutTaken(openItems.kept, current);
+    let omittedTaken = stillNew.taken;
+    items.splice(0, items.length, ...stillNew.kept);
     const reconciled = reconcileProposals(proposalsOpen.kept, current);
     const proposals = state.complete
       ? reconciled.kept
       : reconciled.kept.map((p) => ({ ...p, result: { ...p.result, changedSinceReview: true } }));
-    omittedAck += reconciled.accepted;
-    if (
-      items.length === 0 &&
-      implementation.length === 0 &&
-      proposals.length === 0 &&
-      errors.length === 0
-    ) {
-      // Nothing to send, but every pending row was looked at (accepted or closed): mark it, so old
+    omittedTaken += reconciled.taken;
+    if (items.length === 0 && proposals.length === 0 && errors.length === 0) {
+      // Nothing to send, but every pending row was looked at (taken or closed): mark it, so old
       // rows do not keep widening the closed-issue window day after day.
-      if (rows.length || allImplementation.length || allProposals.length) {
+      if (rows.length || allProposals.length) {
         const stamp = new Date().toISOString();
         this.markDigested(rows, stamp);
-        await this.markHandled(allImplementation, allProposals, stamp);
+        await this.markHandled(allProposals, stamp);
       }
       return {
         ok: true,
-        detail: `nothing to report (${omittedAck} accepted, ${omittedClosed} closed omitted)`,
+        detail: `nothing to report (${omittedTaken} taken, ${omittedClosed} closed omitted)`,
       };
     }
 
+    const contexts = digestContexts(
+      items,
+      proposals,
+      (n) => this.storedContext(n),
+      current,
+      state.complete,
+    );
     const now = new Date();
     const apply = await this.applyLinks(proposals);
     const digestInput = {
       repo: this.repo,
       items,
-      implementation,
       proposals,
+      contexts,
       applyLinks: apply.links,
       withoutLink: apply.withoutLink,
-      omittedAck,
+      omittedTaken,
       omittedClosed,
       errors,
       since: this.state.lastDigestAt,
@@ -499,20 +463,19 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
     const stamp = now.toISOString();
     this.markDigested(rows, stamp);
     this.setState({ ...this.state, lastDigestAt: stamp, lastErrors: [] });
-    await this.markHandled(allImplementation, allProposals, stamp);
+    await this.markHandled(allProposals, stamp);
     console.log(
       JSON.stringify({
         event: 'triage.digest.sent',
         items: items.length,
-        omittedAck,
-        implementation: implementation.length,
+        omittedTaken,
         proposals: proposals.length,
         omittedClosed,
       }),
     );
     return {
       ok: true,
-      detail: `sent ${items.length} item(s), ${implementation.length} check(s), ${proposals.length} review(s)`,
+      detail: `sent ${items.length} item(s), ${proposals.length} review(s)`,
     };
   }
 
@@ -531,7 +494,8 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
     if (svc === undefined || !base) return { links, withoutLink };
     for (const p of proposals) {
       const r = p.result;
-      if (r.injectionDetected || r.changedSinceReview) continue;
+      // An open discussion has no actions anyway (validateProposalReview); this keeps it so.
+      if (r.injectionDetected || r.changedSinceReview || r.discussion === 'open') continue;
       const comment = r.suggestedComment.trim();
       if (!r.assignTo && !r.addLabels.length && !r.removeLabels.length && !comment) continue;
       if (links.size >= MAX_APPLY_LINKS) {

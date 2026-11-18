@@ -5,6 +5,7 @@ import { RawAssessment, validateAssessment, type Assessment } from './assess.js'
 import { describeError, isInputSpecific, isRequestRefused } from './errors.js';
 import type { BrokerGitHubReader, PublicIssue } from './github.js';
 import { buildUserMessage, isSafeName, SYSTEM_PROMPT, type TriageContext } from './prompt.js';
+import { isNewPublicIssue } from './route.js';
 
 export interface TriageStore {
   /** True when this issue was already assessed at this `updated_at`. */
@@ -32,6 +33,8 @@ export interface TriageDeps {
 export interface TriageRunResult {
   assessed: number;
   skipped: number;
+  /** Updated issues that are not new (accepted or assigned): the backlog, not triage's (#132). */
+  notNew: number;
   errors: string[];
   nextSince: string;
 }
@@ -85,6 +88,7 @@ export async function runTriage(
   const errors: string[] = [];
   let assessed = 0;
   let skipped = 0;
+  let notNew = 0;
   let consecutiveInfra = 0;
   const infraFailed: PublicIssue[] = [];
   /** The run's last model outcome was a refused request. */
@@ -93,6 +97,10 @@ export async function runTriage(
   /** Where the run stopped at its cap: the first issue it did not get to. */
   let cutAt: string | null = null;
   for (const issue of issues) {
+    if (!isNewPublicIssue(issue)) {
+      notNew++;
+      continue;
+    }
     if (
       deps.store.isCurrent(issue.number, issue.updated_at) ||
       deps.store.failures(issue.number, issue.updated_at) >= MAX_ATTEMPTS
@@ -192,5 +200,5 @@ export async function runTriage(
   // to now is covered. A failed issue (model or gateway error) is retried next run: never move the
   // cursor past it.
   const nextSince = firstFailedUpdate ?? cutAt ?? resumeAt ?? startedAt.toISOString();
-  return { assessed, skipped, errors, nextSince };
+  return { assessed, skipped, notNew, errors, nextSince };
 }

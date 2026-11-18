@@ -7,7 +7,8 @@ of this diagram it touches, before and after, and updates this file when the flo
 gateway routes, not from memory; when they disagree, the code is right and this file is stale.
 
 Last checked against the code: 2026-11-18 (tombstones, the `isolated` policy flag and the cutover
-workflow removed; the gateway lost its unused `EMAIL_DOMAIN` var; no flow change).
+workflow removed; the gateway lost its unused `EMAIL_DOMAIN` var; triage keeps to new issues, drops
+its `timeline` read and stops calling implementation-check; the digest carries the author's inert text).
 
 ## The whole system
 
@@ -38,7 +39,7 @@ flowchart LR
   end
 
   subgraph AGENTS["Agent Workers: one per agent, own Keyholder key (ADR 0018)"]
-    TRI["custodes-triage<br/>triage, implementation-check, proposal-review<br/>crons; secret: AI_GATEWAY_TOKEN"]:::secret
+    TRI["custodes-triage<br/>triage (new issues only), proposal-review,<br/>implementation-check (paused)<br/>crons; secret: AI_GATEWAY_TOKEN"]:::secret
     TAP["custodes-triage-apply<br/>no model, no secret"]
     PRG["custodes-pr-gate<br/>crons and queue<br/>secrets: AI_GATEWAY_TOKEN, OPENROUTER_API_KEY"]:::secret
     CSR["custodes-cheatsheet-review<br/>queue; secret: AI_GATEWAY_TOKEN<br/>Workers AI toMarkdown for PR-cited PDFs"]:::secret
@@ -91,7 +92,7 @@ flowchart LR
   AIG --> ANT
   AIG --> ORT
   AIG --> WAI
-  TRI -- "digest" --> OUTMAIL
+  TRI -- "digest, incl. inert author text" --> OUTMAIL
   PRG -- "summary" --> OUTMAIL
   CSR -- "approval link" --> OUTMAIL
   INMAIL --> ER

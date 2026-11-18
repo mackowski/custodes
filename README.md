@@ -85,8 +85,9 @@ No secrets are ever stored in files. CI reads them from GitHub Environment secre
 
 ## Status
 
-Agents in use on OWASP CheatSheetSeries: triage (with its implementation-check and proposal-review
-specialists), pr-gate and cheatsheet-review (see `docs/agents/`). triage-apply (ADR 0019) turns
+Agents in use on OWASP CheatSheetSeries: triage of new issues (with its proposal-review specialist;
+implementation-check is paused until backlog-review, #132), pr-gate and cheatsheet-review (see
+`docs/agents/`). triage-apply (ADR 0019) turns
 triage proposals into one-click approval links, on the sandbox first. New agents are built with the
 `/new-agent` skill.
 
