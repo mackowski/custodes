@@ -404,9 +404,9 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
       }
       const counted = this.countEvaluation(pr.number, day, skipGrace);
       if (counted === 'refused') {
-        // Reported once per PR and day: the PR changed and this change is not checked today.
+        // Reported once per PR and day: a change or a retry after an error waits for tomorrow.
         errors.push(
-          `#${pr.number}: changed after ${MAX_EVALUATIONS_PER_PR_PER_DAY} evaluations today; checked again tomorrow`,
+          `#${pr.number}: not evaluated again today (${MAX_EVALUATIONS_PER_PR_PER_DAY} evaluations); next try tomorrow`,
         );
         continue;
       }
@@ -578,7 +578,8 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
   /**
    * Counts one evaluation of `pr` today ('counted'), or refuses it when the PR has had its share
    * today: 'refused' the first time (to be reported), 'spent' after that. The refusal is stored as
-   * one count over the cap. Operator runs in the sandbox (`manual`) are counted but never refused.
+   * one count over the cap. Operator runs in the sandbox (`manual`) are never refused and are
+   * counted only up to the cap, so they cannot pass for that stored refusal.
    */
   private countEvaluation(
     pr: number,
@@ -588,11 +589,12 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
     const n =
       this.sql<{ n: number }>`SELECT n FROM evaluations WHERE pr = ${pr} AND day = ${day}`[0]?.n ??
       0;
-    if (!manual && n > MAX_EVALUATIONS_PER_PR_PER_DAY) return 'spent';
+    if (manual && n >= MAX_EVALUATIONS_PER_PR_PER_DAY) return 'counted';
+    if (n > MAX_EVALUATIONS_PER_PR_PER_DAY) return 'spent';
     this.sql`INSERT INTO evaluations (pr, day, n) VALUES (${pr}, ${day}, 1)
       ON CONFLICT(pr) DO UPDATE SET n = CASE WHEN day = excluded.day THEN n + 1 ELSE 1 END,
         day = excluded.day`;
-    return !manual && n === MAX_EVALUATIONS_PER_PR_PER_DAY ? 'refused' : 'counted';
+    return n === MAX_EVALUATIONS_PER_PR_PER_DAY ? 'refused' : 'counted';
   }
 
   /** One wake-up per slot: the slot is the payload, which is what idempotent schedules match on. */

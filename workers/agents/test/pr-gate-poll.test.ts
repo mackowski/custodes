@@ -166,7 +166,8 @@ describe('pr-gate poll budgets', () => {
     expect(results.out.slice(cap).map((r) => r.detail)).toEqual(
       Array(2).fill('1 open, 0 evaluated, 0 close attempt(s)'),
     );
-    const refusal = (e: string) => e.startsWith('#9101: changed after 12 evaluations today');
+    const refusal = (e: string) =>
+      e.startsWith('#9101: not evaluated again today (12 evaluations)');
     // Reaching the cap is not a problem; only a refused evaluation is, and only once a day.
     expect(results.errorsAfter[cap - 1]?.some(refusal)).toBe(false);
     expect(results.errorsAfter[cap + 1]?.filter(refusal)).toHaveLength(1);

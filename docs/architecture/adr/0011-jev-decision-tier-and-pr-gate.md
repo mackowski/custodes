@@ -241,3 +241,15 @@ ADR 0015 adds Cloudflare Clef as a shadow of Jev in pr-gate (asked the same ques
 deciding) and makes "all agent AI traffic through one AI Gateway" a tested rule. Jev's direct
 transport stays its single exception: the Diagnose probe on 2026-10-26 (run 40349299889) still got
 404 from the gateway on all four Decisions API paths.
+
+## Amendment (2026-11-18): 12 evaluations per PR per day
+
+The per-PR cap from the 2026-10-26 amendment goes from 4 to 12 evaluations per UTC day. On
+2026-11-17 two PRs under active maintainer review (#2976, #2901) reached 4 with ordinary rule-only
+decisions, and a further change would have waited until the next day. Every evaluation still needs a
+change (or a retry after an error) and the 30-minute grace period, and most end at the rules without
+Jev. The per-poll (30) and per-day (300) caps are unchanged, so total Jev and read spend is bounded
+as before. The trade-off: 25 PRs edited all day (was 75) can now use up the daily budget and leave
+the gate off until 00:00 UTC. That fails safe (nothing is closed, the summary reports the spent
+budget) and was accepted. The summary now names a PR only when the cap refuses an evaluation, once
+per day, instead of when the last allowed evaluation runs.

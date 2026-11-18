@@ -89,8 +89,7 @@ on OWASP/CheatSheetSeries. Rotate it per [rotate-pat](../runbooks/rotate-pat.md)
   close, PRs that need a maintainer, and errors. Nothing is sent when nothing happened.
 - **Caps:** at most 30 evaluations and 5 closes per poll, and 300 evaluations and 10 closes per UTC
   day. One PR is evaluated at most 12 times per UTC day (sandbox runs on demand are exempt), so a few
-  PRs edited over and over cannot use up the daily budget; the summary names a PR once when a
-  change to it is left unchecked until the next day. The broker also enforces 5 per hour. Closes over a cap are reported as "would close", and a
+  PRs edited over and over cannot use up the daily budget; the summary names a PR once when the cap stops a further evaluation (after a change or an error) until the next day. The broker also enforces 5 per hour. Closes over a cap are reported as "would close", and a
   "would close" is not decided again until a close is possible (enforcing and under the daily cap).
 
 ## Failure modes and what happens
