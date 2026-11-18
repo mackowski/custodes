@@ -80,6 +80,18 @@ describe('pin-agent-keys', () => {
     );
     expect(() =>
       pinKeys(
+        file({}),
+        [
+          row([
+            key('pr-gate-new-bbbbbbbb', 'b', 'active'),
+            key('pr-gate-new-bbbbbbbb', 'c', 'next'),
+          ]),
+        ],
+        TODAY,
+      ),
+    ).toThrow('the same key id twice');
+    expect(() =>
+      pinKeys(
         file(),
         [
           row([

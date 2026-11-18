@@ -6,7 +6,8 @@ of this diagram it touches, before and after, and updates this file when the flo
 (`docs/sdlc.md`, `.github/workflows/pr-architecture.yml`). Derived from the Workers' `wrangler.jsonc` files, the broker policy and the
 gateway routes, not from memory; when they disagree, the code is right and this file is stale.
 
-Last checked against the code: 2026-11-17 (the gateway lost its unused `EMAIL_DOMAIN` var; no flow change).
+Last checked against the code: 2026-11-18 (tombstones, the `isolated` policy flag and the cutover
+workflow removed; the gateway lost its unused `EMAIL_DOMAIN` var; no flow change).
 
 ## The whole system
 

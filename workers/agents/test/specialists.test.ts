@@ -308,6 +308,13 @@ describe('validateProposalReview', () => {
     expect(proposalThreadPeople(bot, [c])).toEqual(['first-commenter']);
     expect(threadAuthor(issue(1, { user: null }))).toBeNull();
     expect(threadAuthor(issue(1, { user: { login: 'ghost', type: 'User' } }))).toBeNull();
+    // A deleted account is nobody among the commenters either.
+    expect(
+      proposalThreadPeople(issue(1, { user: { login: 'author' } }), [
+        cmt('ghost', '2026-10-02T00:00:00Z', 'NONE'),
+        c,
+      ]),
+    ).toEqual(['author', 'first-commenter']);
     expect(proposalThreadPeople(issue(1, { user: null }), [c])).toEqual(['first-commenter']);
     expect(threadAuthor(issue(1, { user: { login: 'author' } }))).toBe('author');
     expect(proposalThreadPeople(issue(1, { user: { login: 'author' } }), [c])).toEqual([

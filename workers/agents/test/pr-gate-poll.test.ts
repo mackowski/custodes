@@ -7,6 +7,7 @@ import {
   MAX_CLOSES_PER_DAY,
   MAX_EVALUATIONS_PER_DAY,
   MAX_EVALUATIONS_PER_PR_PER_DAY,
+  POLL_BUDGET_MS,
   POLL_LOCK_MS,
   type PrGateAgent,
 } from '../src/agents/pr-gate.js';
@@ -59,6 +60,8 @@ const fakeBroker = (
 interface Internals {
   env: AgentsEnv;
   pollingSince: number | null;
+  pollBudgetMs: number;
+  pollOnce(opts: object, started: number): Promise<Result>;
   ensureSchema(): void;
   sql<T>(strings: TemplateStringsArray, ...values: unknown[]): T[];
 }
@@ -407,6 +410,48 @@ describe('pr-gate poll lock', () => {
     expect(r.res.ok).toBe(false);
     expect(r.res.detail).toMatch(/^poll in progress; again at /);
     expect(r.schedules).toHaveLength(1);
+  });
+
+  it('stops starting evaluations at its time budget, well inside the lock', async () => {
+    expect(POLL_BUDGET_MS).toBeLessThanOrEqual(POLL_LOCK_MS - 2 * 60_000);
+    const r = await inAgent([pull(9162), pull(9163)], async (agent, i) => {
+      i.pollBudgetMs = -1;
+      try {
+        return { res: await agent.poll(), schedules: await wakes(agent) };
+      } finally {
+        i.pollBudgetMs = POLL_BUDGET_MS;
+      }
+    });
+    expect(r.res.detail).toBe('2 open, 0 evaluated, 0 close attempt(s)');
+    expect(r.schedules).toHaveLength(1);
+  });
+
+  it('never closes from a poll that lost its lock', async () => {
+    const blank = pull(9164, { body: BODY.replace('[x]', '[ ]') });
+    const owner = await inAgent([blank], async (_agent, i) => {
+      const mine = Date.now();
+      i.pollingSince = mine;
+      try {
+        return await i.pollOnce({}, mine);
+      } finally {
+        i.pollingSince = null;
+      }
+    });
+    expect(owner.detail).toBe('1 open, 1 evaluated, 1 close attempt(s)');
+    await runInDurableObject(await stub(), (agent: PrGateAgent) => {
+      (agent as unknown as Internals).sql`DELETE FROM decisions`;
+      return Promise.resolve();
+    });
+    const late = await inAgent([blank], async (_agent, i) => {
+      const mine = Date.now();
+      i.pollingSince = mine + 1; // a newer poll took over
+      try {
+        return await i.pollOnce({}, mine);
+      } finally {
+        i.pollingSince = null;
+      }
+    });
+    expect(late.detail).toBe('1 open, 1 evaluated, 0 close attempt(s)');
   });
 
   it('takes over a lock older than POLL_LOCK_MS and runs', async () => {

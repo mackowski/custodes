@@ -4,9 +4,8 @@
   // what src/pr-gate-worker.ts imports and has only the bindings and secrets below. Deployed from
   // workers/agents with `-c ../pr-gate/wrangler.jsonc` (the pinned wrangler of that package).
   //
-  // This is the steady state, after the move. The first deploys come from the cutover workflow
-  // (.github/workflows/agent-cutover.yml, docs/runbooks/agent-cutover.md), which derives the
-  // `expecting-transfer` phase from this file.
+  // The agent's classes were moved here from custodes-agents with their data
+  // (docs/runbooks/agent-cutover.md, done 2026-11-13).
   "name": "custodes-pr-gate",
   "main": "../agents/src/pr-gate-worker.ts",
   "compatibility_date": "2026-08-15",

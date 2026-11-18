@@ -87,6 +87,8 @@ export async function runTriage(
   let skipped = 0;
   let consecutiveInfra = 0;
   const infraFailed: PublicIssue[] = [];
+  /** The run's last model outcome was a refused request. */
+  let endedRefused = false;
   let attempted = 0;
   /** Where the run stopped at its cap: the first issue it did not get to. */
   let cutAt: string | null = null;
@@ -128,6 +130,7 @@ export async function runTriage(
       deps.store.save(issue, assessment, deps.now());
       assessed++;
       consecutiveInfra = 0;
+      endedRefused = false;
     } catch (err) {
       if (err instanceof AgentHaltedError) throw err; // a halt stops the run; the cursor is kept
       // Never include model output or issue text in the error: class, status and error type only.
@@ -145,6 +148,8 @@ export async function runTriage(
         firstFailedUpdate ??= issue.updated_at;
         errors.push(`#${issue.number}: ${what}`);
         if (isRequestRefused(err)) infraFailed.push(issue);
+        // Only a success clears it: a 5xx after a refusal says nothing about the path either.
+        if (isRequestRefused(err)) endedRefused = true;
         if (++consecutiveInfra >= MAX_CONSECUTIVE_INFRA_FAILURES) {
           errors.push(`stopped after ${consecutiveInfra} consecutive infrastructure failures`);
           break;
@@ -159,7 +164,9 @@ export async function runTriage(
   // refused issues at the front of every run would otherwise stop triage for good. In an outage
   // the probe fails too and nothing is counted; a 429, a 5xx or a timeout is never counted, or a
   // flood of issues could push real ones out of triage.
-  let pathWorks = assessed > 0;
+  // A success before the refusals proves nothing about now (an outage can start mid-run, and an
+  // empty credit balance answers 400): then the probe decides as well.
+  let pathWorks = assessed > 0 && !endedRefused;
   if (!pathWorks && infraFailed.length > 0)
     try {
       await deps.complete(SYSTEM_PROMPT, buildUserMessage(PROBE, ctx), PROBE.number);

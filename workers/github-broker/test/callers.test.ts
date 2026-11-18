@@ -10,7 +10,7 @@ import {
   verifyCallerIntent,
 } from '@custodes/core';
 import { AgentKeys, BrokerResponse, type CallerName, verificationKeys } from '@custodes/schema';
-import { CALLER_AGENTS, isIsolated } from '../src/callers.js';
+import { CALLER_AGENTS } from '../src/callers.js';
 import { Hono } from 'hono';
 import broker, { agentRoutes, callerApp, sharedAgentApp } from '../src/index.js';
 import { AuditStore } from '../src/store.js';
@@ -450,11 +450,6 @@ describe('the default (unsigned) entrypoint serves no agent (ADR 0018)', () => {
       {} as ExecutionContext,
     );
     expect(res.status).toBe(403);
-  });
-
-  it('still marks every agent id isolated in the policy (data the cutover tests rely on)', () => {
-    for (const id of [...Object.keys(policy.agents), ...Object.keys(policy.reads)])
-      expect(isIsolated(id), id).toBe(true);
   });
 });
 
