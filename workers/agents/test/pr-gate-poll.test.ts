@@ -238,6 +238,40 @@ describe('pr-gate poll budgets', () => {
     );
   });
 
+  it('retries a close the broker refused before executing (signature), without a flag', async () => {
+    const p = pull(9104, { body: BODY.replace('[x]', '[ ]') });
+    const r = await runInDurableObject(await stub(), async (agent: PrGateAgent) => {
+      const i = agent as unknown as Internals;
+      const original = i.env;
+      const reads = fakeBroker([p]);
+      i.env = Object.create(original, {
+        BROKER: {
+          value: withHaltState({
+            fetch: (url: string, init: RequestInit) =>
+              url === 'https://broker.internal/v1/act'
+                ? Response.json(
+                    { ok: false, code: 'unauthenticated', reason: 'bad_signature' },
+                    { status: 401 },
+                  )
+                : reads.fetch(url, init),
+          }),
+        },
+      }) as AgentsEnv;
+      try {
+        await agent.poll();
+        const row = i.sql<{ outcome: string }>`SELECT outcome FROM decisions
+          WHERE pr = ${p.number}`[0];
+        return { row, errors: agent.state.lastErrors, closes: agent.state.closesToday };
+      } finally {
+        i.env = original;
+      }
+    });
+    // Nothing ran: an ordinary error, retried later, and no close slot spent.
+    expect(r.row?.outcome).toBe('error');
+    expect(r.closes).toBe(0);
+    expect(r.errors).toContain('#9104: close refused (unauthenticated)');
+  });
+
   it('stops evaluating when the daily budget is spent and says so', async () => {
     const pulls = [pull(9111), pull(9112), pull(9113)];
     const r = await inAgent(pulls, async (agent) => {

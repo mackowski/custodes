@@ -5,6 +5,7 @@ import {
   BrokerActionType,
   BrokerReadRequest,
   BrokerRequest,
+  BrokerResponse,
   Policy,
 } from '../src/index.js';
 
@@ -233,5 +234,16 @@ describe('policy label grants', () => {
     expect(agent({ labels: ['custodes_cheatsheet_review'] })).toBe(true);
     expect(agent({ actions: ['issue.label.add'] })).toBe(false);
     expect(agent({ actions: ['issue.comment'] })).toBe(true);
+  });
+});
+
+describe('broker response', () => {
+  it('parses every refusal the broker sends before executing', () => {
+    // index.ts: a refused signature (401) and the default entrypoint that serves no agent (403).
+    for (const code of ['unauthenticated', 'refused', 'invalid', 'policy_denied'])
+      expect(BrokerResponse.safeParse({ ok: false, code, reason: 'x' }).success).toBe(true);
+    expect(BrokerResponse.safeParse({ ok: false, code: 'made_up', reason: 'x' }).success).toBe(
+      false,
+    );
   });
 });

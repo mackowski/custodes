@@ -257,4 +257,6 @@ A close whose broker answer is lost (a crash or an unreadable response after the
 is now flagged `close_unknown` and left to a maintainer instead of being retried: with the higher
 cap a retry could otherwise post the close comment up to 12 times a day, and the close may have
 happened, so a maintainer's reopen must stay final (as with `reopened_after_close`), and it counts
-towards the daily close cap.
+towards the daily close cap. A definite refusal before execution (signature
+refused, `unauthenticated`, or `refused`) is part of the broker's response schema, so it stays an
+ordinary error that is retried and spends no close slot.
