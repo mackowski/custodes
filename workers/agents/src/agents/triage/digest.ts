@@ -2,7 +2,7 @@
 import type { VerifiedEvidence } from '../specialists/evidence.js';
 import type { ProposalReview } from '../specialists/proposal.js';
 import { inertNoLinks as inert, type Assessment } from './assess.js';
-import type { IssueContext } from './excerpt.js';
+import { defang, type IssueContext } from './excerpt.js';
 
 export interface DigestItem {
   issue: number;
@@ -77,17 +77,21 @@ export function factsLine(c: IssueContext, now: Date): string {
   const days = Math.max(0, Math.floor((now.getTime() - Date.parse(c.openedAt)) / DAY_MS));
   return (
     `opened by @${c.author} on ${c.openedAt.slice(0, 10)} (${days === 0 ? 'today' : `${days} day(s) ago`}), ` +
-    `${c.comments} comment(s), labels: ${c.labels.join(', ') || '(none)'}`
+    // Maintainer-made, but the safe charset still allows `.` `/` `:`: defanged like author text.
+    `${c.comments} comment(s), labels: ${c.labels.map((l) => inert(defang(l), 50)).join(', ') || '(none)'}`
   );
 }
 
 export const NO_EXCERPT = '(no text stored; open the issue)';
 export const EXCERPT_LABEL = "author's text (untrusted, unchecked, links removed)";
+/** Shown on flagged cards only: hidden comments are where an injection usually sits. */
+export const hiddenCommentsLine = (n: number) =>
+  `${n} HTML comment(s) not shown (GitHub hides them too); open the issue's edit view to see them`;
 export const STALE_EXCERPT =
   'the issue changed after this text was read; open the issue for the current version';
 
 /** The context block: facts, then the author's own words, each section on its own line. */
-function contextLines(c: IssueContext | undefined, now: Date): string[] {
+function contextLines(c: IssueContext | undefined, now: Date, flagged: boolean): string[] {
   if (!c) return [`  ${EXCERPT_LABEL}: ${NO_EXCERPT}`];
   return [
     `  ${factsLine(c, now)}`,
@@ -95,6 +99,7 @@ function contextLines(c: IssueContext | undefined, now: Date): string[] {
     ...(c.excerpt.length
       ? c.excerpt.map((p) => `    > ${p.heading ? `[${p.heading}] ` : ''}${p.text}`)
       : ['    > (empty)']),
+    ...(flagged && c.hiddenComments > 0 ? [`    (${hiddenCommentsLine(c.hiddenComments)})`] : []),
   ];
 }
 
@@ -102,7 +107,7 @@ function triageItem(item: DigestItem, repo: string, c: IssueContext | undefined,
   return [
     `#${item.issue} ${inert(item.title, 120)}`,
     `  ${issueUrl(repo, item.issue)}`,
-    ...contextLines(c, now),
+    ...contextLines(c, now, item.assessment.injectionDetected),
     ...triageLines(item.assessment),
     '',
   ];
@@ -255,7 +260,7 @@ function proposalItem(
           : actions.join('; ') || '(no change)'
     }`,
     ...applyLine(apply),
-    ...contextLines(c, now),
+    ...contextLines(c, now, r.injectionDetected || triage?.assessment.injectionDetected === true),
     `  proposal review: ${VERDICT[r.verdict]}   makes sense: ${r.makesSense ? 'yes' : 'no'}   confidence: ${pct(r.confidence)}`,
     ...(r.priorDecision
       ? [

@@ -25,6 +25,8 @@ export const IssueContext = z.object({
   comments: z.number().int().nonnegative(),
   /** The issue version the excerpt was read from (GitHub `updated_at`). */
   readAt: z.string(),
+  /** HTML comments removed from the text: GitHub hides them too, and injections like to sit there. */
+  hiddenComments: z.number().int().nonnegative().default(0),
   /** Set at send time when the issue changed after the excerpt was read. */
   stale: z.boolean().optional(),
   labels: z.array(z.string()),
@@ -34,6 +36,13 @@ export type IssueContext = z.infer<typeof IssueContext>;
 export type ExcerptPart = IssueContext['excerpt'][number];
 
 /** Removes HTML comments (the templates' hints), including one left open at the end. */
+/** How many HTML comments the (bounded) body holds, the templates' own hints included. */
+export function countComments(s: string): number {
+  let n = 0;
+  for (let at = s.indexOf('<!--'); at !== -1; at = s.indexOf('<!--', at + 4)) n++;
+  return n;
+}
+
 function withoutComments(s: string): string {
   let out = '';
   let at = 0;
@@ -70,8 +79,9 @@ function headingText(line: string): string | null {
 export function defang(s: string): string {
   return s
     .replace(/@/g, '[at]')
-    .replace(/[\p{L}\p{N}\p{M}-]+(?:[.\u3002\uFF0E\uFF61][\p{L}\p{N}\p{M}-]+)+/gu, (m) =>
-      m.replace(/[.\u3002\uFF0E\uFF61]/g, '[.]'),
+    .replace(
+      /[\p{L}\p{N}\p{M}-]+(?:[.\u2024\u3002\uFE52\uFF0E\uFF61][\p{L}\p{N}\p{M}-]+)+/gu,
+      (m) => m.replace(/[.\u2024\u3002\uFE52\uFF0E\uFF61]/g, '[.]'),
     );
 }
 
@@ -138,6 +148,7 @@ export function issueContext(issue: PublicIssue): IssueContext {
     openedAt: issue.created_at,
     comments: issue.comments,
     readAt: issue.updated_at,
+    hiddenComments: countComments((issue.body ?? '').slice(0, MAX_INPUT)),
     labels: issueLabels(issue).filter(isSafeName),
     excerpt: authorExcerpt(issue.body),
   };

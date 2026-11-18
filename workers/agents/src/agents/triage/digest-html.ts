@@ -9,6 +9,7 @@ import {
   discussionOpen,
   EXCERPT_LABEL,
   factsLine,
+  hiddenCommentsLine,
   INJECTED,
   issueUrl,
   NO_EXCERPT,
@@ -124,7 +125,7 @@ function authorQuote(p: { heading: string | null; text: string }): string {
 }
 
 /** GitHub facts, then the author's own words (inert: no links, no hidden characters, bounded). */
-function context(c: IssueContext | undefined, now: Date): string {
+function context(c: IssueContext | undefined, now: Date, flagged: boolean): string {
   if (!c) return label(EXCERPT_LABEL) + para(NO_EXCERPT);
   return (
     `<div style="margin-top:8px;color:${C.muted};font-size:13px;line-height:19px;">${esc(factsLine(c, now))}</div>` +
@@ -132,7 +133,10 @@ function context(c: IssueContext | undefined, now: Date): string {
     (c.stale
       ? `<div style="margin:0 0 4px;color:${C.muted};font-size:12px;">${esc(STALE_EXCERPT)}</div>`
       : '') +
-    (c.excerpt.length ? c.excerpt.map(authorQuote).join('') : para('(empty)'))
+    (c.excerpt.length ? c.excerpt.map(authorQuote).join('') : para('(empty)')) +
+    (flagged && c.hiddenComments > 0
+      ? `<div style="margin:0 0 4px;color:${C.muted};font-size:12px;">${esc(hiddenCommentsLine(c.hiddenComments))}</div>`
+      : '')
   );
 }
 
@@ -237,7 +241,7 @@ function proposalCard(
       (r.reviewPr && !r.injectionDetected && !discussionOpen(r)
         ? `<div style="margin-top:10px;">${button(pullUrl(repo, r.reviewPr), `Review PR #${r.reviewPr}`)}</div>`
         : '') +
-      context(ctx, now) +
+      context(ctx, now, r.injectionDetected || triage?.assessment.injectionDetected === true) +
       `<div style="margin-top:12px;">${badge(VERDICT[r.verdict], VERDICT_TONE[r.verdict])}${badge(
         r.makesSense ? 'Makes sense' : 'Does not make sense',
         r.makesSense ? 'green' : 'red',
@@ -287,7 +291,8 @@ function triageCard(
     item.issue,
     item.title,
     repo,
-    context(ctx, now) + `<div style="margin-top:12px;">${triageDetails(item.assessment)}</div>`,
+    context(ctx, now, item.assessment.injectionDetected) +
+      `<div style="margin-top:12px;">${triageDetails(item.assessment)}</div>`,
   );
 }
 

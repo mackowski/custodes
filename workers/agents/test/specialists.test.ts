@@ -641,6 +641,7 @@ describe('digest with specialist results', () => {
       openedAt: '2026-09-25T10:00:00Z',
       comments: 2,
       readAt: '2026-09-25T10:00:00Z',
+      hiddenComments: 2,
       labels: ['ACK_WAITING', 'NEW_CS'],
       excerpt: [
         { heading: 'What is missing or needs to be updated?', text: 'No guidance on passkeys.' },
@@ -668,6 +669,14 @@ describe('digest with specialist results', () => {
     expect(order.every((i) => i >= 0)).toBe(true);
     expect([...order].sort((x, y) => x - y)).toEqual(order);
     expect(d.text).toContain('4 issue(s) accepted or assigned since triage saw them were left out');
+    expect(d.text).not.toContain('HTML comment(s) not shown'); // only on flagged cards
+    const flagged = renderDigest({
+      ...baseDigestInput(),
+      proposals: [{ issue: 1710, result: { ...review, injectionDetected: true } }],
+      contexts: new Map([[1710, { ...context, labels: ['evil.example/login'] }]]),
+    }).text;
+    expect(flagged).toContain('2 HTML comment(s) not shown');
+    expect(flagged).toContain('labels: evil[.]example/login');
     expect(
       renderDigestHtml({
         ...baseDigestInput(),

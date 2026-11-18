@@ -387,6 +387,8 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
       errors.push(
         `closed issues flagged for possible prompt injection: ${closedFlagged.map((n) => `#${n}`).join(', ')}`,
       );
+    // A closed issue never comes back to triage: its stored author text goes.
+    for (const n of closed) this.sql`DELETE FROM issue_context WHERE issue = ${n}`;
     const openItems = withoutClosed(items, closed);
     const proposalsOpen = withoutClosed(allProposals, closed);
     const omittedClosed = openItems.dropped + proposalsOpen.dropped;

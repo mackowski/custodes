@@ -16,6 +16,7 @@ import { renderDigest } from '../src/agents/triage/digest.js';
 import {
   authorExcerpt,
   BODY_CHARS,
+  countComments,
   digestContexts,
   type IssueContext,
   issueContext,
@@ -664,6 +665,7 @@ describe('digest card contexts', () => {
     openedAt: '2026-11-17T00:00:00Z',
     comments: 0,
     readAt: '2026-11-17T00:00:00Z',
+    hiddenComments: 0,
     labels: ['ACK_WAITING'],
     excerpt: [{ heading: null, text: `call ${author} now` }],
   });
@@ -758,6 +760,15 @@ describe('author excerpt for the digest', () => {
     );
     expect(p?.text).not.toMatch(/[\p{L}\p{N}\p{M}][.\u3002\uFF0E\uFF61][\p{L}\p{N}]/u);
     expect(p?.text).toContain('пример[.]рф');
+  });
+
+  it('counts the HTML comments it hides, and defangs the rare dot leaders', () => {
+    expect(countComments('<!-- a --> x <!-- b')).toBe(2);
+    const c = issueContext(
+      issue(9, { body: '## A\nsee evil\u2024com and evil\uFE52com\n<!-- hi -->' }),
+    );
+    expect(c.hiddenComments).toBe(1);
+    expect(c.excerpt[0]?.text).toBe('see evil[.]com and evil[.]com');
   });
 
   it('stays fast on hostile heading-like lines (no backtracking blow-up)', () => {
