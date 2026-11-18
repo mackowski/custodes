@@ -261,12 +261,10 @@ export class BrokerGitHubReader {
     return { items, truncated: true };
   }
 
-  /** Open issues carrying `label`, oldest first. Pull requests are dropped. */
-  async listOpenIssuesWithLabel(repo: string, label: string): Promise<PublicIssue[]> {
-    return (await this.listOpenIssuesWithLabelChecked(repo, label)).issues;
-  }
-
-  /** As listOpenIssuesWithLabel, and says whether the 300-issue cap cut the list short. */
+  /**
+   * Open issues carrying `label`, oldest first, and whether the 300-issue cap cut the list short.
+   * Pull requests are dropped.
+   */
   async listOpenIssuesWithLabelChecked(
     repo: string,
     label: string,

@@ -3,13 +3,27 @@
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import { sanitizeComment, verifyEvidence } from '../src/agents/specialists/evidence.js';
-import { validateImplementationCheck } from '../src/agents/specialists/implementation.js';
 import {
   validateProposalReview,
   type RawProposalReview,
 } from '../src/agents/specialists/proposal.js';
 import { inertNoLinks } from '../src/agents/triage/assess.js';
 import { renderDigestHtml } from '../src/agents/triage/digest-html.js';
+import { issueContext } from '../src/agents/triage/excerpt.js';
+import type { PublicIssue } from '../src/agents/triage/github.js';
+
+/** An issue whose body (with template-like headings) and login are attacker-chosen. */
+const hostileIssue = (login: string, text: string): PublicIssue => ({
+  number: 9,
+  title: 't',
+  body: `## ${text}\n${text}\n<!-- ${text} -->\n### How\n${text}`,
+  html_url: 'https://github.com/OWASP/CheatSheetSeries/issues/9',
+  user: { login },
+  labels: [text, 'ACK_WAITING'],
+  created_at: '2026-10-01T00:00:00Z',
+  updated_at: '2026-10-01T00:00:00Z',
+  comments: 0,
+});
 
 const hostile = fc.oneof(
   fc
@@ -246,30 +260,15 @@ describe('renderDigestHtml() properties', () => {
             files: new Map(),
           },
         );
-        const impl = validateImplementationCheck(
-          {
-            implemented: 'yes',
-            evidence: [{ file: 'A_Cheat_Sheet.md', quote: comment }],
-            mergedPrs: [5],
-            explanation: summary,
-            suggestedComment: comment,
-            injectionDetected: false,
-            confidence: 0.5,
-          },
-          {
-            repo: 'OWASP/CheatSheetSeries',
-            title,
-            ackAt: '2024-01-01T00:00:00Z',
-            pulls: [{ number: 5, merged: true, files: [] }],
-            files: new Map([['A_Cheat_Sheet.md', `${comment}\n${title}`]]),
-          },
-        );
         const html = renderDigestHtml({
           repo: 'OWASP/CheatSheetSeries',
           items: [{ issue: 1, title, url: 'https://evil.example', assessment }],
-          implementation: [{ issue: 3, result: impl }],
           proposals: [{ issue: 2, result: review }],
-          omittedAck: 0,
+          contexts: new Map([
+            [1, { ...issueContext(hostileIssue(title, comment)) }],
+            [2, { ...issueContext(hostileIssue(comment, summary)) }],
+          ]),
+          omittedTaken: 0,
           errors: [title],
           since: null,
           now: new Date('2026-10-05T07:00:00Z'),

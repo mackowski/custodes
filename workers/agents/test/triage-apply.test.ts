@@ -708,9 +708,8 @@ describe('digest apply block', () => {
     const base = {
       repo: REPO,
       items: [],
-      implementation: [],
       proposals: [{ issue: 7, result: r }],
-      omittedAck: 0,
+      omittedTaken: 0,
       errors: [],
       since: null,
       now: NOW,
