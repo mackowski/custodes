@@ -16,7 +16,10 @@ import { renderDigest } from '../src/agents/triage/digest.js';
 import {
   authorExcerpt,
   BODY_CHARS,
+  digestContexts,
+  type IssueContext,
   issueContext,
+  SPAM_EXCERPT,
   MAX_SECTIONS,
   SECTION_CHARS,
 } from '../src/agents/triage/excerpt.js';
@@ -652,6 +655,32 @@ describe('triageRequest', () => {
     ]);
     expect(r.thinking).toEqual({ type: 'disabled' });
     expect(r.model).toBe('claude-sonnet-5');
+  });
+});
+
+describe('digest card contexts', () => {
+  const ctx = (author: string): IssueContext => ({
+    author,
+    openedAt: '2026-11-17T00:00:00Z',
+    comments: 0,
+    labels: ['ACK_WAITING'],
+    excerpt: [{ heading: null, text: `call ${author} now` }],
+  });
+  it('hides the author text of likely spam, refreshes labels and skips issues with nothing stored', () => {
+    const out = digestContexts(
+      [
+        { issue: 1, assessment: { kind: 'spam' } },
+        { issue: 2, assessment: { kind: 'update' } },
+      ],
+      [{ issue: 3 }, { issue: 4 }],
+      (n) => (n === 4 ? undefined : ctx(`p${n}`)),
+      new Map([[2, { labels: ['ACK_WAITING', 'UPDATE_CS', 'bad\u202elabel'] }]]),
+    );
+    expect(out.get(1)?.excerpt).toEqual([{ heading: null, text: SPAM_EXCERPT }]);
+    expect(out.get(1)?.author).toBe('p1');
+    expect(out.get(2)?.labels).toEqual(['ACK_WAITING', 'UPDATE_CS']);
+    expect(out.get(3)?.excerpt[0]?.text).toBe('call p3 now');
+    expect(out.has(4)).toBe(false);
   });
 });
 

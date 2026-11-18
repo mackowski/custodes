@@ -47,13 +47,17 @@ individual cheat sheets.
 
   | Agent                  | Resources                                                                                     |
   | ---------------------- | --------------------------------------------------------------------------------------------- |
-  | `triage`               | `issues`, `labels`, `cheatsheets`, `timeline`                                                 |
+  | `triage`               | `issues`, `labels`, `cheatsheets` (`timeline` removed 2026-11-18, see below)                  |
   | `implementation-check` | `issue`, `timeline`, `pull_files`, `cheatsheets`, `cheatsheet`                                |
   | `proposal-review`      | `issue`, `comments`, `labels`, `cheatsheets`, `cheatsheet`, `timeline` (amendment 2026-10-13) |
 
   `cheatsheet` takes a file name matching `^[A-Za-z0-9_-][A-Za-z0-9_.-]{0,119}\.md$` (no path
   separators, no leading dot) and reads only under `cheatsheets/`. Numbered resources take a
   positive integer. The broker still builds every URL and uses `PAT_READONLY`.
+
+Amendment 2026-11-18: triage 0.3 works on new issues only and no longer dates `ACK_OBTAINED`
+for implementation-check, which it stopped calling (#132). Its `timeline` grant is removed; a broker
+test denies it. A narrowing, so no new decision is needed.
 
 ## Alternatives considered
 

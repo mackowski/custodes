@@ -134,8 +134,9 @@ function context(c: IssueContext | undefined, now: Date): string {
 
 /** The comment to paste, then the evidence links code appends; white-space keeps its lines. */
 function comment(text: string, links: string[]): string {
+  // Links alone are no comment (dropped, or an open discussion): the evidence lists them anyway.
+  if (!text.trim()) return '';
   const body = [text, ...(links.length ? ['', ...links.map((l) => `- ${l}`)] : [])].join('\n');
-  if (!body.trim()) return '';
   return (
     label('Suggested comment (model-generated, review before posting)') +
     `<div style="padding:10px 12px;border:1px dashed ${C.border};border-radius:6px;background:${C.quote};color:${C.text};font-size:14px;line-height:21px;white-space:pre-wrap;word-break:break-word;">${esc(body)}</div>`
@@ -229,7 +230,7 @@ function proposalCard(
             ? list(actions.map(esc))
             : para('No change')) +
       (r.injectionDetected ? '' : applyBlock(apply)) +
-      (r.reviewPr && !r.injectionDetected
+      (r.reviewPr && !r.injectionDetected && !discussionOpen(r)
         ? `<div style="margin-top:10px;">${button(pullUrl(repo, r.reviewPr), `Review PR #${r.reviewPr}`)}</div>`
         : '') +
       context(ctx, now) +

@@ -100,6 +100,32 @@ export function authorExcerpt(body: string | null | undefined): ExcerptPart[] {
     .filter((p) => p.text.length > 0);
 }
 
+/**
+ * The card context of every issue in a digest: the stored facts and author text, with labels as
+ * they are now when the issue changed since, and no author text for likely spam (scam text such as
+ * phone numbers or "contact me at" stays out of the inbox; the facts stay).
+ */
+export function digestContexts(
+  items: { issue: number; assessment: { kind: string } }[],
+  proposals: { issue: number }[],
+  stored: (issue: number) => IssueContext | undefined,
+  current: ReadonlyMap<number, { labels: string[] }>,
+): Map<number, IssueContext> {
+  const spam = new Set(items.filter((i) => i.assessment.kind === 'spam').map((i) => i.issue));
+  const out = new Map<number, IssueContext>();
+  for (const n of new Set([...items.map((i) => i.issue), ...proposals.map((p) => p.issue)])) {
+    const ctx = stored(n);
+    if (!ctx) continue;
+    const labelsNow = current.get(n)?.labels;
+    out.set(n, {
+      ...ctx,
+      ...(labelsNow ? { labels: labelsNow.filter(isSafeName) } : {}),
+      ...(spam.has(n) ? { excerpt: [{ heading: null, text: SPAM_EXCERPT }] } : {}),
+    });
+  }
+  return out;
+}
+
 export function issueContext(issue: PublicIssue): IssueContext {
   return {
     author: safeLogin(issue.user?.login),

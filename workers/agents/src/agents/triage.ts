@@ -23,8 +23,7 @@ import {
 } from './triage/digest.js';
 import { renderDigestHtml } from './triage/digest-html.js';
 import { describeError } from './triage/errors.js';
-import { IssueContext, issueContext, SPAM_EXCERPT } from './triage/excerpt.js';
-import { isSafeName } from './triage/prompt.js';
+import { digestContexts, IssueContext, issueContext } from './triage/excerpt.js';
 import {
   closedIn,
   currentSince,
@@ -101,7 +100,8 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
       issue   INTEGER PRIMARY KEY,
       context TEXT NOT NULL
     )`;
-    // Accepted issues went to implementation-check until triage kept to new issues (#132).
+    // shortcut: needed for the first deploy of triage 0.3 only (accepted issues went to
+    // implementation-check until then, #132); remove in the next change to this file.
     this.sql`DROP TABLE IF EXISTS acks`;
   }
 
@@ -118,15 +118,14 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
     return (await (await this.proposalReview()).enqueue(jobs.slice(0, 100))).queued;
   }
 
-  /** The stored card context of an issue, with its labels as they are now when known. */
-  private context(issue: number, labelsNow?: string[]): IssueContext | undefined {
+  /** The stored card context of an issue, if any and still valid. */
+  private storedContext(issue: number): IssueContext | undefined {
     const raw = this.sql<{
       context: string;
     }>`SELECT context FROM issue_context WHERE issue = ${issue}`[0]?.context;
     if (raw === undefined) return undefined;
     const parsed = IssueContext.safeParse(JSON.parse(raw));
-    if (!parsed.success) return undefined;
-    return labelsNow ? { ...parsed.data, labels: labelsNow.filter(isSafeName) } : parsed.data;
+    return parsed.success ? parsed.data : undefined;
   }
 
   /** Pending issues for proposal review, minus those accepted or assigned since triage saw them. */
@@ -171,8 +170,7 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
       errors.push(`proposal results unavailable: ${describeError(err)}`);
       return [];
     }
-    const label = 'proposal-review';
-    errors.push(...pending.errors.map((e) => `${label}: ${e}`));
+    errors.push(...pending.errors.map((e) => `proposal-review: ${e}`));
     const items: (SpecialistItem<ProposalReview> & {
       checkedAt: string;
       issueUpdatedAt: string;
@@ -193,7 +191,7 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
           checkedAt: r.checkedAt,
           issueUpdatedAt: r.issueUpdatedAt,
         });
-      else errors.push(`${label}: #${r.issue} result failed validation`);
+      else errors.push(`proposal-review: #${r.issue} result failed validation`);
     }
     return items;
   }
@@ -415,17 +413,7 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
       };
     }
 
-    const contexts = new Map<number, IssueContext>();
-    const spam = new Set(items.filter((i) => i.assessment.kind === 'spam').map((i) => i.issue));
-    for (const n of new Set([...items.map((i) => i.issue), ...proposals.map((p) => p.issue)])) {
-      const ctx = this.context(n, current.get(n)?.labels);
-      // Scam text (phone numbers, "contact me at") stays out of the inbox; the facts stay.
-      if (ctx)
-        contexts.set(
-          n,
-          spam.has(n) ? { ...ctx, excerpt: [{ heading: null, text: SPAM_EXCERPT }] } : ctx,
-        );
-    }
+    const contexts = digestContexts(items, proposals, (n) => this.storedContext(n), current);
     const now = new Date();
     const apply = await this.applyLinks(proposals);
     const digestInput = {

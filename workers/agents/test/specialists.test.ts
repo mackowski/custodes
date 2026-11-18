@@ -2111,6 +2111,27 @@ describe('open maintainer discussion (the #2990 case)', () => {
     expect(html).not.toContain('Review and apply');
   });
 
+  it('offers nothing to post or review on an open discussion, even with evidence or a linked PR', () => {
+    const r = {
+      ...openReview(),
+      reviewPr: 5,
+      evidence: [
+        {
+          file: 'Laravel_Cheat_Sheet.md',
+          line: 4,
+          quote: 'Routes can be excluded with the $except property.',
+          url: 'https://github.com/OWASP/CheatSheetSeries/blob/HEAD/cheatsheets/Laravel_Cheat_Sheet.md#L4',
+        },
+      ],
+    };
+    const input = { ...baseDigestInput(), proposals: [{ issue: 2990, result: r }] };
+    expect(renderDigest(input).text).not.toContain('suggested comment');
+    const html = renderDigestHtml(input);
+    expect(html).not.toContain('Suggested comment');
+    expect(html).not.toContain('Review PR #5');
+    expect(html).toContain('Laravel_Cheat_Sheet.md line 4');
+  });
+
   it('suggests a ping once the maintainers have been silent for 14 days', () => {
     const d = renderDigest({
       ...baseDigestInput(),

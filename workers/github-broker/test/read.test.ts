@@ -180,6 +180,14 @@ describe('broker read() for pr-gate', () => {
     ]);
   });
 
+  it('denies triage timelines since triage 0.3 (new issues only, #132)', async () => {
+    const fetchImpl = vi.fn();
+    expect(
+      await read(testEnv, req({ agentId: 'triage', resource: 'timeline', number: 1 }), fetchImpl),
+    ).toMatchObject({ ok: false, code: 'policy_denied' });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
   it('denies pr-gate timelines and file contents before any network call', async () => {
     const fetchImpl = vi.fn();
     const gate = (over: Partial<BrokerReadRequest>) => req({ agentId: 'pr-gate', ...over });

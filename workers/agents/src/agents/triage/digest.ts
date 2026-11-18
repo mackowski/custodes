@@ -116,8 +116,9 @@ function evidenceLines(evidence: VerifiedEvidence[]): string[] {
 
 function commentBlock(comment: string, evidence: VerifiedEvidence[]) {
   const links = evidence.map((e) => e.url);
+  // Links alone are no comment (dropped, or an open discussion): the evidence lists them anyway.
+  if (!comment.trim()) return [];
   const body = [comment, ...(links.length ? ['', ...links.map((l) => `- ${l}`)] : [])].join('\n');
-  if (!body.trim()) return [];
   return [
     '  suggested comment (model-generated, review before posting):',
     ...body.split('\n').map((l) => `    | ${l}`),
