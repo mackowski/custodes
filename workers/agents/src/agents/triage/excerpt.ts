@@ -124,6 +124,8 @@ export function digestContexts(
   proposals: { issue: number }[],
   stored: (issue: number) => IssueContext | undefined,
   current: ReadonlyMap<number, { labels: string[]; updatedAt: string }>,
+  /** False when the issue-state read failed or was cut short: then every text may be stale. */
+  complete = true,
 ): Map<number, IssueContext> {
   const spam = new Set(items.filter((i) => i.assessment.kind === 'spam').map((i) => i.issue));
   const out = new Map<number, IssueContext>();
@@ -135,7 +137,9 @@ export function digestContexts(
       ...ctx,
       ...(now ? { labels: now.labels.filter(isSafeName) } : {}),
       // A newer version may have edited the text (or removed something pasted by mistake).
-      ...(now && Date.parse(now.updatedAt) > Date.parse(ctx.readAt) ? { stale: true } : {}),
+      ...(!complete || (now && Date.parse(now.updatedAt) > Date.parse(ctx.readAt))
+        ? { stale: true }
+        : {}),
       ...(spam.has(n) ? { excerpt: [{ heading: null, text: SPAM_EXCERPT }] } : {}),
     });
   }

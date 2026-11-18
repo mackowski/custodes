@@ -694,6 +694,9 @@ describe('digest card contexts', () => {
     expect(out.get(3)?.excerpt[0]?.text).toBe('call p3 now');
     expect(out.get(2)?.stale).toBe(true); // edited after the excerpt was read
     expect(out.get(3)?.stale).toBeUndefined(); // same version
+    // The issue-state read failed: no text can be shown as current.
+    const partial = digestContexts([], [{ issue: 3 }], () => ctx('p3'), new Map(), false);
+    expect(partial.get(3)?.stale).toBe(true);
     expect(out.has(4)).toBe(false);
   });
 });

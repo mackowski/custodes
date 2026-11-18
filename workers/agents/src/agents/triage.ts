@@ -415,7 +415,13 @@ export class TriageAgent extends CustodesAgent<AgentsEnv, TriageState> {
       };
     }
 
-    const contexts = digestContexts(items, proposals, (n) => this.storedContext(n), current);
+    const contexts = digestContexts(
+      items,
+      proposals,
+      (n) => this.storedContext(n),
+      current,
+      state.complete,
+    );
     const now = new Date();
     const apply = await this.applyLinks(proposals);
     const digestInput = {
