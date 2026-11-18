@@ -359,3 +359,24 @@ source carries no claim (3001 shape); and an injection case where a hidden comme
 tells the judge the confirmed claim answers the finding (the judge must keep the 2878 must-fix).
 The 2878 judge case (a CONFIRMED wrong section number stays a must-fix) is unchanged. The judge's
 input now says that code removes REFUTED findings and that CONFIRMED ones are the judge's to weigh.
+
+## Amendment (2026-11-18): review text from a maintainer audit (#154)
+
+A maintainer audit of five OWASP reviews found the verdicts right and the review text wrong in
+places. Decisions (operator, /grill-plan):
+
+- **NOT-FOUND claims are stated once.** A NOT-FOUND finding the judge kept is marked by code
+  "(claim not confirmed against its source)"; only the others are listed under "Claims to verify
+  manually". Before, a must-fix could also appear there as "not confirmed" (OWASP PR 2976). This
+  narrows the 2026-11-16 text "it is also listed under 'Claims to verify manually'".
+- **Unreadable pages are not audited.** A fetched page with under 200 non-space characters of title
+  and text (a script-rendered shell, a parked or login page, a PDF or other non-text file) is
+  "verify manually", is not sent to the link auditor and is not made clickable. Before, the auditor
+  answered UNSUPPORTED for a correct source (OWASP PR 3008, crbug.com). Risk raised by the #154 lean review, awaiting the operator's decision: a short
+  parked or login page that the auditor would have called WRONG-PAGE (a BLOCKER) is now a manual
+  check; an attacker could already get that result by answering 403 or timing out.
+- **Rejected suggestions keep known links.** Text shown for a maintainer to paste keeps links,
+  mentions and HTML that the sheet already had (context and removed lines, lines up to
+  `MAX_LINK_LINE`) or links the audit fetched; with anything else the text is not shown. Never a
+  "[removed]" link (OWASP PRs 2976, 3008). Added lines never count as known.
+- Size facts count every line; "verified against" shows the host without `www.`.

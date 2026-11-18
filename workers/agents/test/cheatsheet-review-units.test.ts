@@ -1873,6 +1873,58 @@ describe('render.inertCode and rejected suggestions', () => {
     expect(body).not.toContain('[removed]');
   });
 
+  it('shows a rejected code suggestion whose mention or HTML the sheet already had (#154 review)', () => {
+    const hunks = new Map([
+      [
+        'cheatsheets/A.md',
+        parsePatch(['@@ -1,2 +1,2 @@', ' @Override <br>', '-b', '+B'].join('\n')),
+      ],
+    ]);
+    const out = checkSuggestions(
+      [{ file: 'cheatsheets/A.md', line: 99, replacement: '@Override <br> fixed', rationale: 'r' }],
+      hunks,
+      new Set(),
+    );
+    expect(out.rejected[0]).toMatchObject({ text: '@Override <br> fixed' });
+    expect(inertCode(out.rejected[0]?.text ?? '', out.rejected[0]?.keep)).toBe(
+      '@Override <br> fixed',
+    );
+  });
+
+  it('skips over-long lines when collecting known tokens, so a hostile line cannot stall the run', () => {
+    const long = `${'<a'.repeat(3_000)} https://ok.example/x`;
+    const hunks = new Map([
+      ['cheatsheets/A.md', parsePatch(['@@ -1,2 +1,2 @@', ` ${long}`, '-b', '+B'].join('\n'))],
+    ]);
+    const out = checkSuggestions(
+      [
+        {
+          file: 'cheatsheets/A.md',
+          line: 99,
+          replacement: 'see https://ok.example/x',
+          rationale: 'r',
+        },
+      ],
+      hunks,
+      new Set(),
+    );
+    // The link sits only on a skipped line, so it counts as unknown and the text is not shown.
+    expect(out.rejected[0]).toMatchObject({ text: '', keep: [] });
+  });
+
+  it('does not trust a link only because the author added it on a "+" line (#154 review)', () => {
+    const EVIL = 'https://evil.example/login';
+    const hunks = new Map([
+      ['cheatsheets/A.md', parsePatch(['@@ -1,1 +1,2 @@', ' a', `+see [x](${EVIL})`].join('\n'))],
+    ]);
+    const out = checkSuggestions(
+      [{ file: 'cheatsheets/A.md', line: 99, replacement: `B ([x](${EVIL})).`, rationale: 'r' }],
+      hunks,
+      new Set(),
+    );
+    expect(out.rejected[0]).toMatchObject({ text: '', keep: [] });
+  });
+
   it('shows no text for a suggestion that adds a link the pull request does not have', () => {
     const hunks = new Map([['cheatsheets/A.md', parsePatch(PATCH)]]);
     const out = checkSuggestions(

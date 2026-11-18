@@ -944,10 +944,25 @@ describe('cheatsheet-review: external links', () => {
     expect(r.models.calls.some((c) => c.role === 'link-auditor')).toBe(false);
     const body = reviewActs(r)[0]?.body ?? '';
     expect(body).toContain('| `https://example.com/doc` | new | verify manually |');
-    expect(body).toMatch(/no readable text on the page/);
+    expect(body).toMatch(/almost no readable text: the page may need a browser/);
     expect(body).not.toContain('UNSUPPORTED');
     // Not fetched as readable, so not clickable either.
     expect(body).not.toContain('<https://example.com/doc>');
+  });
+
+  it('says a PDF link is not a text page, rather than that it needs a browser (#154 review)', async () => {
+    const r = await drive({
+      scenario: withLink(),
+      fetchImpl: () =>
+        Promise.resolve(
+          new Response('%PDF-1.7', { headers: { 'content-type': 'application/pdf' } }),
+        ),
+    });
+    expect(r.out).toMatchObject({ ok: true, status: 'posted' });
+    expect(r.models.calls.some((c) => c.role === 'link-auditor')).toBe(false);
+    const body = reviewActs(r)[0]?.body ?? '';
+    expect(body).toContain('| `https://example.com/doc` | new | verify manually |');
+    expect(body).toMatch(/not a text page: a PDF or other file/);
   });
 
   it('fetches and audits a URL once when two sheets cite it', async () => {

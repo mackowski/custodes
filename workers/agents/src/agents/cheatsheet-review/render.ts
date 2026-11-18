@@ -9,6 +9,7 @@ import { INLINE_COMMENT_BODY_MAX } from '@custodes/schema';
 import { DIMENSION, type ClaimResult } from './claims.js';
 import { inOneHunk, type Hunk } from './diff.js';
 import { LINEUP, model, type Role, type RoleOutcome } from './lineup.js';
+import { MAX_LINK_LINE } from './links.js';
 import type { ChangeClass } from './scope.js';
 import type { Dimension, Item, ReviewDecision } from './types.js';
 
@@ -77,21 +78,32 @@ export interface InlineComment {
 
 export interface CheckedSuggestions {
   comments: InlineComment[];
-  /** Suggestions that could not be placed on the diff, rendered in the body instead. */
   /**
+   * Suggestions that could not be placed on the diff, rendered in the body instead.
    * `text`: the proposed replacement, shown inert so a maintainer can apply it by hand (#79.5).
-   * `keep`: links in it that the pull request or the link audit already has, shown as they are.
+   * `keep`: links, mentions or HTML in it that the sheet already had, or links the link audit
+   * fetched, shown as they are.
    * A replacement with any other link, mention or HTML is not shown at all (its text is empty):
    * a "[removed]" link in paste-ready text is a dead link (OWASP PRs 2976, 3008).
    */
   rejected: { file: string; line: number; why: string; text: string; keep: string[] }[];
 }
 
-/** Links the pull request already shows for a file (any hunk line) or the link audit fetched. */
-function knownLinks(hunks: readonly Hunk[] | undefined, allowed: ReadonlySet<string>): Set<string> {
+/**
+ * Risky tokens (links, mentions, HTML) already in the sheet before the pull request (context and
+ * removed lines), plus links the link audit fetched and did not flag. Never an added line: the
+ * author writes those, and the audit may have rejected the link there (#154 review). Lines over
+ * MAX_LINK_LINE are skipped, as in links.ts: RISKY is not linear on hostile input, and a skipped
+ * token only counts as unknown (its suggestion is not shown).
+ */
+function knownTokens(
+  hunks: readonly Hunk[] | undefined,
+  allowed: ReadonlySet<string>,
+): Set<string> {
   const known = new Set(allowed);
   for (const l of (hunks ?? []).flatMap((h) => h.lines))
-    for (const t of l.text.match(RISKY) ?? []) if (/^(https?:\/\/|www\.)/i.test(t)) known.add(t);
+    if (l.kind !== '+' && l.text.length <= MAX_LINK_LINE)
+      for (const t of l.text.match(RISKY) ?? []) known.add(t.trim());
   return known;
 }
 
@@ -110,11 +122,13 @@ export function checkSuggestions(
 ): CheckedSuggestions {
   const out: CheckedSuggestions = { comments: [], rejected: [] };
   const taken = new Set<string>();
+  const knownByFile = new Map<string, Set<string>>();
   for (const s of suggestions) {
     const hunks = hunksByFile.get(s.file);
     const start = s.startLine ?? s.line;
     const reject = (why: string) => {
-      const known = knownLinks(hunks, allowed);
+      const known = knownByFile.get(s.file) ?? knownTokens(hunks, allowed);
+      knownByFile.set(s.file, known);
       const risky = (s.replacement.match(RISKY) ?? []).map((t) => t.trim());
       const unknown = risky.filter((t) => !known.has(t));
       out.rejected.push(

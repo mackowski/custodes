@@ -934,9 +934,15 @@ describe('claims.enforceClaims: the judge cannot bring a removed finding back', 
     expect(JSON.stringify(out)).not.toContain('0.10.3');
   });
 
-  it('keeps a NOT-FOUND finding where the judge put it (it is also listed for the maintainer)', () => {
+  it('keeps a NOT-FOUND finding where the judge put it, marked as not confirmed', () => {
     const d = decision({ mustFix: [item('rand 0.10.3 does not exist; pin rand 0.9.')] });
-    expect(enforceClaims(d, [result('NOT-FOUND', RAND)])).toEqual({ decision: d, removed: 0 });
+    const { decision: out, removed } = enforceClaims(d, [result('NOT-FOUND', RAND)]);
+    expect(removed).toBe(0);
+    expect(out.verdict).toBe(d.verdict);
+    expect(out.mustFix).toHaveLength(1);
+    expect(out.mustFix[0]?.text).toBe(
+      'rand 0.10.3 does not exist; pin rand 0.9. (claim not confirmed against its source)',
+    );
   });
 
   it("REFUTED removes only the claimant's own dimension; a corroborating finding elsewhere stays", () => {
@@ -1036,6 +1042,19 @@ describe('claims.enforceClaims: the judge cannot bring a removed finding back', 
     const { decision: out, removed } = enforceClaims(d, [result('CONFIRMED', doubt)]);
     expect(out).toEqual(d);
     expect(removed).toBe(0);
+  });
+
+  it('marks a NOT-FOUND finding the judge kept, so an unchecked claim never reads as checked (#154 review)', () => {
+    const d = decision({
+      mustFix: [
+        item('Section 3.1.3 of NIST SP 800-190 is embedded malware; cite 3.1.4.', { line: 3 }),
+      ],
+    });
+    const { decision: out } = enforceClaims(d, [result('NOT-FOUND', finding())]);
+    expect(out.mustFix[0]?.text).toMatch(
+      /cite 3\.1\.4\. \(claim not confirmed against its source\)$/,
+    );
+    expect(out.verdict).toBe(d.verdict);
   });
 
   it('lists a NOT-FOUND claim to verify manually only when the judge did not take it up (OWASP PR 2976)', () => {

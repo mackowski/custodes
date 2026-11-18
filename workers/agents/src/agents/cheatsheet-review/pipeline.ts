@@ -236,7 +236,13 @@ async function linkStage(snap: Snapshot, deps: PipelineDeps): Promise<LinkStage>
       });
     else if (got.kind === 'unreachable') notes.push(`${link.url.slice(0, 300)} (${got.why})`);
     else if (unreadable)
-      notes.push(`${link.url.slice(0, 300)} (no readable text on the page; it may need a browser)`);
+      notes.push(
+        `${link.url.slice(0, 300)} (${
+          got.excerpt.startsWith('(non-text content')
+            ? 'not a text page: a PDF or other file the link audit does not read'
+            : 'almost no readable text: the page may need a browser, or be a parked or login page'
+        })`,
+      );
     else {
       allowed.add(link.url);
       pages.push({
