@@ -530,6 +530,8 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
           } else if (outcome.code === 'unknown_outcome') {
             // The answer was lost: the comment may be posted and the PR may even be closed (and a
             // maintainer may reopen it). Never retried; a maintainer decides, as after a reopen.
+            // It may have closed, so it counts towards the daily close cap.
+            this.setState({ ...this.state, closesToday: this.state.closesToday + 1 });
             this.store(pr, 'flag', { ...detail, why: CLOSE_UNKNOWN, rung: 'human' }, now);
             errors.push(
               `#${pr.number}: close outcome unknown; the PR may be commented or closed, check by hand`,

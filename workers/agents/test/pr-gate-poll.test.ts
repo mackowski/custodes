@@ -215,12 +215,20 @@ describe('pr-gate poll budgets', () => {
         const second = await agent.poll();
         const row = i.sql<{ outcome: string; detail: string }>`SELECT outcome, detail
           FROM decisions WHERE pr = ${p.number}`[0];
-        return { first, second, row, errors: agent.state.lastErrors };
+        return {
+          first,
+          second,
+          row,
+          errors: agent.state.lastErrors,
+          closes: agent.state.closesToday,
+        };
       } finally {
         i.env = original;
       }
     });
     expect(acts).toBe(1);
+    // It may have closed, so it counts towards the daily close cap.
+    expect(r.closes).toBe(1);
     expect(r.first.detail).toBe('1 open, 1 evaluated, 1 close attempt(s)');
     expect(r.second.detail).toBe('1 open, 0 evaluated, 0 close attempt(s)');
     expect(r.row?.outcome).toBe('flag');

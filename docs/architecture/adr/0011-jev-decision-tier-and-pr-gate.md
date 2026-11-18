@@ -246,8 +246,7 @@ transport stays its single exception: the Diagnose probe on 2026-10-26 (run 4034
 
 The per-PR cap from the 2026-10-26 amendment goes from 4 to 12 evaluations per UTC day. On
 2026-11-17 two PRs under active maintainer review (#2976, #2901) reached 4 with ordinary rule-only
-decisions, and a further change would have waited until the next day. Every evaluation still needs a
-change (or a retry after an error) and the 30-minute grace period, and most end at the rules without
+decisions, and a further change would have waited until the next day. Every evaluation still needs a change and the 30-minute grace period, or a retry after an error, and most end at the rules without
 Jev. The per-poll (30) and per-day (300) caps are unchanged, so total Jev and read spend is bounded
 as before. The trade-off: 25 PRs edited all day (was 75) can now use up the daily budget and leave
 the gate off until 00:00 UTC. That fails safe (nothing is closed, the summary reports the spent
@@ -257,4 +256,5 @@ per day, instead of when the last allowed evaluation runs.
 A close whose broker answer is lost (a crash or an unreadable response after the request was sent)
 is now flagged `close_unknown` and left to a maintainer instead of being retried: with the higher
 cap a retry could otherwise post the close comment up to 12 times a day, and the close may have
-happened, so a maintainer's reopen must stay final (as with `reopened_after_close`).
+happened, so a maintainer's reopen must stay final (as with `reopened_after_close`), and it counts
+towards the daily close cap.
