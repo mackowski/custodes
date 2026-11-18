@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { CALLER_AGENTS, CallerName } from '@custodes/schema';
+import { isLive } from '../../../scripts/do-namespace-rules.js';
 
 /**
  * What a finished agent cutover leaves behind (ADR 0018, docs/runbooks/agent-cutover.md), derived
@@ -17,7 +18,7 @@ interface Move {
 }
 interface Wrangler {
   name?: string;
-  durable_objects?: { bindings?: { class_name: string }[] };
+  durable_objects?: { bindings?: { class_name: string; script_name?: string }[] };
   exports?: Record<string, { state?: string; transferred_to?: string }>;
 }
 
@@ -36,10 +37,9 @@ const moves = Object.entries(JSON.parse(read('scripts/agent-moves.json')) as Rec
   .filter(([name]) => !name.startsWith('$'))
   .map(([name, m]) => ({ name, ...m }));
 const shared = jsonc('workers/agents/wrangler.jsonc');
-const liveInShared = (c: string): boolean =>
-  (shared.exports !== undefined && c in shared.exports && shared.exports[c]?.state === undefined) ||
-  (shared.durable_objects?.bindings?.some((b) => b.class_name === c) ?? false);
-const done = moves.filter((m) => m.classes.every((c) => !liveInShared(c)));
+// The deploy guard's own rule (scripts/do-namespace-rules.ts), so this test, the guard and
+// agent-cutover-config.ts cannot disagree on what "live" means (security review of #146).
+const done = moves.filter((m) => m.classes.every((c) => !isLive(shared, c)));
 
 describe('agent moves (scripts/agent-moves.json)', () => {
   it('lists each class and each agent id once, and a Worker directory that exists', () => {

@@ -13,6 +13,7 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isLive, type WranglerConfig } from './do-namespace-rules.ts';
 
 interface Move {
   target: string;
@@ -55,20 +56,6 @@ export const MOVES: Readonly<Record<string, Move>> = Object.fromEntries(
     .map(([name, v]) => [name, asMove(name, v)]),
 );
 
-interface DoBinding {
-  name: string;
-  class_name: string;
-}
-interface WranglerConfig {
-  name?: string;
-  migrations?: unknown;
-  exports?: Record<string, unknown>;
-  durable_objects?: { bindings?: DoBinding[] };
-  triggers?: unknown;
-  queues?: unknown;
-  [key: string]: unknown;
-}
-
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 /** wrangler.jsonc without full-line comments or trailing commas (the repo's configs use only those). */
@@ -81,23 +68,14 @@ function readJsonc(path: string): WranglerConfig {
   return JSON.parse(text) as WranglerConfig;
 }
 
-/** Whether a config runs the class itself: an `exports` entry without a `state`, or a binding. */
-function liveIn(config: WranglerConfig, className: string): boolean {
-  const e = config.exports?.[className] as { state?: string } | undefined;
-  return (
-    (e !== undefined && e.state === undefined) ||
-    (config.durable_objects?.bindings ?? []).some((b) => b.class_name === className)
-  );
-}
-
 const [agent = ''] = process.argv.slice(2);
 if (agent === 'moved') {
-  // Moves none of whose classes custodes-agents still declares live (an `exports` entry without a
-  // `state`, or a binding): one line each, `<Class,Class> <dir> <Worker>`, for the deploy guard
+  // Moves none of whose classes custodes-agents still declares live (`isLive`, the deploy guard's
+  // own rule in do-namespace-rules.ts, so the two cannot disagree): one line each, `<Class,Class> <dir> <Worker>`, for the deploy guard
   // (the target must still own them). Since the tombstones were dropped, every move counts as done.
   const shared = readJsonc(join(root, 'workers/agents/wrangler.jsonc'));
   for (const m of Object.values(MOVES)) {
-    const done = m.classes.every((c) => !liveIn(shared, c));
+    const done = m.classes.every((c) => !isLive(shared, c));
     if (done) console.log(`${m.classes.join(',')} ${m.dir} ${m.target}`);
   }
   process.exit(0);
