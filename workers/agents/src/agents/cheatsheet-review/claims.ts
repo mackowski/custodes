@@ -472,7 +472,10 @@ export const DIMENSION: Readonly<Record<ReviewerRole, Dimension>> = {
 
 /** The code-written mark on a confirmed finding. */
 export function verifiedNote(r: ClaimResult): string {
-  return ` (verified against ${r.host ?? 'its source'}, ${inertText(r.finding.claim.locator, 80)})`;
+  // Without "www.": the review defangs www. hosts in model text, and "www\[.\]rfc-editor.org" in
+  // an author-facing note reads as a typo (OWASP PRs 2976, 3004). A bare host is not a link anyway.
+  const host = r.host?.replace(/^www\./i, '') ?? 'its source';
+  return ` (verified against ${host}, ${inertText(r.finding.claim.locator, 80)})`;
 }
 
 /** Sentences of `text` that do not mention any of the claims. */
@@ -608,6 +611,21 @@ export function claimLog(results: readonly ClaimResult[], removedItems: number) 
       })),
     },
   };
+}
+
+/**
+ * NOT-FOUND claims for "Claims to verify manually": only those the judge did not take up. A claim
+ * whose finding is already an item of the review would contradict it there (OWASP PR 2976: a
+ * must-fix also listed as "not confirmed").
+ */
+export function claimsToVerify(
+  results: readonly ClaimResult[],
+  d: Pick<ReviewDecision, 'mustFix' | 'shouldFix' | 'nits' | 'outOfScope'>,
+): ClaimResult[] {
+  const items = [...d.mustFix, ...d.shouldFix, ...d.nits, ...d.outOfScope];
+  return results.filter(
+    (r) => r.verdict === 'NOT-FOUND' && !items.some((i) => refersTo(i, r.finding)),
+  );
 }
 
 /**

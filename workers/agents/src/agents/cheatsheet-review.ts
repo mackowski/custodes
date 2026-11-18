@@ -33,7 +33,7 @@ import {
   type Snapshot,
 } from './cheatsheet-review/input.js';
 import { fetchLink, fetchSource, type ToMarkdown } from './cheatsheet-review/links.js';
-import { refutedNote, claimLog } from './cheatsheet-review/claims.js';
+import { claimLog, claimsToVerify, refutedNote } from './cheatsheet-review/claims.js';
 import { reviewPipeline } from './cheatsheet-review/pipeline.js';
 import { limiter } from './cheatsheet-review/runner.js';
 import { checkSuggestions, reviewBody, reviewEvent } from './cheatsheet-review/render.js';
@@ -368,7 +368,7 @@ export class CheatsheetReviewAgent extends CustodesAgent<AgentsEnv, CheatsheetRe
       linkNotes: result.linkNotes,
       linkChecks: result.linkChecks,
       allowed: result.allowed,
-      claimsToVerify: result.claims.filter((c) => c.verdict === 'NOT-FOUND'),
+      claimsToVerify: claimsToVerify(result.claims, d),
     });
     const trig = { kind: 'webhook' as const, ref: `label:${labelEvent}` };
     // The label is the operator's go-ahead: if it was removed, or the author pushed, during the

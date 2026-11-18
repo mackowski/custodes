@@ -23,6 +23,7 @@ import {
   scanLinks,
   type AddedLink,
   MAX_EXTERNAL_LINKS,
+  MIN_READABLE_CHARS,
   type FetchedLink,
   type SourceDoc,
 } from './links.js';
@@ -217,8 +218,14 @@ async function linkStage(snap: Snapshot, deps: PipelineDeps): Promise<LinkStage>
       );
     await deps.guard();
     const got = await deps.limit(() => deps.fetchLink(link.url));
+    // A page with almost no text (a script-rendered shell, a binary file) cannot support or refute
+    // anything: the auditor would answer UNSUPPORTED for a correct source (OWASP PR 3008,
+    // crbug.com). Code says "verify manually" instead; the page is not sent and not linked.
+    const unreadable =
+      got.kind === 'page' &&
+      `${got.title}${got.excerpt}`.replace(/\s+/g, '').length < MIN_READABLE_CHARS;
     if (got.kind === 'broken') check(link, `broken (HTTP ${got.status})`);
-    else if (got.kind === 'unreachable') check(link, 'verify manually');
+    else if (got.kind === 'unreachable' || unreadable) check(link, 'verify manually');
     else check(link, 'not judged');
     if (got.kind === 'broken')
       findings.push({
@@ -228,6 +235,8 @@ async function linkStage(snap: Snapshot, deps: PipelineDeps): Promise<LinkStage>
         problem: `Link \`${link.url.slice(0, 300)}\` is broken (HTTP ${got.status}).`,
       });
     else if (got.kind === 'unreachable') notes.push(`${link.url.slice(0, 300)} (${got.why})`);
+    else if (unreadable)
+      notes.push(`${link.url.slice(0, 300)} (no readable text on the page; it may need a browser)`);
     else {
       allowed.add(link.url);
       pages.push({

@@ -11,6 +11,7 @@ import {
   claimId,
   claimLog,
   claimStage,
+  claimsToVerify,
   enforceClaims,
   excerptFor,
   HEAD_CHARS,
@@ -1035,6 +1036,24 @@ describe('claims.enforceClaims: the judge cannot bring a removed finding back', 
     const { decision: out, removed } = enforceClaims(d, [result('CONFIRMED', doubt)]);
     expect(out).toEqual(d);
     expect(removed).toBe(0);
+  });
+
+  it('lists a NOT-FOUND claim to verify manually only when the judge did not take it up (OWASP PR 2976)', () => {
+    const kept = finding({ line: 3 });
+    const dropped = finding(
+      { line: 9, problem: 'Section 2.2 says a recipient may accept a bare LF.' },
+      { locator: '2.2' },
+    );
+    const d = decision({
+      mustFix: [
+        item('Section 3.1.3 of NIST SP 800-190 is embedded malware; cite 3.1.4.', { line: 3 }),
+      ],
+    });
+    const out = claimsToVerify(
+      [result('NOT-FOUND', kept), result('NOT-FOUND', dropped), result('CONFIRMED', finding())],
+      d,
+    );
+    expect(out.map((r) => r.finding.line)).toEqual([9]);
   });
 
   it('leaves the decision alone when there are no claims', () => {

@@ -78,8 +78,21 @@ export interface InlineComment {
 export interface CheckedSuggestions {
   comments: InlineComment[];
   /** Suggestions that could not be placed on the diff, rendered in the body instead. */
-  /** `text`: the proposed replacement, shown inert so a maintainer can apply it by hand (#79.5). */
-  rejected: { file: string; line: number; why: string; text: string }[];
+  /**
+   * `text`: the proposed replacement, shown inert so a maintainer can apply it by hand (#79.5).
+   * `keep`: links in it that the pull request or the link audit already has, shown as they are.
+   * A replacement with any other link, mention or HTML is not shown at all (its text is empty):
+   * a "[removed]" link in paste-ready text is a dead link (OWASP PRs 2976, 3008).
+   */
+  rejected: { file: string; line: number; why: string; text: string; keep: string[] }[];
+}
+
+/** Links the pull request already shows for a file (any hunk line) or the link audit fetched. */
+function knownLinks(hunks: readonly Hunk[] | undefined, allowed: ReadonlySet<string>): Set<string> {
+  const known = new Set(allowed);
+  for (const l of (hunks ?? []).flatMap((h) => h.lines))
+    for (const t of l.text.match(RISKY) ?? []) if (/^(https?:\/\/|www\.)/i.test(t)) known.add(t);
+  return known;
 }
 
 /** The current text of new-side lines `start..end`, when the hunks show all of them. */
@@ -100,8 +113,22 @@ export function checkSuggestions(
   for (const s of suggestions) {
     const hunks = hunksByFile.get(s.file);
     const start = s.startLine ?? s.line;
-    const reject = (why: string) =>
-      out.rejected.push({ file: s.file, line: s.line, why, text: s.replacement });
+    const reject = (why: string) => {
+      const known = knownLinks(hunks, allowed);
+      const risky = (s.replacement.match(RISKY) ?? []).map((t) => t.trim());
+      const unknown = risky.filter((t) => !known.has(t));
+      out.rejected.push(
+        unknown.length > 0
+          ? {
+              file: s.file,
+              line: s.line,
+              why: `${why} (not shown: it adds a link, mention or HTML the pull request does not have)`,
+              text: '',
+              keep: [],
+            }
+          : { file: s.file, line: s.line, why, text: s.replacement, keep: risky },
+      );
+    };
     if (!hunks) {
       reject('file not in this pull request');
       continue;
@@ -215,17 +242,20 @@ const INVISIBLE_CHARS = /[\p{Cc}\p{Cf}]/gu;
 /**
  * Model text shown in a code block for a human to copy: no hidden characters, every link, `//host`,
  * mention and HTML tag the suggestion checks reject replaced by "[removed]" (the text is meant to be
- * pasted, so a defanged link would still carry the attacker's target), no run of four backticks
+ * pasted, so a defanged link would still carry the attacker's target) unless it is in `keep` (a link
+ * the pull request already has; checkSuggestions shows no text when any other remains), no run of four backticks
  * that could close the block, at most 600 characters with a visible marker when clipped.
  */
-export function inertCode(s: string): string {
+export function inertCode(s: string, keep: readonly string[] = []): string {
   const clipped = s.length > 600;
   const text = s
     .slice(0, 600)
     .split(/\r\n|[\n\r\u2028\u2029]/)
     .map((l) => l.replace(INVISIBLE_CHARS, ' ').trimEnd())
     .join('\n')
-    .replace(RISKY, (m) => (/^[\s(]/.test(m) ? `${m[0]}[removed]` : '[removed]'))
+    .replace(RISKY, (m) =>
+      keep.includes(m.trim()) ? m : /^[\s(]/.test(m) ? `${m[0]}[removed]` : '[removed]',
+    )
     .replace(/`{4,}/g, '```');
   return clipped ? `${text}\n…(clipped)` : text;
 }
@@ -411,7 +441,7 @@ export function reviewBody(r: ReviewBodyInput): string {
           ? [
               '',
               '  ````text',
-              ...inertCode(x.text)
+              ...inertCode(x.text, x.keep)
                 .split('\n')
                 .map((l) => `  ${l}`),
               '  ````',

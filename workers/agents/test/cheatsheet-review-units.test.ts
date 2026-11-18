@@ -1824,8 +1824,73 @@ describe('render.inertCode and rejected suggestions', () => {
         line: 99,
         why: 'lines outside the changed hunks',
         text: 'New text',
+        keep: [],
       },
     ]);
+  });
+
+  it('keeps a link the pull request already has, never a "[removed]" link (OWASP PRs 2976, 3008)', () => {
+    const FETCH = 'https://fetch.spec.whatwg.org/#cors-protocol-and-credentials';
+    const RFC = 'https://www.rfc-editor.org/rfc/rfc9112.html#section-6.3';
+    // 3008: the link was on a removed line; 2976: the link audit fetched it.
+    const hunks = new Map([
+      [
+        'cheatsheets/A.md',
+        parsePatch(['@@ -1,2 +1,2 @@', ` see [Fetch](${FETCH})`, '-b', '+B'].join('\n')),
+      ],
+    ]);
+    const out = checkSuggestions(
+      [
+        {
+          file: 'cheatsheets/A.md',
+          line: 2,
+          replacement: `B ([Fetch](${FETCH})).`,
+          rationale: 'r',
+        },
+        {
+          file: 'cheatsheets/A.md',
+          line: 99,
+          replacement: `B ([RFC 9112](${RFC})).`,
+          rationale: 'r',
+        },
+      ],
+      hunks,
+      new Set([RFC]),
+    );
+    const body = reviewBody({
+      decision: decision(),
+      outcomes: [ran('judge', 'gptSol')],
+      changeClass: 'content',
+      classWhy: 'x',
+      facts: '- f',
+      rejected: out.rejected,
+      linkNotes: [],
+      allowed: new Set<string>(),
+    });
+    expect(out.rejected).toHaveLength(2);
+    expect(body).toContain(`B ([Fetch](${FETCH})).`);
+    expect(body).toContain(`B ([RFC 9112](${RFC})).`);
+    expect(body).not.toContain('[removed]');
+  });
+
+  it('shows no text for a suggestion that adds a link the pull request does not have', () => {
+    const hunks = new Map([['cheatsheets/A.md', parsePatch(PATCH)]]);
+    const out = checkSuggestions(
+      [
+        {
+          file: 'cheatsheets/A.md',
+          line: 2,
+          replacement: 'B ([login](https://evil.example/login)).',
+          rationale: 'r',
+        },
+      ],
+      hunks,
+      new Set(),
+    );
+    expect(out.comments).toEqual([]);
+    expect(out.rejected).toHaveLength(1);
+    expect(out.rejected[0]).toMatchObject({ text: '', keep: [] });
+    expect(out.rejected[0]?.why).toMatch(/not shown/);
   });
 
   it('shows a rejected suggestion in an indented four-backtick text block with risky tokens removed', () => {
@@ -1835,6 +1900,7 @@ describe('render.inertCode and rejected suggestions', () => {
         line: 99,
         why: 'lines outside the changed hunks',
         text: 'See https://evil.example.com/x or //evil.example/x\n<img src=x> @everyone',
+        keep: [],
       },
     ];
     const body = reviewBody({
@@ -1860,7 +1926,7 @@ describe('render.inertCode and rejected suggestions', () => {
       changeClass: 'content',
       classWhy: 'x',
       facts: '- f',
-      rejected: [{ file: 'a.md', line: 1, why: 'w', text: '  ' }],
+      rejected: [{ file: 'a.md', line: 1, why: 'w', text: '  ', keep: [] }],
       linkNotes: [],
       allowed: new Set<string>(),
     });
@@ -2616,10 +2682,16 @@ describe('requests.maintainerRequests (#91)', () => {
 });
 
 describe('requests.sheetSize (#91)', () => {
-  it('counts words, non-empty lines and fenced code blocks', () => {
+  it('counts words, every line (blank ones too, as wc -l does) and fenced code blocks', () => {
     const md =
       '# Title\n\nSome words here.\n\n```js\nlet a = 1;\n```\n\n~~~\nx\n~~~\n```\nunclosed\n';
-    expect(sheetSize(md)).toEqual({ words: 16, lines: 10, codeBlocks: 2 });
+    expect(sheetSize(md)).toEqual({ words: 16, lines: 13, codeBlocks: 2 });
+  });
+
+  it('counts lines like the diff: no final newline, CRLF and blank lines (OWASP PR 3004 shape)', () => {
+    expect(sheetSize('a\n\nb').lines).toBe(3);
+    expect(sheetSize('a\r\n\r\nb\r\n').lines).toBe(3);
+    expect(sheetSize('\n').lines).toBe(1);
   });
 
   it('is all zero for an empty file', () => {
