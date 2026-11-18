@@ -172,7 +172,7 @@
       [
         {
           'type': 'javascript',
-          'value': "((o) => !o.findings.some((f) => f.claim && /rfc10027/.test(f.claim.sourceUrl ?? '') && /not (been )?(established|verified|confirmed)|cannot (be )?(verif|check|confirm)|(may|might) not exist|does not exist|unverifi/i.test(f.problem)))(JSON.parse(output))",
+          'value': "((o) => !o.findings.some((f) => f.claim && /rfc10027/.test(f.claim.sourceUrl ?? '') && /not (been )?(established|verified|confirmed)|cannot (be )?(verif|check|confirm)|(may|might) not exist|does not exist|unverifi|no evidence|could not (find|verify|confirm)|fabricated|hallucinat|nonexistent|non-existent/i.test(f.problem)))(JSON.parse(output))",
         },
       ],
   },
