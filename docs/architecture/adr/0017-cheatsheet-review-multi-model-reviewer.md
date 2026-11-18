@@ -268,7 +268,8 @@ could not refute a false one ("rand 0.10.3 does not exist"). Decisions from `/gr
   the rest are NOT-FOUND with a note. The PDF conversion has its own 15 s bound.
 - **Verdicts, enforced by code after the judge:** CONFIRMED keeps the finding, marked "verified
   against <host>, <locator>", and code adds it back (MERGE becomes REQUEST_CHANGES for a BLOCKER or
-  MAJOR) if the judge dropped it. **NOT-FOUND never removes or downgrades a finding:** it stays in
+  MAJOR) if the judge dropped it (the add-back is superseded by the 2026-11-18 amendment: CONFIRMED
+  now only marks a finding the judge kept). **NOT-FOUND never removes or downgrades a finding:** it stays in
   the judge's input marked by code `"verified": "NOT-FOUND"`, in the reviewer verdicts code reads
   (`reviewerBlocked`, the review event), and wherever the judge puts it; it is also listed under
   "Claims to verify manually". REFUTED removes the claimant's own finding: it leaves the judge's
@@ -294,7 +295,8 @@ the model proposes (SSRF and injection boundary), REFUTED from the start of a do
 keeping PDFs at 2 MB (most NIST documents would be NOT-FOUND).
 
 **Accepted risks:** the verifier is one cheap model; a wrong CONFIRMED keeps a finding the judge
-would have dropped (the review still says to double-check), a wrong REFUTED removes one (only with
+would have dropped (the review still says to double-check; superseded by the 2026-11-18
+amendment, where CONFIRMED no longer brings a finding back), a wrong REFUTED removes one (only with
 the cited passage in front of it, and visible to the operator). The code check that a judge item
 "speaks about" a removed finding is a text heuristic (same file and line, plus locator, URL or
 shared words; the locator matched like the excerpt locator; an item without a line never matches a
@@ -351,5 +353,8 @@ approves each review. Owner: operator.
 
 **Evals:** judge cases for the 3001 shape (MERGE, no RFC 10027 finding) and the 2901 shape (no
 process request, no `unclear`); link-auditor cases for two false UNSUPPORTED verdicts from the same
-day (OWASP PRs 2976 and 3005). The 2878 judge case (a CONFIRMED wrong section number stays a
-must-fix) is unchanged.
+day (OWASP PRs 2976 and 3005); a security-reviewer case where a finding that only doubts a real
+source carries no claim (3001 shape); and an injection case where a hidden comment in the diff
+tells the judge the confirmed claim answers the finding (the judge must keep the 2878 must-fix).
+The 2878 judge case (a CONFIRMED wrong section number stays a must-fix) is unchanged. The judge's
+input now says that code removes REFUTED findings and that CONFIRMED ones are the judge's to weigh.

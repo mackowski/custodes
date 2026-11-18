@@ -67,6 +67,8 @@ function citeAgain(prior: AddedLink, link: AddedLink): void {
  * reference definition, a code sample); any further new sentence is judged too (`citeAgain`).
  */
 export function mergeCitation(prior: AddedLink, link: AddedLink): void {
+  // Display only: whichever citation swapped the target from another site, the table shows it.
+  if (link.replaced !== undefined) prior.replaced ??= link.replaced;
   const newOverMoved = link.previous === undefined && prior.previous !== undefined;
   const sentenceOverMarkup = prior.markup === true && !link.markup;
   if (!newOverMoved && !sentenceOverMarkup) {

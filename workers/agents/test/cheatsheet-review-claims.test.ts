@@ -1011,16 +1011,9 @@ describe('claims.enforceClaims: the judge cannot bring a removed finding back', 
     );
   });
 
-  it('never adds back a CONFIRMED finding the judge dropped, and keeps its verdict', () => {
-    const d = decision({ verdict: 'MERGE', mustFix: [] });
-    const { decision: out, removed } = enforceClaims(d, [result('CONFIRMED', finding())]);
-    expect(out).toEqual(d);
-    expect(removed).toBe(0);
-  });
-
-  it('keeps MERGE when a confirmed claim refutes its own finding (OWASP PR 3001)', () => {
+  it('never adds back a CONFIRMED finding the judge dropped, and keeps its verdict (OWASP PR 3001)', () => {
     // The reviewer doubted that a real RFC exists; the verifier confirmed the RFC's title, which
-    // refutes the finding. The judge dropped it; code must not bring it back as a must-fix.
+    // refutes the finding. The judge dropped it; code must not bring it back or change the verdict.
     const doubt = finding(
       {
         severity: 'MAJOR',
@@ -1039,10 +1032,9 @@ describe('claims.enforceClaims: the judge cannot bring a removed finding back', 
       mustFix: [],
       shouldFix: [item('Say that the prompts do not stop the phishing case.', { line: 93 })],
     });
-    const { decision: out } = enforceClaims(d, [result('CONFIRMED', doubt)]);
-    expect(out.verdict).toBe('MERGE');
-    expect(out.mustFix).toEqual([]);
-    expect(out.shouldFix).toEqual(d.shouldFix);
+    const { decision: out, removed } = enforceClaims(d, [result('CONFIRMED', doubt)]);
+    expect(out).toEqual(d);
+    expect(removed).toBe(0);
   });
 
   it('leaves the decision alone when there are no claims', () => {
