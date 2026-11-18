@@ -21,8 +21,15 @@ export const BrokerRequest = z.object({
 });
 export type BrokerRequest = z.infer<typeof BrokerRequest>;
 
+/**
+ * Every code the broker answers an action with. `unauthenticated` (signature refused, 401) and
+ * `refused` (an entrypoint that serves no agent, 403) come from before any execution: an agent that
+ * cannot parse them would have to treat a definite refusal as an unknown outcome.
+ */
 export const BrokerDenialCode = z.enum([
   'invalid',
+  'unauthenticated',
+  'refused',
   'unknown_agent',
   'policy_denied',
   'halted',

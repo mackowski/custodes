@@ -254,6 +254,8 @@ export function wakeAt(updatedAt: string, now: Date): Date {
 /** Sticky flags: decisions that later polls must not undo by themselves. */
 export const REOPENED = 'reopened_after_close';
 export const CLOSE_FAILED = 'close_failed';
+/** The broker's answer to a close was lost: the PR may have been closed (and since reopened). */
+export const CLOSE_UNKNOWN = 'close_unknown';
 
 export interface PriorDecision {
   outcome: string;
@@ -274,7 +276,8 @@ export function nextStep(
 ): 'reopened' | 'decide' | 'leave' {
   if (!prior) return 'decide';
   if (prior.outcome === 'close') return 'reopened';
-  if (prior.why === REOPENED) return 'leave';
+  // A maintainer decides on both: the PR may have been closed and reopened since.
+  if (prior.why === REOPENED || prior.why === CLOSE_UNKNOWN) return 'leave';
   // Our own comment bumped updated_at; only new commits justify another attempt.
   if (prior.why === CLOSE_FAILED) return prior.headSha !== pr.head.sha ? 'decide' : 'leave';
   if (prior.headSha !== pr.head.sha || prior.prUpdatedAt !== pr.updated_at) return 'decide';

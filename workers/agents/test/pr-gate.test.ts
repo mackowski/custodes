@@ -812,6 +812,11 @@ describe('nextStep (what a poll does with a PR it has seen before)', () => {
     expect(nextStep({ ...pr, updated_at: '2026-10-15T00:00:00Z' }, failed, true)).toBe('leave');
     expect(nextStep({ ...pr, head: { sha: 'new' } }, failed, true)).toBe('decide');
   });
+  it('leaves a close with a lost answer to a maintainer, even after new commits', () => {
+    const unknown = prior({ outcome: 'flag', why: 'close_unknown' });
+    expect(nextStep({ ...pr, updated_at: '2026-10-15T00:00:00Z' }, unknown, true)).toBe('leave');
+    expect(nextStep({ ...pr, head: { sha: 'new' } }, unknown, true)).toBe('leave');
+  });
   it('retries errors, and would-close only once enforcing', () => {
     expect(nextStep(pr, prior({ outcome: 'error', why: 'GatewayError 503' }), false)).toBe(
       'decide',

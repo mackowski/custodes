@@ -9,7 +9,7 @@ import {
   signRequest,
   verifyCallerIntent,
 } from '@custodes/core';
-import { AgentKeys, type CallerName, verificationKeys } from '@custodes/schema';
+import { AgentKeys, BrokerResponse, type CallerName, verificationKeys } from '@custodes/schema';
 import { CALLER_AGENTS } from '../src/callers.js';
 import { Hono } from 'hono';
 import broker, { agentRoutes, callerApp, sharedAgentApp } from '../src/index.js';
@@ -450,5 +450,22 @@ describe('the default (unsigned) entrypoint serves no agent (ADR 0018)', () => {
       {} as ExecutionContext,
     );
     expect(res.status).toBe(403);
+  });
+});
+
+describe('refusals agents must be able to parse', () => {
+  // An agent that cannot parse a refusal treats it as a lost answer (pr-gate: close_unknown), so
+  // every refusal /v1/act can send before executing must fit BrokerResponse.
+  it('parses the unsigned 401, the unknown-route 404 and the shared entrypoint 403', async () => {
+    const unsigned = await call('/v1/act', { agentId: 'pr-gate' }, { headers: {} });
+    const unknownRoute = await call('/v1/nope', { agentId: 'pr-gate' });
+    const shared = await sharedAgentApp().request(
+      '/v1/act',
+      { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' },
+      env,
+    );
+    expect([unsigned.status, unknownRoute.status, shared.status]).toEqual([401, 404, 403]);
+    for (const res of [unsigned, unknownRoute, shared])
+      expect(BrokerResponse.safeParse(await res.json()).success).toBe(true);
   });
 });
