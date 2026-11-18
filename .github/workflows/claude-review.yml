@@ -41,6 +41,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 1
+          # The review talks to GitHub with `gh` and GH_TOKEN, never with git: keep the checkout's
+          # token out of the runner's files, where a review session could read it.
+          persist-credentials: false
       # The security review is skipped only when every changed file is documentation: anything under
       # docs/, or Markdown outside dot-directories (.claude/ skills and agents are prompts) other than
       # CLAUDE.md. evals/ is not documentation: its providers run in CI with the gateway token. Any
@@ -118,7 +121,7 @@ jobs:
             references and final verdict. Never include secrets or environment values. If the review
             could not run, post that instead, with the reason.
           claude_args: >-
-            --allowedTools "Agent,Task,Skill,Read,Grep,Glob,Bash(gh pr diff *),Bash(gh pr view *),Bash(gh pr checks *),Bash(gh pr comment *),Bash(gh run list *),Bash(gh run view *),Bash(git diff *),Bash(git log *),mcp__github_inline_comment__create_inline_comment"
+            --allowedTools "Agent,Task,Skill,Read,Grep,Glob,Bash(gh pr diff *),Bash(gh pr view *),Bash(gh pr checks *),Bash(gh pr comment *),Bash(gh run list *),Bash(gh run view *),mcp__github_inline_comment__create_inline_comment"
             --disallowedTools "Read(//home/runner/work/_temp/**),Read(//proc/**)"
             --max-turns 60
             --max-budget-usd 1.5

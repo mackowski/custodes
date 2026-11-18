@@ -62,6 +62,12 @@ export const MAX_EVALUATIONS_PER_DAY = 300;
 export const MAX_EVALUATIONS_PER_PR_PER_DAY = 4;
 /** A poll flag older than this belongs to a poll that hung; the next poll may start. */
 export const POLL_LOCK_MS = 15 * 60_000;
+/**
+ * How long one poll may keep starting evaluations. A model timeout bounds one call, not a poll:
+ * 30 evaluations of two 30 s decisions each could run past the lock, a second poll would start,
+ * and both would close the same pull request. The margin covers the evaluation in flight.
+ */
+export const POLL_BUDGET_MS = POLL_LOCK_MS - 3 * 60_000;
 /** Time Clef may take in one poll, in total; it is not asked again once this is spent. */
 export const CLEF_BUDGET_PER_POLL_MS = 60_000;
 /** Jev vs Clef rows are kept this long (ADR 0015): enough to decide on an agreement mode. */
@@ -151,6 +157,8 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
 
   /** When the running poll started. In memory on purpose: a poll does not survive eviction. */
   private pollingSince: number | null = null;
+  /** `POLL_BUDGET_MS`; a field so a test can shorten it. */
+  private pollBudgetMs = POLL_BUDGET_MS;
 
   /** Jev vs Clef answers for the PR being decided; written by store() with its outcome. */
   private pendingComparisons: Comparison[] = [];
@@ -284,14 +292,18 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
     }
     this.pollingSince = started;
     try {
-      return await this.pollOnce(opts);
+      return await this.pollOnce(opts, started);
     } finally {
       // A newer poll may have taken over a stale flag; only the owner clears it.
       if (this.pollingSince === started) this.pollingSince = null;
     }
   }
 
-  private async pollOnce(opts: { manual?: boolean }): Promise<{ ok: boolean; detail: string }> {
+  private async pollOnce(
+    opts: { manual?: boolean },
+    /** This poll's lock value (`pollingSince`). */
+    started: number,
+  ): Promise<{ ok: boolean; detail: string }> {
     try {
       await this.guard();
     } catch (err) {
@@ -364,6 +376,16 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
     let closedThisRun = 0;
     for (const pr of listed.pulls) {
       if (evaluated >= MAX_EVALUATIONS_PER_RUN) break;
+      // Measured from the lock's own start, not from after the first awaits.
+      if (Date.now() - started > this.pollBudgetMs) {
+        // Stop while the lock still holds; the rest is decided by the next poll.
+        errors.push(
+          'poll stopped at its time budget; the remaining pull requests wait for the next',
+        );
+        const at = nextSlot(new Date());
+        if (!nextWake || at < nextWake) nextWake = at;
+        break;
+      }
       const row = this.sql<DecisionRow>`SELECT * FROM decisions WHERE pr = ${pr.number}`[0];
       const step = nextStep(
         pr,
@@ -507,6 +529,11 @@ export class PrGateAgent extends CustodesAgent<AgentsEnv, PrGateState> {
           closedThisRun >= MAX_CLOSES_PER_RUN
         ) {
           this.store(pr, 'would_close', detail, now);
+        } else if (this.pollingSince !== started) {
+          // The time budget bounds the model calls; a broker read has no timeout. If this poll
+          // ran past its lock, a newer one is deciding this pull request: never act as well.
+          errors.push(`#${pr.number}: not closed, this poll lost its lock`);
+          return 'stop';
         } else {
           closedThisRun++;
           const outcome = await this.close(pr, decision, runId, now, turn);

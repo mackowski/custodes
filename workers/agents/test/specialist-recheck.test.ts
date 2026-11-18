@@ -207,6 +207,24 @@ describe('SpecialistAgent recheck (ADR 0019)', () => {
   });
 });
 
+describe('specialists queue order', () => {
+  it('runs a job that never failed before one that did', async () => {
+    const failed = 1000 + ++n;
+    const fresh = 1000 + ++n;
+    await inAgent(async (a) => {
+      a.run = () =>
+        Promise.reject(Object.assign(new Error('bad output'), { name: 'StructuredOutputError' }));
+      await a.enqueue([{ issue: failed, issueUpdatedAt: '2026-11-10T10:00:00.000Z' }]);
+      a.sql`UPDATE jobs SET attempts = 1, enqueued_at = '2026-11-01T00:00:00.000Z'`;
+      await a.enqueue([{ issue: fresh, issueUpdatedAt: '2026-11-10T10:00:00.000Z' }]);
+      await a.workOne();
+      // The fresh one ran (and got this failure's weight); the older, failed one still waits.
+      expect(jobs(a).find((j) => j.issue === fresh)?.attempts).toBe(MAX_FAILURES / 4);
+      expect(jobs(a).find((j) => j.issue === failed)?.attempts).toBe(1);
+    });
+  });
+});
+
 describe('specialists daily budget (operator, 2026-11-16)', () => {
   it('gives the sandbox a larger daily job budget than OWASP', async () => {
     const budget = async (instance: string) =>

@@ -43,6 +43,8 @@ export function pinKeys(file: KeysFile, rows: Row[], today: string): string[] {
     const pinnedBefore = file.callers[row.caller] ?? [];
     const retired = file.retired[row.caller] ?? [];
     const active = [...pinnedBefore];
+    if (new Set(row.keys.map((k) => k.kid)).size !== row.keys.length)
+      throw new Error(`${row.caller}: the same key id twice; investigate, do not pin`);
     for (const k of row.keys) {
       if (!KID.test(k.kid) || !X.test(k.x)) throw new Error(`malformed key for ${row.caller}`);
       if (k.state !== 'active' && k.state !== 'next')

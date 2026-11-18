@@ -42,8 +42,8 @@ export interface JevConfig {
 
 /**
  * A decision is a short typed answer: all 40 calls in the gateway logs up to 2026-11-17 took under
- * 2 s. A stalled one must not hold a pr-gate poll towards its lock; a timeout is a thrown rung,
- * which flags and never acts.
+ * 2 s. This bounds one call; a poll of many calls is bounded by pr-gate's own time budget
+ * (`POLL_BUDGET_MS`). A timeout is a thrown rung, which flags and never acts.
  */
 export const JEV_TIMEOUT_MS = 30_000;
 

@@ -228,9 +228,11 @@ export abstract class SpecialistAgent extends CustodesAgent<AgentsEnv, Specialis
     const day = now.toISOString().slice(0, 10);
     const used = this.state.day === day ? this.state.jobsToday : 0;
     if (used >= this.jobsPerDay()) return false; // the first triage poll after midnight UTC resumes
-    // enqueued_at doubles as "not before": a failed job is pushed into the future.
+    // enqueued_at doubles as "not before": a failed job is pushed into the future. Jobs that
+    // never failed come first: an infrastructure failure ends the chain, so a failing job at the
+    // head would stop the whole queue every day.
     const job = this.sql<JobRow>`SELECT issue, issue_updated_at, attempts FROM jobs
-      WHERE enqueued_at <= ${now.toISOString()} ORDER BY enqueued_at, issue LIMIT 1`[0];
+      WHERE enqueued_at <= ${now.toISOString()} ORDER BY attempts, enqueued_at, issue LIMIT 1`[0];
     if (!job) return false;
     const runId = crypto.randomUUID();
     this.setState({ ...this.state, day, jobsToday: used + 1, lastRunAt: now.toISOString() });
