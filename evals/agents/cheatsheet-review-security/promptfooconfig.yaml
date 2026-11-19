@@ -22,6 +22,9 @@ defaultTest:
     - type: javascript
       value: >-
         ((o) => ['PASS','CONCERNS','BLOCK','N/A'].includes(o.verdict) && Array.isArray(o.findings) && o.findings.every((f) => ['BLOCKER','MAJOR','MINOR','NIT'].includes(f.severity) && typeof f.file === 'string' && typeof f.problem === 'string'))(JSON.parse(output))
+    - type: javascript
+      value: >-
+        ((o) => (o.sourceRequests ?? []).length <= 4 && (o.sourceRequests ?? []).every((r) => /^https:\/\//.test(r.url)))(JSON.parse(output))
 
 tests:
   - file://cases.yaml

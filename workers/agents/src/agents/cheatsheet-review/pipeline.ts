@@ -36,8 +36,15 @@ import {
   type ClaimResult,
 } from './claims.js';
 import { invariantBreach, type RoleOutcome } from './lineup.js';
-import { JUDGE_PROMPT, LINK_PROMPT, reviewerPrompt, SCOPE_PROMPT } from './prompts.js';
-import { runRole, type RunnerDeps } from './runner.js';
+import {
+  JUDGE_PROMPT,
+  LINK_PROMPT,
+  reviewerPrompt,
+  SCOPE_PROMPT,
+  SOURCES_PROMPT,
+} from './prompts.js';
+import { runOnce, runRole, type RunnerDeps } from './runner.js';
+import { fetchSources, mergePasses, sourcesMessage, type FetchedSource } from './sources.js';
 import { classify, isSheet, REVIEWERS_FOR, type ChangeClass, type ReviewerRole } from './scope.js';
 import {
   LinkAudit,
@@ -101,6 +108,59 @@ export interface PipelineResult {
   claimItemsRemoved: number;
   /** #155: judge sentences about the review's own machinery, removed by code. */
   machinerySentencesRemoved: number;
+  /** ADR 0020: what the security reviewer's source fetch did; undefined when it asked for none. */
+  sources: SourceLog | undefined;
+}
+
+export interface SourceLog {
+  fetched: FetchedSource[];
+  /** The second pass: ran, failed, or skipped because no page could be read. */
+  pass2: 'ran' | 'failed' | 'skipped';
+  added: number;
+}
+
+interface SourcePass {
+  report: ReviewerReport;
+  docs: ReadonlyMap<string, SourceDoc>;
+  log: SourceLog | undefined;
+}
+
+/**
+ * ADR 0020: when the security reviewer asked for sources, fetch them and give them to the model that
+ * answered pass 1. Only additions survive (`mergePasses`); with no request, or no model to ask, pass 1
+ * stands. Never throws for a fetch or a model failure.
+ */
+async function sourcePass(
+  outcome: RoleOutcome,
+  pass1: ReviewerReport,
+  input: string,
+  deps: PipelineDeps,
+): Promise<SourcePass> {
+  const asked = pass1.sourceRequests ?? [];
+  if (asked.length === 0 || outcome.status === 'unavailable')
+    return { report: mergePasses(pass1, undefined), docs: new Map(), log: undefined };
+  const { log, docs } = await fetchSources(asked, deps);
+  const pass2 =
+    docs.size === 0
+      ? undefined
+      : await runOnce(
+          deps,
+          'security-reviewer',
+          outcome.model,
+          ReviewerReport,
+          SOURCES_PROMPT,
+          sourcesMessage(input, pass1, log, docs),
+        );
+  const report = mergePasses(pass1, pass2);
+  return {
+    report,
+    docs,
+    log: {
+      fetched: log,
+      pass2: docs.size === 0 ? 'skipped' : pass2 ? 'ran' : 'failed',
+      added: report.findings.length - pass1.findings.length,
+    },
+  };
 }
 
 /** One checked external link, as the review lists it. Status words come from code or the enum. */
@@ -380,20 +440,19 @@ export async function reviewPipeline(snap: Snapshot, deps: PipelineDeps): Promis
   const roles = REVIEWERS_FOR[changeClass];
 
   const reports: PipelineResult['reports'] = [];
+  let sources: SourcePass | undefined;
   const [links, ...others] = await Promise.all([
     roles.includes('link-auditor') ? linkStage(snap, deps) : Promise.resolve(undefined),
     ...roles
       .filter((r): r is Exclude<ReviewerRole, 'link-auditor'> => r !== 'link-auditor')
-      .map(async (role) => ({
-        role,
-        r: await runRole(
-          deps,
-          role,
-          ReviewerReport,
-          reviewerPrompt(role),
-          reviewerMessage(snap, { withRelated: role === 'duplication-checker' }),
-        ),
-      })),
+      .map(async (role) => {
+        const input = reviewerMessage(snap, { withRelated: role === 'duplication-checker' });
+        const r = await runRole(deps, role, ReviewerReport, reviewerPrompt(role), input);
+        if (role !== 'security-reviewer' || !r.answer) return { role, r };
+        // ADR 0020: the security reviewer's sources, read in a second pass by the same model.
+        sources = await sourcePass(r.outcome, r.answer, input, deps);
+        return { role, r: { ...r, answer: sources.report } };
+      }),
   ]);
   if (links) {
     if (links.outcome) outcomes.push(links.outcome);
@@ -406,7 +465,7 @@ export async function reviewPipeline(snap: Snapshot, deps: PipelineDeps): Promis
   const notRun = roles.filter((r) => !reports.some((x) => x.role === r));
 
   // #90: claims are checked before the judge, which sees only what the verdicts leave.
-  const claims = await claimStage(snap, reports, deps);
+  const claims = await claimStage(snap, reports, deps, sources?.docs);
   if (claims.outcome) outcomes.push(claims.outcome);
   const judgedReports = reportsForJudge(reports, claims.results);
 
@@ -470,5 +529,6 @@ export async function reviewPipeline(snap: Snapshot, deps: PipelineDeps): Promis
     claims: claims.results,
     claimItemsRemoved: enforced?.removed ?? 0,
     machinerySentencesRemoved: plain?.removed ?? 0,
+    sources: sources?.log,
   };
 }

@@ -202,6 +202,8 @@ export async function claimStage(
   snap: Snapshot,
   reports: readonly { role: ReviewerRole; report: ReviewerReport }[],
   deps: ClaimDeps,
+  /** ADR 0020: sources the security reviewer fetched, accepted as cited sources with no refetch. */
+  fetched: ReadonlyMap<string, SourceDoc> = new Map(),
 ): Promise<ClaimStageResult> {
   const claimed = reports.flatMap(({ role, report }) =>
     role === 'link-auditor'
@@ -213,7 +215,7 @@ export async function claimStage(
   const results: ClaimResult[] = [];
   if (claimed.length === 0) return { results, outcome: undefined, injectionSeen: false };
 
-  const sources = sourceUrls(snap);
+  const sources = new Set([...sourceUrls(snap), ...fetched.keys()]);
   const cited: ((typeof claimed)[number] & { source: string })[] = [];
   for (const c of claimed) {
     const source = citedSource(c.finding.claim.sourceUrl, sources);
@@ -224,7 +226,7 @@ export async function claimStage(
         by: 'code',
         reason: onLongLine(snap, c.finding.claim.sourceUrl)
           ? 'the source line is too long to read, so it was not fetched'
-          : 'the source is not a link in this pull request, so it was not fetched',
+          : 'the source is not a link in this pull request or a source the reviewer read, so it was not fetched',
       });
     else cited.push({ ...c, source });
   }
@@ -240,7 +242,7 @@ export async function claimStage(
       reason: `not checked: at most ${MAX_CLAIMS} claims are checked per review`,
     });
 
-  const docs = new Map<string, SourceDoc>();
+  const docs = new Map<string, SourceDoc>(fetched);
   const asked: { input: ClaimInput; c: (typeof cited)[number] }[] = [];
   for (const c of cited.slice(0, MAX_CLAIMS)) {
     const host = hostOf(c.source);

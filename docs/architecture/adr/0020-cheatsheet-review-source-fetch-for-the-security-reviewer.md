@@ -34,8 +34,11 @@ We will give the `security-reviewer` role a **bounded, two-pass source fetch**.
    host is allowed**; there is no allowlist (operator decision). The excerpt starts at the element
    the `#fragment` names when the page has it, and is cut at 12,000 characters.
 3. **Pass 2** goes to the model that answered pass 1, with no fallback chain of its own. It gets
-   its pass-1 report and the pages, each wrapped in `untrusted('source:<host>')`, and returns the
-   final `ReviewerReport`. It may add findings, each with a `claim` that points at a fetched page.
+   its pass-1 report and the pages, each wrapped in `untrusted('source:<host>')`, and returns a
+   `ReviewerReport` of **additional** findings only, each with a `claim` that can point at a
+   fetched page. Code merges the two passes: every pass-1 finding stays, and the stronger verdict
+   wins (`mergePasses`). A fetched page can add a finding but never remove or weaken one (threat
+   model, 2026-11-19).
 4. The **claim verifier** accepts the pages the tool fetched as sources, next to the links in the
    pull request. It reuses the fetched text and does not fetch them again.
 5. **Failures** never block the review. If pass 1 was unavailable, nothing is fetched. If a fetch
@@ -85,7 +88,8 @@ pass 2 cannot ask for more.
   A query string can therefore carry nothing that is not already public; this is why query
   strings are allowed. At worst, a fetch tells the attacker's server that a review ran.
 - **Injection through fetched pages.**
-  - Every page enters pass 2 only through `untrusted()`. `parseStructured()` validates the output,
+  - Every page enters pass 2 only through `untrusted()`. Pass 2 can only add findings: code keeps
+    every pass-1 finding and the stronger verdict. `parseStructured()` validates the output,
     and `markInjection` records injection attempts.
   - Pass 2 cannot fetch again.
   - Added findings still pass the claim verifier, the judge and post-judge code.

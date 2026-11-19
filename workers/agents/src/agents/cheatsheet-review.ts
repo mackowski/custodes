@@ -325,6 +325,27 @@ export class CheatsheetReviewAgent extends CustodesAgent<AgentsEnv, CheatsheetRe
     span.set('custodes.review.verdict', result.decision?.verdict);
     span.set('custodes.review.injection_seen', result.injectionSeen);
     span.set('custodes.review.machinery_sentences_removed', result.machinerySentencesRemoved);
+    // ADR 0020: hosts, statuses and code reasons only; page text only in model spans under TRACE_PAYLOADS.
+    if (result.sources) {
+      const fetched = result.sources.fetched.map((x) => `${x.host}:${x.status}`).join(', ');
+      span.set('custodes.review.sources', fetched);
+      span.set('custodes.review.sources_pass2', result.sources.pass2);
+      span.set('custodes.review.sources_added', result.sources.added);
+      console.log(
+        JSON.stringify({
+          event: 'cheatsheet-review.sources',
+          runId,
+          pull,
+          fetched: result.sources.fetched.map((x) => ({
+            host: x.host,
+            status: x.status,
+            ...(x.why ? { why: x.why } : {}),
+          })),
+          pass2: result.sources.pass2,
+          added: result.sources.added,
+        }),
+      );
+    }
     // #90: ids, counts, verdicts, hosts and code reasons only; never claim or page text.
     const claimed = claimLog(result.claims, result.claimItemsRemoved);
     if (result.claims.length > 0) {

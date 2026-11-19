@@ -10,6 +10,7 @@ import {
   LINK_PROMPT,
   reviewerPrompt,
   SCOPE_PROMPT,
+  SOURCES_PROMPT,
   VERIFIER_PROMPT,
 } from '../src/agents/cheatsheet-review/prompts.js';
 
@@ -21,6 +22,7 @@ const files: Record<string, string> = {
   'cheatsheet-review-links/system.txt': LINK_PROMPT,
   'cheatsheet-review-judge/system.txt': JUDGE_PROMPT,
   'cheatsheet-review-verifier/system.txt': VERIFIER_PROMPT,
+  'cheatsheet-review-sources/system.txt': SOURCES_PROMPT,
 };
 for (const [path, text] of Object.entries(files)) writeFileSync(new URL(path, root), text);
 console.log(`wrote ${Object.keys(files).length} prompts`);
