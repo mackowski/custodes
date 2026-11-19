@@ -41,7 +41,7 @@ import {
 } from './types.js';
 
 /** Claims checked per review, BLOCKER first, then MAJOR (then MINOR, NIT). */
-export const MAX_CLAIMS = 5;
+export const MAX_CLAIMS = 10;
 /** Characters of source text on each side of the locator. */
 export const AROUND_CHARS = 3_000;
 /** Characters from the start of the source when the locator is not in it. */

@@ -25,6 +25,7 @@ import {
   anchors,
   checkInternal,
   fetchable,
+  anchorText,
   fetchLink,
   pageText,
   maskedLine,
@@ -525,6 +526,40 @@ describe('links.fetchable', () => {
       'not a url',
     ])
       expect(fetchable(u), u).toBe(false);
+  });
+});
+
+describe('links.anchorText (#155)', () => {
+  const page =
+    '<html><body><p>Intro.</p>' +
+    'x'.repeat(50) +
+    '<h2 id="add-iptables-policies-before-dockers-rules">Add policies</h2><p>Use DOCKER-USER.</p>' +
+    '<a name="old-style"></a><p>Legacy anchor.</p></body></html>';
+
+  it('starts at the element the fragment names, by id or by name', () => {
+    expect(
+      anchorText(page, 'https://docs.example.com/p#add-iptables-policies-before-dockers-rules'),
+    ).toBe('Add policies Use DOCKER-USER. Legacy anchor.');
+    expect(anchorText(page, 'https://docs.example.com/p#old-style')).toBe('Legacy anchor.');
+  });
+
+  it('is undefined without a fragment, for a missing anchor, or for a prefix of an id', () => {
+    expect(anchorText(page, 'https://docs.example.com/p')).toBeUndefined();
+    expect(anchorText(page, 'https://docs.example.com/p#nope')).toBeUndefined();
+    expect(anchorText(page, 'https://docs.example.com/p#add-iptables')).toBeUndefined();
+  });
+
+  it('treats the fragment as text, never as a pattern', () => {
+    expect(anchorText(page, 'https://docs.example.com/p#.*')).toBeUndefined();
+  });
+
+  it('gives fetchLink an excerpt that starts at the section, marked', async () => {
+    const got = await fetchLink('https://docs.example.com/p#old-style', () =>
+      Promise.resolve(
+        new Response(page, { status: 200, headers: { 'content-type': 'text/html' } }),
+      ),
+    );
+    expect(got).toMatchObject({ kind: 'page', excerpt: '[from #old-style] Legacy anchor.' });
   });
 });
 
@@ -2008,16 +2043,19 @@ describe('links.scanLinks', () => {
     expect([...r.targetOnlyLines]).toEqual([]);
   });
 
-  it('audits every sentence that cites one URL, up to two more than the first', () => {
+  it('audits every sentence that cites one URL, up to five more than the first', () => {
     const r = scanLinks(
       SHEET,
       parsePatch(
         [
-          '@@ -1,0 +1,4 @@',
+          '@@ -1,0 +1,7 @@',
           '+True claim, see [d](https://new.example/a).',
           '+False claim, see [d](https://new.example/a).',
           '+Third claim, see [d](https://new.example/a).',
           '+Fourth claim, see [d](https://new.example/a).',
+          '+Fifth claim, see [d](https://new.example/a).',
+          '+Sixth claim, see [d](https://new.example/a).',
+          '+Seventh claim, see [d](https://new.example/a).',
         ].join('\n'),
       ),
     );
@@ -2027,10 +2065,10 @@ describe('links.scanLinks', () => {
     const text = citedText(link);
     expect(text).toContain('True claim');
     expect(text).toContain(`Also cited in ${SHEET} line 2: False claim`);
-    expect(text).toContain('Third claim');
+    expect(text).toContain('Sixth claim');
     // Past the limit a sentence is counted, never dropped without a word.
-    expect(text).not.toContain('Fourth claim');
-    expect(link.unaudited).toEqual([{ file: SHEET, line: 4 }]);
+    expect(text).not.toContain('Seventh claim');
+    expect(link.unaudited).toEqual([{ file: SHEET, line: 7 }]);
     // A sentence that merely contains an audited one is a different claim.
     const short = { ...link, line: 9, context: 'claim, see [d](https://new.example/a).' };
     delete short.more;

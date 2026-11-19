@@ -525,7 +525,7 @@ describe('claims.claimStage', () => {
     expect(r.results[0]?.host).toBeUndefined();
   });
 
-  it('checks at most 5 claims, BLOCKER first, then MAJOR; the rest are NOT-FOUND with a note', async () => {
+  it('checks at most 10 claims, BLOCKER first, then MAJOR; the rest are NOT-FOUND with a note', async () => {
     const sev: Finding['severity'][] = [
       'NIT',
       'MINOR',
@@ -534,6 +534,11 @@ describe('claims.claimStage', () => {
       'MINOR',
       'MAJOR',
       'BLOCKER',
+      'MINOR',
+      'MAJOR',
+      'BLOCKER',
+      'NIT',
+      'MINOR',
     ];
     const reports = [
       {
@@ -555,13 +560,18 @@ describe('claims.claimStage', () => {
     expect(checked.map((x) => x.finding.severity)).toEqual([
       'BLOCKER',
       'BLOCKER',
+      'BLOCKER',
+      'MAJOR',
       'MAJOR',
       'MAJOR',
       'MINOR',
+      'MINOR',
+      'MINOR',
+      'MINOR',
     ]);
     const skipped = r.results.filter((x) => x.verdict === 'NOT-FOUND');
-    expect(skipped.map((x) => x.finding.severity).sort()).toEqual(['MINOR', 'NIT']);
-    for (const s of skipped) expect(s.reason).toContain('at most 5 claims');
+    expect(skipped.map((x) => x.finding.severity)).toEqual(['NIT', 'NIT']);
+    for (const s of skipped) expect(s.reason).toContain('at most 10 claims');
   });
 
   it('turns every source failure into NOT-FOUND with the reason, and asks no model', async () => {
