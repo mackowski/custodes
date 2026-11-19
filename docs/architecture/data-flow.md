@@ -6,9 +6,11 @@ of this diagram it touches, before and after, and updates this file when the flo
 (`docs/sdlc.md`, `.github/workflows/pr-architecture.yml`). Derived from the Workers' `wrangler.jsonc` files, the broker policy and the
 gateway routes, not from memory; when they disagree, the code is right and this file is stale.
 
-Last checked against the code: 2026-11-18 (tombstones, the `isolated` policy flag and the cutover
-workflow removed; the gateway lost its unused `EMAIL_DOMAIN` var; triage keeps to new issues, drops
-its `timeline` read and stops calling implementation-check; the digest carries the author's inert text).
+Last checked against the code: 2026-11-19 (#155, cheatsheet-review 0.3.0: the public web pages the
+agent fetches are drawn, including the sources its security reviewer asks for (ADR 0020); the size
+facts no longer read the default branch. Before that, 2026-11-18: tombstones, the `isolated` policy
+flag and the cutover workflow removed; triage keeps to new issues; the digest carries the author's
+inert text).
 
 ## The whole system
 
@@ -24,6 +26,7 @@ flowchart LR
     OP["Operator<br/>browser or custodes CLI"]
     ANY["Anyone"]:::untrusted
     INMAIL["Inbound e-mail"]:::untrusted
+    WEB["Public web pages<br/>linked in PRs, or asked for by<br/>the security reviewer (ADR 0020)"]:::untrusted
   end
 
   subgraph EDGE["Cloudflare edge"]
@@ -42,7 +45,7 @@ flowchart LR
     TRI["custodes-triage<br/>triage (new issues only), proposal-review,<br/>implementation-check (paused)<br/>crons; secret: AI_GATEWAY_TOKEN"]:::secret
     TAP["custodes-triage-apply<br/>no model, no secret"]
     PRG["custodes-pr-gate<br/>crons and queue<br/>secrets: AI_GATEWAY_TOKEN, OPENROUTER_API_KEY"]:::secret
-    CSR["custodes-cheatsheet-review<br/>queue; secret: AI_GATEWAY_TOKEN<br/>Workers AI toMarkdown for PR-cited PDFs"]:::secret
+    CSR["custodes-cheatsheet-review<br/>queue; secret: AI_GATEWAY_TOKEN<br/>Workers AI toMarkdown for PDF sources"]:::secret
   end
 
   REG["custodes-agents<br/>GET /registry only<br/>no binding, no secret"]:::noauth
@@ -89,6 +92,8 @@ flowchart LR
   PRG -- "untrusted text inside untrusted()" --> AIG
   CSR -- "untrusted text inside untrusted(); PDF bytes for toMarkdown" --> AIG
   PRG -- "Jev direct, ADR 0011" --> ORT
+  CSR -- "anonymous GET, fetchable on every hop:<br/>link audit, claim sources, ≤4 sources<br/>the security reviewer asks for" --> WEB
+  WEB -- "page text, into untrusted()" --> CSR
   AIG --> ANT
   AIG --> ORT
   AIG --> WAI
@@ -105,15 +110,15 @@ answer goes through `parseStructured()` (CLAUDE.md invariant 2).
 
 ## Trust boundaries
 
-| #   | Boundary                       | What crosses it                                      | Control                                                                                                                                                                                        |
-| --- | ------------------------------ | ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| TB1 | Internet → gateway             | webhooks, operator requests, `/verify`               | webhook HMAC; Cloudflare Access JWT and approver list for `/admin` and `/agents`; service tokens may only trigger run, digest or summary                                                       |
-| TB2 | gateway → agent Workers        | queued webhook fields (no bodies), operator requests | `queuedFields()` minimises payloads; the consumer re-checks repo, label and sender (`route()`); unknown classes are a 404 (no fallback)                                                        |
-| TB3 | agent Worker → broker          | action and read requests, approval requests          | Ed25519 signature by the Worker's own key, nonce, per-Worker entrypoint admits only its agent ids; the default entrypoint refuses everything                                                   |
-| TB4 | broker → GitHub                | writes and reads                                     | policy (`policy.json`), kill switch, approvals, rate limits, audit record countersigned; PATs only here                                                                                        |
-| TB5 | GitHub text → model            | issue, PR and comment text                           | `untrusted()` envelopes, `parseStructured()` with zod, injection evals                                                                                                                         |
-| TB6 | agent Worker → e-mail          | digests, summaries, approval links                   | `send_email` `allowed_destination_addresses` = the gateway's `APPROVER_EMAILS` (`bindings.test.ts`)                                                                                            |
-| TB7 | operator click → broker action | approval decision                                    | link token bound to the action hash, single use; decided only on `BrokerAdmin` (gateway only), which verifies the approver's own Access token itself (#104); the broker re-checks the snapshot |
+| #   | Boundary                       | What crosses it                                                                                                                                    | Control                                                                                                                                                                                                                               |
+| --- | ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| TB1 | Internet → gateway             | webhooks, operator requests, `/verify`                                                                                                             | webhook HMAC; Cloudflare Access JWT and approver list for `/admin` and `/agents`; service tokens may only trigger run, digest or summary                                                                                              |
+| TB2 | gateway → agent Workers        | queued webhook fields (no bodies), operator requests                                                                                               | `queuedFields()` minimises payloads; the consumer re-checks repo, label and sender (`route()`); unknown classes are a 404 (no fallback)                                                                                               |
+| TB3 | agent Worker → broker          | action and read requests, approval requests                                                                                                        | Ed25519 signature by the Worker's own key, nonce, per-Worker entrypoint admits only its agent ids; the default entrypoint refuses everything                                                                                          |
+| TB4 | broker → GitHub                | writes and reads                                                                                                                                   | policy (`policy.json`), kill switch, approvals, rate limits, audit record countersigned; PATs only here                                                                                                                               |
+| TB5 | GitHub text → model            | issue, PR and comment text; public web pages cheatsheet-review fetched (PR links, claim sources, sources its security reviewer asks for, ADR 0020) | `untrusted()` envelopes, `parseStructured()` with zod, injection evals; fetches: `fetchable` on every hop (https, public DNS, not `custodes.work`, `api.github.com` or `*.workers.dev`), no credentials; pass 2 can only add findings |
+| TB6 | agent Worker → e-mail          | digests, summaries, approval links                                                                                                                 | `send_email` `allowed_destination_addresses` = the gateway's `APPROVER_EMAILS` (`bindings.test.ts`)                                                                                                                                   |
+| TB7 | operator click → broker action | approval decision                                                                                                                                  | link token bound to the action hash, single use; decided only on `BrokerAdmin` (gateway only), which verifies the approver's own Access token itself (#104); the broker re-checks the snapshot                                        |
 
 ## Where each credential lives
 

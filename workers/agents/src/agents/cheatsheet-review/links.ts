@@ -34,7 +34,7 @@ export interface AddedLink {
 }
 
 /** Sentences audited for one URL: the first place and this many more that cite it again. */
-export const MAX_EXTRA_CITATIONS = 2;
+export const MAX_EXTRA_CITATIONS = 5;
 
 /**
  * The same URL cited again for new text, in this file or another: the auditor answers once per
@@ -108,7 +108,12 @@ export const NON_TEXT_MARK = '(non-text content';
 const TIMEOUT_MS = 10_000;
 const MAX_BYTES = 2 * 1024 * 1024;
 const MAX_REDIRECTS = 5;
-export const EXCERPT_CHARS = 8_000;
+/** #155: like the original OWASP command, the link auditor reads most of a page. */
+export const EXCERPT_CHARS = 40_000;
+/** #155: all page excerpts in one link-audit call together. */
+export const LINK_AUDIT_CHARS = 160_000;
+/** #155: the top of the page kept in front of an anchored excerpt. */
+export const PAGE_TOP_CHARS = 500;
 
 const MD_LINK = /\]\(\s*<?([^)\s>]+)>?(?:\s+"[^"]*")?\s*\)/g;
 // Bare URLs (prose in parentheses, autolinks, href and src values). Run on text with the Markdown
@@ -443,6 +448,10 @@ export function fetchable(url: string): boolean {
   if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.internal'))
     return false;
   if (host === 'custodes.work' || host.endsWith('.custodes.work')) return false;
+  // GitHub's API is read through the broker only (invariant 1), and Workers are not sources; on
+  // every hop of every fetch (security review of #155).
+  if (host === 'api.github.com' || host === 'workers.dev' || host.endsWith('.workers.dev'))
+    return false;
   if (/^[\d.]+$/.test(host) || host.includes(':')) return false;
   return host.includes('.');
 }
@@ -530,6 +539,33 @@ export function pageText(html: string): { title: string; text: string } {
   );
   return { title: cutWhole(decoded.replace(/\s+/g, ' ').trim(), 200), text };
 }
+
+/**
+ * The visible text from the element a URL's `#fragment` names (`id` or `name`) onwards, or
+ * undefined when the URL has no fragment or the page has no such element (#155). Without it the
+ * reader sees the first 8,000 characters, and a cited section further down reads as missing (OWASP
+ * PRs 2955, 2956: the anchors existed). The search is one bounded regex over the raw HTML.
+ */
+export function anchorText(html: string, url: string): string | undefined {
+  let fragment: string;
+  try {
+    fragment = decodeURIComponent(new URL(url).hash.slice(1));
+  } catch {
+    return undefined;
+  }
+  if (fragment === '' || fragment.length > 200) return undefined;
+  const esc = fragment.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  // `id` on any element, `name` only on <a>: browsers scroll to nothing else (ninth security review).
+  const m =
+    new RegExp(`<[a-z][^<>]{0,500}?\\sid\\s*=\\s*["']?${esc}(?=["'\\s>/])`, 'i').exec(html) ??
+    new RegExp(`<a\\b[^<>]{0,500}?\\sname\\s*=\\s*["']?${esc}(?=["'\\s>/])`, 'i').exec(html);
+  if (!m) return undefined;
+  const start = m[0].startsWith('<') ? m.index : html.lastIndexOf('<', m.index);
+  return start < 0 ? undefined : pageText(html.slice(start)).text;
+}
+
+/** The marker an anchored excerpt starts with, so a reader knows where it begins. */
+export const anchorMark = (url: string) => `[from #${new URL(url).hash.slice(1, 81)}] `;
 
 /** At most `max` bytes of the body; `over` when the body had more. */
 async function readBytes(
@@ -632,12 +668,19 @@ export async function fetchLink(url: string, fetchImpl: typeof fetch): Promise<F
     }
     const body = await readCapped(res);
     const { title, text } = /html/i.test(type) ? pageText(body) : { title: '', text: body };
+    const anchored = /html/i.test(type) ? anchorText(body, url) : undefined;
     return {
       kind: 'page',
       status: res.status,
       finalUrl,
       title,
-      excerpt: cutWhole(text, EXCERPT_CHARS),
+      // The page's first lines stay in front (an RFC's "Obsoleted by" banner, ninth security review).
+      excerpt: cutWhole(
+        anchored !== undefined
+          ? `${cutWhole(text, PAGE_TOP_CHARS)} … ${anchorMark(url)}${anchored}`
+          : text,
+        EXCERPT_CHARS,
+      ),
     };
   } catch (err) {
     return { kind: 'unreachable', why: failure(err, ac.signal) };
@@ -686,8 +729,17 @@ export async function fetchSource(
     if (got.kind === 'unreachable') return { kind: 'failed', why: got.why };
     const { res } = got;
     const type = res.headers.get('content-type') ?? '';
-    if (/text\/html|application\/xhtml/i.test(type))
-      return { kind: 'text', text: pageText(await readCapped(res)).text, format: 'html' };
+    if (/text\/html|application\/xhtml/i.test(type)) {
+      const html = await readCapped(res);
+      const text = pageText(html).text;
+      // #155: the cited section first, then the whole page, so a locator is found there first.
+      const anchored = anchorText(html, url);
+      return {
+        kind: 'text',
+        text: anchored !== undefined ? `${anchorMark(url)}${anchored}\n…\n${text}` : text,
+        format: 'html',
+      };
+    }
     if (/text\/plain/i.test(type))
       return { kind: 'text', text: await readCapped(res), format: 'text' };
     if (!/application\/pdf/i.test(type)) {

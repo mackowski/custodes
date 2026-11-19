@@ -41,7 +41,7 @@ import {
 } from './types.js';
 
 /** Claims checked per review, BLOCKER first, then MAJOR (then MINOR, NIT). */
-export const MAX_CLAIMS = 5;
+export const MAX_CLAIMS = 10;
 /** Characters of source text on each side of the locator. */
 export const AROUND_CHARS = 3_000;
 /** Characters from the start of the source when the locator is not in it. */
@@ -185,7 +185,7 @@ export function excerptFor(text: string, locator: string): { excerpt: string; fo
   };
 }
 
-const hostOf = (url: string): string => {
+export const hostOf = (url: string): string => {
   try {
     return new URL(url).hostname.toLowerCase();
   } catch {
@@ -202,6 +202,10 @@ export async function claimStage(
   snap: Snapshot,
   reports: readonly { role: ReviewerRole; report: ReviewerReport }[],
   deps: ClaimDeps,
+  /** ADR 0020: sources the security reviewer fetched, accepted as cited sources with no refetch. */
+  fetched: ReadonlyMap<string, SourceDoc> = new Map(),
+  /** ADR 0020: claims on findings pass 2 added, checked after every other claim. */
+  late: (role: ReviewerRole, index: number) => boolean = () => false,
 ): Promise<ClaimStageResult> {
   const claimed = reports.flatMap(({ role, report }) =>
     role === 'link-auditor'
@@ -213,7 +217,12 @@ export async function claimStage(
   const results: ClaimResult[] = [];
   if (claimed.length === 0) return { results, outcome: undefined, injectionSeen: false };
 
-  const sources = sourceUrls(snap);
+  const prSources = sourceUrls(snap);
+  const sources = new Set([...prSources, ...fetched.keys()]);
+  // ADR 0020: a page the reviewer fetched may confirm a claim, and may refute only a claim on a
+  // finding pass 2 added; it never removes an earlier finding (third security review of #155).
+  const fetchedOnly = (c: { role: ReviewerRole; index: number; source: string }) =>
+    !late(c.role, c.index) && citedSource(c.source, prSources) === undefined;
   const cited: ((typeof claimed)[number] & { source: string })[] = [];
   for (const c of claimed) {
     const source = citedSource(c.finding.claim.sourceUrl, sources);
@@ -224,11 +233,12 @@ export async function claimStage(
         by: 'code',
         reason: onLongLine(snap, c.finding.claim.sourceUrl)
           ? 'the source line is too long to read, so it was not fetched'
-          : 'the source is not a link in this pull request, so it was not fetched',
+          : 'the source is not a link in this pull request or a source the reviewer read, so it was not fetched',
       });
     else cited.push({ ...c, source });
   }
-  cited.sort((a, b) => RANK[a.finding.severity] - RANK[b.finding.severity]);
+  const order = (c: (typeof cited)[number]) => (late(c.role, c.index) ? 10 : 0);
+  cited.sort((a, b) => order(a) - order(b) || RANK[a.finding.severity] - RANK[b.finding.severity]);
   for (const c of cited.slice(MAX_CLAIMS))
     results.push({
       role: c.role,
@@ -240,7 +250,7 @@ export async function claimStage(
       reason: `not checked: at most ${MAX_CLAIMS} claims are checked per review`,
     });
 
-  const docs = new Map<string, SourceDoc>();
+  const docs = new Map<string, SourceDoc>(fetched);
   const asked: { input: ClaimInput; c: (typeof cited)[number] }[] = [];
   for (const c of cited.slice(0, MAX_CLAIMS)) {
     const host = hostOf(c.source);
@@ -324,6 +334,8 @@ export async function claimStage(
       // A refutation needs the cited passage; the start of the document is not enough.
       else if (a.verdict === 'REFUTED' && !input.found)
         results.push(code('the locator is not in the source, so the claim cannot be refuted'));
+      else if (a.verdict === 'REFUTED' && fetchedOnly(c))
+        results.push(code('a source the reviewer fetched cannot refute an earlier finding'));
       else results.push({ ...base, verdict: a.verdict, by: 'verifier', reason: a.reason });
     }
   }
@@ -350,8 +362,9 @@ const VERDICT_RANK = { PASS: 0, CONCERNS: 1, BLOCK: 2 } as const;
 /**
  * The reports the judge sees, and the ones code reads reviewer verdicts from: REFUTED findings
  * removed, CONFIRMED and NOT-FOUND ones marked `"verified": "CONFIRMED" | "NOT-FOUND"` (a field
- * only code sets: zod strips it from model output). NOT-FOUND never removes or weakens anything:
- * only a report that lost a REFUTED finding gets the verdict of what is left, never a higher one.
+ * only code sets: zod strips it from model output). NOT-FOUND never removes or weakens anything,
+ * as in the original OWASP command (#155): only a report that lost a REFUTED finding gets the
+ * verdict of what is left, never a higher one.
  */
 export function reportsForJudge(
   reports: readonly { role: ReviewerRole; report: ReviewerReport }[],
@@ -476,18 +489,51 @@ export const UNCHECKED_NOTE = ' (claim not confirmed against its source)';
 
 /** The code-written mark on a confirmed finding. */
 export function verifiedNote(r: ClaimResult): string {
-  // Without "www.": the review defangs www. hosts in model text, and "www\[.\]rfc-editor.org" in
-  // an author-facing note reads as a typo (OWASP PRs 2976, 3004). A bare host is not a link anyway.
+  // Without "www.": inertMarkdown puts a www. host in a code span, which reads oddly inside an
+  // author-facing note (OWASP PRs 2976, 3004). A bare host is not a link anyway.
   const host = r.host?.replace(/^www\./i, '') ?? 'its source';
   return ` (verified against ${host}, ${inertText(r.finding.claim.locator, 80)})`;
 }
 
+const sentences = (text: string) => text.split(/(?<=[.!?])\s+/);
+
 /** Sentences of `text` that do not mention any of the claims. */
 function withoutSentences(text: string, gone: readonly ClaimedFinding[]): string {
-  return text
-    .split(/(?<=[.!?])\s+/)
+  return sentences(text)
     .filter((s) => !gone.some((f) => mentions(s, f, true)))
     .join(' ');
+}
+
+/**
+ * Words that name the review's own machinery. The author never sees the reviewer reports, so a
+ * sentence about them ("the reviewers' recollections do not establish…", OWASP PR 2878) reads as
+ * noise or as an excuse (#155). Only the forms the pipeline uses: "reports" alone is ordinary prose,
+ * and "the code verifier" (PKCE) or "auditors" in a logging sheet are content (lean review of #155).
+ */
+const MACHINERY =
+  /\b(?:(?:the|other|both|all|independent|some|several) reviewers?|reviewers'|reviewer reports?|link audit(?:or)?s?|the auditor|claim verifier|the verifier|recollections?|second voice|the judge)\b/i;
+
+/**
+ * The judge's rationale and reply to the author without sentences that name the machinery (#155,
+ * judge rule 8 enforced in code). An emptied rationale gets a neutral line; an emptied reply goes.
+ */
+export function withoutMachinery(d: ReviewDecision): { decision: ReviewDecision; removed: number } {
+  let removed = 0;
+  const clean = (text: string) =>
+    sentences(text)
+      .filter((s) => {
+        const hit = MACHINERY.test(s);
+        if (hit) removed++;
+        return !hit;
+      })
+      .join(' ');
+  const { replyToAuthor, ...rest } = d;
+  const rationale = clean(d.rationale) || 'The findings below give the reasons.';
+  const reply = replyToAuthor !== undefined ? clean(replyToAuthor) : undefined;
+  return {
+    decision: { ...rest, rationale, ...(reply ? { replyToAuthor: reply } : {}) },
+    removed,
+  };
 }
 
 /**
@@ -496,8 +542,9 @@ function withoutSentences(text: string, gone: readonly ClaimedFinding[]): string
  * own suggestion; another reviewer's corroborating finding in another dimension survives. No
  * sentence about a REFUTED claim stays in the rationale, close reasons, reply, dimension headlines
  * or earlier-request summaries. A NOT-FOUND finding the judge kept is marked "claim not confirmed
- * against its source". A CONFIRMED finding is marked verified where the judge kept it; code never adds a
- * dropped finding back and never changes the verdict. Runs before normaliseDecision.
+ * against its source" and keeps its severity, as in the original OWASP command (#155). A CONFIRMED
+ * finding is marked verified where the judge kept it; code never adds a dropped finding back and
+ * never changes the verdict. Runs before normaliseDecision.
  */
 export function enforceClaims(
   d: ReviewDecision,
@@ -540,7 +587,7 @@ export function enforceClaims(
   if (refuted.length > 0) {
     rationale =
       withoutSentences(d.rationale, refuted) ||
-      'Code removed the rationale: it rested on a claim that its cited source refutes.';
+      'The rationale was left out: it rested on a claim that its cited source refutes.';
     reply = replyToAuthor !== undefined ? withoutSentences(replyToAuthor, refuted) : undefined;
     dimensions = d.dimensions.map((x) => ({
       ...x,
@@ -550,7 +597,7 @@ export function enforceClaims(
       ...e,
       request:
         withoutSentences(e.request, refuted) ||
-        '(summary removed by code: it repeated a refuted claim)',
+        '(summary left out: it repeated a claim its source refutes)',
     }));
   }
 
@@ -624,17 +671,31 @@ export function claimLog(results: readonly ClaimResult[], removedItems: number) 
  * #90: the refuted claims for the operator, appended to the approval request's note (shown escaped
  * on the approval page, OWASP). Model text, made inert and clipped; empty when nothing was refuted.
  */
+/** Characters of refuted-claim entries in the approval note (its rationale is cut at 4,000). */
+// The approval rationale is cut at 4,000: refuted claims come first (they are the only trace of a
+// removed finding), then blocking links (800) and fetched hosts (about 400). Security review of #155.
+export const REFUTED_BUDGET = 2_400;
+
 export function refutedNote(results: readonly ClaimResult[]): string {
   const refuted = results.filter((r) => r.verdict === 'REFUTED');
   if (refuted.length === 0) return '';
-  // Count first and short entries: the whole rationale is cut at 4,000 characters.
+  // Count first and short entries: the whole rationale is cut at 4,000 characters. Entries stop at
+  // a budget with a count of the rest, so a cut is never silent (tenth security review of #155:
+  // the cap went from 5 to 10 claims, and hosts are the author's choice, so they are clipped).
+  const entries: string[] = [];
+  let used = 0;
+  for (const r of refuted) {
+    const e = `- ${r.finding.severity} ${inertText(r.finding.file, 120)}${r.finding.line ? `:${r.finding.line}` : ''} (${r.role}) against ${inertText(r.host ?? 'its source', 80)} at "${inertText(r.finding.claim.locator, 60)}": "${inertText(r.finding.claim.text, 150)}" Verifier: ${inertText(r.reason, 150)}`;
+    if (used + e.length > REFUTED_BUDGET) break;
+    entries.push(e);
+    used += e.length + 1;
+  }
+  const rest = refuted.length - entries.length;
   return [
     '',
     '',
     `${refuted.length} refuted claim(s), left out of the review (checked by code against the cited source; the text is model output):`,
-    ...refuted.map(
-      (r) =>
-        `- ${r.finding.severity} ${inertText(r.finding.file, 120)}${r.finding.line ? `:${r.finding.line}` : ''} (${r.role}) against ${r.host ?? 'its source'} at "${inertText(r.finding.claim.locator, 60)}": "${inertText(r.finding.claim.text, 150)}" Verifier: ${inertText(r.reason, 150)}`,
-    ),
+    ...entries,
+    ...(rest > 0 ? [`…and ${rest} more refuted claim(s); see the run's trace.`] : []),
   ].join('\n');
 }

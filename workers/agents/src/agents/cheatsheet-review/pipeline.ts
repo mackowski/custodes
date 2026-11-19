@@ -3,6 +3,7 @@
  * the claim check (#90), then the judge, then the multi-model invariant. No side effects: the
  * agent decides what to post.
  */
+import { cutWhole, inertText } from '@custodes/llm';
 import {
   judgeMessage,
   linkMessage,
@@ -24,19 +25,29 @@ import {
   type AddedLink,
   MAX_EXTERNAL_LINKS,
   NON_TEXT_MARK,
+  EXCERPT_CHARS,
+  LINK_AUDIT_CHARS,
   type FetchedLink,
   type SourceDoc,
 } from './links.js';
 import {
   claimStage,
   enforceClaims,
+  withoutMachinery,
   judgeClaims,
   reportsForJudge,
   type ClaimResult,
 } from './claims.js';
 import { invariantBreach, type RoleOutcome } from './lineup.js';
-import { JUDGE_PROMPT, LINK_PROMPT, reviewerPrompt, SCOPE_PROMPT } from './prompts.js';
-import { runRole, type RunnerDeps } from './runner.js';
+import {
+  JUDGE_PROMPT,
+  LINK_PROMPT,
+  reviewerPrompt,
+  SCOPE_PROMPT,
+  SOURCES_PROMPT,
+} from './prompts.js';
+import { runOnce, runRole, type RunnerDeps } from './runner.js';
+import { fetchSources, mergePasses, sourcesMessage, type FetchedSource } from './sources.js';
 import { classify, isSheet, REVIEWERS_FOR, type ChangeClass, type ReviewerRole } from './scope.js';
 import {
   LinkAudit,
@@ -98,6 +109,73 @@ export interface PipelineResult {
   claims: ClaimResult[];
   /** #90: judge items and suggestions code removed because they were about an unconfirmed claim. */
   claimItemsRemoved: number;
+  /** #155: judge sentences about the review's own machinery, removed by code. */
+  machinerySentencesRemoved: number;
+  /** ADR 0020: what the security reviewer's source fetch did; undefined when it asked for none. */
+  sources: SourceLog | undefined;
+}
+
+export interface SourceLog {
+  fetched: FetchedSource[];
+  /** The second pass: ran, failed, or skipped because no page could be read. */
+  pass2: 'ran' | 'failed' | 'skipped';
+  added: number;
+}
+
+interface SourcePass {
+  report: ReviewerReport;
+  /** Findings from pass 1: the merged report's first ones (mergePasses keeps them in order). */
+  pass1Findings: number;
+  /** Pass 1's own verdict: a refuted pass-2 finding never takes the report below it. */
+  pass1Verdict: ReviewerReport['verdict'];
+  docs: ReadonlyMap<string, SourceDoc>;
+  log: SourceLog | undefined;
+}
+
+/**
+ * ADR 0020: when the security reviewer asked for sources, fetch them and give them to the model that
+ * answered pass 1. Only additions survive (`mergePasses`); with no request, or no model to ask, pass 1
+ * stands. Never throws for a fetch or a model failure.
+ */
+async function sourcePass(
+  outcome: RoleOutcome,
+  pass1: ReviewerReport,
+  input: string,
+  deps: PipelineDeps,
+): Promise<SourcePass> {
+  const asked = pass1.sourceRequests ?? [];
+  if (asked.length === 0 || outcome.status === 'unavailable')
+    return {
+      report: mergePasses(pass1, undefined),
+      pass1Findings: pass1.findings.length,
+      pass1Verdict: pass1.verdict,
+      docs: new Map(),
+      log: undefined,
+    };
+  const { log, docs } = await fetchSources(asked, deps);
+  const pass2 =
+    docs.size === 0
+      ? undefined
+      : await runOnce(
+          deps,
+          'security-reviewer',
+          outcome.model,
+          ReviewerReport,
+          SOURCES_PROMPT,
+          sourcesMessage(input, pass1, log, docs),
+        );
+  const report = mergePasses(pass1, pass2, new Set(docs.keys()));
+  return {
+    report,
+    pass1Findings: pass1.findings.length,
+    pass1Verdict: pass1.verdict,
+    docs,
+    log: {
+      fetched: log,
+      pass2: docs.size === 0 ? 'skipped' : pass2 ? 'ran' : 'failed',
+      added: report.findings.length - pass1.findings.length,
+    },
+  };
 }
 
 /** One checked external link, as the review lists it. Status words come from code or the enum. */
@@ -205,7 +283,7 @@ async function linkStage(snap: Snapshot, deps: PipelineDeps): Promise<LinkStage>
     // The reason comes first: the note is cut at 400 characters when rendered.
     if (link.unaudited)
       notes.push(
-        `not audited: further sentences at ${link.unaudited
+        `not checked: further sentences at ${link.unaudited
           .slice(0, 5)
           .map((u) => `${u.file}:${u.line}`)
           .join(
@@ -214,7 +292,7 @@ async function linkStage(snap: Snapshot, deps: PipelineDeps): Promise<LinkStage>
       );
     for (const m of (link.movedAt ?? []).slice(0, 5))
       notes.push(
-        `move not judged: at ${m.file}:${m.line} ${link.url.slice(0, 150)} replaces ${m.previous.slice(0, 150)}`,
+        `link change not checked: at ${m.file}:${m.line} ${link.url.slice(0, 150)} replaces ${m.previous.slice(0, 150)}`,
       );
     await deps.guard();
     const got = await deps.limit(() => deps.fetchLink(link.url));
@@ -226,7 +304,7 @@ async function linkStage(snap: Snapshot, deps: PipelineDeps): Promise<LinkStage>
       (`${got.title}${got.excerpt}`.trim() === '' || got.excerpt.startsWith(NON_TEXT_MARK));
     if (got.kind === 'broken') check(link, `broken (HTTP ${got.status})`);
     else if (got.kind === 'unreachable' || unreadable) check(link, 'verify manually');
-    else check(link, 'not judged');
+    else check(link, 'not checked');
     if (got.kind === 'broken')
       findings.push({
         severity: 'BLOCKER',
@@ -259,16 +337,31 @@ async function linkStage(snap: Snapshot, deps: PipelineDeps): Promise<LinkStage>
   let outcome: RoleOutcome | undefined;
   let injectionSeen = false;
   if (pages.length > 0) {
-    const r = await runRole(deps, 'link-auditor', LinkAudit, LINK_PROMPT, linkMessage(pages));
+    // Like the original OWASP command, the auditor reads most of each page (#155): up to 40,000
+    // characters a page, within a total that keeps one call bounded.
+    const share = Math.min(EXCERPT_CHARS, Math.floor(LINK_AUDIT_CHARS / pages.length));
+    const r = await runRole(
+      deps,
+      'link-auditor',
+      LinkAudit,
+      LINK_PROMPT,
+      linkMessage(pages.map((p) => ({ ...p, excerpt: cutWhole(p.excerpt, share) }))),
+    );
     outcome = r.outcome;
     injectionSeen = r.answer?.injectionSeen === true;
     for (const v of r.answer?.links ?? []) {
       const page = pages.find((p) => p.url === v.url);
       if (!page) continue;
-      const status = linkStatus(v.status, page.previous !== undefined);
+      // Injection taints the auditor's own call, as it does the verifier's: never OK.
+      const said = linkStatus(v.status, page.previous !== undefined);
+      const status =
+        injectionSeen && (said === 'OK' || said === 'SAME-RESOURCE') ? 'UNSUPPORTED' : said;
       const row = checks.find((c) => c.url === page.url);
       if (row) row.status = status;
       if (status === 'OK' || status === 'SAME-RESOURCE') continue;
+      // As in the original OWASP command: WRONG-PAGE, UNSUPPORTED and DIFFERENT-RESOURCE block;
+      // LOW-AUTHORITY and STALE are concerns. The operator sees each blocking link on the approval
+      // page with its URL (#155).
       findings.push({
         severity: status === 'LOW-AUTHORITY' || status === 'STALE' ? 'MINOR' : 'BLOCKER',
         file: page.file,
@@ -278,7 +371,7 @@ async function linkStage(snap: Snapshot, deps: PipelineDeps): Promise<LinkStage>
       if (status !== 'LOW-AUTHORITY' && status !== 'STALE') allowed.delete(page.url);
     }
     if (r.outcome.status === 'unavailable')
-      notes.push('the link auditor was unavailable; sources were not judged');
+      notes.push('the sources could not be checked; check them by hand');
   }
   const verdict = findings.some((f) => f.severity === 'BLOCKER')
     ? 'BLOCK'
@@ -364,20 +457,21 @@ export async function reviewPipeline(snap: Snapshot, deps: PipelineDeps): Promis
   const roles = REVIEWERS_FOR[changeClass];
 
   const reports: PipelineResult['reports'] = [];
+  let sources: SourcePass | undefined;
   const [links, ...others] = await Promise.all([
     roles.includes('link-auditor') ? linkStage(snap, deps) : Promise.resolve(undefined),
     ...roles
       .filter((r): r is Exclude<ReviewerRole, 'link-auditor'> => r !== 'link-auditor')
-      .map(async (role) => ({
-        role,
-        r: await runRole(
-          deps,
-          role,
-          ReviewerReport,
-          reviewerPrompt(role),
-          reviewerMessage(snap, { withRelated: role === 'duplication-checker' }),
-        ),
-      })),
+      .map(async (role) => {
+        const input = reviewerMessage(snap, { withRelated: role === 'duplication-checker' });
+        const r = await runRole(deps, role, ReviewerReport, reviewerPrompt(role), input);
+        // sourceRequests is the security reviewer's only; any other role's is dropped here.
+        if (role !== 'security-reviewer' || !r.answer)
+          return { role, r: r.answer ? { ...r, answer: mergePasses(r.answer, undefined) } : r };
+        // ADR 0020: the security reviewer's sources, read in a second pass by the same model.
+        sources = await sourcePass(r.outcome, r.answer, input, deps);
+        return { role, r: { ...r, answer: sources.report } };
+      }),
   ]);
   if (links) {
     if (links.outcome) outcomes.push(links.outcome);
@@ -389,20 +483,48 @@ export async function reviewPipeline(snap: Snapshot, deps: PipelineDeps): Promis
   }
   const notRun = roles.filter((r) => !reports.some((x) => x.role === r));
 
+  // ADR 0020: claims on findings pass 2 added are checked last, never remove or demote a judge item
+  // (which may be pass 1's), and the judge is not told about refuted ones (security review of #155).
+  const pass1Findings = sources?.pass1Findings;
+  const added = (r: { role: ReviewerRole; index: number }) =>
+    r.role === 'security-reviewer' && pass1Findings !== undefined && r.index >= pass1Findings;
   // #90: claims are checked before the judge, which sees only what the verdicts leave.
-  const claims = await claimStage(snap, reports, deps);
+  const claims = await claimStage(snap, reports, deps, sources?.docs, (role, index) =>
+    added({ role, index }),
+  );
   if (claims.outcome) outcomes.push(claims.outcome);
-  const judgedReports = reportsForJudge(reports, claims.results);
+  // ADR 0020: a refuted pass-2 finding never takes the security verdict below pass 1's own, unless
+  // a pass-1 finding was refuted too (security review of #155).
+  const pass1Refuted = claims.results.some(
+    (r) => r.role === 'security-reviewer' && r.verdict === 'REFUTED' && !added(r),
+  );
+  const judgedReports = reportsForJudge(reports, claims.results).map((x) =>
+    x.role === 'security-reviewer' && sources && !pass1Refuted
+      ? { ...x, report: { ...x.report, verdict: atLeast(x.report.verdict, sources.pass1Verdict) } }
+      : x,
+  );
 
   const judged = await runRole(
     deps,
     'judge',
     ReviewDecision,
     JUDGE_PROMPT,
-    judgeMessage(snap, judgedReports, notRun, judgeClaims(claims.results)),
+    judgeMessage(
+      snap,
+      judgedReports,
+      notRun,
+      judgeClaims(claims.results.filter((r) => !(added(r) && r.verdict === 'REFUTED'))),
+    ),
   );
   outcomes.push(judged.outcome);
-  const enforced = judged.answer && enforceClaims(judged.answer, claims.results);
+  const enforced =
+    judged.answer &&
+    enforceClaims(
+      judged.answer,
+      // A NOT-FOUND claim on an added finding still marks its item "not confirmed".
+      claims.results.filter((r) => !added(r) || r.verdict === 'NOT-FOUND'),
+    );
+  const plain = enforced && withoutMachinery(enforced.decision);
 
   // #89: lines whose only change is a link target, for every sheet (also when no link stage ran).
   const targetOnly = new Map(
@@ -416,8 +538,8 @@ export async function reviewPipeline(snap: Snapshot, deps: PipelineDeps): Promis
           ] as const,
       ),
   );
-  // The original reports minus REFUTED findings only (reportsForJudge): a NOT-FOUND claim never
-  // lowers a reviewer's BLOCK. The agent reads the same reports for reviewEvent.
+  // The original reports minus REFUTED findings (reportsForJudge); NOT-FOUND never weakens a
+  // finding. The agent reads the same reports for reviewEvent.
   const blockedBy = blockingDimensions(judgedReports);
   const reviewerBlocked = blockedBy.size > 0;
   const scoped = (d: ReviewDecision): ReviewDecision => {
@@ -440,7 +562,7 @@ export async function reviewPipeline(snap: Snapshot, deps: PipelineDeps): Promis
     outcomes,
     reports: judgedReports,
     blockedBy,
-    decision: enforced && scoped(enforced.decision),
+    decision: plain && scoped(plain.decision),
     breach: invariantBreach(outcomes),
     allowed: links?.allowed ?? new Set(),
     linkNotes: links?.notes ?? [],
@@ -452,5 +574,39 @@ export async function reviewPipeline(snap: Snapshot, deps: PipelineDeps): Promis
     linkChecks: links?.checks ?? [],
     claims: claims.results,
     claimItemsRemoved: enforced?.removed ?? 0,
+    machinerySentencesRemoved: plain?.removed ?? 0,
+    sources: sources?.log,
   };
 }
+
+/** Link statuses that block, as in the original OWASP command. */
+const BLOCKING = new Set(['WRONG-PAGE', 'UNSUPPORTED', 'DIFFERENT-RESOURCE']);
+
+/**
+ * #155: the links that block, for the operator's approval note, with their URL to open by hand: a
+ * false alarm is rejected there instead of being softened in code. Code-written, within a budget.
+ */
+export function linksNote(checks: readonly LinkCheck[], budget = 800): string {
+  const bad = checks.filter((c) => c.status.startsWith('broken') || BLOCKING.has(c.status));
+  if (bad.length === 0) return '';
+  const lines: string[] = [];
+  let used = 0;
+  for (const c of bad) {
+    const line = `- ${inertText(c.status, 40)} ${inertText(c.file, 120)}:${c.line} ${inertText(c.url, 300)}`;
+    if (used + line.length > budget) break;
+    lines.push(line);
+    used += line.length + 1;
+  }
+  const rest = bad.length - lines.length;
+  return [
+    '',
+    '',
+    `${bad.length} link(s) block this review; open each to confirm before approving:`,
+    ...lines,
+    ...(rest > 0 ? [`…and ${rest} more; see the review's "Links checked" table.`] : []),
+  ].join('\n');
+}
+
+const RANK_V = { 'N/A': -1, PASS: 0, CONCERNS: 1, BLOCK: 2 } as const;
+const atLeast = (v: ReviewerReport['verdict'], floor: ReviewerReport['verdict']) =>
+  RANK_V[floor] > RANK_V[v] ? floor : v;

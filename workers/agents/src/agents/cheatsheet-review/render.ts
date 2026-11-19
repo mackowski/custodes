@@ -17,37 +17,67 @@ export const DOCS_URL =
 /** Upper bound for the review body: the broker allows 60 000 and appends a trailer. */
 const BODY_LIMIT = 55_000;
 
-const URL_IN_TEXT = /https?:\/\/[^\s<>"'`)\]]+/gi;
 /** Placeholders for allowed URLs; inertText has already removed every control character. */
 const SLOT = (i: number) => `\u0001${i}\u0001`;
 
 /**
- * Markdown-safe single line of model text, without relying on code spans (model text can hold
- * stray backticks). Truncated first, then:
- * - URLs the link auditor fetched become `<url>` autolinks; nothing else can become a link: `[` and
- *   `]` are escaped (no inline or reference links), `http(s)://` and `www.` are defanged so
- *   GitHub does not autolink them, and `//host` or `https:/host` are inert as plain text;
+ * Markdown-safe single line of model text. Truncated first, then:
+ * - URLs the link auditor fetched and accepted become `<url>` autolinks; nothing else can become a
+ *   link: `[` and `]` become entities (no inline or reference links), every other `http(s)://` URL or
+ *   `www.` host is shown whole in a double-backtick code span that no model backtick can pair with
+ *   (GitHub never links code; #155), and `//host` or `https:/host` are inert as plain text;
  * - every `@` becomes a full-width `＠`, so no mention and no e-mail autolink, inside URLs too;
  * - `<` and `>` are escaped, so no HTML.
+ * GitHub references (`#123`, `owner/repo#123`, commit SHAs) are not neutralised: they link
+ * within GitHub only (known, older than #155).
  */
 export function inertMarkdown(s: string, allowed: ReadonlySet<string>, max = 800): string {
   const kept: string[] = [];
-  const text = inertText(s, max).replace(URL_IN_TEXT, (url) => {
-    if (!allowed.has(url)) return url;
-    kept.push(url);
-    return SLOT(kept.length - 1);
-  });
-  const inert = text
-    .replace(/\b(https?):\/\//gi, '$1[:]//')
-    .replace(/\bwww\./gi, 'www[.]')
+  const shown: string[] = [];
+  // Runs of two or more backticks become one: the double-backtick spans below are then the only
+  // ones in the text, so a stray model backtick can never pair with them and free a URL.
+  const text = inertText(s, max)
+    .replace(/`{2,}/g, '`')
     .replace(/@/g, '＠')
+    .replace(URL_OR_WWW, (token) => {
+      const url = token.replace(/^`|`$/g, '');
+      const raw = url.replace(/＠/g, '@');
+      if (allowed.has(raw)) {
+        kept.push(raw);
+        return SLOT(kept.length - 1);
+      }
+      // #155: an unchecked URL is shown whole in a code span (GitHub never links code), instead of
+      // the old `https[:]//www[.]` that read as a typo to authors (OWASP PRs 2882, 2953).
+      shown.push(url);
+      return CODE(shown.length - 1);
+    });
+  // `&` first: a character reference such as `&#64;victim` would otherwise render as a live mention
+  // (sixth security review of #155; specialists/evidence.ts drops them for the same reason).
+  const inert = text
+    .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
-    .replace(/[[\]]/g, (c) => `\\${c}`);
-  // \u0001 cannot come from the model: inertText removed every control character first.
-  // eslint-disable-next-line no-control-regex
-  return inert.replace(/\u0001(\d+)\u0001/g, (_, i: string) => `<${kept[Number(i)] ?? ''}>`);
+    // Entities, not backslashes: a model backslash or tableCell's doubling would undo `\[` and
+    // free a link such as `[x](//evil.example)` (third security review of #155).
+    .replace(/\[/g, '&#91;')
+    .replace(/\]/g, '&#93;');
+  // \u0001 and \u0002 cannot come from the model: inertText removed every control character first.
+  return (
+    inert
+      // eslint-disable-next-line no-control-regex
+      .replace(/\u0001(\d+)\u0001/g, (_, i: string) => `<${kept[Number(i)] ?? ''}>`)
+      // Spaces around the span: a model backtick next to it would otherwise make a longer run that
+      // no longer pairs with the closing one, and the URL would be left outside code.
+      // eslint-disable-next-line no-control-regex
+      .replace(/\u0002(\d+)\u0002/g, (_, i: string) => ` \`\` ${shown[Number(i)] ?? ''} \`\` `)
+  );
 }
+
+/** An http(s) URL or a bare `www.` host: both are autolinked by GitHub outside code. */
+// GFM autolinks www. after _, *, ~ or (: `\b` misses `_www.` (security review of #155).
+// One backtick the model already put around the URL is consumed, so it does not show (lean review).
+const URL_OR_WWW = /`?(?:(?:https?|ftp):\/\/|(?<![A-Za-z0-9])www\.)[^\s<>"'`)\]]+`?/gi;
+const CODE = (i: number) => `\u0002${i}\u0002`;
 
 const NONE: ReadonlySet<string> = new Set();
 
@@ -112,7 +142,7 @@ export function checkSuggestions(
           ? {
               file: s.file,
               line: s.line,
-              why: `${why} (not shown: it contains a link, mention or HTML the link audit did not accept)`,
+              why: `${why} (not shown: it contains a link, mention or HTML that was not checked)`,
               text: '',
               keep: [],
             }
@@ -425,5 +455,10 @@ export function reviewBody(r: ReviewBodyInput): string {
   lines.push('---', `<sub>[How this review works](${DOCS_URL}) · Custodes cheatsheet-review</sub>`);
   const body = lines.join('\n');
   const note = '\n\n…(truncated)';
-  return body.length > BODY_LIMIT ? `${body.slice(0, BODY_LIMIT - note.length)}${note}` : body;
+  if (body.length <= BODY_LIMIT) return body;
+  // Cut on a line boundary: every inertMarkdown code span is on one line, so none is split and no
+  // unchecked URL is freed (eighth security review of #155).
+  const head = body.slice(0, BODY_LIMIT - note.length);
+  const cut = head.lastIndexOf('\n');
+  return `${cut > 0 ? head.slice(0, cut) : ''}${note}`;
 }

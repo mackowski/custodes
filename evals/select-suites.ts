@@ -45,6 +45,8 @@ export const SUITE_PATHS: Record<string, readonly string[]> = {
     'evals/agents/cheatsheet-review-security/cases.yaml',
   ],
   'cheatsheet-review-verifier': [...CHEATSHEET, CLAIMS],
+  // ADR 0020: the security reviewer's second pass; sources.ts builds its message.
+  'cheatsheet-review-sources': [...CHEATSHEET, `${AGENTS}cheatsheet-review/sources.ts`],
 };
 
 /** Paths every suite depends on: a change here runs all of them. */

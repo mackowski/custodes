@@ -25,6 +25,8 @@ import {
   anchors,
   checkInternal,
   fetchable,
+  anchorText,
+  EXCERPT_CHARS,
   fetchLink,
   pageText,
   maskedLine,
@@ -59,7 +61,7 @@ import {
   REVIEWERS_FOR,
   type ScopedFile,
 } from '../src/agents/cheatsheet-review/scope.js';
-import { linkStatus } from '../src/agents/cheatsheet-review/pipeline.js';
+import { linksNote, linkStatus, type LinkCheck } from '../src/agents/cheatsheet-review/pipeline.js';
 import {
   judgeMessage,
   processFacts,
@@ -70,6 +72,7 @@ import {
   maintainerRequests,
   OWN_REVIEW_MARKER,
   sheetSize,
+  sizeBefore,
 } from '../src/agents/cheatsheet-review/requests.js';
 import type { IssueComment, PullReview } from '../src/agents/triage/github.js';
 import { MAX_REVIEW_REFS, reviewIssueRefs } from '../src/agents/cheatsheet-review/refs.js';
@@ -503,6 +506,18 @@ describe('links.checkInternal', () => {
 });
 
 describe('links.fetchable', () => {
+  it("refuses GitHub's API and Workers hosts on every hop (security review of #155)", () => {
+    for (const u of [
+      'https://api.github.com/repos/a/b',
+      'https://API.GITHUB.COM./x',
+      'https://workers.dev/x',
+      'https://x.y.workers.dev/x',
+    ])
+      expect(fetchable(u), u).toBe(false);
+    expect(fetchable('https://docs.github.com/en/rest')).toBe(true);
+    expect(fetchable('https://github.com/OWASP/CheatSheetSeries')).toBe(true);
+  });
+
   it('allows public https hosts', () => {
     expect(fetchable('https://example.com/a?b=1')).toBe(true);
   });
@@ -524,6 +539,59 @@ describe('links.fetchable', () => {
       'not a url',
     ])
       expect(fetchable(u), u).toBe(false);
+  });
+});
+
+describe('links.anchorText (#155)', () => {
+  const page =
+    '<html><body><p>Intro.</p>' +
+    'x'.repeat(50) +
+    '<h2 id="add-iptables-policies-before-dockers-rules">Add policies</h2><p>Use DOCKER-USER.</p>' +
+    '<a name="old-style"></a><p>Legacy anchor.</p></body></html>';
+
+  it('starts at the element the fragment names, by id or by name', () => {
+    expect(
+      anchorText(page, 'https://docs.example.com/p#add-iptables-policies-before-dockers-rules'),
+    ).toBe('Add policies Use DOCKER-USER. Legacy anchor.');
+    expect(anchorText(page, 'https://docs.example.com/p#old-style')).toBe('Legacy anchor.');
+  });
+
+  it('is undefined without a fragment, for a missing anchor, or for a prefix of an id', () => {
+    expect(anchorText(page, 'https://docs.example.com/p')).toBeUndefined();
+    expect(anchorText(page, 'https://docs.example.com/p#nope')).toBeUndefined();
+    expect(anchorText(page, 'https://docs.example.com/p#add-iptables')).toBeUndefined();
+  });
+
+  it('treats the fragment as text, never as a pattern', () => {
+    expect(anchorText(page, 'https://docs.example.com/p#.*')).toBeUndefined();
+  });
+
+  it('gives fetchLink an excerpt that starts at the section, marked', async () => {
+    const got = await fetchLink('https://docs.example.com/p#old-style', () =>
+      Promise.resolve(
+        new Response(page, { status: 200, headers: { 'content-type': 'text/html' } }),
+      ),
+    );
+    expect(got).toMatchObject({ kind: 'page' });
+    const excerpt = got.kind === 'page' ? got.excerpt : '';
+    // The top of the page first (an "Obsoleted by" banner stays visible), then the section, marked.
+    expect(excerpt.startsWith('Intro.')).toBe(true);
+    expect(excerpt.endsWith('[from #old-style] Legacy anchor.')).toBe(true);
+  });
+
+  it('takes `id` only from an attribute inside a tag, never from text, a comment or a script (tenth security review of #155)', () => {
+    const html =
+      '<p>Use id=sec-4 in your config.</p><!-- id=sec-4 --><script>var a = " id=sec-4";</script><h2 id="sec-4">Real</h2> text';
+    expect(anchorText(html, 'https://e.example/p#sec-4')).toBe('Real text');
+  });
+
+  it('takes `name` only from <a>, never from a meta or input element (ninth security review of #155)', () => {
+    const html =
+      '<meta name="x"><input name="y"><p id="z">Z text.</p><a href="#" name="w">W</a> after';
+    expect(anchorText(html, 'https://e.example/p#x')).toBeUndefined();
+    expect(anchorText(html, 'https://e.example/p#y')).toBeUndefined();
+    expect(anchorText(html, 'https://e.example/p#z')).toBe('Z text. W after');
+    expect(anchorText(html, 'https://e.example/p#w')).toBe('W after');
   });
 });
 
@@ -683,7 +751,7 @@ describe('links.fetchLink', () => {
     expect(cancelled).toBe(true);
     expect(pulled).toBeLessThanOrEqual(4);
     if (got.kind !== 'page') throw new Error('expected page');
-    expect(got.excerpt.length).toBe(8_000);
+    expect(got.excerpt.length).toBe(EXCERPT_CHARS);
   });
 
   it('sends the request without following redirects itself and never refuses by throwing', async () => {
@@ -1041,15 +1109,31 @@ describe('render.inertMarkdown', () => {
     expect(out).not.toContain('<html>');
     expect(out).toContain('&lt;html&gt;');
     expect(out).not.toContain('![');
-    expect(out).toContain('https\\[:\\]//evil.example.com/a.png');
-    expect(out).toContain('https\\[:\\]//bad.example.com/x');
+    expect(out).toContain('`` https://evil.example.com/a.png ``');
+    expect(out).toContain('`` https://bad.example.com/x ``');
     expect(out).toContain('<https://ok.example.com/page>');
   });
 
   it('never yields a live mention from an unfetched URL that contains @ (PR #75 review)', () => {
     const out = inertMarkdown('see https://medium.com/@attacker/post and `x @victim', allowed);
     expect(out).not.toMatch(/(^|[^＠])@/);
-    expect(out).toContain('https\\[:\\]//medium.com/＠attacker/post');
+    expect(out).toContain('`` https://medium.com/＠attacker/post ``');
+  });
+
+  it('puts a bare www. host in a code span, so GitHub never autolinks it (#155)', () => {
+    const out = inertMarkdown('see www.evil.example/login now', allowed);
+    expect(out).toContain('`` www.evil.example/login ``');
+    expect(out).not.toMatch(/(^|[^`] )www\.evil\.example\/login(?! ``)/);
+  });
+
+  it('puts an ftp:// URL in a code span', () => {
+    const out = inertMarkdown('get ftp://evil.example/x now', allowed);
+    expect(out).toContain('`` ftp://evil.example/x ``');
+  });
+
+  it('keeps an allowed URL an autolink, not a code span', () => {
+    const out = inertMarkdown('see https://ok.example.com/page now', allowed);
+    expect(out).toBe('see <https://ok.example.com/page> now');
   });
 
   it('keeps an allowed URL with @ as one autolink', () => {
@@ -1069,8 +1153,57 @@ describe('render.inertMarkdown', () => {
       const out = inertMarkdown(text, allowed);
       expect(out).not.toMatch(/(?<!\\)\[[^\]]*(?<!\\)\]\(/);
       expect(out).not.toMatch(/(?<!\\)\[[^\]]*(?<!\\)\]:/);
-      expect(out).not.toMatch(/\bwww\./);
+      // A www. host is shown only inside a code span, which GitHub never links (#155).
+      expect(out.replace(/`` [^`]* ``/g, '')).not.toMatch(/\bwww\./);
       expect(out).not.toContain('@');
+    }
+  });
+
+  it('puts a www. host after _ in a code span too, which GFM would otherwise link (security review of #155)', () => {
+    const out = inertMarkdown('see _www.evil.example/login_ now', allowed);
+    expect(out).toContain('`` www.evil.example/login_ ``');
+    expect(out.replace(/`` [^`]* ``/g, '')).not.toMatch(/www\./);
+  });
+
+  it('shows no stray backticks when the model already put the URL in a code span (lean review of #155)', () => {
+    expect(inertMarkdown('see `https://evil.example/x` here', allowed)).toBe(
+      'see  `` https://evil.example/x ``  here',
+    );
+    expect(inertMarkdown('see `https://ok.example.com/page` here', allowed)).toBe(
+      'see <https://ok.example.com/page> here',
+    );
+  });
+
+  it('never yields a mention through a character reference (sixth security review of #155)', () => {
+    for (const text of ['thanks &#64;victim', 'hi &#x40;victim', 'cc &commat;victim']) {
+      const out = inertMarkdown(text, allowed);
+      expect(out, text).toContain('&amp;');
+      expect(out, text).not.toMatch(/(^|[^&])&(#64|#x40|commat);/);
+    }
+  });
+
+  it('never frees a link with a model backslash or inside a table cell (third security review of #155)', () => {
+    for (const out of [
+      inertMarkdown('\\[x\\](//evil.example)', allowed),
+      tableCell(inertMarkdown('[docs](//evil.example)', allowed)),
+      tableCell(inertMarkdown('\\[docs\\](//evil.example) and [r]: //evil.example', allowed)),
+    ]) {
+      expect(out).not.toContain('[');
+      expect(out).not.toContain(']');
+      expect(out).toContain('&#91;');
+    }
+  });
+
+  it('keeps an unchecked URL inside its code span whatever backticks the model wrote (#155)', () => {
+    for (const text of [
+      'a ` b https://evil.example/x ` c',
+      '``` https://evil.example/x',
+      'see `https://evil.example/x` and `` y',
+    ]) {
+      const out = inertMarkdown(text, allowed);
+      // The only double-backtick runs are the spans code added, and the URL sits inside one.
+      expect(out).toContain('`` https://evil.example/x ``');
+      expect(out.replace(/`` https:\/\/evil\.example\/x ``/g, '')).not.toContain('``');
     }
   });
 
@@ -1270,7 +1403,7 @@ describe('render.reviewBody', () => {
     expect(body).toContain('＠everyone');
     expect(body).not.toMatch(/(^|[^＠])@everyone/);
     expect(body).not.toContain('<img');
-    expect(body).toContain('https\\[:\\]//evil.example.com/z');
+    expect(body).toContain('`` https://evil.example.com/z ``');
   });
 
   it('stays within the broker limit even for a huge input', () => {
@@ -1278,6 +1411,19 @@ describe('render.reviewBody', () => {
     // 55 000 characters plus a short truncation note; the broker allows 60 000.
     expect(body.length).toBeLessThan(60_000);
     expect(body.endsWith('…(truncated)')).toBe(true);
+  });
+
+  it('cuts on a line boundary, so no code span is split and no unchecked URL is freed (eighth security review of #155)', () => {
+    const url = 'https://evil.example.com/z';
+    const body = reviewBody(
+      input({ facts: `${'y'.repeat(54_960)}\n- see ${url} here\n${'x'.repeat(10_000)}` }),
+    );
+    expect(body.endsWith('…(truncated)')).toBe(true);
+    const lines = body.split('\n');
+    // Every line that holds the URL holds it inside a closed span.
+    for (const l of lines.filter((x) => x.includes(url)))
+      expect(l.replace(/`` [^`]* ``/g, '')).not.toContain(url);
+    expect(body.length).toBeLessThan(60_000);
   });
 
   it('lists close reasons only for a CLOSE verdict and drops should-fix then', () => {
@@ -1993,16 +2139,19 @@ describe('links.scanLinks', () => {
     expect([...r.targetOnlyLines]).toEqual([]);
   });
 
-  it('audits every sentence that cites one URL, up to two more than the first', () => {
+  it('audits every sentence that cites one URL, up to five more than the first', () => {
     const r = scanLinks(
       SHEET,
       parsePatch(
         [
-          '@@ -1,0 +1,4 @@',
+          '@@ -1,0 +1,7 @@',
           '+True claim, see [d](https://new.example/a).',
           '+False claim, see [d](https://new.example/a).',
           '+Third claim, see [d](https://new.example/a).',
           '+Fourth claim, see [d](https://new.example/a).',
+          '+Fifth claim, see [d](https://new.example/a).',
+          '+Sixth claim, see [d](https://new.example/a).',
+          '+Seventh claim, see [d](https://new.example/a).',
         ].join('\n'),
       ),
     );
@@ -2012,10 +2161,10 @@ describe('links.scanLinks', () => {
     const text = citedText(link);
     expect(text).toContain('True claim');
     expect(text).toContain(`Also cited in ${SHEET} line 2: False claim`);
-    expect(text).toContain('Third claim');
+    expect(text).toContain('Sixth claim');
     // Past the limit a sentence is counted, never dropped without a word.
-    expect(text).not.toContain('Fourth claim');
-    expect(link.unaudited).toEqual([{ file: SHEET, line: 4 }]);
+    expect(text).not.toContain('Seventh claim');
+    expect(link.unaudited).toEqual([{ file: SHEET, line: 7 }]);
     // A sentence that merely contains an audited one is a different claim.
     const short = { ...link, line: 9, context: 'claim, see [d](https://new.example/a).' };
     delete short.more;
@@ -2683,6 +2832,22 @@ describe('requests.sheetSize (#91)', () => {
   });
 });
 
+describe('requests.sizeBefore (#155)', () => {
+  const before = '# T\n\nOld line one.\nKeep.\n```\ncode\n```\n';
+  const head = '# T\n\nNew line one, longer.\nKeep.\nAdded line.\n';
+  it('is the head minus added lines plus removed lines, equal to sheetSize of the real base', () => {
+    const added = ['New line one, longer.', 'Added line.'];
+    const removed = ['Old line one.', '```', 'code', '```'];
+    expect(sizeBefore(head, added, removed, { additions: 2, deletions: 4 })).toEqual(
+      sheetSize(before),
+    );
+  });
+
+  it('is undefined when the patch does not account for every changed line (GitHub drops large patches)', () => {
+    expect(sizeBefore(head, [], [], { additions: 2, deletions: 4 })).toBeUndefined();
+  });
+});
+
 describe('input.processFacts size line and judgeMessage requests (#91)', () => {
   const base = (over: Partial<Snapshot> = {}): Snapshot => ({
     repo: 'a/b',
@@ -2728,7 +2893,7 @@ describe('input.processFacts size line and judgeMessage requests (#91)', () => {
       }),
     );
     expect(facts).toContain(
-      '- Size of cheatsheets/A.md (default branch → head): 100 → 180 words, 20 → 31 lines, 1 → 3 code blocks',
+      '- Size of cheatsheets/A.md (before → after this pull request): 100 → 180 words, 20 → 31 lines, 1 → 3 code blocks',
     );
     expect(processFacts(base())).not.toContain('Size of');
   });
@@ -2930,5 +3095,73 @@ describe('links: reference definitions and HTML href/src (#95)', () => {
     expect(
       scanCode([2], ' a', '+<a href="//evil.example/p">x</a>').links.map((l) => l.url),
     ).toEqual(['//evil.example/p']);
+  });
+});
+
+describe('lineup: the link auditor reads pages like the original OWASP command (#155)', () => {
+  it('uses claudeSonnet first and deepseekFlash as the fallback', () => {
+    expect(LINEUP['link-auditor'].primary).toBe('claudeSonnet');
+    expect(LINEUP['link-auditor'].fallback).toBe('deepseekFlash');
+  });
+});
+
+describe('pipeline.linksNote: the blocking links for the approval note (#155)', () => {
+  const check = (status: string, over: Partial<LinkCheck> = {}): LinkCheck => ({
+    url: 'https://example.com/a',
+    file: 'cheatsheets/Foo_Cheat_Sheet.md',
+    line: 7,
+    moved: false,
+    status,
+    ...over,
+  });
+
+  it('is empty when no link blocks', () => {
+    expect(linksNote([])).toBe('');
+    expect(
+      linksNote([
+        check('OK'),
+        check('SAME-RESOURCE'),
+        check('LOW-AUTHORITY'),
+        check('STALE'),
+        check('not checked'),
+        check('verify manually'),
+      ]),
+    ).toBe('');
+  });
+
+  it('lists broken, WRONG-PAGE, UNSUPPORTED and DIFFERENT-RESOURCE links with status, file:line and URL', () => {
+    const note = linksNote([
+      check('broken (HTTP 404)', { url: 'https://example.com/1', line: 1 }),
+      check('WRONG-PAGE', { url: 'https://example.com/2', line: 2 }),
+      check('UNSUPPORTED', { url: 'https://example.com/3', line: 3 }),
+      check('DIFFERENT-RESOURCE', { url: 'https://example.com/4', line: 4 }),
+      check('OK', { url: 'https://example.com/ok' }),
+      check('STALE', { url: 'https://example.com/stale' }),
+    ]);
+    expect(note).toContain('4 link(s) block this review; open each to confirm before approving:');
+    expect(note).toContain('- WRONG-PAGE cheatsheets/Foo_Cheat_Sheet.md:2 https://example.com/2');
+    expect(note).toContain(
+      '- broken (HTTP 404) cheatsheets/Foo_Cheat_Sheet.md:1 https://example.com/1',
+    );
+    expect(note).toContain(':3 https://example.com/3');
+    expect(note).toContain(':4 https://example.com/4');
+    expect(note).not.toContain('/ok');
+    expect(note).not.toContain('/stale');
+    expect(note).not.toContain('more;');
+  });
+
+  it('stays within its budget and counts the rest as "…and N more"', () => {
+    const many = Array.from({ length: 30 }, (_, i) =>
+      check('WRONG-PAGE', { url: `https://example.com/${'p'.repeat(200)}${i}`, line: i + 1 }),
+    );
+    const note = linksNote(many, 1_200);
+    const lines = note.split('\n').filter((l) => l.startsWith('- '));
+    expect(note).toContain('30 link(s) block this review');
+    expect(lines.length).toBeGreaterThan(0);
+    expect(lines.length).toBeLessThan(30);
+    expect(lines.join('\n').length).toBeLessThanOrEqual(1_200);
+    expect(note).toContain(
+      `…and ${30 - lines.length} more; see the review's "Links checked" table.`,
+    );
   });
 });

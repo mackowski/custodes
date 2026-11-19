@@ -85,7 +85,7 @@ export function processFacts(s: Snapshot): string {
     ...scopeNote(s, net),
     ...(s.sizes ?? []).map(
       (z) =>
-        `- Size of ${z.file} (default branch → head): ${z.base.words} → ${z.head.words} words, ${z.base.lines} → ${z.head.lines} lines, ${z.base.codeBlocks} → ${z.head.codeBlocks} code blocks`,
+        `- Size of ${z.file} (before → after this pull request): ${z.base.words} → ${z.head.words} words, ${z.base.lines} → ${z.head.lines} lines, ${z.base.codeBlocks} → ${z.head.codeBlocks} code blocks`,
     ),
   ].join('\n');
 }

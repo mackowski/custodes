@@ -869,7 +869,7 @@ describe('cheatsheet-review: untrusted input', () => {
     expect(body).not.toMatch(/(^|[^＠])@everyone/);
     expect(body).not.toContain('![');
     expect(body).not.toContain('<img');
-    expect(body).toContain('https\\[:\\]//evil.example.com/p.png');
+    expect(body).toContain('`` https://evil.example.com/p.png ``');
   });
 });
 
@@ -919,9 +919,7 @@ describe('cheatsheet-review: external links', () => {
             )(role, req),
     });
     const body = reviewActs(r)[0]?.body ?? '';
-    expect(body).toMatch(
-      /not shown: it contains a link, mention or HTML the link audit did not accept/,
-    );
+    expect(body).toMatch(/not shown: it contains a link, mention or HTML that was not checked/);
     expect(body).not.toContain('See https://example.com/doc instead.');
   });
 
@@ -1187,9 +1185,7 @@ describe('cheatsheet-review: round 1 behaviour (#79)', () => {
     });
     const body = reviewActs(r)[0]?.body ?? '';
     expect(body).toContain('Suggestions not placed inline');
-    expect(body).toMatch(
-      /not shown: it contains a link, mention or HTML the link audit did not accept/,
-    );
+    expect(body).toMatch(/not shown: it contains a link, mention or HTML that was not checked/);
     expect(body).not.toContain('````text');
     expect(body).not.toContain('[removed]');
     expect(body).not.toContain('evil.example.com');
@@ -1306,7 +1302,7 @@ describe('cheatsheet-review: moved links (#89)', () => {
     expect(body).not.toContain('Noticed in existing text');
   });
 
-  it('blocks on Links when the auditor says a moved link is a different resource', async () => {
+  it('blocks on a moved link the auditor calls a different resource: BLOCKER, Links BLOCK, REQUEST_CHANGES', async () => {
     const r = await drive({
       scenario: moved(),
       fetchImpl: html,
@@ -1317,8 +1313,11 @@ describe('cheatsheet-review: moved links (#89)', () => {
     expect(body).toContain(`| \`${NEW}\` | moved from \`${OLD}\` | DIFFERENT-RESOURCE |`);
     const judged = r.models.calls.find((c) => c.role === 'judge')?.req.user ?? '';
     expect(judged).toContain(`DIFFERENT-RESOURCE: \`${NEW}\` (moved from \`${OLD}\`)`);
+    expect(judged).not.toContain('check by hand');
+    expect(judged).toContain('"severity":"BLOCKER"');
     expect(judged).toContain('"verdict":"BLOCK"');
     expect(r.rows[0]?.verdict).toBe('REQUEST_CHANGES');
+    expect(body).not.toContain(`<${NEW}>`);
   });
 
   it('shows what a link on another site replaced, while auditing it as new (OWASP PR 3005 shape)', async () => {
@@ -1576,7 +1575,7 @@ describe('cheatsheet-review: earlier maintainer requests (#91)', () => {
     expect(call?.req.user).toContain('--- review by @maint-one on 2026-10-29');
     expect(call?.req.user).not.toContain('CONTRIB-9c2e');
     expect(call?.req.user).toContain(
-      `Size of ${SHEET} (default branch → head): 2 → 9 words, 1 → 5 lines, 0 → 0 code blocks`,
+      `Size of ${SHEET} (before → after this pull request): 4 → 9 words, 3 → 5 lines, 0 → 0 code blocks`,
     );
     expect(r.broker.reads.map((x) => x.resource)).toEqual(
       expect.arrayContaining(['comments', 'pull_reviews']),
@@ -1769,7 +1768,7 @@ describe('cheatsheet-review: claim verification (#90)', () => {
     expect(r.rows[0]).toMatchObject({ verdict: 'MERGE' });
   });
 
-  it('a security BLOCK whose only BLOCKER claim is NOT-FOUND is never weakened: no MERGE, same event', async () => {
+  it('a security BLOCK whose only BLOCKER claim is NOT-FOUND still blocks: the item stays a must-fix BLOCKER, marked not confirmed', async () => {
     const blocker = { ...claimed(), severity: 'BLOCKER' };
     const judge = decisionJson({
       mustFix: [
@@ -1792,9 +1791,9 @@ describe('cheatsheet-review: claim verification (#90)', () => {
           : script(verdict('CONFIRMED'), judge)(role, req),
     });
     expect(r.out).toMatchObject({ ok: true, status: 'posted' });
-    expect(r.rows[0]).toMatchObject({ verdict: 'REQUEST_CHANGES', event: 'REQUEST_CHANGES' });
+    expect(r.rows[0]).toMatchObject({ verdict: 'REQUEST_CHANGES' });
     const body = reviewActs(r)[0]?.body ?? '';
-    expect(body).toMatch(/Must-fix[\s\S]*\*\*BLOCKER\*\*[\s\S]*cite 3\.1\.4/);
+    expect(body).toMatch(/Must-fix before merge[\s\S]*\*\*BLOCKER\*\*[\s\S]*cite 3\.1\.4/);
     // The judge kept it: the item itself says the claim was not confirmed (#154).
     expect(body).toMatch(/cite 3\.1\.4\. \(claim not confirmed against its source\)/);
     const judgeUser = calls(r, 'judge')[0]?.req.user ?? '';
@@ -1874,5 +1873,636 @@ describe('cheatsheet-review: claim verification (#90)', () => {
     for (const l of lines)
       for (const leak of ['Embedded malware', 'embedded malware', 'Images may contain', 'Checked.'])
         expect(l).not.toContain(leak);
+  });
+});
+
+describe('cheatsheet-review: the security reviewer reads sources in a second pass (ADR 0020, #155)', () => {
+  const RFC = 'https://www.rfc-editor.org/rfc/rfc9110.html';
+  const PAGE_MARK = 'PAGE-MARK-9110';
+  const PAGE = `<title>RFC 9110</title><h1>HTTP Semantics</h1><p>${PAGE_MARK} servers must validate every field.</p>`;
+  const P1_MARK = 'PASS1-BLOCKER-MARK';
+  const P2_MARK = 'PASS2-FINDING-MARK';
+  const ask = (...urls: string[]) => urls.map((url) => ({ url, why: 'bears on the advice' }));
+  const pass1 = (urls: string[] = [RFC]) =>
+    JSON.stringify({
+      verdict: 'BLOCK',
+      findings: [{ severity: 'BLOCKER', file: SHEET, line: 4, problem: `${P1_MARK} unsafe.` }],
+      sourceRequests: ask(...urls),
+    });
+  const added = (extra: Record<string, unknown> = {}) => ({
+    severity: 'MAJOR',
+    file: SHEET,
+    line: 4,
+    problem: `${P2_MARK} the RFC requires validation.`,
+    claim: {
+      text: 'RFC 9110 says servers must validate every field.',
+      sourceUrl: RFC,
+      locator: 'validate',
+    },
+    ...extra,
+  });
+  const pass2 = (findings: unknown[], verdict = 'CONCERNS') =>
+    JSON.stringify({ verdict, findings });
+  const serve =
+    (fetched: string[]): typeof fetch =>
+    (input) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+      fetched.push(url);
+      return Promise.resolve(
+        url.startsWith(RFC)
+          ? new Response(PAGE, { headers: { 'content-type': 'text/html' } })
+          : new Response('', { status: 404 }),
+      );
+    };
+  const merge = decisionJson({ verdict: 'MERGE', mustFix: [], suggestions: [] });
+  const sec = (r: Run) => r.models.calls.filter((c) => c.role === 'security-reviewer');
+  const secondPass = (r: Run) => sec(r).filter((c) => c.req.system.includes('Second pass'));
+  const judgeUser = (r: Run) => r.models.calls.find((c) => c.role === 'judge')?.req.user ?? '';
+  const scripted =
+    (
+      first: string,
+      second: string | undefined,
+      extra: (role: string, req: ChatRequest) => string | undefined = () => undefined,
+    ): Script =>
+    (role, req) =>
+      extra(role, req) ??
+      (role === 'security-reviewer'
+        ? req.system.includes('Second pass')
+          ? (second ?? REPORT)
+          : first
+        : role === 'security-second-voice'
+          ? REPORT
+          : defaultScript(merge)(role, req));
+
+  it('fetches the requested page and shows it to a second security-reviewer call inside an envelope', async () => {
+    const fetched: string[] = [];
+    const r = await drive({
+      fetchImpl: serve(fetched),
+      script: scripted(pass1(), pass2([added()])),
+    });
+    expect(r.out).toMatchObject({ ok: true });
+    expect(fetched).toEqual([RFC]);
+    expect(sec(r)).toHaveLength(2);
+    const [second] = secondPass(r);
+    expect(second?.req.system).toContain('Second pass');
+    expect(second?.req.user).toContain('<untrusted source="source:www.rfc-editor.org">');
+    expect(second?.req.user).toContain(PAGE_MARK);
+    // The first pass never saw the page, and its system prompt is not the second-pass one.
+    const first = sec(r).find((c) => !c.req.system.includes('Second pass'));
+    expect(first?.req.user).not.toContain(PAGE_MARK);
+  });
+
+  it('passes a finding added by pass 2 to the judge, with the pass-1 finding', async () => {
+    const r = await drive({
+      fetchImpl: serve([]),
+      script: scripted(pass1(), pass2([added()])),
+    });
+    expect(judgeUser(r)).toContain(P2_MARK);
+    expect(judgeUser(r)).toContain(P1_MARK);
+  });
+
+  it('a pass-2 PASS with no findings does not remove the pass-1 BLOCKER from the judge input', async () => {
+    const r = await drive({
+      fetchImpl: serve([]),
+      script: scripted(pass1(), pass2([], 'PASS')),
+    });
+    expect(secondPass(r)).toHaveLength(1);
+    expect(judgeUser(r)).toContain(P1_MARK);
+    expect(judgeUser(r)).toContain('"verdict":"BLOCK"');
+  });
+
+  it('never lets sourceRequests reach the judge', async () => {
+    const r = await drive({
+      fetchImpl: serve([]),
+      script: scripted(pass1(), pass2([added()])),
+    });
+    expect(judgeUser(r)).not.toContain('sourceRequests');
+    expect(judgeUser(r)).not.toContain('bears on the advice');
+    const [second] = secondPass(r);
+    expect(second?.req.user).not.toContain('"sourceRequests"');
+  });
+
+  it('refuses http and explicit-port URLs: no fetch, and no second pass when nothing was read', async () => {
+    const fetched: string[] = [];
+    const r = await drive({
+      fetchImpl: serve(fetched),
+      script: scripted(
+        pass1(['http://www.rfc-editor.org/rfc/rfc9110', RFC.replace('.org', '.org:8443')]),
+        undefined,
+      ),
+    });
+    expect(r.out).toMatchObject({ ok: true });
+    expect(fetched).toEqual([]);
+    expect(sec(r)).toHaveLength(1);
+    expect(judgeUser(r)).toContain(P1_MARK);
+  });
+
+  it('does not run a second pass when the only requested page fails to load', async () => {
+    const fetched: string[] = [];
+    const r = await drive({
+      fetchImpl: serve(fetched),
+      script: scripted(pass1(['https://example.com/missing']), pass2([added()])),
+    });
+    expect(fetched).toEqual(['https://example.com/missing']);
+    expect(secondPass(r)).toEqual([]);
+    expect(judgeUser(r)).not.toContain(P2_MARK);
+  });
+
+  it('a pass-2 finding whose claim cites the fetched URL is checked without a second fetch', async () => {
+    const fetched: string[] = [];
+    const claim = {
+      text: 'RFC 9110 says servers must validate every field.',
+      sourceUrl: RFC,
+      locator: PAGE_MARK,
+    };
+    const r = await drive({
+      fetchImpl: serve(fetched),
+      script: scripted(pass1(), pass2([added({ claim })]), (role) =>
+        role === 'claim-verifier'
+          ? JSON.stringify({ claims: [{ id: 'C1', verdict: 'CONFIRMED', reason: 'Checked.' }] })
+          : undefined,
+      ),
+    });
+    expect(r.out).toMatchObject({ ok: true });
+    expect(fetched.filter((u) => u === RFC)).toHaveLength(1);
+    const verifier = r.models.calls.find((c) => c.role === 'claim-verifier');
+    expect(verifier?.req.user).toContain(PAGE_MARK);
+    expect(judgeUser(r)).toContain('"verified":"CONFIRMED"');
+  });
+
+  it('drops a pass-2 finding whose claim cites a URL the reviewer did not read: never fetched, never posted (eighth security review)', async () => {
+    const fetched: string[] = [];
+    const claim = { text: 'x', sourceUrl: 'https://example.org/other', locator: 'x' };
+    const r = await drive({
+      fetchImpl: serve(fetched),
+      script: scripted(pass1(), pass2([added({ claim })])),
+    });
+    expect(fetched).toEqual([RFC]);
+    expect(r.models.calls.some((c) => c.role === 'claim-verifier')).toBe(false);
+    expect(judgeUser(r)).not.toContain(P2_MARK);
+  });
+
+  it('is skipped while halted, like every other side effect: no model call and no fetch', async () => {
+    await testKillSwitch().halt('cheatsheet-review', 'test', 'tester');
+    const fetched: string[] = [];
+    const r = await drive({ fetchImpl: serve(fetched), script: scripted(pass1(), undefined) });
+    expect(r.out).toMatchObject({ ok: false, status: 'halted' });
+    expect(fetched).toEqual([]);
+    expect(r.models.calls).toEqual([]);
+  });
+});
+
+describe('cheatsheet-review: link auditor statuses (#155)', () => {
+  const URL_ = 'https://example.com/guide';
+  const LINE = `See [the guide](${URL_}) for details.`;
+  const sc = () =>
+    scenario({
+      files: [
+        {
+          filename: SHEET,
+          status: 'modified',
+          additions: 1,
+          deletions: 0,
+          patch: `@@ -1,3 +1,4 @@\n # Foo\n \n+${LINE}\n Intro text.`,
+        },
+      ],
+      headText: `# Foo\n\n${LINE}\nIntro text.\n`,
+    });
+  const html = () =>
+    Promise.resolve(
+      new Response('<title>Guide</title><p>text</p>', { headers: { 'content-type': 'text/html' } }),
+    );
+  // The judge asks for changes with nothing to fix: a blocked Links dimension keeps it from MERGE.
+  const run = (status: string, injectionSeen = false) =>
+    drive({
+      scenario: sc(),
+      fetchImpl: html,
+      script: (role, req) =>
+        role.startsWith('security')
+          ? REPORT
+          : role === 'link-auditor'
+            ? JSON.stringify({ links: [{ url: URL_, status, reason: 'because' }], injectionSeen })
+            : defaultScript(decisionJson({ mustFix: [], suggestions: [] }))(role, req),
+    });
+  const linkReport = (r: Run) => {
+    const user = r.models.calls.find((c) => c.role === 'judge')?.req.user ?? '';
+    return user;
+  };
+
+  it.each(['WRONG-PAGE', 'UNSUPPORTED'])(
+    '%s is a BLOCKER: the Links dimension blocks, the review requests changes and the URL is no live link',
+    async (status) => {
+      const r = await run(status);
+      expect(r.out).toMatchObject({ ok: true });
+      expect(r.rows[0]).toMatchObject({ verdict: 'REQUEST_CHANGES' });
+      const user = linkReport(r);
+      expect(user).toContain(`${status}: `);
+      expect(user).not.toContain('check by hand');
+      expect(user).toMatch(new RegExp(`"severity":"BLOCKER"[^}]*${status}`));
+      const body = reviewActs(r)[0]?.body ?? '';
+      expect(user).toContain('"verdict":"BLOCK"');
+      expect(body).toMatch(new RegExp(`\\| \`${URL_}\` \\|[^\\n]*\\| ${status} \\|`));
+      expect(body).not.toContain(`<${URL_}>`);
+    },
+  );
+
+  it.each(['LOW-AUTHORITY', 'STALE'])(
+    '%s is only a MINOR finding and does not block',
+    async (status) => {
+      const r = await run(status);
+      expect(r.rows[0]).toMatchObject({ verdict: 'MERGE' });
+      expect(linkReport(r)).toMatch(new RegExp(`"severity":"MINOR"[^}]*${status}`));
+    },
+  );
+
+  it('OK is no finding', async () => {
+    const r = await run('OK');
+    expect(r.rows[0]).toMatchObject({ verdict: 'MERGE' });
+    expect(linkReport(r)).not.toContain('because');
+  });
+
+  it('an auditor that saw injection cannot answer OK: UNSUPPORTED, a BLOCKER, never a live link', async () => {
+    const r = await run('OK', true);
+    expect(r.out).toMatchObject({ ok: true });
+    expect(linkReport(r)).toMatch(/"severity":"BLOCKER"[^}]*UNSUPPORTED/);
+    expect(r.rows[0]).toMatchObject({ verdict: 'REQUEST_CHANGES' });
+    expect(reviewActs(r)[0]?.body ?? '').not.toContain(`<${URL_}>`);
+  });
+
+  it('the approval note lists the blocking link with its file, line and URL, before the refuted claims', async () => {
+    const r = await drive({
+      scenario: { ...sc(), actFor: needsApproval },
+      fetchImpl: html,
+      script: (role, req) =>
+        role.startsWith('security')
+          ? REPORT
+          : role === 'link-auditor'
+            ? JSON.stringify({ links: [{ url: URL_, status: 'WRONG-PAGE', reason: 'because' }] })
+            : defaultScript(decisionJson({ verdict: 'MERGE', mustFix: [], suggestions: [] }))(
+                role,
+                req,
+              ),
+    });
+    expect(r.out).toMatchObject({ ok: true, status: 'awaiting_approval' });
+    const note = r.broker.approvals[0]?.rationale ?? '';
+    expect(note).toContain('1 link(s) block this review; open each to confirm before approving:');
+    expect(note).toContain(`- WRONG-PAGE ${SHEET}:3 ${URL_}`);
+  });
+
+  it('sends the auditor one page in full up to 40,000 characters and no approval link note when nothing blocks', async () => {
+    const big = `<title>Guide</title><p>${'x'.repeat(60_000)}</p>`;
+    const r = await drive({
+      scenario: { ...sc(), actFor: needsApproval },
+      fetchImpl: () =>
+        Promise.resolve(new Response(big, { headers: { 'content-type': 'text/html' } })),
+      script: (role, req) =>
+        role.startsWith('security')
+          ? REPORT
+          : role === 'link-auditor'
+            ? JSON.stringify({ links: [{ url: URL_, status: 'OK', reason: 'fine' }] })
+            : defaultScript(decisionJson({ verdict: 'MERGE', mustFix: [], suggestions: [] }))(
+                role,
+                req,
+              ),
+    });
+    const sent = r.models.calls.find((c) => c.role === 'link-auditor')?.req.user ?? '';
+    const xs = sent.match(/x+/g)?.reduce((m, x) => Math.max(m, x.length), 0) ?? 0;
+    // The title and a line of context share the 40,000-character cap; the page is not cut at 8,000.
+    expect(xs).toBeGreaterThan(39_000);
+    expect(xs).toBeLessThanOrEqual(40_000);
+    expect(r.broker.approvals[0]?.rationale ?? '').not.toContain('link(s) block');
+  });
+
+  it('shares 160,000 characters between pages: 20 links make 15 checked pages of at most 10,666 characters each', async () => {
+    const urls = Array.from({ length: 20 }, (_, i) => `https://example.com/g${i}`);
+    const lines = urls.map((u, i) => `Point ${i} [guide](${u}).`);
+    const r = await drive({
+      scenario: scenario({
+        files: [
+          {
+            filename: SHEET,
+            status: 'modified',
+            additions: 20,
+            deletions: 0,
+            patch: `@@ -1,3 +1,23 @@\n # Foo\n \n${lines.map((l) => `+${l}`).join('\n')}\n Intro text.`,
+          },
+        ],
+        headText: `# Foo\n\n${lines.join('\n')}\nIntro text.\n`,
+      }),
+      fetchImpl: () =>
+        Promise.resolve(
+          new Response(`<title>G</title><p>${'x'.repeat(30_000)}</p>`, {
+            headers: { 'content-type': 'text/html' },
+          }),
+        ),
+      script: (role, req) =>
+        role.startsWith('security')
+          ? REPORT
+          : role === 'link-auditor'
+            ? JSON.stringify({ links: [] })
+            : defaultScript(decisionJson({ verdict: 'MERGE', mustFix: [], suggestions: [] }))(
+                role,
+                req,
+              ),
+    });
+    const sent = r.models.calls.find((c) => c.role === 'link-auditor')?.req.user ?? '';
+    const runs = sent.match(/x{100,}/g) ?? [];
+    // MAX_EXTERNAL_LINKS (15) pages are checked; 160,000 / 15 is the share, so the 8,000 floor never binds.
+    expect(runs).toHaveLength(15);
+    for (const x of runs) {
+      expect(x.length).toBeGreaterThan(10_000);
+      expect(x.length).toBeLessThanOrEqual(10_666);
+    }
+    expect(runs.join('').length).toBeLessThanOrEqual(160_000);
+  });
+});
+
+describe('cheatsheet-review: claims on pass-2 findings (security review of #155)', () => {
+  const NIST = 'https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-190.pdf';
+  const RFC = 'https://www.rfc-editor.org/rfc/rfc9110.html';
+  const PAGE_MARK = 'PAGE-MARK-9110';
+  const LINE = `Keep secrets out of images ([NIST SP 800-190](${NIST})).`;
+  const sc = (over: Partial<Scenario> = {}): Scenario =>
+    scenario({
+      files: [
+        {
+          filename: SHEET,
+          status: 'modified',
+          additions: 1,
+          deletions: 0,
+          patch: `@@ -1,3 +1,4 @@\n # Foo\n \n+${LINE}\n Intro text.`,
+        },
+      ],
+      headText: `# Foo\n\n${LINE}\nIntro text.\n`,
+      ...over,
+    });
+  const serve: typeof fetch = (input) => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+    if (url === NIST)
+      return Promise.resolve(
+        new Response(new Uint8Array([37, 80, 68, 70]), {
+          headers: { 'content-type': 'application/pdf' },
+        }),
+      );
+    if (url === RFC)
+      return Promise.resolve(
+        new Response(`<title>RFC</title><p>${PAGE_MARK} servers must validate.</p>`, {
+          headers: { 'content-type': 'text/html' },
+        }),
+      );
+    return Promise.resolve(new Response('', { status: 404 }));
+  };
+  const toMd: ToMarkdown = () =>
+    Promise.resolve({
+      format: 'markdown',
+      data: '### 3.1.3 Embedded Malware\nImages may contain malware.',
+    });
+  const P1 = 'PASS1-FINDING-MARK cite section 3.1.4 for secrets.';
+  const p1Claim = { text: 'PASS1-CLAIM-TEXT 3.1.3 is malware.', sourceUrl: NIST, locator: '3.1.3' };
+  const p1Finding = (severity = 'MAJOR', claim: unknown = p1Claim) => ({
+    severity,
+    file: SHEET,
+    line: 3,
+    problem: P1,
+    claim,
+  });
+  const rfcClaim = (text: string) => ({ text, sourceUrl: RFC, locator: PAGE_MARK });
+  const first = (findings: unknown[], verdict = 'CONCERNS') =>
+    JSON.stringify({ verdict, findings, sourceRequests: [{ url: RFC, why: 'w' }] });
+  const second = (findings: unknown[], extra: Record<string, unknown> = {}) =>
+    JSON.stringify({ verdict: 'BLOCK', findings, ...extra });
+  const everyClaim = (verdict: string) => (req: ChatRequest) =>
+    JSON.stringify({
+      claims: [...req.user.matchAll(/^Claim id: (C\d+)$/gm)].map((m) => ({
+        id: m[1],
+        verdict,
+        reason: 'Checked.',
+      })),
+    });
+  const scripted =
+    (p1: string, p2: string, verifier: (req: ChatRequest) => string, judge: string): Script =>
+    (role, req) =>
+      role === 'claim-verifier'
+        ? verifier(req)
+        : role === 'security-reviewer'
+          ? req.system.includes('Second pass')
+            ? p2
+            : p1
+          : role === 'security-second-voice'
+            ? REPORT
+            : defaultScript(judge)(role, req);
+  const judgeItem = (severity: string, text = P1) =>
+    decisionJson({
+      mustFix: [{ dimension: 'Security', severity, file: SHEET, line: 3, text }],
+      suggestions: [],
+    });
+  const judgeUser = (r: Run) => r.models.calls.find((c) => c.role === 'judge')?.req.user ?? '';
+  const body = (r: Run) => reviewActs(r)[0]?.body ?? '';
+
+  it('checks the pass-1 claim first when pass 2 adds ten BLOCKERs with claims; the judge item keeps MAJOR', async () => {
+    const many = Array.from({ length: 10 }, (_, i) => ({
+      severity: 'BLOCKER',
+      file: SHEET,
+      line: 3,
+      problem: `PASS2-FINDING-${i} the RFC differs.`,
+      claim: rfcClaim(`PASS2-CLAIM-${i}`),
+    }));
+    const r = await drive({
+      scenario: sc(),
+      fetchImpl: serve,
+      toMarkdown: toMd,
+      script: scripted(
+        first([p1Finding()]),
+        second(many),
+        everyClaim('CONFIRMED'),
+        judgeItem('MAJOR'),
+      ),
+    });
+    expect(r.out).toMatchObject({ ok: true });
+    const verifier = r.models.calls.find((c) => c.role === 'claim-verifier');
+    expect(verifier?.req.user).toContain('PASS1-CLAIM-TEXT');
+    // Ten claims are checked at most: the late one that does not fit is the pass-2 one.
+    expect(verifier?.req.user.match(/^Claim id: C\d+$/gm)).toHaveLength(10);
+    expect(verifier?.req.user).not.toContain('PASS2-CLAIM-9');
+    expect(body(r)).toMatch(/\*\*MAJOR\*\*[^\n]*PASS1-FINDING-MARK/);
+    expect(body(r)).not.toMatch(/\*\*MINOR\*\*[^\n]*PASS1-FINDING-MARK/);
+  });
+
+  it('a pass-2 repeat of a pass-1 finding that the verifier REFUTES is not shown to the judge and does not remove the pass-1 item', async () => {
+    const repeat = {
+      severity: 'MAJOR',
+      file: SHEET,
+      line: 3,
+      problem: `${P1} Again.`,
+      claim: rfcClaim('REFUTED-REPEAT-CLAIM'),
+    };
+    const r = await drive({
+      scenario: sc(),
+      fetchImpl: serve,
+      toMarkdown: toMd,
+      script: scripted(
+        first([{ severity: 'MAJOR', file: SHEET, line: 3, problem: P1 }]),
+        second([repeat]),
+        everyClaim('REFUTED'),
+        judgeItem('MAJOR'),
+      ),
+    });
+    expect(r.out).toMatchObject({ ok: true });
+    expect(r.models.calls.some((c) => c.role === 'claim-verifier')).toBe(true);
+    expect(judgeUser(r)).not.toContain('REFUTED-REPEAT-CLAIM');
+    expect(judgeUser(r)).not.toContain('"verdict":"REFUTED"');
+    expect(body(r)).toContain('PASS1-FINDING-MARK');
+  });
+
+  it('a refuted pass-2 BLOCKER never takes the security verdict below pass 1 (security review of #155)', async () => {
+    const added = {
+      severity: 'BLOCKER',
+      file: SHEET,
+      line: 3,
+      problem: 'PASS2-BLOCKER-MARK stricter rule.',
+      claim: rfcClaim('REFUTED-PASS2-BLOCKER'),
+    };
+    const r = await drive({
+      scenario: sc(),
+      fetchImpl: serve,
+      toMarkdown: toMd,
+      script: scripted(
+        // Pass 1 says BLOCK with only a MAJOR finding (and no claim): nothing normalises that.
+        first([{ severity: 'MAJOR', file: SHEET, line: 3, problem: P1 }], 'BLOCK'),
+        second([added]),
+        everyClaim('REFUTED'),
+        judgeItem('MAJOR'),
+      ),
+    });
+    expect(r.out).toMatchObject({ ok: true });
+    expect(judgeUser(r)).not.toContain('PASS2-BLOCKER-MARK');
+    expect(judgeUser(r)).toMatch(/"role":"security-reviewer","report":\{"verdict":"BLOCK"/);
+    expect(r.rows[0]?.verdict).toBe('REQUEST_CHANGES');
+  });
+
+  it('a NOT-FOUND pass-1 BLOCKER stays a must-fix BLOCKER with the note, whatever pass 2 saw', async () => {
+    for (const injection of [true, false]) {
+      await runInDurableObject(await stub(), (agent: CheatsheetReviewAgent) => {
+        (agent as unknown as Internals).sql`DELETE FROM reviews`;
+        return Promise.resolve();
+      });
+      const r = await drive({
+        scenario: sc(),
+        fetchImpl: serve,
+        toMarkdown: toMd,
+        script: scripted(
+          first([p1Finding('BLOCKER')], 'BLOCK'),
+          JSON.stringify({
+            verdict: 'PASS',
+            findings: [],
+            ...(injection ? { injectionSeen: true } : {}),
+          }),
+          everyClaim('NOT-FOUND'),
+          judgeItem('BLOCKER'),
+        ),
+      });
+      expect(r.models.calls.some((c) => c.role === 'claim-verifier')).toBe(true);
+      expect(r.rows[0]).toMatchObject({ verdict: 'REQUEST_CHANGES' });
+      expect(body(r)).toMatch(
+        /Must-fix before merge[\s\S]*\*\*BLOCKER\*\*[^\n]*PASS1-FINDING-MARK[^\n]*\(claim not confirmed against its source\)/,
+      );
+    }
+  });
+
+  it('injection seen by a reviewer (here the second voice) changes no severity', async () => {
+    const blocker = p1Finding('BLOCKER');
+    const inner = scripted(
+      first([blocker], 'BLOCK'),
+      JSON.stringify({ verdict: 'PASS', findings: [] }),
+      everyClaim('NOT-FOUND'),
+      judgeItem('BLOCKER'),
+    );
+    const r = await drive({
+      scenario: sc(),
+      fetchImpl: serve,
+      toMarkdown: toMd,
+      script: (role, req) =>
+        role === 'security-second-voice'
+          ? JSON.stringify({ verdict: 'PASS', findings: [], injectionSeen: true })
+          : inner(role, req),
+    });
+    expect(body(r)).toMatch(/Must-fix before merge[\s\S]*\*\*BLOCKER\*\*[^\n]*PASS1-FINDING-MARK/);
+  });
+
+  it('a verifier that is unavailable never demotes a pass-1 BLOCKER: Must-fix and REQUEST_CHANGES stay', async () => {
+    const r = await drive({
+      scenario: sc(),
+      fetchImpl: serve,
+      toMarkdown: toMd,
+      script: (role, req) =>
+        role === 'claim-verifier'
+          ? new Error('verifier down')
+          : scripted(
+              JSON.stringify({ verdict: 'BLOCK', findings: [p1Finding('BLOCKER')] }),
+              REPORT,
+              everyClaim('CONFIRMED'),
+              judgeItem('BLOCKER'),
+            )(role, req),
+    });
+    expect(r.out).toMatchObject({ ok: true });
+    expect(r.rows[0]).toMatchObject({ verdict: 'REQUEST_CHANGES' });
+    expect(body(r)).toMatch(/Must-fix before merge[\s\S]*\*\*BLOCKER\*\*[^\n]*PASS1-FINDING-MARK/);
+  });
+
+  it('a pass-2 MAJOR whose claim is NOT-FOUND is posted marked "not confirmed", still a must-fix', async () => {
+    const added = {
+      severity: 'MAJOR',
+      file: SHEET,
+      line: 3,
+      problem: 'PASS2-ONLY-MARK the RFC sets a stricter rule.',
+      claim: rfcClaim('PASS2-ONLY-CLAIM'),
+    };
+    const r = await drive({
+      scenario: sc(),
+      fetchImpl: serve,
+      toMarkdown: toMd,
+      script: scripted(
+        first([{ severity: 'MINOR', file: SHEET, line: 9, problem: 'Unrelated wording.' }]),
+        JSON.stringify({ verdict: 'CONCERNS', findings: [added] }),
+        everyClaim('NOT-FOUND'),
+        judgeItem('MAJOR', added.problem),
+      ),
+    });
+    expect(r.out).toMatchObject({ ok: true });
+    const text = body(r);
+    expect(text).toContain('(claim not confirmed against its source)');
+    expect(text).toMatch(/Must-fix before merge[\s\S]*\*\*MAJOR\*\*[^\n]*PASS2-ONLY-MARK/);
+  });
+
+  it('drops sourceRequests from any role but the security reviewer: nothing fetched, nothing reaches the judge', async () => {
+    const fetched: string[] = [];
+    const r = await drive({
+      scenario: sc(),
+      fetchImpl: (input, init) => {
+        fetched.push(
+          typeof input === 'string' ? input : input instanceof URL ? input.href : input.url,
+        );
+        return serve(input, init);
+      },
+      toMarkdown: toMd,
+      script: (role, req) =>
+        role === 'practicality-reviewer'
+          ? JSON.stringify({
+              verdict: 'PASS',
+              findings: [],
+              sourceRequests: [{ url: RFC, why: 'PRACTICALITY-ASK' }],
+            })
+          : scripted(
+              JSON.stringify({ verdict: 'PASS', findings: [] }),
+              REPORT,
+              everyClaim('CONFIRMED'),
+              decisionJson({ verdict: 'MERGE', mustFix: [], suggestions: [] }),
+            )(role, req),
+    });
+    expect(r.out).toMatchObject({ ok: true });
+    expect(r.models.calls.some((c) => c.role === 'practicality-reviewer')).toBe(true);
+    expect(fetched.filter((u) => u === RFC)).toEqual([]);
+    expect(judgeUser(r)).not.toContain('sourceRequests');
+    expect(judgeUser(r)).not.toContain('PRACTICALITY-ASK');
   });
 });
