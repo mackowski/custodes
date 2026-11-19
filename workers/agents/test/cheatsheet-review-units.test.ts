@@ -505,6 +505,18 @@ describe('links.checkInternal', () => {
 });
 
 describe('links.fetchable', () => {
+  it("refuses GitHub's API and Workers hosts on every hop (security review of #155)", () => {
+    for (const u of [
+      'https://api.github.com/repos/a/b',
+      'https://API.GITHUB.COM./x',
+      'https://workers.dev/x',
+      'https://x.y.workers.dev/x',
+    ])
+      expect(fetchable(u), u).toBe(false);
+    expect(fetchable('https://docs.github.com/en/rest')).toBe(true);
+    expect(fetchable('https://github.com/OWASP/CheatSheetSeries')).toBe(true);
+  });
+
   it('allows public https hosts', () => {
     expect(fetchable('https://example.com/a?b=1')).toBe(true);
   });

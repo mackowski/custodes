@@ -1895,6 +1895,11 @@ describe('cheatsheet-review: the security reviewer reads sources in a second pas
     file: SHEET,
     line: 4,
     problem: `${P2_MARK} the RFC requires validation.`,
+    claim: {
+      text: 'RFC 9110 says servers must validate every field.',
+      sourceUrl: RFC,
+      locator: 'validate',
+    },
     ...extra,
   });
   const pass2 = (findings: unknown[], verdict = 'CONCERNS') =>

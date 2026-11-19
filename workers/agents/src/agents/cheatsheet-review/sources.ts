@@ -32,12 +32,7 @@ export interface FetchedSource {
 export function requestable(url: string): boolean {
   if (!fetchable(url)) return false;
   try {
-    const u = new URL(url);
-    const host = u.hostname.toLowerCase().replace(/\.$/, '');
-    // GitHub's API is read through the broker only (invariant 1), and Workers are not sources.
-    if (host === 'api.github.com' || host === 'workers.dev' || host.endsWith('.workers.dev'))
-      return false;
-    return u.port === '';
+    return new URL(url).port === '';
   } catch {
     return false;
   }
@@ -60,7 +55,7 @@ export async function fetchSources(
   // In parallel, bounded by the shared limiter; the log keeps the requested order.
   const log = await Promise.all(
     urls.map(async (url): Promise<FetchedSource> => {
-      // A refused URL's host is model text steered by the PR: never logged (ids-only logs).
+      // A refused URL may not even parse: log a fixed word, not its text.
       if (!requestable(url))
         return {
           url,
@@ -117,7 +112,11 @@ export function mergePasses(
 ): ReviewerReport {
   const { sourceRequests: _asked, ...first } = pass1;
   if (!pass2) return first;
-  const added = pass2.findings.slice(0, Math.max(0, 25 - first.findings.length));
+  // Only findings with a claim: the claim verifier must stand between a fetched page and the review
+  // (fourth security review of #155).
+  const added = pass2.findings
+    .filter((f) => f.claim !== undefined)
+    .slice(0, Math.max(0, 25 - first.findings.length));
   const verdict =
     added.length > 0 && RANK[pass2.verdict] > RANK[first.verdict] ? pass2.verdict : first.verdict;
   return {

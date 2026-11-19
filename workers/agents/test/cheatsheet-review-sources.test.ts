@@ -279,12 +279,20 @@ describe('sources.mergePasses', () => {
     file: 'a.md',
     line: 1,
     problem,
+    claim: { text: 'the source says so', sourceUrl: 'https://example.com/s', locator: '4.1' },
   });
   const rep = (
     verdict: ReviewerReport['verdict'],
     findings: Finding[],
     over: Partial<ReviewerReport> = {},
   ): ReviewerReport => ({ verdict, findings, ...over });
+
+  it('drops a pass-2 finding without a claim: the verifier must stand between a page and the review (fourth security review of #155)', () => {
+    const { claim: _c, ...bare } = f('no claim', 'BLOCKER');
+    const out = mergePasses(rep('CONCERNS', [f('a')]), rep('BLOCK', [bare]));
+    expect(out.findings.map((x) => x.problem)).toEqual(['a']);
+    expect(out.verdict).toBe('CONCERNS');
+  });
 
   it('keeps every pass-1 finding even when pass 2 answers PASS with no findings', () => {
     const p1 = rep('BLOCK', [f('one', 'BLOCKER'), f('two')]);
