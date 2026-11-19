@@ -1,16 +1,14 @@
 # yaml-language-server: $schema=https://promptfoo.dev/config-schema.json
-description: cheatsheet-review link auditor (DeepSeek V4.1 Flash on Workers AI, low effort as shipped)
+description: cheatsheet-review link auditor (Claude Sonnet 5.5 as shipped since #155; DeepSeek V4.1 Flash is the fallback)
 
 # cheatsheet-review (ADR 0017). system.txt is the prompt the agent ships (a unit test enforces it;
 # regenerate with workers/agents/scripts/print-review-prompts.ts).
 providers:
-  - id: file://../../providers/chat-gateway.mjs
-    label: deepseek-v4.1-flash-1017
+  - id: file://../../providers/anthropic-gateway.mjs
+    label: claude-sonnet-5-5
     config:
-      transport: workers-ai
-      model: '@cf/deepseek-ai/deepseek-v4.1-flash-1017'
+      model: claude-sonnet-5-5
       max_tokens: 8000
-      reasoning_effort: low
       runId: promptfoo-cheatsheet-review-links
 
 prompts:

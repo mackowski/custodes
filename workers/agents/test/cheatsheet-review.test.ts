@@ -1302,7 +1302,7 @@ describe('cheatsheet-review: moved links (#89)', () => {
     expect(body).not.toContain('Noticed in existing text');
   });
 
-  it('flags a moved link the auditor calls a different resource as a MINOR to check by hand, never a block (#155)', async () => {
+  it('blocks on a moved link the auditor calls a different resource: BLOCKER, Links BLOCK, REQUEST_CHANGES', async () => {
     const r = await drive({
       scenario: moved(),
       fetchImpl: html,
@@ -1312,12 +1312,12 @@ describe('cheatsheet-review: moved links (#89)', () => {
     const body = reviewActs(r)[0]?.body ?? '';
     expect(body).toContain(`| \`${NEW}\` | moved from \`${OLD}\` | DIFFERENT-RESOURCE |`);
     const judged = r.models.calls.find((c) => c.role === 'judge')?.req.user ?? '';
-    expect(judged).toContain(
-      `DIFFERENT-RESOURCE (check by hand): \`${NEW}\` (moved from \`${OLD}\`)`,
-    );
-    expect(judged).toContain('"severity":"MINOR"');
-    expect(judged).not.toContain('"verdict":"BLOCK"');
-    expect(r.rows[0]?.verdict).toBe('MERGE');
+    expect(judged).toContain(`DIFFERENT-RESOURCE: \`${NEW}\` (moved from \`${OLD}\`)`);
+    expect(judged).not.toContain('check by hand');
+    expect(judged).toContain('"severity":"BLOCKER"');
+    expect(judged).toContain('"verdict":"BLOCK"');
+    expect(r.rows[0]?.verdict).toBe('REQUEST_CHANGES');
+    expect(body).not.toContain(`<${NEW}>`);
   });
 
   it('shows what a link on another site replaced, while auditing it as new (OWASP PR 3005 shape)', async () => {
@@ -1768,7 +1768,7 @@ describe('cheatsheet-review: claim verification (#90)', () => {
     expect(r.rows[0]).toMatchObject({ verdict: 'MERGE' });
   });
 
-  it('a security BLOCK whose only BLOCKER claim is NOT-FOUND no longer blocks: the item is a MINOR to check by hand (#155)', async () => {
+  it('a security BLOCK whose only BLOCKER claim is NOT-FOUND still blocks: the item stays a must-fix BLOCKER, marked not confirmed', async () => {
     const blocker = { ...claimed(), severity: 'BLOCKER' };
     const judge = decisionJson({
       mustFix: [
@@ -1791,14 +1791,13 @@ describe('cheatsheet-review: claim verification (#90)', () => {
           : script(verdict('CONFIRMED'), judge)(role, req),
     });
     expect(r.out).toMatchObject({ ok: true, status: 'posted' });
-    expect(r.rows[0]).toMatchObject({ verdict: 'MERGE', event: 'COMMENT' });
+    expect(r.rows[0]).toMatchObject({ verdict: 'REQUEST_CHANGES' });
     const body = reviewActs(r)[0]?.body ?? '';
-    expect(body).not.toMatch(/Must-fix before merge/);
-    expect(body).toMatch(/Should-fix[\s\S]*\*\*MINOR\*\*[\s\S]*cite 3\.1\.4/);
+    expect(body).toMatch(/Must-fix before merge[\s\S]*\*\*BLOCKER\*\*[\s\S]*cite 3\.1\.4/);
     // The judge kept it: the item itself says the claim was not confirmed (#154).
     expect(body).toMatch(/cite 3\.1\.4\. \(claim not confirmed against its source\)/);
     const judgeUser = calls(r, 'judge')[0]?.req.user ?? '';
-    expect(judgeUser).toContain('"verdict":"CONCERNS"');
+    expect(judgeUser).toContain('"verdict":"BLOCK"');
     expect(judgeUser).toContain('"verified":"NOT-FOUND"');
   });
 
@@ -2073,6 +2072,7 @@ describe('cheatsheet-review: link auditor statuses (#155)', () => {
     Promise.resolve(
       new Response('<title>Guide</title><p>text</p>', { headers: { 'content-type': 'text/html' } }),
     );
+  // The judge asks for changes with nothing to fix: a blocked Links dimension keeps it from MERGE.
   const run = (status: string, injectionSeen = false) =>
     drive({
       scenario: sc(),
@@ -2082,51 +2082,139 @@ describe('cheatsheet-review: link auditor statuses (#155)', () => {
           ? REPORT
           : role === 'link-auditor'
             ? JSON.stringify({ links: [{ url: URL_, status, reason: 'because' }], injectionSeen })
-            : defaultScript(decisionJson({ verdict: 'MERGE', mustFix: [], suggestions: [] }))(
-                role,
-                req,
-              ),
+            : defaultScript(decisionJson({ mustFix: [], suggestions: [] }))(role, req),
     });
   const linkReport = (r: Run) => {
     const user = r.models.calls.find((c) => c.role === 'judge')?.req.user ?? '';
     return user;
   };
 
-  it('UNCLEAR gives no finding: the row says "verify manually" and a note says the place was not in the excerpt', async () => {
-    const r = await run('UNCLEAR');
-    expect(r.out).toMatchObject({ ok: true });
-    const body = reviewActs(r)[0]?.body ?? '';
-    expect(body).toContain(`| \`${URL_}\` |`);
-    expect(body).toContain('verify manually');
-    expect(body).toContain('the cited place was not in the excerpt');
-    expect(body).not.toContain('(check by hand):');
-    expect(linkReport(r)).not.toContain('because');
-    // The audit did not accept it: never a live link (security review of #155).
-    expect(body).not.toContain(`<${URL_}>`);
-  });
-
-  it.each(['OK', 'UNCLEAR'])(
-    'an auditor that saw injection cannot answer %s: a MINOR to check by hand, never a live link (ninth security review of #155)',
-    async (status) => {
-      const r = await run(status, true);
-      expect(r.out).toMatchObject({ ok: true });
-      expect(linkReport(r)).toContain('UNSUPPORTED (check by hand)');
-      expect(reviewActs(r)[0]?.body ?? '').not.toContain(`<${URL_}>`);
-    },
-  );
-
   it.each(['WRONG-PAGE', 'UNSUPPORTED'])(
-    '%s becomes a MINOR finding to check by hand and never blocks the Links dimension',
+    '%s is a BLOCKER: the Links dimension blocks, the review requests changes and the URL is no live link',
     async (status) => {
       const r = await run(status);
       expect(r.out).toMatchObject({ ok: true });
+      expect(r.rows[0]).toMatchObject({ verdict: 'REQUEST_CHANGES' });
       const user = linkReport(r);
-      expect(user).toContain(`${status} (check by hand)`);
-      expect(user).not.toMatch(/"severity":"BLOCKER"[^}]*(WRONG-PAGE|UNSUPPORTED)/);
+      expect(user).toContain(`${status}: `);
+      expect(user).not.toContain('check by hand');
+      expect(user).toMatch(new RegExp(`"severity":"BLOCKER"[^}]*${status}`));
       const body = reviewActs(r)[0]?.body ?? '';
-      expect(body).not.toMatch(/links & sources[^\n]*BLOCK/i);
+      expect(user).toContain('"verdict":"BLOCK"');
+      expect(body).toMatch(new RegExp(`\\| \`${URL_}\` \\|[^\\n]*\\| ${status} \\|`));
+      expect(body).not.toContain(`<${URL_}>`);
     },
   );
+
+  it.each(['LOW-AUTHORITY', 'STALE'])(
+    '%s is only a MINOR finding and does not block',
+    async (status) => {
+      const r = await run(status);
+      expect(r.rows[0]).toMatchObject({ verdict: 'MERGE' });
+      expect(linkReport(r)).toMatch(new RegExp(`"severity":"MINOR"[^}]*${status}`));
+    },
+  );
+
+  it('OK is no finding', async () => {
+    const r = await run('OK');
+    expect(r.rows[0]).toMatchObject({ verdict: 'MERGE' });
+    expect(linkReport(r)).not.toContain('because');
+  });
+
+  it('an auditor that saw injection cannot answer OK: UNSUPPORTED, a BLOCKER, never a live link', async () => {
+    const r = await run('OK', true);
+    expect(r.out).toMatchObject({ ok: true });
+    expect(linkReport(r)).toMatch(/"severity":"BLOCKER"[^}]*UNSUPPORTED/);
+    expect(r.rows[0]).toMatchObject({ verdict: 'REQUEST_CHANGES' });
+    expect(reviewActs(r)[0]?.body ?? '').not.toContain(`<${URL_}>`);
+  });
+
+  it('the approval note lists the blocking link with its file, line and URL, before the refuted claims', async () => {
+    const r = await drive({
+      scenario: { ...sc(), actFor: needsApproval },
+      fetchImpl: html,
+      script: (role, req) =>
+        role.startsWith('security')
+          ? REPORT
+          : role === 'link-auditor'
+            ? JSON.stringify({ links: [{ url: URL_, status: 'WRONG-PAGE', reason: 'because' }] })
+            : defaultScript(decisionJson({ verdict: 'MERGE', mustFix: [], suggestions: [] }))(
+                role,
+                req,
+              ),
+    });
+    expect(r.out).toMatchObject({ ok: true, status: 'awaiting_approval' });
+    const note = r.broker.approvals[0]?.rationale ?? '';
+    expect(note).toContain('1 link(s) block this review; open each to confirm before approving:');
+    expect(note).toContain(`- WRONG-PAGE ${SHEET}:3 ${URL_}`);
+  });
+
+  it('sends the auditor one page in full up to 40,000 characters and no approval link note when nothing blocks', async () => {
+    const big = `<title>Guide</title><p>${'x'.repeat(60_000)}</p>`;
+    const r = await drive({
+      scenario: { ...sc(), actFor: needsApproval },
+      fetchImpl: () =>
+        Promise.resolve(new Response(big, { headers: { 'content-type': 'text/html' } })),
+      script: (role, req) =>
+        role.startsWith('security')
+          ? REPORT
+          : role === 'link-auditor'
+            ? JSON.stringify({ links: [{ url: URL_, status: 'OK', reason: 'fine' }] })
+            : defaultScript(decisionJson({ verdict: 'MERGE', mustFix: [], suggestions: [] }))(
+                role,
+                req,
+              ),
+    });
+    const sent = r.models.calls.find((c) => c.role === 'link-auditor')?.req.user ?? '';
+    const xs = sent.match(/x+/g)?.reduce((m, x) => Math.max(m, x.length), 0) ?? 0;
+    // The title and a line of context share the 40,000-character cap; the page is not cut at 8,000.
+    expect(xs).toBeGreaterThan(39_000);
+    expect(xs).toBeLessThanOrEqual(40_000);
+    expect(r.broker.approvals[0]?.rationale ?? '').not.toContain('link(s) block');
+  });
+
+  it('shares 160,000 characters between pages: 20 links make 15 checked pages of at most 10,666 characters each', async () => {
+    const urls = Array.from({ length: 20 }, (_, i) => `https://example.com/g${i}`);
+    const lines = urls.map((u, i) => `Point ${i} [guide](${u}).`);
+    const r = await drive({
+      scenario: scenario({
+        files: [
+          {
+            filename: SHEET,
+            status: 'modified',
+            additions: 20,
+            deletions: 0,
+            patch: `@@ -1,3 +1,23 @@\n # Foo\n \n${lines.map((l) => `+${l}`).join('\n')}\n Intro text.`,
+          },
+        ],
+        headText: `# Foo\n\n${lines.join('\n')}\nIntro text.\n`,
+      }),
+      fetchImpl: () =>
+        Promise.resolve(
+          new Response(`<title>G</title><p>${'x'.repeat(30_000)}</p>`, {
+            headers: { 'content-type': 'text/html' },
+          }),
+        ),
+      script: (role, req) =>
+        role.startsWith('security')
+          ? REPORT
+          : role === 'link-auditor'
+            ? JSON.stringify({ links: [] })
+            : defaultScript(decisionJson({ verdict: 'MERGE', mustFix: [], suggestions: [] }))(
+                role,
+                req,
+              ),
+    });
+    const sent = r.models.calls.find((c) => c.role === 'link-auditor')?.req.user ?? '';
+    const runs = sent.match(/x{100,}/g) ?? [];
+    // MAX_EXTERNAL_LINKS (15) pages are checked; 160,000 / 15 is the share, so the 8,000 floor never binds.
+    expect(runs).toHaveLength(15);
+    for (const x of runs) {
+      expect(x.length).toBeGreaterThan(10_000);
+      expect(x.length).toBeLessThanOrEqual(10_666);
+    }
+    expect(runs.join('').length).toBeLessThanOrEqual(160_000);
+  });
 });
 
 describe('cheatsheet-review: claims on pass-2 findings (security review of #155)', () => {
@@ -2266,15 +2354,18 @@ describe('cheatsheet-review: claims on pass-2 findings (security review of #155)
     expect(body(r)).toContain('PASS1-FINDING-MARK');
   });
 
-  it('injectionSeen from pass 2 keeps a NOT-FOUND pass-1 BLOCKER a must-fix; without it the item is demoted', async () => {
-    const blocker = p1Finding('BLOCKER');
-    const run = (injection: boolean) =>
-      drive({
+  it('a NOT-FOUND pass-1 BLOCKER stays a must-fix BLOCKER with the note, whatever pass 2 saw', async () => {
+    for (const injection of [true, false]) {
+      await runInDurableObject(await stub(), (agent: CheatsheetReviewAgent) => {
+        (agent as unknown as Internals).sql`DELETE FROM reviews`;
+        return Promise.resolve();
+      });
+      const r = await drive({
         scenario: sc(),
         fetchImpl: serve,
         toMarkdown: toMd,
         script: scripted(
-          first([blocker], 'BLOCK'),
+          first([p1Finding('BLOCKER')], 'BLOCK'),
           JSON.stringify({
             verdict: 'PASS',
             findings: [],
@@ -2284,16 +2375,15 @@ describe('cheatsheet-review: claims on pass-2 findings (security review of #155)
           judgeItem('BLOCKER'),
         ),
       });
-    const hit = await run(true);
-    expect(hit.models.calls.some((c) => c.role === 'claim-verifier')).toBe(true);
-    expect(body(hit)).toMatch(
-      /Must-fix before merge[\s\S]*\*\*BLOCKER\*\*[^\n]*PASS1-FINDING-MARK/,
-    );
-    const clean = await run(false);
-    expect(body(clean)).not.toMatch(/Must-fix before merge/);
+      expect(r.models.calls.some((c) => c.role === 'claim-verifier')).toBe(true);
+      expect(r.rows[0]).toMatchObject({ verdict: 'REQUEST_CHANGES' });
+      expect(body(r)).toMatch(
+        /Must-fix before merge[\s\S]*\*\*BLOCKER\*\*[^\n]*PASS1-FINDING-MARK[^\n]*\(claim not confirmed against its source\)/,
+      );
+    }
   });
 
-  it('injection seen by any reviewer (here the second voice) turns demotion off (ninth security review of #155)', async () => {
+  it('injection seen by a reviewer (here the second voice) changes no severity', async () => {
     const blocker = p1Finding('BLOCKER');
     const inner = scripted(
       first([blocker], 'BLOCK'),
@@ -2333,7 +2423,7 @@ describe('cheatsheet-review: claims on pass-2 findings (security review of #155)
     expect(body(r)).toMatch(/Must-fix before merge[\s\S]*\*\*BLOCKER\*\*[^\n]*PASS1-FINDING-MARK/);
   });
 
-  it('a pass-2 MAJOR whose claim is NOT-FOUND is posted marked "not confirmed" and not as a must-fix', async () => {
+  it('a pass-2 MAJOR whose claim is NOT-FOUND is posted marked "not confirmed", still a must-fix', async () => {
     const added = {
       severity: 'MAJOR',
       file: SHEET,
@@ -2355,7 +2445,7 @@ describe('cheatsheet-review: claims on pass-2 findings (security review of #155)
     expect(r.out).toMatchObject({ ok: true });
     const text = body(r);
     expect(text).toContain('(claim not confirmed against its source)');
-    expect(text).not.toMatch(/Must-fix before merge/);
+    expect(text).toMatch(/Must-fix before merge[\s\S]*\*\*MAJOR\*\*[^\n]*PASS2-ONLY-MARK/);
   });
 
   it('drops sourceRequests from any role but the security reviewer: nothing fetched, nothing reaches the judge', async () => {

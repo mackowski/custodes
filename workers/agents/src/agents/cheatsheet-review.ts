@@ -35,7 +35,7 @@ import {
 import { fetchLink, fetchSource, type ToMarkdown } from './cheatsheet-review/links.js';
 import { claimLog, refutedNote } from './cheatsheet-review/claims.js';
 import { sourcesNote } from './cheatsheet-review/sources.js';
-import { reviewPipeline } from './cheatsheet-review/pipeline.js';
+import { linksNote, reviewPipeline } from './cheatsheet-review/pipeline.js';
 import { limiter } from './cheatsheet-review/runner.js';
 import { checkSuggestions, reviewBody, reviewEvent } from './cheatsheet-review/render.js';
 import { fencedLines, isSheet, type ScopedFile } from './cheatsheet-review/scope.js';
@@ -444,7 +444,7 @@ export class CheatsheetReviewAgent extends CustodesAgent<AgentsEnv, CheatsheetRe
       // #90: on OWASP the operator sees the refuted claims on the approval page.
       const asked = await this.requestApproval(
         review,
-        `${d.verdict}, ${event}, ${checked.comments.length} inline suggestion(s); run ${runId}${refutedNote(result.claims)}${sourcesNote(result.sources?.fetched)}`,
+        `${d.verdict}, ${event}, ${checked.comments.length} inline suggestion(s); run ${runId}${linksNote(result.linkChecks)}${sourcesNote(result.sources?.fetched)}${refutedNote(result.claims)}`,
         runId,
         trig,
         { turn },

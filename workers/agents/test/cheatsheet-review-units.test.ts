@@ -26,6 +26,7 @@ import {
   checkInternal,
   fetchable,
   anchorText,
+  EXCERPT_CHARS,
   fetchLink,
   pageText,
   maskedLine,
@@ -60,7 +61,7 @@ import {
   REVIEWERS_FOR,
   type ScopedFile,
 } from '../src/agents/cheatsheet-review/scope.js';
-import { linkStatus } from '../src/agents/cheatsheet-review/pipeline.js';
+import { linksNote, linkStatus, type LinkCheck } from '../src/agents/cheatsheet-review/pipeline.js';
 import {
   judgeMessage,
   processFacts,
@@ -578,6 +579,12 @@ describe('links.anchorText (#155)', () => {
     expect(excerpt.endsWith('[from #old-style] Legacy anchor.')).toBe(true);
   });
 
+  it('takes `id` only from an attribute inside a tag, never from text, a comment or a script (tenth security review of #155)', () => {
+    const html =
+      '<p>Use id=sec-4 in your config.</p><!-- id=sec-4 --><script>var a = " id=sec-4";</script><h2 id="sec-4">Real</h2> text';
+    expect(anchorText(html, 'https://e.example/p#sec-4')).toBe('Real text');
+  });
+
   it('takes `name` only from <a>, never from a meta or input element (ninth security review of #155)', () => {
     const html =
       '<meta name="x"><input name="y"><p id="z">Z text.</p><a href="#" name="w">W</a> after';
@@ -744,7 +751,7 @@ describe('links.fetchLink', () => {
     expect(cancelled).toBe(true);
     expect(pulled).toBeLessThanOrEqual(4);
     if (got.kind !== 'page') throw new Error('expected page');
-    expect(got.excerpt.length).toBe(8_000);
+    expect(got.excerpt.length).toBe(EXCERPT_CHARS);
   });
 
   it('sends the request without following redirects itself and never refuses by throwing', async () => {
@@ -2468,11 +2475,6 @@ describe('links.scanLinks', () => {
 });
 
 describe('pipeline.linkStatus', () => {
-  it('keeps UNCLEAR as it is, for a new and for a moved link (#155)', () => {
-    expect(linkStatus('UNCLEAR', true)).toBe('UNCLEAR');
-    expect(linkStatus('UNCLEAR', false)).toBe('UNCLEAR');
-  });
-
   it('reads a moved link only as same or different resource, or stale', () => {
     expect(linkStatus('DIFFERENT-RESOURCE', true)).toBe('DIFFERENT-RESOURCE');
     expect(linkStatus('WRONG-PAGE', true)).toBe('DIFFERENT-RESOURCE');
@@ -3093,5 +3095,73 @@ describe('links: reference definitions and HTML href/src (#95)', () => {
     expect(
       scanCode([2], ' a', '+<a href="//evil.example/p">x</a>').links.map((l) => l.url),
     ).toEqual(['//evil.example/p']);
+  });
+});
+
+describe('lineup: the link auditor reads pages like the original OWASP command (#155)', () => {
+  it('uses claudeSonnet first and deepseekFlash as the fallback', () => {
+    expect(LINEUP['link-auditor'].primary).toBe('claudeSonnet');
+    expect(LINEUP['link-auditor'].fallback).toBe('deepseekFlash');
+  });
+});
+
+describe('pipeline.linksNote: the blocking links for the approval note (#155)', () => {
+  const check = (status: string, over: Partial<LinkCheck> = {}): LinkCheck => ({
+    url: 'https://example.com/a',
+    file: 'cheatsheets/Foo_Cheat_Sheet.md',
+    line: 7,
+    moved: false,
+    status,
+    ...over,
+  });
+
+  it('is empty when no link blocks', () => {
+    expect(linksNote([])).toBe('');
+    expect(
+      linksNote([
+        check('OK'),
+        check('SAME-RESOURCE'),
+        check('LOW-AUTHORITY'),
+        check('STALE'),
+        check('not checked'),
+        check('verify manually'),
+      ]),
+    ).toBe('');
+  });
+
+  it('lists broken, WRONG-PAGE, UNSUPPORTED and DIFFERENT-RESOURCE links with status, file:line and URL', () => {
+    const note = linksNote([
+      check('broken (HTTP 404)', { url: 'https://example.com/1', line: 1 }),
+      check('WRONG-PAGE', { url: 'https://example.com/2', line: 2 }),
+      check('UNSUPPORTED', { url: 'https://example.com/3', line: 3 }),
+      check('DIFFERENT-RESOURCE', { url: 'https://example.com/4', line: 4 }),
+      check('OK', { url: 'https://example.com/ok' }),
+      check('STALE', { url: 'https://example.com/stale' }),
+    ]);
+    expect(note).toContain('4 link(s) block this review; open each to confirm before approving:');
+    expect(note).toContain('- WRONG-PAGE cheatsheets/Foo_Cheat_Sheet.md:2 https://example.com/2');
+    expect(note).toContain(
+      '- broken (HTTP 404) cheatsheets/Foo_Cheat_Sheet.md:1 https://example.com/1',
+    );
+    expect(note).toContain(':3 https://example.com/3');
+    expect(note).toContain(':4 https://example.com/4');
+    expect(note).not.toContain('/ok');
+    expect(note).not.toContain('/stale');
+    expect(note).not.toContain('more;');
+  });
+
+  it('stays within its budget and counts the rest as "…and N more"', () => {
+    const many = Array.from({ length: 30 }, (_, i) =>
+      check('WRONG-PAGE', { url: `https://example.com/${'p'.repeat(200)}${i}`, line: i + 1 }),
+    );
+    const note = linksNote(many, 1_200);
+    const lines = note.split('\n').filter((l) => l.startsWith('- '));
+    expect(note).toContain('30 link(s) block this review');
+    expect(lines.length).toBeGreaterThan(0);
+    expect(lines.length).toBeLessThan(30);
+    expect(lines.join('\n').length).toBeLessThanOrEqual(1_200);
+    expect(note).toContain(
+      `…and ${30 - lines.length} more; see the review's "Links checked" table.`,
+    );
   });
 });

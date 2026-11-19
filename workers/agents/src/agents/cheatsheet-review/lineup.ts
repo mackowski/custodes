@@ -40,9 +40,11 @@ export const LINEUP: Readonly<Record<Role, Casting>> = {
   'practicality-reviewer': { primary: 'claudeSonnet', fallback: 'museSpark', max_tokens: 8_000 },
   'duplication-checker': { primary: 'museSpark', fallback: 'gptSol', max_tokens: 8_000 },
   // Explicit: unset, Workers AI defaults DeepSeek to 'high' (same max_tokens risk as above).
+  // #155: like the original OWASP command (a strong model reading most of each page); the old
+  // primary is the fallback. `effort` applies to DeepSeek only (Anthropic ignores it).
   'link-auditor': {
-    primary: 'deepseekFlash',
-    fallback: 'gptLuna',
+    primary: 'claudeSonnet',
+    fallback: 'deepseekFlash',
     max_tokens: 8_000,
     effort: 'low',
   },

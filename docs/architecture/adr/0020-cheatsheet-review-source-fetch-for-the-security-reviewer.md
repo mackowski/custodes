@@ -105,21 +105,15 @@ pass 2 cannot ask for more.
   are anonymous reads of public web pages, not GitHub API calls through the broker. Invariant 1 is
   about credentials and the broker's `/v1/read`, and is unchanged.
 - **The claim checks stay a safeguard, never a weapon.** Security review, 2026-11-19:
-  - When the claim verifier sees injection, every verdict becomes NOT-FOUND, and nothing is
-    demoted (`demoteUnchecked`).
   - A page only the reviewer fetched may confirm any claim, but may refute only a claim on a finding
     that pass 2 added. For an earlier finding, REFUTED becomes NOT-FOUND: the finding cannot be
-    removed, and at most stays unchecked, as it would without the fetch.
+    removed.
   - Pass 2 findings without a claim, or with a claim on a page pass 2 was not given, are dropped in
     code, so the verifier always stands between a fetched page and the review.
-  - An unchecked claim on a pass-2 finding marks its item, and demotes it only when no earlier
-    finding of the same dimension sits at the same file and line. The match is by location, never
-    by wording.
+  - Claims on findings that pass 2 added are checked after every other claim. A refuted one is
+    neither shown to the judge nor applied to judge items, which could be pass 1's.
+  - NOT-FOUND never weakens a finding (#155 follows the original OWASP command), so there is
+    nothing to exploit by making a check fail.
   - `fetchable` refuses `api.github.com` and `*.workers.dev` on every hop of every fetch.
-  - Claims on findings that pass 2 added are checked after every other claim, and act only through
-    the reports. They never remove or demote
-    a judge item, which could be pass 1's.
-  - A must-fix is demoted only when every finding of its dimension that it refers to had its claim
-    left unchecked.
 - **Logging and tracing.** Logs and spans carry hosts and statuses. Page text appears only in trace
   spans while `TRACE_PAYLOADS` is `"true"` (ADR 0016).

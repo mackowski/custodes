@@ -108,7 +108,10 @@ export const NON_TEXT_MARK = '(non-text content';
 const TIMEOUT_MS = 10_000;
 const MAX_BYTES = 2 * 1024 * 1024;
 const MAX_REDIRECTS = 5;
-export const EXCERPT_CHARS = 8_000;
+/** #155: like the original OWASP command, the link auditor reads most of a page. */
+export const EXCERPT_CHARS = 40_000;
+/** #155: all page excerpts in one link-audit call together. */
+export const LINK_AUDIT_CHARS = 160_000;
 /** #155: the top of the page kept in front of an anchored excerpt. */
 export const PAGE_TOP_CHARS = 500;
 
@@ -554,8 +557,8 @@ export function anchorText(html: string, url: string): string | undefined {
   const esc = fragment.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   // `id` on any element, `name` only on <a>: browsers scroll to nothing else (ninth security review).
   const m =
-    new RegExp(`\\sid\\s*=\\s*["']?${esc}(?=["'\\s>/])`, 'i').exec(html) ??
-    new RegExp(`<a\\b[^>]{0,500}?\\sname\\s*=\\s*["']?${esc}(?=["'\\s>/])`, 'i').exec(html);
+    new RegExp(`<[a-z][^<>]{0,500}?\\sid\\s*=\\s*["']?${esc}(?=["'\\s>/])`, 'i').exec(html) ??
+    new RegExp(`<a\\b[^<>]{0,500}?\\sname\\s*=\\s*["']?${esc}(?=["'\\s>/])`, 'i').exec(html);
   if (!m) return undefined;
   const start = m[0].startsWith('<') ? m.index : html.lastIndexOf('<', m.index);
   return start < 0 ? undefined : pageText(html.slice(start)).text;

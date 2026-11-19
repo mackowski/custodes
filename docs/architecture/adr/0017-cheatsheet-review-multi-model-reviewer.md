@@ -398,14 +398,16 @@ command (A, Opus 5.5) on 28 OWASP pull requests:
 
 **Decision (operator, 2026-11-19, /grill-plan).**
 
-- **A model's reading of a page never blocks on its own.**
-  - Link auditor WRONG-PAGE, UNSUPPORTED and DIFFERENT-RESOURCE become a MINOR "(check by hand)".
-    Broken links, lines too long to audit, target forms that are not allowed and broken internal
-    anchors still block.
-  - A new auditor status, UNCLEAR, is a "verify manually" note.
-  - A kept must-fix whose claim is NOT-FOUND becomes MINOR. A reviewer BLOCK that rests only on
-    unchecked BLOCKERs counts as CONCERNS.
-  - This narrows the 2026-11-16 rule that "NOT-FOUND never downgrades a finding".
+- **Links as in the original OWASP command.** WRONG-PAGE, UNSUPPORTED and DIFFERENT-RESOURCE stay
+  blocking, and NOT-FOUND still never weakens a finding. The false alarms came from a cheap model
+  reading 8,000 characters, so the fix is on the reading side:
+  - The link auditor is Claude Sonnet 5.5 (fallback DeepSeek V4.1 Flash).
+  - It reads up to 40,000 characters a page, within 160,000 a call.
+  - The approval note lists every blocking link with its URL, so the operator rejects a false
+    alarm instead of code softening it.
+  - A first plan, in which code demoted these readings to MINOR, was implemented, then reverted
+    on the operator's call. Ten security review rounds showed that every path producing NOT-FOUND
+    became a lever for weakening a review.
 - **Excerpts start at the cited anchor.** HTML text starts at the element the URL's `#fragment`
   names, for the link audit and the claim sources. This **reverses #154's ruled-out item**
   ("excerpting the section an anchor points to"): rounds 1 and 2 showed cited anchors beyond the
@@ -431,17 +433,19 @@ command (A, Opus 5.5) on 28 OWASP pull requests:
 - A broker read with `ref` for the size line, which would need a schema and policy change.
 - A wide "reports" word in the machinery filter.
 
-**Accepted risk (operator, 2026-11-19).** A wrong link, or a must-fix whose claim could not be
-checked, can now reach the review as a MINOR instead of blocking. A PR author can cause the second
-case on purpose for a claim on a link they control (a 403, an empty page); the narrower rule of
-no demotion for PR links was declined after the third security review. This applies to the OWASP PR
-2878 shape (a correct "wrong NIST section" finding against a PDF that answered 403). The operator
-reads every OWASP review before it posts. Owner: operator.
+**Ruled out after implementation (operator, 2026-11-19).** Demoting link-auditor readings and
+unchecked claims to MINOR in code. It reached the goal, but each NOT-FOUND source then needed its
+own exception: injection, the claim cap, verifier failure, pass-2 claims and author-controlled
+pages. That was too much machinery for a link check.
+
+**Accepted risk (operator, 2026-11-19).** A false link alarm can still produce REQUEST_CHANGES. On
+OWASP the operator sees the blocking links listed on the approval page and rejects a wrong one; on
+the sandbox it posts. Owner: operator.
 
 **Evals:**
 
 - security `cases-155.yaml` (first reviewer only): 3001 control limits and the wrong section,
   3008 mTLS preflight, 2970 `Origin: null`, and an injection that asks for an exfiltration source;
-- links +3: the sentence-level assertion, UNCLEAR, and an injection inside the anchored section;
+- links +2 (run on Claude Sonnet 5.5): the sentence-level assertion, and an injection inside the anchored section;
 - judge +1: the 2878 finding is kept, with no machinery words;
 - new suite `cheatsheet-review-sources` (ADR 0020).

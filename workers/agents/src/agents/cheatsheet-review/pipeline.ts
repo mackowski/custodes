@@ -3,6 +3,7 @@
  * the claim check (#90), then the judge, then the multi-model invariant. No side effects: the
  * agent decides what to post.
  */
+import { cutWhole, inertText } from '@custodes/llm';
 import {
   judgeMessage,
   linkMessage,
@@ -24,6 +25,8 @@ import {
   type AddedLink,
   MAX_EXTERNAL_LINKS,
   NON_TEXT_MARK,
+  EXCERPT_CHARS,
+  LINK_AUDIT_CHARS,
   type FetchedLink,
   type SourceDoc,
 } from './links.js';
@@ -123,8 +126,6 @@ interface SourcePass {
   report: ReviewerReport;
   /** Findings from pass 1: the merged report's first ones (mergePasses keeps them in order). */
   pass1Findings: number;
-  /** Pass 1's own verdict: a pass-2 finding that is refuted or unchecked never lowers it. */
-  pass1Verdict: ReviewerReport['verdict'];
   docs: ReadonlyMap<string, SourceDoc>;
   log: SourceLog | undefined;
 }
@@ -145,7 +146,6 @@ async function sourcePass(
     return {
       report: mergePasses(pass1, undefined),
       pass1Findings: pass1.findings.length,
-      pass1Verdict: pass1.verdict,
       docs: new Map(),
       log: undefined,
     };
@@ -165,7 +165,6 @@ async function sourcePass(
   return {
     report,
     pass1Findings: pass1.findings.length,
-    pass1Verdict: pass1.verdict,
     docs,
     log: {
       fetched: log,
@@ -334,41 +333,36 @@ async function linkStage(snap: Snapshot, deps: PipelineDeps): Promise<LinkStage>
   let outcome: RoleOutcome | undefined;
   let injectionSeen = false;
   if (pages.length > 0) {
-    const r = await runRole(deps, 'link-auditor', LinkAudit, LINK_PROMPT, linkMessage(pages));
+    // Like the original OWASP command, the auditor reads most of each page (#155): up to 40,000
+    // characters a page, within a total that keeps one call bounded.
+    const share = Math.min(EXCERPT_CHARS, Math.floor(LINK_AUDIT_CHARS / pages.length));
+    const r = await runRole(
+      deps,
+      'link-auditor',
+      LinkAudit,
+      LINK_PROMPT,
+      linkMessage(pages.map((p) => ({ ...p, excerpt: cutWhole(p.excerpt, share) }))),
+    );
     outcome = r.outcome;
     injectionSeen = r.answer?.injectionSeen === true;
     for (const v of r.answer?.links ?? []) {
       const page = pages.find((p) => p.url === v.url);
       if (!page) continue;
-      // Injection taints the auditor's own call, as it does the verifier's: no OK and no UNCLEAR
-      // note, a MINOR to check by hand instead (ninth security review of #155).
+      // Injection taints the auditor's own call, as it does the verifier's: never OK.
       const said = linkStatus(v.status, page.previous !== undefined);
       const status =
-        injectionSeen && (said === 'OK' || said === 'SAME-RESOURCE' || said === 'UNCLEAR')
-          ? 'UNSUPPORTED'
-          : said;
+        injectionSeen && (said === 'OK' || said === 'SAME-RESOURCE') ? 'UNSUPPORTED' : said;
       const row = checks.find((c) => c.url === page.url);
       if (row) row.status = status;
       if (status === 'OK' || status === 'SAME-RESOURCE') continue;
-      if (status === 'UNCLEAR') {
-        // #155: the excerpt did not reach the cited place: a note, never a finding, and never a
-        // live link (the audit did not accept it).
-        if (row) row.status = 'verify manually';
-        allowed.delete(page.url);
-        notes.push(
-          `${page.url.slice(0, 300)} (the cited place was not in the excerpt; check it by hand)`,
-        );
-        continue;
-      }
-      // #155: a model's reading of a page never blocks on its own (OWASP PRs 2955, 2956, 3005: the
-      // page did support the sentence). It is a MINOR the maintainer checks by hand; a broken link,
-      // a long line or a disallowed form still blocks.
-      const doubt = status === 'LOW-AUTHORITY' || status === 'STALE' ? '' : ' (check by hand)';
+      // As in the original OWASP command: WRONG-PAGE, UNSUPPORTED and DIFFERENT-RESOURCE block;
+      // LOW-AUTHORITY and STALE are concerns. The operator sees each blocking link on the approval
+      // page with its URL (#155).
       findings.push({
-        severity: 'MINOR',
+        severity: status === 'LOW-AUTHORITY' || status === 'STALE' ? 'MINOR' : 'BLOCKER',
         file: page.file,
         line: page.line,
-        problem: `${status}${doubt}: \`${page.url.slice(0, 300)}\`${page.previous !== undefined ? ` (moved from \`${page.previous.slice(0, 300)}\`)` : ''}${page.also ? ` (also cited at ${page.also})` : ''}: ${v.reason}`,
+        problem: `${status}: \`${page.url.slice(0, 300)}\`${page.previous !== undefined ? ` (moved from \`${page.previous.slice(0, 300)}\`)` : ''}${page.also ? ` (also cited at ${page.also})` : ''}: ${v.reason}`,
       });
       if (status !== 'LOW-AUTHORITY' && status !== 'STALE') allowed.delete(page.url);
     }
@@ -401,7 +395,6 @@ async function linkStage(snap: Snapshot, deps: PipelineDeps): Promise<LinkStage>
  * never gets the moved-only statuses: SAME-RESOURCE reads as OK, DIFFERENT-RESOURCE as WRONG-PAGE.
  */
 export function linkStatus(status: string, moved: boolean): string {
-  if (status === 'UNCLEAR') return 'UNCLEAR';
   if (moved) {
     if (status === 'SAME-RESOURCE' || status === 'OK') return 'SAME-RESOURCE';
     if (status === 'DIFFERENT-RESOURCE' || status === 'WRONG-PAGE') return 'DIFFERENT-RESOURCE';
@@ -496,19 +489,7 @@ export async function reviewPipeline(snap: Snapshot, deps: PipelineDeps): Promis
     added({ role, index }),
   );
   if (claims.outcome) outcomes.push(claims.outcome);
-  // Security review of #155: injection turns every verifier verdict into NOT-FOUND; detecting an
-  // attack (by the verifier or by pass 2 in a fetched page) must never weaken the review.
-  const demoteUnchecked =
-    !claims.injectionSeen && !reports.some((x) => x.report.injectionSeen === true);
-  const judgedReports = reportsForJudge(
-    reports,
-    claims.results,
-    demoteUnchecked,
-    sources && {
-      late: (role, index) => added({ role, index }),
-      floor: new Map([['security-reviewer', sources.pass1Verdict]]),
-    },
-  );
+  const judgedReports = reportsForJudge(reports, claims.results);
 
   const judged = await runRole(
     deps,
@@ -527,10 +508,8 @@ export async function reviewPipeline(snap: Snapshot, deps: PipelineDeps): Promis
     judged.answer &&
     enforceClaims(
       judged.answer,
-      // A NOT-FOUND claim on an added finding still marks (and may demote) its own item; backed()
-      // keeps any item a pass-1 finding stands behind (fifth security review of #155).
+      // A NOT-FOUND claim on an added finding still marks its item "not confirmed".
       claims.results.filter((r) => !added(r) || r.verdict === 'NOT-FOUND'),
-      { demoteUnchecked, reports, late: (role, index) => added({ role, index }) },
     );
   const plain = enforced && withoutMachinery(enforced.decision);
 
@@ -585,4 +564,32 @@ export async function reviewPipeline(snap: Snapshot, deps: PipelineDeps): Promis
     machinerySentencesRemoved: plain?.removed ?? 0,
     sources: sources?.log,
   };
+}
+
+/** Link statuses that block, as in the original OWASP command. */
+const BLOCKING = new Set(['WRONG-PAGE', 'UNSUPPORTED', 'DIFFERENT-RESOURCE']);
+
+/**
+ * #155: the links that block, for the operator's approval note, with their URL to open by hand: a
+ * false alarm is rejected there instead of being softened in code. Code-written, within a budget.
+ */
+export function linksNote(checks: readonly LinkCheck[], budget = 1_200): string {
+  const bad = checks.filter((c) => c.status.startsWith('broken') || BLOCKING.has(c.status));
+  if (bad.length === 0) return '';
+  const lines: string[] = [];
+  let used = 0;
+  for (const c of bad) {
+    const line = `- ${inertText(c.status, 40)} ${inertText(c.file, 120)}:${c.line} ${inertText(c.url, 300)}`;
+    if (used + line.length > budget) break;
+    lines.push(line);
+    used += line.length + 1;
+  }
+  const rest = bad.length - lines.length;
+  return [
+    '',
+    '',
+    `${bad.length} link(s) block this review; open each to confirm before approving:`,
+    ...lines,
+    ...(rest > 0 ? [`…and ${rest} more; see the review's "Links checked" table.`] : []),
+  ].join('\n');
 }

@@ -61,12 +61,6 @@ export interface ClaimResult {
   found?: boolean;
   /** `code`: a fixed phrase written by code. `verifier`: the model's sentence (rendered inert, never logged). */
   by: 'code' | 'verifier';
-  /**
-   * Not really checked: over MAX_CLAIMS, or the verifier failed or gave no verdict. Marked like an
-   * unchecked claim, but never demoted for it (security review of #155): more claims, for example
-   * from pass 2, or a verifier made to fail must not weaken a finding.
-   */
-  skipped?: true;
   reason: string;
 }
 
@@ -253,7 +247,6 @@ export async function claimStage(
       host: hostOf(c.source),
       verdict: 'NOT-FOUND',
       by: 'code',
-      skipped: true,
       reason: `not checked: at most ${MAX_CLAIMS} claims are checked per review`,
     });
 
@@ -333,11 +326,8 @@ export async function claimStage(
         by: 'code',
         reason,
       });
-      // A failed safeguard never weakens the review: these are marked unchecked but never demote,
-      // like a claim over the cap (fifth security review of #155: a page can make the verifier's
-      // answer fail its schema on purpose).
-      if (!r.answer) results.push({ ...code('the claim verifier was unavailable'), skipped: true });
-      else if (!a) results.push({ ...code('the claim verifier gave no verdict'), skipped: true });
+      if (!r.answer) results.push(code('the claim verifier was unavailable'));
+      else if (!a) results.push(code('the claim verifier gave no verdict'));
       // Injection never confirms and never removes a finding: a person looks.
       else if (injectionSeen && a.verdict !== 'NOT-FOUND')
         results.push(code('instruction-like text in the claim or the source'));
@@ -372,73 +362,33 @@ const VERDICT_RANK = { PASS: 0, CONCERNS: 1, BLOCK: 2 } as const;
 /**
  * The reports the judge sees, and the ones code reads reviewer verdicts from: REFUTED findings
  * removed, CONFIRMED and NOT-FOUND ones marked `"verified": "CONFIRMED" | "NOT-FOUND"` (a field
- * only code sets: zod strips it from model output). NOT-FOUND never removes a finding; since #155 a
- * BLOCK that rests only on BLOCKERs with unchecked claims counts as CONCERNS. Otherwise only a report
- * that lost a REFUTED finding gets the verdict of what is left, never a higher one.
+ * only code sets: zod strips it from model output). NOT-FOUND never removes or weakens anything,
+ * as in the original OWASP command (#155): only a report that lost a REFUTED finding gets the
+ * verdict of what is left, never a higher one.
  */
 export function reportsForJudge(
   reports: readonly { role: ReviewerRole; report: ReviewerReport }[],
   results: readonly ClaimResult[],
-  /**
-   * #155: an unchecked BLOCKER no longer blocks. False when the verifier saw injection: that
-   * turns every verdict into NOT-FOUND, and detecting an attack must never weaken the review.
-   */
-  demoteUnchecked = true,
-  /**
-   * ADR 0020: findings pass 2 added, and the verdict each role had before them. A change caused only
-   * by such findings never takes the verdict below that (fifth security review of #155).
-   */
-  pass2?: {
-    late: (role: ReviewerRole, index: number) => boolean;
-    floor: ReadonlyMap<ReviewerRole, ReviewerReport['verdict']>;
-  },
 ): { role: ReviewerRole; report: ReviewerReport }[] {
-  const resultOf = (role: ReviewerRole, index: number) =>
-    results.find((r) => r.role === role && r.index === index);
+  const verdictOf = (role: ReviewerRole, index: number) =>
+    results.find((r) => r.role === role && r.index === index)?.verdict;
   return reports.map(({ role, report }) => {
-    const earlyChange = report.findings.some((f, index) => {
-      if (pass2?.late(role, index) === true) return false;
-      const r = resultOf(role, index);
-      return (
-        r?.verdict === 'REFUTED' ||
-        (demoteUnchecked &&
-          r?.verdict === 'NOT-FOUND' &&
-          r.skipped !== true &&
-          f.severity === 'BLOCKER')
-      );
-    });
-    const floor = earlyChange ? undefined : pass2?.floor.get(role);
     const findings: Finding[] = [];
-    const tried = new Set<Finding>();
     report.findings.forEach((f, index) => {
-      const r = resultOf(role, index);
-      if (r?.verdict === 'REFUTED') return;
+      const v = verdictOf(role, index);
+      if (v === 'REFUTED') return;
       const kept: Finding & { verified?: 'CONFIRMED' | 'NOT-FOUND' } =
-        r === undefined ? f : { ...f, verified: r.verdict };
-      if (r?.verdict === 'NOT-FOUND' && r.skipped !== true) tried.add(kept);
+        v === undefined ? f : { ...f, verified: v };
       findings.push(kept);
     });
-    // #155: a finding whose claim was tried and could not be checked never blocks on its own.
-    const unchecked = (f: (typeof findings)[number]) => demoteUnchecked && tried.has(f);
-    if (
-      (findings.length === report.findings.length &&
-        !findings.some((f) => f.severity === 'BLOCKER' && unchecked(f))) ||
-      report.verdict === 'N/A'
-    )
+    if (findings.length === report.findings.length || report.verdict === 'N/A')
       return { role, report: { ...report, findings } };
-    const left = findings.some((f) => f.severity === 'BLOCKER' && !unchecked(f))
+    const left = findings.some((f) => f.severity === 'BLOCKER')
       ? 'BLOCK'
-      : findings.some((f) => f.severity !== 'NIT')
+      : findings.some((f) => f.severity === 'MAJOR' || f.severity === 'MINOR')
         ? 'CONCERNS'
         : 'PASS';
-    const lowered = VERDICT_RANK[left] < VERDICT_RANK[report.verdict] ? left : report.verdict;
-    const verdict =
-      floor !== undefined &&
-      floor !== 'N/A' &&
-      VERDICT_RANK[floor] > VERDICT_RANK[lowered] &&
-      VERDICT_RANK[floor] <= VERDICT_RANK[report.verdict]
-        ? floor
-        : lowered;
+    const verdict = VERDICT_RANK[left] < VERDICT_RANK[report.verdict] ? left : report.verdict;
     return { role, report: { ...report, findings, verdict } };
   });
 }
@@ -592,36 +542,18 @@ export function withoutMachinery(d: ReviewDecision): { decision: ReviewDecision;
  * own suggestion; another reviewer's corroborating finding in another dimension survives. No
  * sentence about a REFUTED claim stays in the rationale, close reasons, reply, dimension headlines
  * or earlier-request summaries. A NOT-FOUND finding the judge kept is marked "claim not confirmed
- * against its source", and a must-fix one becomes MINOR (#155: an unchecked claim never makes a
- * must-fix on its own; normaliseDecision then moves it to should-fix). A CONFIRMED finding is marked
- * verified where the judge kept it; code never adds a dropped finding back and never raises the
- * verdict. Runs before normaliseDecision.
+ * against its source" and keeps its severity, as in the original OWASP command (#155). A CONFIRMED
+ * finding is marked verified where the judge kept it; code never adds a dropped finding back and
+ * never changes the verdict. Runs before normaliseDecision.
  */
 export function enforceClaims(
   d: ReviewDecision,
   results: readonly ClaimResult[],
-  opts: {
-    /** #155: false when the verifier saw injection (see reportsForJudge). */
-    demoteUnchecked?: boolean;
-    /**
-     * Every reviewer finding, to check that an item a NOT-FOUND claim refers to does not also rest
-     * on a finding that was not left unchecked (security review of #155).
-     */
-    reports?: readonly { role: ReviewerRole; report: ReviewerReport }[];
-    /**
-     * ADR 0020: findings pass 2 added. Their unchecked claims demote an item only when no earlier
-     * finding of the same dimension sits at the same file and line (eighth security review: matched
-     * by location, never by wording).
-     */
-    late?: (role: ReviewerRole, index: number) => boolean;
-  } = {},
 ): { decision: ReviewDecision; removed: number } {
   const gone = results.filter((r) => r.verdict === 'REFUTED');
   const refuted = gone.map((r) => r.finding);
   const confirmed = results.filter((r) => r.verdict === 'CONFIRMED');
   const notFound = results.filter((r) => r.verdict === 'NOT-FOUND');
-  // Only claims that were tried can demote: one over the cap was never checked (security review).
-  const notChecked = notFound.filter((r) => r.skipped !== true);
   let removed = 0;
   const keep = <T>(list: readonly T[], drop: (x: T) => boolean): T[] =>
     list.filter((x) => {
@@ -672,48 +604,11 @@ export function enforceClaims(
   // Confirmed findings: marked where the judge kept them. One the judge dropped stays dropped.
   // A kept NOT-FOUND finding carries its own caveat: it is no longer listed under "Claims to
   // verify manually", and an unchecked claim must not read as a checked one (#154 review).
-  // #155: a must-fix becomes MINOR only when every finding of its dimension that it refers to had
-  // its claim left unchecked; another finding behind it (no claim, or confirmed) keeps it.
-  const unchecked = (role: ReviewerRole, index: number) =>
-    notChecked.some((c) => c.role === role && c.index === index);
-  const backed = (i: Item) =>
-    (opts.reports ?? []).some(({ role, report }) =>
-      report.findings.some(
-        (f, index) =>
-          DIMENSION[role] === i.dimension &&
-          !unchecked(role, index) &&
-          !gone.some((g) => g.role === role && g.index === index) &&
-          refersTo(i, { ...f, claim: f.claim ?? { text: '', sourceUrl: '', locator: '' } }),
-      ),
-    );
-  // An earlier (not pass-2) finding of the item's dimension at the same file and line.
-  const earlierAt = (i: Item) =>
-    (opts.reports ?? []).some(({ role, report }) =>
-      report.findings.some(
-        (f, index) =>
-          DIMENSION[role] === i.dimension &&
-          opts.late?.(role, index) !== true &&
-          f.file === i.file &&
-          (f.line === undefined || i.line === undefined || f.line === i.line),
-      ),
-    );
   const mark = (i: Item): Item => {
     const r = confirmed.find((c) => refersTo(i, c.finding));
-    const uncheckedHere = notFound.some((c) => refersTo(i, c.finding));
-    const note = `${r ? verifiedNote(r) : ''}${uncheckedHere ? UNCHECKED_NOTE : ''}`;
-    const marked = note ? { ...i, text: `${i.text.slice(0, 800 - note.length)}${note}` } : i;
-    const demote =
-      opts.demoteUnchecked !== false &&
-      !r &&
-      (i.severity === 'BLOCKER' || i.severity === 'MAJOR') &&
-      notChecked.some(
-        (c) =>
-          DIMENSION[c.role] === i.dimension &&
-          refersTo(i, c.finding) &&
-          (opts.late?.(c.role, c.index) !== true || !earlierAt(i)),
-      ) &&
-      !backed(i);
-    return demote ? { ...marked, severity: 'MINOR' } : marked;
+    const unchecked = notFound.some((c) => refersTo(i, c.finding));
+    const note = `${r ? verifiedNote(r) : ''}${unchecked ? UNCHECKED_NOTE : ''}`;
+    return note ? { ...i, text: `${i.text.slice(0, 800 - note.length)}${note}` } : i;
   };
   const marked = {
     mustFix: lists.mustFix.map(mark),
@@ -776,17 +671,29 @@ export function claimLog(results: readonly ClaimResult[], removedItems: number) 
  * #90: the refuted claims for the operator, appended to the approval request's note (shown escaped
  * on the approval page, OWASP). Model text, made inert and clipped; empty when nothing was refuted.
  */
+/** Characters of refuted-claim entries in the approval note (its rationale is cut at 4,000). */
+export const REFUTED_BUDGET = 3_000;
+
 export function refutedNote(results: readonly ClaimResult[]): string {
   const refuted = results.filter((r) => r.verdict === 'REFUTED');
   if (refuted.length === 0) return '';
-  // Count first and short entries: the whole rationale is cut at 4,000 characters.
+  // Count first and short entries: the whole rationale is cut at 4,000 characters. Entries stop at
+  // a budget with a count of the rest, so a cut is never silent (tenth security review of #155:
+  // the cap went from 5 to 10 claims, and hosts are the author's choice, so they are clipped).
+  const entries: string[] = [];
+  let used = 0;
+  for (const r of refuted) {
+    const e = `- ${r.finding.severity} ${inertText(r.finding.file, 120)}${r.finding.line ? `:${r.finding.line}` : ''} (${r.role}) against ${inertText(r.host ?? 'its source', 80)} at "${inertText(r.finding.claim.locator, 60)}": "${inertText(r.finding.claim.text, 150)}" Verifier: ${inertText(r.reason, 150)}`;
+    if (used + e.length > REFUTED_BUDGET) break;
+    entries.push(e);
+    used += e.length + 1;
+  }
+  const rest = refuted.length - entries.length;
   return [
     '',
     '',
     `${refuted.length} refuted claim(s), left out of the review (checked by code against the cited source; the text is model output):`,
-    ...refuted.map(
-      (r) =>
-        `- ${r.finding.severity} ${inertText(r.finding.file, 120)}${r.finding.line ? `:${r.finding.line}` : ''} (${r.role}) against ${r.host ?? 'its source'} at "${inertText(r.finding.claim.locator, 60)}": "${inertText(r.finding.claim.text, 150)}" Verifier: ${inertText(r.reason, 150)}`,
-    ),
+    ...entries,
+    ...(rest > 0 ? [`…and ${rest} more refuted claim(s); see the run's trace.`] : []),
   ].join('\n');
 }

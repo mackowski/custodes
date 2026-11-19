@@ -824,16 +824,6 @@ describe('claims.claimId: a narrow backstop for ids models rewrite', () => {
 });
 
 describe('claims.reportsForJudge and judgeClaims', () => {
-  it('keeps a BLOCK when the verifier saw injection (security review of #155)', () => {
-    const blocker = finding({ severity: 'BLOCKER' });
-    const out = reportsForJudge(
-      [{ role: 'security-reviewer', report: report([blocker], 'BLOCK') }],
-      [result('NOT-FOUND', blocker)],
-      false,
-    );
-    expect(out[0]?.report.verdict).toBe('BLOCK');
-  });
-
   it('an unchecked NIT never lifts a BLOCK that rests on something else (lean review of #155)', () => {
     const major = {
       ...finding({ severity: 'MAJOR', line: 9 }),
@@ -868,14 +858,14 @@ describe('claims.reportsForJudge and judgeClaims', () => {
     expect(passOnly[0]?.report).toEqual({ verdict: 'PASS', findings: [] });
   });
 
-  it('never drops a NOT-FOUND finding, but an unchecked BLOCKER no longer blocks (#155)', () => {
+  it('never drops or weakens a NOT-FOUND finding: a BLOCK stays BLOCK', () => {
     const blocker = finding({ severity: 'BLOCKER' });
     const out = reportsForJudge(
       [{ role: 'security-reviewer', report: report([blocker], 'BLOCK') }],
       [result('NOT-FOUND', blocker)],
     );
     expect(out[0]?.report).toEqual({
-      verdict: 'CONCERNS',
+      verdict: 'BLOCK',
       findings: [{ ...blocker, verified: 'NOT-FOUND' }],
     });
   });
@@ -1179,6 +1169,23 @@ describe('claims in the review, the logs and the approval note', () => {
     expect(full).toContain('5 refuted claim(s)');
     for (let i = 1; i <= 5; i++) expect(full).toContain(`${SHEET}:${i} (security-reviewer)`);
   });
+
+  it('never cuts silently: ten refuted claims on long hosts stay in budget and count the rest (tenth security review of #155)', () => {
+    const long = 'L'.repeat(600);
+    const host = `${'h'.repeat(240)}.example`;
+    const ten = Array.from({ length: 10 }, (_, i) =>
+      result('REFUTED', finding({ line: i + 1 }, { text: long }), { index: i, reason: long, host }),
+    );
+    const prefix = `REQUEST_CHANGES, COMMENT, 3 inline suggestion(s); run ${'0'.repeat(36)}`;
+    const sources =
+      '\n\nSources the security reviewer asked for (host:status): a.example:read, b.example:failed';
+    const full = `${prefix}${sources}${refutedNote(ten)}`;
+    expect(full.length).toBeLessThanOrEqual(4_000);
+    expect(full).toContain('10 refuted claim(s)');
+    expect(full).toMatch(/…and \d+ more refuted claim\(s\)/);
+    expect(full).toContain('a.example:read');
+    expect(full).not.toContain('h'.repeat(100));
+  });
 });
 
 describe('claims.withoutMachinery: the author never reads about the review machinery (#155)', () => {
@@ -1252,7 +1259,7 @@ describe('claims.withoutMachinery: the author never reads about the review machi
   });
 });
 
-describe('claims.enforceClaims: an unchecked claim never makes a must-fix (#155)', () => {
+describe('claims.enforceClaims: an unchecked claim never changes a severity', () => {
   const CLAIM = finding(
     { severity: 'BLOCKER', line: 7, problem: 'RFC 9999 section 4 forbids the cookie flag here.' },
     { text: 'RFC 9999 section 4 forbids it.', sourceUrl: 'https://example.com/rfc', locator: '4' },
@@ -1266,83 +1273,17 @@ describe('claims.enforceClaims: an unchecked claim never makes a must-fix (#155)
   });
 
   it.each(['BLOCKER', 'MAJOR'] as const)(
-    'a NOT-FOUND %s must-fix becomes MINOR with the note, and normaliseDecision moves it to should-fix',
+    'a NOT-FOUND %s must-fix keeps its severity and stays a must-fix, marked with the note',
     (severity) => {
       const d = decision({ mustFix: [item(severity)] });
       const { decision: out } = enforceClaims(d, [result('NOT-FOUND', CLAIM)]);
-      expect(out.mustFix[0]?.severity).toBe('MINOR');
+      expect(out.mustFix[0]?.severity).toBe(severity);
       expect(out.mustFix[0]?.text.endsWith(UNCHECKED_NOTE)).toBe(true);
       const n = normaliseDecision(out, false);
-      expect(n.mustFix).toEqual([]);
-      expect(n.shouldFix).toHaveLength(1);
-      expect(n.shouldFix[0]?.text).toContain(UNCHECKED_NOTE.trim());
+      expect(n.mustFix).toHaveLength(1);
+      expect(n.shouldFix).toEqual([]);
     },
   );
-
-  it('demotes nothing when the verifier saw injection (security review of #155)', () => {
-    const d = decision({ mustFix: [item('BLOCKER')] });
-    const { decision: out } = enforceClaims(d, [result('NOT-FOUND', CLAIM)], {
-      demoteUnchecked: false,
-    });
-    expect(out.mustFix[0]?.severity).toBe('BLOCKER');
-  });
-
-  it('keeps the severity when another finding of the same dimension backs the item (lean review of #155)', () => {
-    const d = decision({ mustFix: [item('BLOCKER')] });
-    const second = { ...CLAIM, claim: undefined } as unknown as Finding;
-    const { decision: out } = enforceClaims(d, [result('NOT-FOUND', CLAIM)], {
-      reports: [
-        { role: 'security-reviewer', report: report([CLAIM], 'BLOCK') },
-        { role: 'security-second-voice', report: report([second], 'BLOCK') },
-      ],
-    });
-    expect(out.mustFix[0]?.severity).toBe('BLOCKER');
-    expect(out.mustFix[0]?.text.endsWith(UNCHECKED_NOTE)).toBe(true);
-  });
-
-  it('an unchecked claim of another dimension never demotes a Security item (lean review of #155)', () => {
-    const d = decision({ mustFix: [item('BLOCKER')] });
-    const { decision: out } = enforceClaims(d, [
-      result('NOT-FOUND', CLAIM, { role: 'practicality-reviewer' }),
-    ]);
-    expect(out.mustFix[0]?.severity).toBe('BLOCKER');
-  });
-
-  it('a pass-2 claim never demotes an item an earlier finding sits under, even reworded (eighth security review of #155)', () => {
-    const early = {
-      ...finding({
-        severity: 'BLOCKER',
-        line: 7,
-        problem: 'line 7 cites the wrong NIST section; secrets are covered elsewhere',
-      }),
-      claim: undefined,
-    } as unknown as Finding;
-    const late = finding(
-      { severity: 'BLOCKER', line: 7 },
-      { locator: '3.1.4', text: 'Section 3.1.4 covers embedded clear text secrets.' },
-    );
-    const judged = decision({
-      mustFix: [
-        {
-          dimension: 'Security',
-          severity: 'BLOCKER',
-          file: SHEET,
-          line: 7,
-          text: 'Cite NIST SP 800-190 Section 3.1.4 instead of 3.1.3.',
-        },
-      ],
-    });
-    const reports = [
-      { role: 'security-reviewer' as const, report: report([early, late], 'BLOCK') },
-    ];
-    const isLate = (role: string, index: number) => role === 'security-reviewer' && index >= 1;
-    const res = [result('NOT-FOUND', late, { index: 1 })];
-    expect(
-      enforceClaims(judged, res, { reports, late: isLate }).decision.mustFix[0]?.severity,
-    ).toBe('BLOCKER');
-    // Without the location rule the same input would be demoted (the reworded item shares few words).
-    expect(enforceClaims(judged, res, { reports }).decision.mustFix[0]?.severity).toBe('MINOR');
-  });
 
   it('a CONFIRMED finding keeps its severity and is not marked unchecked', () => {
     const d = decision({ mustFix: [item('BLOCKER')] });
@@ -1387,12 +1328,10 @@ describe('claims: pass-2 ("late") claims and the claim cap (security review of #
     const checked = r.results.filter((x) => x.verdict === 'CONFIRMED');
     expect(checked).toHaveLength(MAX_CLAIMS);
     for (const i of [0, 1, 2]) expect(checked.some((x) => x.index === i)).toBe(true);
-    const skipped = r.results.filter((x) => x.verdict === 'NOT-FOUND');
-    expect(skipped).toHaveLength(5);
-    for (const s of skipped) {
-      expect(s.skipped).toBe(true);
-      expect(s.index).toBeGreaterThanOrEqual(3);
-    }
+    // The five that do not fit are all late ones: the cap never costs an earlier claim.
+    const over = r.results.filter((x) => x.verdict === 'NOT-FOUND');
+    expect(over).toHaveLength(5);
+    for (const s of over) expect(s.index).toBeGreaterThanOrEqual(3);
   });
 
   it('a page only the reviewer fetched confirms, but never refutes, an earlier finding (third security review of #155)', async () => {
@@ -1429,111 +1368,39 @@ describe('claims: pass-2 ("late") claims and the claim cap (security review of #
     });
     expect(r.results.find((x) => x.index === 1)).toMatchObject({ verdict: 'REFUTED' });
   });
-
-  it('marks only cap-skipped results `skipped`; a source failure is not skipped', async () => {
-    const f = fakes(
-      () => ({ kind: 'failed', why: 'HTTP 403' }),
-      () => new Error('not expected'),
-    );
-    const r = await claimStage(
-      snap(),
-      [{ role: 'security-reviewer' as const, report: report([finding()]) }],
-      f.deps,
-    );
-    expect(r.results[0]).toMatchObject({ verdict: 'NOT-FOUND' });
-    expect(r.results[0]).not.toHaveProperty('skipped');
-  });
 });
 
-describe('claims: a cap-skipped claim never weakens a finding (security review of #155)', () => {
-  const blocker = finding({ severity: 'BLOCKER', line: 7, problem: 'RFC 9999 forbids the flag.' });
-
-  it('reportsForJudge keeps a BLOCK whose BLOCKER claim was cap-skipped, and still demotes a tried one', () => {
-    const reports = [{ role: 'security-reviewer' as const, report: report([blocker], 'BLOCK') }];
-    const skipped = reportsForJudge(reports, [result('NOT-FOUND', blocker, { skipped: true })]);
-    expect(skipped[0]?.report.verdict).toBe('BLOCK');
-    expect(skipped[0]?.report.findings).toEqual([{ ...blocker, verified: 'NOT-FOUND' }]);
-    const tried = reportsForJudge(reports, [result('NOT-FOUND', blocker)]);
-    expect(tried[0]?.report.verdict).toBe('CONCERNS');
-  });
-
-  it('enforceClaims does not demote a must-fix whose claim was cap-skipped, but still marks it', () => {
-    const d = decision({
-      mustFix: [
-        {
-          dimension: 'Security' as const,
-          severity: 'BLOCKER' as const,
-          file: SHEET,
-          line: 7,
-          text: 'RFC 9999 forbids the flag.',
-        },
-      ],
-    });
-    const { decision: out } = enforceClaims(d, [result('NOT-FOUND', blocker, { skipped: true })]);
-    expect(out.mustFix[0]?.severity).toBe('BLOCKER');
-    expect(out.mustFix[0]?.text.endsWith(UNCHECKED_NOTE)).toBe(true);
-  });
-});
-
-describe('claims: failed safeguards are unchecked but never demote (security review of #155)', () => {
+describe('claims: a failed verifier leaves the claim unchecked, never weaker', () => {
   const one = [{ role: 'security-reviewer' as const, report: report([finding()]) }];
 
-  it('a verifier that is unavailable (every model throws) gives NOT-FOUND with skipped: true', async () => {
+  it('a verifier that is unavailable (every model throws) gives NOT-FOUND by code', async () => {
     const f = fakes(
       () => pdf(),
       () => new Error('down'),
     );
     const r = await claimStage(snap(), one, f.deps);
     expect(r.results).toMatchObject([
-      {
-        verdict: 'NOT-FOUND',
-        by: 'code',
-        skipped: true,
-        reason: 'the claim verifier was unavailable',
-      },
+      { verdict: 'NOT-FOUND', by: 'code', reason: 'the claim verifier was unavailable' },
     ]);
   });
 
-  it('a claim the verifier gives no verdict for is NOT-FOUND with skipped: true', async () => {
+  it('a claim the verifier gives no verdict for is NOT-FOUND by code', async () => {
     const f = fakes(
       () => pdf(),
       () => verdicts([{ id: 'C99', verdict: 'CONFIRMED' }]),
     );
     const r = await claimStage(snap(), one, f.deps);
     expect(r.results).toMatchObject([
-      {
-        verdict: 'NOT-FOUND',
-        by: 'code',
-        skipped: true,
-        reason: 'the claim verifier gave no verdict',
-      },
+      { verdict: 'NOT-FOUND', by: 'code', reason: 'the claim verifier gave no verdict' },
     ]);
   });
-});
 
-describe('claims.reportsForJudge: pass-2 floor (security review of #155)', () => {
-  const early = { severity: 'MAJOR' as const, file: SHEET, problem: 'Early.' };
-  const addedBlocker = finding({ severity: 'BLOCKER', problem: 'Added by pass 2.' });
-  const pass2 = {
-    late: (_role: string, index: number) => index >= 1,
-    floor: new Map([['security-reviewer' as const, 'BLOCK' as const]]),
-  };
-
-  it('a tried NOT-FOUND pass-2 BLOCKER cannot take the verdict below the pass-1 BLOCK; without the floor it can', () => {
-    const reports = [
-      { role: 'security-reviewer' as const, report: report([early, addedBlocker], 'BLOCK') },
-    ];
-    const results = [result('NOT-FOUND', addedBlocker, { index: 1 })];
-    expect(reportsForJudge(reports, results, true, pass2)[0]?.report.verdict).toBe('BLOCK');
-    expect(reportsForJudge(reports, results)[0]?.report.verdict).toBe('CONCERNS');
-  });
-
-  it('an early REFUTED finding still lets the verdict drop: the floor is ignored', () => {
-    const refuted = finding({ severity: 'BLOCKER', problem: 'Early blocker.' });
-    const reports = [
-      { role: 'security-reviewer' as const, report: report([refuted, early], 'BLOCK') },
-    ];
-    const out = reportsForJudge(reports, [result('REFUTED', refuted, { index: 0 })], true, pass2);
-    expect(out[0]?.report.verdict).toBe('CONCERNS');
+  it('a NOT-FOUND from a failed verifier leaves the security BLOCK as it was', () => {
+    const blocker = finding({ severity: 'BLOCKER' });
+    const out = reportsForJudge(
+      [{ role: 'security-reviewer', report: report([blocker], 'BLOCK') }],
+      [result('NOT-FOUND', blocker, { reason: 'the claim verifier was unavailable' })],
+    );
+    expect(out[0]?.report.verdict).toBe('BLOCK');
   });
 });
