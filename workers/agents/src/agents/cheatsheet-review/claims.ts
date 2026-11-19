@@ -368,11 +368,17 @@ export function reportsForJudge(
         v === undefined ? f : { ...f, verified: v };
       findings.push(kept);
     });
-    if (findings.length === report.findings.length || report.verdict === 'N/A')
+    // #155: a finding whose claim could not be checked never blocks on its own.
+    const unchecked = (f: (typeof findings)[number]) =>
+      'verified' in f && f.verified === 'NOT-FOUND';
+    if (
+      (findings.length === report.findings.length && !findings.some(unchecked)) ||
+      report.verdict === 'N/A'
+    )
       return { role, report: { ...report, findings } };
-    const left = findings.some((f) => f.severity === 'BLOCKER')
+    const left = findings.some((f) => f.severity === 'BLOCKER' && !unchecked(f))
       ? 'BLOCK'
-      : findings.some((f) => f.severity === 'MAJOR' || f.severity === 'MINOR')
+      : findings.some((f) => f.severity !== 'NIT')
         ? 'CONCERNS'
         : 'PASS';
     const verdict = VERDICT_RANK[left] < VERDICT_RANK[report.verdict] ? left : report.verdict;
@@ -482,12 +488,44 @@ export function verifiedNote(r: ClaimResult): string {
   return ` (verified against ${host}, ${inertText(r.finding.claim.locator, 80)})`;
 }
 
+const sentences = (text: string) => text.split(/(?<=[.!?])\s+/);
+
 /** Sentences of `text` that do not mention any of the claims. */
 function withoutSentences(text: string, gone: readonly ClaimedFinding[]): string {
-  return text
-    .split(/(?<=[.!?])\s+/)
+  return sentences(text)
     .filter((s) => !gone.some((f) => mentions(s, f, true)))
     .join(' ');
+}
+
+/**
+ * Words that name the review's own machinery. The author never sees the reviewer reports, so a
+ * sentence about them ("the reviewers' recollections do not establish…", OWASP PR 2878) reads as
+ * noise or as an excuse (#155). Narrow on purpose: "reports" alone is ordinary prose.
+ */
+const MACHINERY =
+  /\b(?:reviewers?|link audit(?:or)?s?|auditors?|verifiers?|recollections?|second voice|the judge)\b/i;
+
+/**
+ * The judge's rationale and reply to the author without sentences that name the machinery (#155,
+ * judge rule 8 enforced in code). An emptied rationale gets a neutral line; an emptied reply goes.
+ */
+export function withoutMachinery(d: ReviewDecision): { decision: ReviewDecision; removed: number } {
+  let removed = 0;
+  const clean = (text: string) =>
+    sentences(text)
+      .filter((s) => {
+        const hit = MACHINERY.test(s);
+        if (hit) removed++;
+        return !hit;
+      })
+      .join(' ');
+  const { replyToAuthor, ...rest } = d;
+  const rationale = clean(d.rationale) || 'The findings below give the reasons.';
+  const reply = replyToAuthor !== undefined ? clean(replyToAuthor) : undefined;
+  return {
+    decision: { ...rest, rationale, ...(reply ? { replyToAuthor: reply } : {}) },
+    removed,
+  };
 }
 
 /**
@@ -496,8 +534,10 @@ function withoutSentences(text: string, gone: readonly ClaimedFinding[]): string
  * own suggestion; another reviewer's corroborating finding in another dimension survives. No
  * sentence about a REFUTED claim stays in the rationale, close reasons, reply, dimension headlines
  * or earlier-request summaries. A NOT-FOUND finding the judge kept is marked "claim not confirmed
- * against its source". A CONFIRMED finding is marked verified where the judge kept it; code never adds a
- * dropped finding back and never changes the verdict. Runs before normaliseDecision.
+ * against its source", and a must-fix one becomes MINOR (#155: an unchecked claim never makes a
+ * must-fix on its own; normaliseDecision then moves it to should-fix). A CONFIRMED finding is marked
+ * verified where the judge kept it; code never adds a dropped finding back and never raises the
+ * verdict. Runs before normaliseDecision.
  */
 export function enforceClaims(
   d: ReviewDecision,
@@ -540,7 +580,7 @@ export function enforceClaims(
   if (refuted.length > 0) {
     rationale =
       withoutSentences(d.rationale, refuted) ||
-      'Code removed the rationale: it rested on a claim that its cited source refutes.';
+      'The rationale was left out: it rested on a claim that its cited source refutes.';
     reply = replyToAuthor !== undefined ? withoutSentences(replyToAuthor, refuted) : undefined;
     dimensions = d.dimensions.map((x) => ({
       ...x,
@@ -550,7 +590,7 @@ export function enforceClaims(
       ...e,
       request:
         withoutSentences(e.request, refuted) ||
-        '(summary removed by code: it repeated a refuted claim)',
+        '(summary left out: it repeated a claim its source refutes)',
     }));
   }
 
@@ -561,7 +601,10 @@ export function enforceClaims(
     const r = confirmed.find((c) => refersTo(i, c.finding));
     const unchecked = notFound.some((c) => refersTo(i, c.finding));
     const note = `${r ? verifiedNote(r) : ''}${unchecked ? UNCHECKED_NOTE : ''}`;
-    return note ? { ...i, text: `${i.text.slice(0, 800 - note.length)}${note}` } : i;
+    const marked = note ? { ...i, text: `${i.text.slice(0, 800 - note.length)}${note}` } : i;
+    return unchecked && !r && (i.severity === 'BLOCKER' || i.severity === 'MAJOR')
+      ? { ...marked, severity: 'MINOR' }
+      : marked;
   };
   const marked = {
     mustFix: lists.mustFix.map(mark),

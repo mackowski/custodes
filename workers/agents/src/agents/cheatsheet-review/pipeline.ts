@@ -30,6 +30,7 @@ import {
 import {
   claimStage,
   enforceClaims,
+  withoutMachinery,
   judgeClaims,
   reportsForJudge,
   type ClaimResult,
@@ -98,6 +99,8 @@ export interface PipelineResult {
   claims: ClaimResult[];
   /** #90: judge items and suggestions code removed because they were about an unconfirmed claim. */
   claimItemsRemoved: number;
+  /** #155: judge sentences about the review's own machinery, removed by code. */
+  machinerySentencesRemoved: number;
 }
 
 /** One checked external link, as the review lists it. Status words come from code or the enum. */
@@ -205,7 +208,7 @@ async function linkStage(snap: Snapshot, deps: PipelineDeps): Promise<LinkStage>
     // The reason comes first: the note is cut at 400 characters when rendered.
     if (link.unaudited)
       notes.push(
-        `not audited: further sentences at ${link.unaudited
+        `not checked: further sentences at ${link.unaudited
           .slice(0, 5)
           .map((u) => `${u.file}:${u.line}`)
           .join(
@@ -214,7 +217,7 @@ async function linkStage(snap: Snapshot, deps: PipelineDeps): Promise<LinkStage>
       );
     for (const m of (link.movedAt ?? []).slice(0, 5))
       notes.push(
-        `move not judged: at ${m.file}:${m.line} ${link.url.slice(0, 150)} replaces ${m.previous.slice(0, 150)}`,
+        `link change not checked: at ${m.file}:${m.line} ${link.url.slice(0, 150)} replaces ${m.previous.slice(0, 150)}`,
       );
     await deps.guard();
     const got = await deps.limit(() => deps.fetchLink(link.url));
@@ -226,7 +229,7 @@ async function linkStage(snap: Snapshot, deps: PipelineDeps): Promise<LinkStage>
       (`${got.title}${got.excerpt}`.trim() === '' || got.excerpt.startsWith(NON_TEXT_MARK));
     if (got.kind === 'broken') check(link, `broken (HTTP ${got.status})`);
     else if (got.kind === 'unreachable' || unreadable) check(link, 'verify manually');
-    else check(link, 'not judged');
+    else check(link, 'not checked');
     if (got.kind === 'broken')
       findings.push({
         severity: 'BLOCKER',
@@ -269,16 +272,20 @@ async function linkStage(snap: Snapshot, deps: PipelineDeps): Promise<LinkStage>
       const row = checks.find((c) => c.url === page.url);
       if (row) row.status = status;
       if (status === 'OK' || status === 'SAME-RESOURCE') continue;
+      // #155: a model's reading of a page never blocks on its own (OWASP PRs 2955, 2956, 3005: the
+      // page did support the sentence). It is a MINOR the maintainer checks by hand; a broken link,
+      // a long line or a disallowed form still blocks.
+      const doubt = status === 'LOW-AUTHORITY' || status === 'STALE' ? '' : ' (check by hand)';
       findings.push({
-        severity: status === 'LOW-AUTHORITY' || status === 'STALE' ? 'MINOR' : 'BLOCKER',
+        severity: 'MINOR',
         file: page.file,
         line: page.line,
-        problem: `${status}: \`${page.url.slice(0, 300)}\`${page.previous !== undefined ? ` (moved from \`${page.previous.slice(0, 300)}\`)` : ''}${page.also ? ` (also cited at ${page.also})` : ''}: ${v.reason}`,
+        problem: `${status}${doubt}: \`${page.url.slice(0, 300)}\`${page.previous !== undefined ? ` (moved from \`${page.previous.slice(0, 300)}\`)` : ''}${page.also ? ` (also cited at ${page.also})` : ''}: ${v.reason}`,
       });
       if (status !== 'LOW-AUTHORITY' && status !== 'STALE') allowed.delete(page.url);
     }
     if (r.outcome.status === 'unavailable')
-      notes.push('the link auditor was unavailable; sources were not judged');
+      notes.push('the sources could not be checked; check them by hand');
   }
   const verdict = findings.some((f) => f.severity === 'BLOCKER')
     ? 'BLOCK'
@@ -403,6 +410,7 @@ export async function reviewPipeline(snap: Snapshot, deps: PipelineDeps): Promis
   );
   outcomes.push(judged.outcome);
   const enforced = judged.answer && enforceClaims(judged.answer, claims.results);
+  const plain = enforced && withoutMachinery(enforced.decision);
 
   // #89: lines whose only change is a link target, for every sheet (also when no link stage ran).
   const targetOnly = new Map(
@@ -416,8 +424,8 @@ export async function reviewPipeline(snap: Snapshot, deps: PipelineDeps): Promis
           ] as const,
       ),
   );
-  // The original reports minus REFUTED findings only (reportsForJudge): a NOT-FOUND claim never
-  // lowers a reviewer's BLOCK. The agent reads the same reports for reviewEvent.
+  // The original reports minus REFUTED findings (reportsForJudge); a BLOCKER whose claim is
+  // NOT-FOUND no longer blocks (#155). The agent reads the same reports for reviewEvent.
   const blockedBy = blockingDimensions(judgedReports);
   const reviewerBlocked = blockedBy.size > 0;
   const scoped = (d: ReviewDecision): ReviewDecision => {
@@ -440,7 +448,7 @@ export async function reviewPipeline(snap: Snapshot, deps: PipelineDeps): Promis
     outcomes,
     reports: judgedReports,
     blockedBy,
-    decision: enforced && scoped(enforced.decision),
+    decision: plain && scoped(plain.decision),
     breach: invariantBreach(outcomes),
     allowed: links?.allowed ?? new Set(),
     linkNotes: links?.notes ?? [],
@@ -452,5 +460,6 @@ export async function reviewPipeline(snap: Snapshot, deps: PipelineDeps): Promis
     linkChecks: links?.checks ?? [],
     claims: claims.results,
     claimItemsRemoved: enforced?.removed ?? 0,
+    machinerySentencesRemoved: plain?.removed ?? 0,
   };
 }

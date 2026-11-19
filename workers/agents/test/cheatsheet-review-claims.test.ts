@@ -832,14 +832,14 @@ describe('claims.reportsForJudge and judgeClaims', () => {
     expect(passOnly[0]?.report).toEqual({ verdict: 'PASS', findings: [] });
   });
 
-  it('never drops or downgrades for NOT-FOUND: a BLOCK stays BLOCK, the finding is marked', () => {
+  it('never drops a NOT-FOUND finding, but an unchecked BLOCKER no longer blocks (#155)', () => {
     const blocker = finding({ severity: 'BLOCKER' });
     const out = reportsForJudge(
       [{ role: 'security-reviewer', report: report([blocker], 'BLOCK') }],
       [result('NOT-FOUND', blocker)],
     );
     expect(out[0]?.report).toEqual({
-      verdict: 'BLOCK',
+      verdict: 'CONCERNS',
       findings: [{ ...blocker, verified: 'NOT-FOUND' }],
     });
   });
@@ -991,7 +991,7 @@ describe('claims.enforceClaims: the judge cannot bring a removed finding back', 
     });
     const { decision: out } = enforceClaims(d, [result('REFUTED', RAND)]);
     expect(out.earlierRequests.map((e) => e.request)).toEqual([
-      '(summary removed by code: it repeated a refuted claim)',
+      '(summary left out: it repeated a claim its source refutes)',
       'Shorten the intro.',
     ]);
   });

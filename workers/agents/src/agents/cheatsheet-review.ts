@@ -25,7 +25,7 @@ import {
   lowQualityMail,
   type Mail,
 } from './cheatsheet-review/email.js';
-import { parsePatch } from './cheatsheet-review/diff.js';
+import { addedLines, parsePatch, removedLines } from './cheatsheet-review/diff.js';
 import {
   processFacts,
   relatedSheets,
@@ -43,6 +43,7 @@ import { reviewIssueRefs } from './cheatsheet-review/refs.js';
 import {
   maintainerRequests,
   sheetSize,
+  sizeBefore,
   type MaintainerRequest,
   type SheetSize,
 } from './cheatsheet-review/requests.js';
@@ -323,6 +324,7 @@ export class CheatsheetReviewAgent extends CustodesAgent<AgentsEnv, CheatsheetRe
     span.set('custodes.review.class', result.changeClass);
     span.set('custodes.review.verdict', result.decision?.verdict);
     span.set('custodes.review.injection_seen', result.injectionSeen);
+    span.set('custodes.review.machinery_sentences_removed', result.machinerySentencesRemoved);
     // #90: ids, counts, verdicts, hosts and code reasons only; never claim or page text.
     const claimed = claimLog(result.claims, result.claimItemsRemoved);
     if (result.claims.length > 0) {
@@ -598,27 +600,24 @@ export class CheatsheetReviewAgent extends CustodesAgent<AgentsEnv, CheatsheetRe
       );
     }
     const sizes: { file: string; base: SheetSize; head: SheetSize }[] = [];
-    // Only published sheets: a draft elsewhere would be compared with a different file.
-    for (const f of files.filter(
+    // Only published sheets: a draft elsewhere would be compared with a different file. "Before"
+    // comes from the head and the diff, never the default branch (#155).
+    for (const s of scoped.filter(
       (x) =>
-        x.status === 'modified' &&
-        x.filename.startsWith('cheatsheets/') &&
-        contents.has(x.filename),
+        x.file.status === 'modified' &&
+        x.file.filename.startsWith('cheatsheets/') &&
+        contents.has(x.file.filename),
     )) {
-      const name = f.filename.split('/').pop() ?? f.filename;
-      if (!sheetNames.includes(name) || f.filename !== `cheatsheets/${name}`) continue;
-      try {
-        const base = await reader.getCheatSheet(repo, name);
-        sizes.push({
-          file: f.filename,
-          base: sheetSize(base),
-          head: sheetSize(contents.get(f.filename) ?? ''),
-        });
-      } catch (err) {
-        console.warn(
-          JSON.stringify({ event: 'cheatsheet-review.size_read_failed', error: errorType(err) }),
-        );
-      }
+      const name = s.file.filename.split('/').pop() ?? s.file.filename;
+      if (!sheetNames.includes(name) || s.file.filename !== `cheatsheets/${name}`) continue;
+      const head = contents.get(s.file.filename) ?? '';
+      const base = sizeBefore(
+        head,
+        addedLines(s.hunks).map((l) => l.text),
+        removedLines(s.hunks).map((l) => l.text),
+        s.file,
+      );
+      if (base) sizes.push({ file: s.file.filename, base, head: sheetSize(head) });
     }
     return {
       requests,

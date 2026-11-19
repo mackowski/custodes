@@ -869,7 +869,7 @@ describe('cheatsheet-review: untrusted input', () => {
     expect(body).not.toMatch(/(^|[^＠])@everyone/);
     expect(body).not.toContain('![');
     expect(body).not.toContain('<img');
-    expect(body).toContain('https\\[:\\]//evil.example.com/p.png');
+    expect(body).toContain('`` https://evil.example.com/p.png ``');
   });
 });
 
@@ -919,9 +919,7 @@ describe('cheatsheet-review: external links', () => {
             )(role, req),
     });
     const body = reviewActs(r)[0]?.body ?? '';
-    expect(body).toMatch(
-      /not shown: it contains a link, mention or HTML the link audit did not accept/,
-    );
+    expect(body).toMatch(/not shown: it contains a link, mention or HTML that was not checked/);
     expect(body).not.toContain('See https://example.com/doc instead.');
   });
 
@@ -1187,9 +1185,7 @@ describe('cheatsheet-review: round 1 behaviour (#79)', () => {
     });
     const body = reviewActs(r)[0]?.body ?? '';
     expect(body).toContain('Suggestions not placed inline');
-    expect(body).toMatch(
-      /not shown: it contains a link, mention or HTML the link audit did not accept/,
-    );
+    expect(body).toMatch(/not shown: it contains a link, mention or HTML that was not checked/);
     expect(body).not.toContain('````text');
     expect(body).not.toContain('[removed]');
     expect(body).not.toContain('evil.example.com');
@@ -1306,7 +1302,7 @@ describe('cheatsheet-review: moved links (#89)', () => {
     expect(body).not.toContain('Noticed in existing text');
   });
 
-  it('blocks on Links when the auditor says a moved link is a different resource', async () => {
+  it('flags a moved link the auditor calls a different resource as a MINOR to check by hand, never a block (#155)', async () => {
     const r = await drive({
       scenario: moved(),
       fetchImpl: html,
@@ -1316,9 +1312,12 @@ describe('cheatsheet-review: moved links (#89)', () => {
     const body = reviewActs(r)[0]?.body ?? '';
     expect(body).toContain(`| \`${NEW}\` | moved from \`${OLD}\` | DIFFERENT-RESOURCE |`);
     const judged = r.models.calls.find((c) => c.role === 'judge')?.req.user ?? '';
-    expect(judged).toContain(`DIFFERENT-RESOURCE: \`${NEW}\` (moved from \`${OLD}\`)`);
-    expect(judged).toContain('"verdict":"BLOCK"');
-    expect(r.rows[0]?.verdict).toBe('REQUEST_CHANGES');
+    expect(judged).toContain(
+      `DIFFERENT-RESOURCE (check by hand): \`${NEW}\` (moved from \`${OLD}\`)`,
+    );
+    expect(judged).toContain('"severity":"MINOR"');
+    expect(judged).not.toContain('"verdict":"BLOCK"');
+    expect(r.rows[0]?.verdict).toBe('MERGE');
   });
 
   it('shows what a link on another site replaced, while auditing it as new (OWASP PR 3005 shape)', async () => {
@@ -1576,7 +1575,7 @@ describe('cheatsheet-review: earlier maintainer requests (#91)', () => {
     expect(call?.req.user).toContain('--- review by @maint-one on 2026-10-29');
     expect(call?.req.user).not.toContain('CONTRIB-9c2e');
     expect(call?.req.user).toContain(
-      `Size of ${SHEET} (default branch → head): 2 → 9 words, 1 → 5 lines, 0 → 0 code blocks`,
+      `Size of ${SHEET} (before → after this pull request): 4 → 9 words, 3 → 5 lines, 0 → 0 code blocks`,
     );
     expect(r.broker.reads.map((x) => x.resource)).toEqual(
       expect.arrayContaining(['comments', 'pull_reviews']),
@@ -1769,7 +1768,7 @@ describe('cheatsheet-review: claim verification (#90)', () => {
     expect(r.rows[0]).toMatchObject({ verdict: 'MERGE' });
   });
 
-  it('a security BLOCK whose only BLOCKER claim is NOT-FOUND is never weakened: no MERGE, same event', async () => {
+  it('a security BLOCK whose only BLOCKER claim is NOT-FOUND no longer blocks: the item is a MINOR to check by hand (#155)', async () => {
     const blocker = { ...claimed(), severity: 'BLOCKER' };
     const judge = decisionJson({
       mustFix: [
@@ -1792,13 +1791,14 @@ describe('cheatsheet-review: claim verification (#90)', () => {
           : script(verdict('CONFIRMED'), judge)(role, req),
     });
     expect(r.out).toMatchObject({ ok: true, status: 'posted' });
-    expect(r.rows[0]).toMatchObject({ verdict: 'REQUEST_CHANGES', event: 'REQUEST_CHANGES' });
+    expect(r.rows[0]).toMatchObject({ verdict: 'MERGE', event: 'COMMENT' });
     const body = reviewActs(r)[0]?.body ?? '';
-    expect(body).toMatch(/Must-fix[\s\S]*\*\*BLOCKER\*\*[\s\S]*cite 3\.1\.4/);
+    expect(body).not.toMatch(/Must-fix before merge/);
+    expect(body).toMatch(/Should-fix[\s\S]*\*\*MINOR\*\*[\s\S]*cite 3\.1\.4/);
     // The judge kept it: the item itself says the claim was not confirmed (#154).
     expect(body).toMatch(/cite 3\.1\.4\. \(claim not confirmed against its source\)/);
     const judgeUser = calls(r, 'judge')[0]?.req.user ?? '';
-    expect(judgeUser).toContain('"verdict":"BLOCK"');
+    expect(judgeUser).toContain('"verdict":"CONCERNS"');
     expect(judgeUser).toContain('"verified":"NOT-FOUND"');
   });
 

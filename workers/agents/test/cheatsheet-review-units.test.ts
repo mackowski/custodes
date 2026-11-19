@@ -70,6 +70,7 @@ import {
   maintainerRequests,
   OWN_REVIEW_MARKER,
   sheetSize,
+  sizeBefore,
 } from '../src/agents/cheatsheet-review/requests.js';
 import type { IssueComment, PullReview } from '../src/agents/triage/github.js';
 import { MAX_REVIEW_REFS, reviewIssueRefs } from '../src/agents/cheatsheet-review/refs.js';
@@ -1041,15 +1042,15 @@ describe('render.inertMarkdown', () => {
     expect(out).not.toContain('<html>');
     expect(out).toContain('&lt;html&gt;');
     expect(out).not.toContain('![');
-    expect(out).toContain('https\\[:\\]//evil.example.com/a.png');
-    expect(out).toContain('https\\[:\\]//bad.example.com/x');
+    expect(out).toContain('`` https://evil.example.com/a.png ``');
+    expect(out).toContain('`` https://bad.example.com/x ``');
     expect(out).toContain('<https://ok.example.com/page>');
   });
 
   it('never yields a live mention from an unfetched URL that contains @ (PR #75 review)', () => {
     const out = inertMarkdown('see https://medium.com/@attacker/post and `x @victim', allowed);
     expect(out).not.toMatch(/(^|[^＠])@/);
-    expect(out).toContain('https\\[:\\]//medium.com/＠attacker/post');
+    expect(out).toContain('`` https://medium.com/＠attacker/post ``');
   });
 
   it('keeps an allowed URL with @ as one autolink', () => {
@@ -1069,8 +1070,22 @@ describe('render.inertMarkdown', () => {
       const out = inertMarkdown(text, allowed);
       expect(out).not.toMatch(/(?<!\\)\[[^\]]*(?<!\\)\]\(/);
       expect(out).not.toMatch(/(?<!\\)\[[^\]]*(?<!\\)\]:/);
-      expect(out).not.toMatch(/\bwww\./);
+      // A www. host is shown only inside a code span, which GitHub never links (#155).
+      expect(out.replace(/`` [^`]* ``/g, '')).not.toMatch(/\bwww\./);
       expect(out).not.toContain('@');
+    }
+  });
+
+  it('keeps an unchecked URL inside its code span whatever backticks the model wrote (#155)', () => {
+    for (const text of [
+      'a ` b https://evil.example/x ` c',
+      '``` https://evil.example/x',
+      'see `https://evil.example/x` and `` y',
+    ]) {
+      const out = inertMarkdown(text, allowed);
+      // The only double-backtick runs are the spans code added, and the URL sits inside one.
+      expect(out).toContain('`` https://evil.example/x ``');
+      expect(out.replace(/`` https:\/\/evil\.example\/x ``/g, '')).not.toContain('``');
     }
   });
 
@@ -1270,7 +1285,7 @@ describe('render.reviewBody', () => {
     expect(body).toContain('＠everyone');
     expect(body).not.toMatch(/(^|[^＠])@everyone/);
     expect(body).not.toContain('<img');
-    expect(body).toContain('https\\[:\\]//evil.example.com/z');
+    expect(body).toContain('`` https://evil.example.com/z ``');
   });
 
   it('stays within the broker limit even for a huge input', () => {
@@ -2683,6 +2698,22 @@ describe('requests.sheetSize (#91)', () => {
   });
 });
 
+describe('requests.sizeBefore (#155)', () => {
+  const before = '# T\n\nOld line one.\nKeep.\n```\ncode\n```\n';
+  const head = '# T\n\nNew line one, longer.\nKeep.\nAdded line.\n';
+  it('is the head minus added lines plus removed lines, equal to sheetSize of the real base', () => {
+    const added = ['New line one, longer.', 'Added line.'];
+    const removed = ['Old line one.', '```', 'code', '```'];
+    expect(sizeBefore(head, added, removed, { additions: 2, deletions: 4 })).toEqual(
+      sheetSize(before),
+    );
+  });
+
+  it('is undefined when the patch does not account for every changed line (GitHub drops large patches)', () => {
+    expect(sizeBefore(head, [], [], { additions: 2, deletions: 4 })).toBeUndefined();
+  });
+});
+
 describe('input.processFacts size line and judgeMessage requests (#91)', () => {
   const base = (over: Partial<Snapshot> = {}): Snapshot => ({
     repo: 'a/b',
@@ -2728,7 +2759,7 @@ describe('input.processFacts size line and judgeMessage requests (#91)', () => {
       }),
     );
     expect(facts).toContain(
-      '- Size of cheatsheets/A.md (default branch → head): 100 → 180 words, 20 → 31 lines, 1 → 3 code blocks',
+      '- Size of cheatsheets/A.md (before → after this pull request): 100 → 180 words, 20 → 31 lines, 1 → 3 code blocks',
     );
     expect(processFacts(base())).not.toContain('Size of');
   });

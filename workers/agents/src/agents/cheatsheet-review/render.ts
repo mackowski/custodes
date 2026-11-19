@@ -17,7 +17,6 @@ export const DOCS_URL =
 /** Upper bound for the review body: the broker allows 60 000 and appends a trailer. */
 const BODY_LIMIT = 55_000;
 
-const URL_IN_TEXT = /https?:\/\/[^\s<>"'`)\]]+/gi;
 /** Placeholders for allowed URLs; inertText has already removed every control character. */
 const SLOT = (i: number) => `\u0001${i}\u0001`;
 
@@ -32,22 +31,42 @@ const SLOT = (i: number) => `\u0001${i}\u0001`;
  */
 export function inertMarkdown(s: string, allowed: ReadonlySet<string>, max = 800): string {
   const kept: string[] = [];
-  const text = inertText(s, max).replace(URL_IN_TEXT, (url) => {
-    if (!allowed.has(url)) return url;
-    kept.push(url);
-    return SLOT(kept.length - 1);
-  });
-  const inert = text
-    .replace(/\b(https?):\/\//gi, '$1[:]//')
-    .replace(/\bwww\./gi, 'www[.]')
+  const shown: string[] = [];
+  // Runs of two or more backticks become one: the double-backtick spans below are then the only
+  // ones in the text, so a stray model backtick can never pair with them and free a URL.
+  const text = inertText(s, max)
+    .replace(/`{2,}/g, '`')
     .replace(/@/g, '＠')
+    .replace(URL_OR_WWW, (url) => {
+      const raw = url.replace(/＠/g, '@');
+      if (allowed.has(raw)) {
+        kept.push(raw);
+        return SLOT(kept.length - 1);
+      }
+      // #155: an unchecked URL is shown whole in a code span (GitHub never links code), instead of
+      // the old `https[:]//www[.]` that read as a typo to authors (OWASP PRs 2882, 2953).
+      shown.push(url);
+      return CODE(shown.length - 1);
+    });
+  const inert = text
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/[[\]]/g, (c) => `\\${c}`);
-  // \u0001 cannot come from the model: inertText removed every control character first.
-  // eslint-disable-next-line no-control-regex
-  return inert.replace(/\u0001(\d+)\u0001/g, (_, i: string) => `<${kept[Number(i)] ?? ''}>`);
+  // \u0001 and \u0002 cannot come from the model: inertText removed every control character first.
+  return (
+    inert
+      // eslint-disable-next-line no-control-regex
+      .replace(/\u0001(\d+)\u0001/g, (_, i: string) => `<${kept[Number(i)] ?? ''}>`)
+      // Spaces around the span: a model backtick next to it would otherwise make a longer run that
+      // no longer pairs with the closing one, and the URL would be left outside code.
+      // eslint-disable-next-line no-control-regex
+      .replace(/\u0002(\d+)\u0002/g, (_, i: string) => ` \`\` ${shown[Number(i)] ?? ''} \`\` `)
+  );
 }
+
+/** An http(s) URL or a bare `www.` host: both are autolinked by GitHub outside code. */
+const URL_OR_WWW = /(?:https?:\/\/|\bwww\.)[^\s<>"'`)\]]+/gi;
+const CODE = (i: number) => `\u0002${i}\u0002`;
 
 const NONE: ReadonlySet<string> = new Set();
 
@@ -112,7 +131,7 @@ export function checkSuggestions(
           ? {
               file: s.file,
               line: s.line,
-              why: `${why} (not shown: it contains a link, mention or HTML the link audit did not accept)`,
+              why: `${why} (not shown: it contains a link, mention or HTML that was not checked)`,
               text: '',
               keep: [],
             }
