@@ -571,7 +571,20 @@ describe('links.anchorText (#155)', () => {
         new Response(page, { status: 200, headers: { 'content-type': 'text/html' } }),
       ),
     );
-    expect(got).toMatchObject({ kind: 'page', excerpt: '[from #old-style] Legacy anchor.' });
+    expect(got).toMatchObject({ kind: 'page' });
+    const excerpt = got.kind === 'page' ? got.excerpt : '';
+    // The top of the page first (an "Obsoleted by" banner stays visible), then the section, marked.
+    expect(excerpt.startsWith('Intro.')).toBe(true);
+    expect(excerpt.endsWith('[from #old-style] Legacy anchor.')).toBe(true);
+  });
+
+  it('takes `name` only from <a>, never from a meta or input element (ninth security review of #155)', () => {
+    const html =
+      '<meta name="x"><input name="y"><p id="z">Z text.</p><a href="#" name="w">W</a> after';
+    expect(anchorText(html, 'https://e.example/p#x')).toBeUndefined();
+    expect(anchorText(html, 'https://e.example/p#y')).toBeUndefined();
+    expect(anchorText(html, 'https://e.example/p#z')).toBe('Z text. W after');
+    expect(anchorText(html, 'https://e.example/p#w')).toBe('W after');
   });
 });
 

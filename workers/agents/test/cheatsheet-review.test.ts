@@ -2073,7 +2073,7 @@ describe('cheatsheet-review: link auditor statuses (#155)', () => {
     Promise.resolve(
       new Response('<title>Guide</title><p>text</p>', { headers: { 'content-type': 'text/html' } }),
     );
-  const run = (status: string) =>
+  const run = (status: string, injectionSeen = false) =>
     drive({
       scenario: sc(),
       fetchImpl: html,
@@ -2081,7 +2081,7 @@ describe('cheatsheet-review: link auditor statuses (#155)', () => {
         role.startsWith('security')
           ? REPORT
           : role === 'link-auditor'
-            ? JSON.stringify({ links: [{ url: URL_, status, reason: 'because' }] })
+            ? JSON.stringify({ links: [{ url: URL_, status, reason: 'because' }], injectionSeen })
             : defaultScript(decisionJson({ verdict: 'MERGE', mustFix: [], suggestions: [] }))(
                 role,
                 req,
@@ -2104,6 +2104,16 @@ describe('cheatsheet-review: link auditor statuses (#155)', () => {
     // The audit did not accept it: never a live link (security review of #155).
     expect(body).not.toContain(`<${URL_}>`);
   });
+
+  it.each(['OK', 'UNCLEAR'])(
+    'an auditor that saw injection cannot answer %s: a MINOR to check by hand, never a live link (ninth security review of #155)',
+    async (status) => {
+      const r = await run(status, true);
+      expect(r.out).toMatchObject({ ok: true });
+      expect(linkReport(r)).toContain('UNSUPPORTED (check by hand)');
+      expect(reviewActs(r)[0]?.body ?? '').not.toContain(`<${URL_}>`);
+    },
+  );
 
   it.each(['WRONG-PAGE', 'UNSUPPORTED'])(
     '%s becomes a MINOR finding to check by hand and never blocks the Links dimension',
@@ -2281,6 +2291,26 @@ describe('cheatsheet-review: claims on pass-2 findings (security review of #155)
     );
     const clean = await run(false);
     expect(body(clean)).not.toMatch(/Must-fix before merge/);
+  });
+
+  it('injection seen by any reviewer (here the second voice) turns demotion off (ninth security review of #155)', async () => {
+    const blocker = p1Finding('BLOCKER');
+    const inner = scripted(
+      first([blocker], 'BLOCK'),
+      JSON.stringify({ verdict: 'PASS', findings: [] }),
+      everyClaim('NOT-FOUND'),
+      judgeItem('BLOCKER'),
+    );
+    const r = await drive({
+      scenario: sc(),
+      fetchImpl: serve,
+      toMarkdown: toMd,
+      script: (role, req) =>
+        role === 'security-second-voice'
+          ? JSON.stringify({ verdict: 'PASS', findings: [], injectionSeen: true })
+          : inner(role, req),
+    });
+    expect(body(r)).toMatch(/Must-fix before merge[\s\S]*\*\*BLOCKER\*\*[^\n]*PASS1-FINDING-MARK/);
   });
 
   it('a verifier that is unavailable never demotes a pass-1 BLOCKER: Must-fix and REQUEST_CHANGES stay', async () => {

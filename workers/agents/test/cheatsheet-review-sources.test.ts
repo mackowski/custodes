@@ -8,6 +8,7 @@ import {
   fetchSources,
   MAX_SOURCE_REQUESTS,
   mergePasses,
+  sourcesNote,
   requestable,
   SOURCE_CHARS,
   sourcesMessage,
@@ -375,5 +376,25 @@ describe('sources.mergePasses', () => {
     const alone = merge(p1, undefined);
     expect(alone).not.toHaveProperty('sourceRequests');
     expect(alone).toEqual(rep('CONCERNS', [f('a')]));
+  });
+});
+
+describe('sources.sourcesNote (ninth security review of #155)', () => {
+  it('lists host:status for the operator, code-written, and nothing when no source was asked for', () => {
+    expect(sourcesNote(undefined)).toBe('');
+    expect(sourcesNote([])).toBe('');
+    expect(
+      sourcesNote([
+        { url: 'https://a.example/x?q=secret', host: 'a.example', status: 'read' },
+        {
+          url: 'http://b',
+          host: 'refused',
+          status: 'refused',
+          why: 'not fetched (host, scheme or port)',
+        },
+      ]),
+    ).toBe(
+      '\n\nSources the security reviewer asked for (host:status): a.example:read, refused:refused',
+    );
   });
 });

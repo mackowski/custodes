@@ -340,7 +340,13 @@ async function linkStage(snap: Snapshot, deps: PipelineDeps): Promise<LinkStage>
     for (const v of r.answer?.links ?? []) {
       const page = pages.find((p) => p.url === v.url);
       if (!page) continue;
-      const status = linkStatus(v.status, page.previous !== undefined);
+      // Injection taints the auditor's own call, as it does the verifier's: no OK and no UNCLEAR
+      // note, a MINOR to check by hand instead (ninth security review of #155).
+      const said = linkStatus(v.status, page.previous !== undefined);
+      const status =
+        injectionSeen && (said === 'OK' || said === 'SAME-RESOURCE' || said === 'UNCLEAR')
+          ? 'UNSUPPORTED'
+          : said;
       const row = checks.find((c) => c.url === page.url);
       if (row) row.status = status;
       if (status === 'OK' || status === 'SAME-RESOURCE') continue;
@@ -492,7 +498,8 @@ export async function reviewPipeline(snap: Snapshot, deps: PipelineDeps): Promis
   if (claims.outcome) outcomes.push(claims.outcome);
   // Security review of #155: injection turns every verifier verdict into NOT-FOUND; detecting an
   // attack (by the verifier or by pass 2 in a fetched page) must never weaken the review.
-  const demoteUnchecked = !claims.injectionSeen && sources?.report.injectionSeen !== true;
+  const demoteUnchecked =
+    !claims.injectionSeen && !reports.some((x) => x.report.injectionSeen === true);
   const judgedReports = reportsForJudge(
     reports,
     claims.results,

@@ -135,3 +135,14 @@ export function mergePasses(
       : {}),
   };
 }
+
+/**
+ * For the operator's approval note: which hosts the security reviewer fetched for itself, by
+ * status (code-written; ninth security review of #155). Empty when it fetched nothing.
+ */
+export function sourcesNote(log: readonly FetchedSource[] | undefined): string {
+  if (!log?.length) return '';
+  return `\n\nSources the security reviewer asked for (host:status): ${log
+    .map((x) => `${x.host}:${x.status}`)
+    .join(', ')}`;
+}

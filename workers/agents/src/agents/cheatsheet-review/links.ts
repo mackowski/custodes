@@ -109,6 +109,8 @@ const TIMEOUT_MS = 10_000;
 const MAX_BYTES = 2 * 1024 * 1024;
 const MAX_REDIRECTS = 5;
 export const EXCERPT_CHARS = 8_000;
+/** #155: the top of the page kept in front of an anchored excerpt. */
+export const PAGE_TOP_CHARS = 500;
 
 const MD_LINK = /\]\(\s*<?([^)\s>]+)>?(?:\s+"[^"]*")?\s*\)/g;
 // Bare URLs (prose in parentheses, autolinks, href and src values). Run on text with the Markdown
@@ -550,9 +552,12 @@ export function anchorText(html: string, url: string): string | undefined {
   }
   if (fragment === '' || fragment.length > 200) return undefined;
   const esc = fragment.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const m = new RegExp(`\\s(?:id|name)\\s*=\\s*["']?${esc}(?=["'\\s>/])`, 'i').exec(html);
+  // `id` on any element, `name` only on <a>: browsers scroll to nothing else (ninth security review).
+  const m =
+    new RegExp(`\\sid\\s*=\\s*["']?${esc}(?=["'\\s>/])`, 'i').exec(html) ??
+    new RegExp(`<a\\b[^>]{0,500}?\\sname\\s*=\\s*["']?${esc}(?=["'\\s>/])`, 'i').exec(html);
   if (!m) return undefined;
-  const start = html.lastIndexOf('<', m.index);
+  const start = m[0].startsWith('<') ? m.index : html.lastIndexOf('<', m.index);
   return start < 0 ? undefined : pageText(html.slice(start)).text;
 }
 
@@ -666,8 +671,11 @@ export async function fetchLink(url: string, fetchImpl: typeof fetch): Promise<F
       status: res.status,
       finalUrl,
       title,
+      // The page's first lines stay in front (an RFC's "Obsoleted by" banner, ninth security review).
       excerpt: cutWhole(
-        anchored !== undefined ? `${anchorMark(url)}${anchored}` : text,
+        anchored !== undefined
+          ? `${cutWhole(text, PAGE_TOP_CHARS)} … ${anchorMark(url)}${anchored}`
+          : text,
         EXCERPT_CHARS,
       ),
     };
