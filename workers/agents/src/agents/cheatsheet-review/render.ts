@@ -28,6 +28,8 @@ const SLOT = (i: number) => `\u0001${i}\u0001`;
  *   (GitHub never links code; #155), and `//host` or `https:/host` are inert as plain text;
  * - every `@` becomes a full-width `＠`, so no mention and no e-mail autolink, inside URLs too;
  * - `<` and `>` are escaped, so no HTML.
+ * GitHub references (`#123`, `owner/repo#123`, commit SHAs) are not neutralised: they link
+ * within GitHub only (known, older than #155).
  */
 export function inertMarkdown(s: string, allowed: ReadonlySet<string>, max = 800): string {
   const kept: string[] = [];
