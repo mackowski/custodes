@@ -1438,3 +1438,66 @@ describe('claims: a cap-skipped claim never weakens a finding (security review o
     expect(out.mustFix[0]?.text.endsWith(UNCHECKED_NOTE)).toBe(true);
   });
 });
+
+describe('claims: failed safeguards are unchecked but never demote (security review of #155)', () => {
+  const one = [{ role: 'security-reviewer' as const, report: report([finding()]) }];
+
+  it('a verifier that is unavailable (every model throws) gives NOT-FOUND with skipped: true', async () => {
+    const f = fakes(
+      () => pdf(),
+      () => new Error('down'),
+    );
+    const r = await claimStage(snap(), one, f.deps);
+    expect(r.results).toMatchObject([
+      {
+        verdict: 'NOT-FOUND',
+        by: 'code',
+        skipped: true,
+        reason: 'the claim verifier was unavailable',
+      },
+    ]);
+  });
+
+  it('a claim the verifier gives no verdict for is NOT-FOUND with skipped: true', async () => {
+    const f = fakes(
+      () => pdf(),
+      () => verdicts([{ id: 'C99', verdict: 'CONFIRMED' }]),
+    );
+    const r = await claimStage(snap(), one, f.deps);
+    expect(r.results).toMatchObject([
+      {
+        verdict: 'NOT-FOUND',
+        by: 'code',
+        skipped: true,
+        reason: 'the claim verifier gave no verdict',
+      },
+    ]);
+  });
+});
+
+describe('claims.reportsForJudge: pass-2 floor (security review of #155)', () => {
+  const early = { severity: 'MAJOR' as const, file: SHEET, problem: 'Early.' };
+  const addedBlocker = finding({ severity: 'BLOCKER', problem: 'Added by pass 2.' });
+  const pass2 = {
+    late: (_role: string, index: number) => index >= 1,
+    floor: new Map([['security-reviewer' as const, 'BLOCK' as const]]),
+  };
+
+  it('a tried NOT-FOUND pass-2 BLOCKER cannot take the verdict below the pass-1 BLOCK; without the floor it can', () => {
+    const reports = [
+      { role: 'security-reviewer' as const, report: report([early, addedBlocker], 'BLOCK') },
+    ];
+    const results = [result('NOT-FOUND', addedBlocker, { index: 1 })];
+    expect(reportsForJudge(reports, results, true, pass2)[0]?.report.verdict).toBe('BLOCK');
+    expect(reportsForJudge(reports, results)[0]?.report.verdict).toBe('CONCERNS');
+  });
+
+  it('an early REFUTED finding still lets the verdict drop: the floor is ignored', () => {
+    const refuted = finding({ severity: 'BLOCKER', problem: 'Early blocker.' });
+    const reports = [
+      { role: 'security-reviewer' as const, report: report([refuted, early], 'BLOCK') },
+    ];
+    const out = reportsForJudge(reports, [result('REFUTED', refuted, { index: 0 })], true, pass2);
+    expect(out[0]?.report.verdict).toBe('CONCERNS');
+  });
+});

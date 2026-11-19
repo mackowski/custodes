@@ -62,8 +62,9 @@ export interface ClaimResult {
   /** `code`: a fixed phrase written by code. `verifier`: the model's sentence (rendered inert, never logged). */
   by: 'code' | 'verifier';
   /**
-   * Not tried: over MAX_CLAIMS. Marked like an unchecked claim, but never demoted for it (security
-   * review of #155): otherwise more claims, for example from pass 2, would weaken earlier ones.
+   * Not really checked: over MAX_CLAIMS, or the verifier failed or gave no verdict. Marked like an
+   * unchecked claim, but never demoted for it (security review of #155): more claims, for example
+   * from pass 2, or a verifier made to fail must not weaken a finding.
    */
   skipped?: true;
   reason: string;
@@ -332,8 +333,11 @@ export async function claimStage(
         by: 'code',
         reason,
       });
-      if (!r.answer) results.push(code('the claim verifier was unavailable'));
-      else if (!a) results.push(code('the claim verifier gave no verdict'));
+      // A failed safeguard never weakens the review: these are marked unchecked but never demote,
+      // like a claim over the cap (fifth security review of #155: a page can make the verifier's
+      // answer fail its schema on purpose).
+      if (!r.answer) results.push({ ...code('the claim verifier was unavailable'), skipped: true });
+      else if (!a) results.push({ ...code('the claim verifier gave no verdict'), skipped: true });
       // Injection never confirms and never removes a finding: a person looks.
       else if (injectionSeen && a.verdict !== 'NOT-FOUND')
         results.push(code('instruction-like text in the claim or the source'));
@@ -380,10 +384,30 @@ export function reportsForJudge(
    * turns every verdict into NOT-FOUND, and detecting an attack must never weaken the review.
    */
   demoteUnchecked = true,
+  /**
+   * ADR 0020: findings pass 2 added, and the verdict each role had before them. A change caused only
+   * by such findings never takes the verdict below that (fifth security review of #155).
+   */
+  pass2?: {
+    late: (role: ReviewerRole, index: number) => boolean;
+    floor: ReadonlyMap<ReviewerRole, ReviewerReport['verdict']>;
+  },
 ): { role: ReviewerRole; report: ReviewerReport }[] {
   const resultOf = (role: ReviewerRole, index: number) =>
     results.find((r) => r.role === role && r.index === index);
   return reports.map(({ role, report }) => {
+    const earlyChange = report.findings.some((f, index) => {
+      if (pass2?.late(role, index) === true) return false;
+      const r = resultOf(role, index);
+      return (
+        r?.verdict === 'REFUTED' ||
+        (demoteUnchecked &&
+          r?.verdict === 'NOT-FOUND' &&
+          r.skipped !== true &&
+          f.severity === 'BLOCKER')
+      );
+    });
+    const floor = earlyChange ? undefined : pass2?.floor.get(role);
     const findings: Finding[] = [];
     const tried = new Set<Finding>();
     report.findings.forEach((f, index) => {
@@ -407,7 +431,14 @@ export function reportsForJudge(
       : findings.some((f) => f.severity !== 'NIT')
         ? 'CONCERNS'
         : 'PASS';
-    const verdict = VERDICT_RANK[left] < VERDICT_RANK[report.verdict] ? left : report.verdict;
+    const lowered = VERDICT_RANK[left] < VERDICT_RANK[report.verdict] ? left : report.verdict;
+    const verdict =
+      floor !== undefined &&
+      floor !== 'N/A' &&
+      VERDICT_RANK[floor] > VERDICT_RANK[lowered] &&
+      VERDICT_RANK[floor] <= VERDICT_RANK[report.verdict]
+        ? floor
+        : lowered;
     return { role, report: { ...report, findings, verdict } };
   });
 }

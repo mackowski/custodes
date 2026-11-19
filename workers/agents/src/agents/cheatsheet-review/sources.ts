@@ -117,8 +117,13 @@ export function mergePasses(
   const added = pass2.findings
     .filter((f) => f.claim !== undefined)
     .slice(0, Math.max(0, 25 - first.findings.length));
-  const verdict =
-    added.length > 0 && RANK[pass2.verdict] > RANK[first.verdict] ? pass2.verdict : first.verdict;
+  // The verdict the added findings carry, computed by code: pass 2's own word never raises it.
+  const raised = added.some((f) => f.severity === 'BLOCKER')
+    ? 'BLOCK'
+    : added.some((f) => f.severity !== 'NIT')
+      ? 'CONCERNS'
+      : 'PASS';
+  const verdict = RANK[raised] > RANK[first.verdict] ? raised : first.verdict;
   return {
     ...first,
     verdict,

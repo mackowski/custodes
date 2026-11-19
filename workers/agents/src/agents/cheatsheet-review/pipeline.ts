@@ -123,6 +123,8 @@ interface SourcePass {
   report: ReviewerReport;
   /** Findings from pass 1: the merged report's first ones (mergePasses keeps them in order). */
   pass1Findings: number;
+  /** Pass 1's own verdict: a pass-2 finding that is refuted or unchecked never lowers it. */
+  pass1Verdict: ReviewerReport['verdict'];
   docs: ReadonlyMap<string, SourceDoc>;
   log: SourceLog | undefined;
 }
@@ -143,6 +145,7 @@ async function sourcePass(
     return {
       report: mergePasses(pass1, undefined),
       pass1Findings: pass1.findings.length,
+      pass1Verdict: pass1.verdict,
       docs: new Map(),
       log: undefined,
     };
@@ -162,6 +165,7 @@ async function sourcePass(
   return {
     report,
     pass1Findings: pass1.findings.length,
+    pass1Verdict: pass1.verdict,
     docs,
     log: {
       fetched: log,
@@ -458,7 +462,9 @@ export async function reviewPipeline(snap: Snapshot, deps: PipelineDeps): Promis
       .map(async (role) => {
         const input = reviewerMessage(snap, { withRelated: role === 'duplication-checker' });
         const r = await runRole(deps, role, ReviewerReport, reviewerPrompt(role), input);
-        if (role !== 'security-reviewer' || !r.answer) return { role, r };
+        // sourceRequests is the security reviewer's only; any other role's is dropped here.
+        if (role !== 'security-reviewer' || !r.answer)
+          return { role, r: r.answer ? { ...r, answer: mergePasses(r.answer, undefined) } : r };
         // ADR 0020: the security reviewer's sources, read in a second pass by the same model.
         sources = await sourcePass(r.outcome, r.answer, input, deps);
         return { role, r: { ...r, answer: sources.report } };
@@ -487,7 +493,15 @@ export async function reviewPipeline(snap: Snapshot, deps: PipelineDeps): Promis
   // Security review of #155: injection turns every verifier verdict into NOT-FOUND; detecting an
   // attack (by the verifier or by pass 2 in a fetched page) must never weaken the review.
   const demoteUnchecked = !claims.injectionSeen && sources?.report.injectionSeen !== true;
-  const judgedReports = reportsForJudge(reports, claims.results, demoteUnchecked);
+  const judgedReports = reportsForJudge(
+    reports,
+    claims.results,
+    demoteUnchecked,
+    sources && {
+      late: (role, index) => added({ role, index }),
+      floor: new Map([['security-reviewer', sources.pass1Verdict]]),
+    },
+  );
 
   const judged = await runRole(
     deps,
@@ -506,7 +520,9 @@ export async function reviewPipeline(snap: Snapshot, deps: PipelineDeps): Promis
     judged.answer &&
     enforceClaims(
       judged.answer,
-      claims.results.filter((r) => !added(r)),
+      // A NOT-FOUND claim on an added finding still marks (and may demote) its own item; backed()
+      // keeps any item a pass-1 finding stands behind (fifth security review of #155).
+      claims.results.filter((r) => !added(r) || r.verdict === 'NOT-FOUND'),
       { demoteUnchecked, reports },
     );
   const plain = enforced && withoutMachinery(enforced.decision);

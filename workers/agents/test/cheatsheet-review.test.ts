@@ -2282,4 +2282,81 @@ describe('cheatsheet-review: claims on pass-2 findings (security review of #155)
     const clean = await run(false);
     expect(body(clean)).not.toMatch(/Must-fix before merge/);
   });
+
+  it('a verifier that is unavailable never demotes a pass-1 BLOCKER: Must-fix and REQUEST_CHANGES stay', async () => {
+    const r = await drive({
+      scenario: sc(),
+      fetchImpl: serve,
+      toMarkdown: toMd,
+      script: (role, req) =>
+        role === 'claim-verifier'
+          ? new Error('verifier down')
+          : scripted(
+              JSON.stringify({ verdict: 'BLOCK', findings: [p1Finding('BLOCKER')] }),
+              REPORT,
+              everyClaim('CONFIRMED'),
+              judgeItem('BLOCKER'),
+            )(role, req),
+    });
+    expect(r.out).toMatchObject({ ok: true });
+    expect(r.rows[0]).toMatchObject({ verdict: 'REQUEST_CHANGES' });
+    expect(body(r)).toMatch(/Must-fix before merge[\s\S]*\*\*BLOCKER\*\*[^\n]*PASS1-FINDING-MARK/);
+  });
+
+  it('a pass-2 MAJOR whose claim is NOT-FOUND is posted marked "not confirmed" and not as a must-fix', async () => {
+    const added = {
+      severity: 'MAJOR',
+      file: SHEET,
+      line: 3,
+      problem: 'PASS2-ONLY-MARK the RFC sets a stricter rule.',
+      claim: rfcClaim('PASS2-ONLY-CLAIM'),
+    };
+    const r = await drive({
+      scenario: sc(),
+      fetchImpl: serve,
+      toMarkdown: toMd,
+      script: scripted(
+        first([{ severity: 'MINOR', file: SHEET, line: 3, problem: 'Unrelated wording.' }]),
+        JSON.stringify({ verdict: 'CONCERNS', findings: [added] }),
+        everyClaim('NOT-FOUND'),
+        judgeItem('MAJOR', added.problem),
+      ),
+    });
+    expect(r.out).toMatchObject({ ok: true });
+    const text = body(r);
+    expect(text).toContain('(claim not confirmed against its source)');
+    expect(text).not.toMatch(/Must-fix before merge/);
+  });
+
+  it('drops sourceRequests from any role but the security reviewer: nothing fetched, nothing reaches the judge', async () => {
+    const fetched: string[] = [];
+    const r = await drive({
+      scenario: sc(),
+      fetchImpl: (input, init) => {
+        fetched.push(
+          typeof input === 'string' ? input : input instanceof URL ? input.href : input.url,
+        );
+        return serve(input, init);
+      },
+      toMarkdown: toMd,
+      script: (role, req) =>
+        role === 'practicality-reviewer'
+          ? JSON.stringify({
+              verdict: 'PASS',
+              findings: [],
+              sourceRequests: [{ url: RFC, why: 'PRACTICALITY-ASK' }],
+            })
+          : scripted(
+              JSON.stringify({ verdict: 'PASS', findings: [] }),
+              REPORT,
+              everyClaim('CONFIRMED'),
+              decisionJson({ verdict: 'MERGE', mustFix: [], suggestions: [] }),
+            )(role, req),
+    });
+    expect(r.out).toMatchObject({ ok: true });
+    expect(r.models.calls.some((c) => c.role === 'practicality-reviewer')).toBe(true);
+    expect(fetched.filter((u) => u === RFC)).toEqual([]);
+    expect(judgeUser(r)).not.toContain('sourceRequests');
+    expect(judgeUser(r)).not.toContain('PRACTICALITY-ASK');
+  });
 });
