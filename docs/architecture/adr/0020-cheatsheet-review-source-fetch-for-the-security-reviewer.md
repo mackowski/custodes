@@ -30,7 +30,7 @@ We will give the `security-reviewer` role a **bounded, two-pass source fetch**.
 2. **Code fetches** each requested URL with the existing `fetchLink`/`fetchSource` and `fetchable()`
    guard. The guard allows https only and a public DNS name, never `custodes.work`, at most 5
    redirects with each hop re-checked, a 10 s timeout and a 2 MB body. PDFs go through
-   `toMarkdown`. On top of that, URLs with userinfo or a non-default port are refused. **Any public
+   `toMarkdown`. On top of that, a requested URL with userinfo or a non-default port is refused (redirects are checked by `fetchable` only, as for every other fetch). **Any public
    host is allowed**; there is no allowlist (operator decision). The excerpt starts at the element
    the `#fragment` names when the page has it, and is cut at 12,000 characters.
 3. **Pass 2** goes to the model that answered pass 1, with no fallback chain of its own. It gets

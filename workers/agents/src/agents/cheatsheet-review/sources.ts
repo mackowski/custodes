@@ -25,7 +25,8 @@ export interface FetchedSource {
 
 /**
  * A URL pass 1 may have fetched: what `fetchable` allows (https, public DNS name, no IP literal,
- * no userinfo, not custodes.work), and no explicit port (#155 threat model).
+ * no userinfo, not custodes.work), and no non-default port (#155 threat model). `:443` is the
+ * default and parses to no port. Redirects are checked by `fetchable` only, as for every fetch.
  */
 export function requestable(url: string): boolean {
   if (!fetchable(url)) return false;

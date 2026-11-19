@@ -147,7 +147,7 @@ are audited (was 2).
 
 **Source fetch for the security reviewer** (ADR 0020, #155): pass 1 may list up to 4
 `sourceRequests` (primary sources such as an RFC section). Code fetches them through
-`fetchSource` (`fetchable` on every hop, no userinfo, no explicit port, any public https host),
+`fetchSource` (`fetchable` on every hop, no userinfo or non-default port in the requested URL, any public https host),
 starting at the anchor and cut to 12,000 characters, and gives them to the model that answered pass
 1 in a second pass (`SOURCES_PROMPT`, `sources.ts`). Pass 2 returns only new findings; code keeps
 every pass-1 finding and the stronger verdict (`mergePasses`), so a fetched page can add a finding

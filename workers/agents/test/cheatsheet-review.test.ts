@@ -1876,3 +1876,238 @@ describe('cheatsheet-review: claim verification (#90)', () => {
         expect(l).not.toContain(leak);
   });
 });
+
+describe('cheatsheet-review: the security reviewer reads sources in a second pass (ADR 0020, #155)', () => {
+  const RFC = 'https://www.rfc-editor.org/rfc/rfc9110.html';
+  const PAGE_MARK = 'PAGE-MARK-9110';
+  const PAGE = `<title>RFC 9110</title><h1>HTTP Semantics</h1><p>${PAGE_MARK} servers must validate every field.</p>`;
+  const P1_MARK = 'PASS1-BLOCKER-MARK';
+  const P2_MARK = 'PASS2-FINDING-MARK';
+  const ask = (...urls: string[]) => urls.map((url) => ({ url, why: 'bears on the advice' }));
+  const pass1 = (urls: string[] = [RFC]) =>
+    JSON.stringify({
+      verdict: 'BLOCK',
+      findings: [{ severity: 'BLOCKER', file: SHEET, line: 4, problem: `${P1_MARK} unsafe.` }],
+      sourceRequests: ask(...urls),
+    });
+  const added = (extra: Record<string, unknown> = {}) => ({
+    severity: 'MAJOR',
+    file: SHEET,
+    line: 4,
+    problem: `${P2_MARK} the RFC requires validation.`,
+    ...extra,
+  });
+  const pass2 = (findings: unknown[], verdict = 'CONCERNS') =>
+    JSON.stringify({ verdict, findings });
+  const serve =
+    (fetched: string[]): typeof fetch =>
+    (input) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+      fetched.push(url);
+      return Promise.resolve(
+        url.startsWith(RFC)
+          ? new Response(PAGE, { headers: { 'content-type': 'text/html' } })
+          : new Response('', { status: 404 }),
+      );
+    };
+  const merge = decisionJson({ verdict: 'MERGE', mustFix: [], suggestions: [] });
+  const sec = (r: Run) => r.models.calls.filter((c) => c.role === 'security-reviewer');
+  const secondPass = (r: Run) => sec(r).filter((c) => c.req.system.includes('Second pass'));
+  const judgeUser = (r: Run) => r.models.calls.find((c) => c.role === 'judge')?.req.user ?? '';
+  const scripted =
+    (
+      first: string,
+      second: string | undefined,
+      extra: (role: string, req: ChatRequest) => string | undefined = () => undefined,
+    ): Script =>
+    (role, req) =>
+      extra(role, req) ??
+      (role === 'security-reviewer'
+        ? req.system.includes('Second pass')
+          ? (second ?? REPORT)
+          : first
+        : role === 'security-second-voice'
+          ? REPORT
+          : defaultScript(merge)(role, req));
+
+  it('fetches the requested page and shows it to a second security-reviewer call inside an envelope', async () => {
+    const fetched: string[] = [];
+    const r = await drive({
+      fetchImpl: serve(fetched),
+      script: scripted(pass1(), pass2([added()])),
+    });
+    expect(r.out).toMatchObject({ ok: true });
+    expect(fetched).toEqual([RFC]);
+    expect(sec(r)).toHaveLength(2);
+    const [second] = secondPass(r);
+    expect(second?.req.system).toContain('Second pass');
+    expect(second?.req.user).toContain('<untrusted source="source:www.rfc-editor.org">');
+    expect(second?.req.user).toContain(PAGE_MARK);
+    // The first pass never saw the page, and its system prompt is not the second-pass one.
+    const first = sec(r).find((c) => !c.req.system.includes('Second pass'));
+    expect(first?.req.user).not.toContain(PAGE_MARK);
+  });
+
+  it('passes a finding added by pass 2 to the judge, with the pass-1 finding', async () => {
+    const r = await drive({
+      fetchImpl: serve([]),
+      script: scripted(pass1(), pass2([added()])),
+    });
+    expect(judgeUser(r)).toContain(P2_MARK);
+    expect(judgeUser(r)).toContain(P1_MARK);
+  });
+
+  it('a pass-2 PASS with no findings does not remove the pass-1 BLOCKER from the judge input', async () => {
+    const r = await drive({
+      fetchImpl: serve([]),
+      script: scripted(pass1(), pass2([], 'PASS')),
+    });
+    expect(secondPass(r)).toHaveLength(1);
+    expect(judgeUser(r)).toContain(P1_MARK);
+    expect(judgeUser(r)).toContain('"verdict":"BLOCK"');
+  });
+
+  it('never lets sourceRequests reach the judge', async () => {
+    const r = await drive({
+      fetchImpl: serve([]),
+      script: scripted(pass1(), pass2([added()])),
+    });
+    expect(judgeUser(r)).not.toContain('sourceRequests');
+    expect(judgeUser(r)).not.toContain('bears on the advice');
+    const [second] = secondPass(r);
+    expect(second?.req.user).not.toContain('"sourceRequests"');
+  });
+
+  it('refuses http and explicit-port URLs: no fetch, and no second pass when nothing was read', async () => {
+    const fetched: string[] = [];
+    const r = await drive({
+      fetchImpl: serve(fetched),
+      script: scripted(
+        pass1(['http://www.rfc-editor.org/rfc/rfc9110', RFC.replace('.org', '.org:8443')]),
+        undefined,
+      ),
+    });
+    expect(r.out).toMatchObject({ ok: true });
+    expect(fetched).toEqual([]);
+    expect(sec(r)).toHaveLength(1);
+    expect(judgeUser(r)).toContain(P1_MARK);
+  });
+
+  it('does not run a second pass when the only requested page fails to load', async () => {
+    const fetched: string[] = [];
+    const r = await drive({
+      fetchImpl: serve(fetched),
+      script: scripted(pass1(['https://example.com/missing']), pass2([added()])),
+    });
+    expect(fetched).toEqual(['https://example.com/missing']);
+    expect(secondPass(r)).toEqual([]);
+    expect(judgeUser(r)).not.toContain(P2_MARK);
+  });
+
+  it('a pass-2 finding whose claim cites the fetched URL is checked without a second fetch', async () => {
+    const fetched: string[] = [];
+    const claim = {
+      text: 'RFC 9110 says servers must validate every field.',
+      sourceUrl: RFC,
+      locator: PAGE_MARK,
+    };
+    const r = await drive({
+      fetchImpl: serve(fetched),
+      script: scripted(pass1(), pass2([added({ claim })]), (role) =>
+        role === 'claim-verifier'
+          ? JSON.stringify({ claims: [{ id: 'C1', verdict: 'CONFIRMED', reason: 'Checked.' }] })
+          : undefined,
+      ),
+    });
+    expect(r.out).toMatchObject({ ok: true });
+    expect(fetched.filter((u) => u === RFC)).toHaveLength(1);
+    const verifier = r.models.calls.find((c) => c.role === 'claim-verifier');
+    expect(verifier?.req.user).toContain(PAGE_MARK);
+    expect(judgeUser(r)).toContain('"verified":"CONFIRMED"');
+  });
+
+  it('a claim citing a URL the reviewer did not read and the PR does not link stays unfetched', async () => {
+    const fetched: string[] = [];
+    const claim = { text: 'x', sourceUrl: 'https://example.org/other', locator: 'x' };
+    const r = await drive({
+      fetchImpl: serve(fetched),
+      script: scripted(pass1(), pass2([added({ claim })])),
+    });
+    expect(fetched).toEqual([RFC]);
+    expect(r.models.calls.some((c) => c.role === 'claim-verifier')).toBe(false);
+    expect(judgeUser(r)).toContain('"verified":"NOT-FOUND"');
+  });
+
+  it('is skipped while halted, like every other side effect: no model call and no fetch', async () => {
+    await testKillSwitch().halt('cheatsheet-review', 'test', 'tester');
+    const fetched: string[] = [];
+    const r = await drive({ fetchImpl: serve(fetched), script: scripted(pass1(), undefined) });
+    expect(r.out).toMatchObject({ ok: false, status: 'halted' });
+    expect(fetched).toEqual([]);
+    expect(r.models.calls).toEqual([]);
+  });
+});
+
+describe('cheatsheet-review: link auditor statuses (#155)', () => {
+  const URL_ = 'https://example.com/guide';
+  const LINE = `See [the guide](${URL_}) for details.`;
+  const sc = () =>
+    scenario({
+      files: [
+        {
+          filename: SHEET,
+          status: 'modified',
+          additions: 1,
+          deletions: 0,
+          patch: `@@ -1,3 +1,4 @@\n # Foo\n \n+${LINE}\n Intro text.`,
+        },
+      ],
+      headText: `# Foo\n\n${LINE}\nIntro text.\n`,
+    });
+  const html = () =>
+    Promise.resolve(
+      new Response('<title>Guide</title><p>text</p>', { headers: { 'content-type': 'text/html' } }),
+    );
+  const run = (status: string) =>
+    drive({
+      scenario: sc(),
+      fetchImpl: html,
+      script: (role, req) =>
+        role.startsWith('security')
+          ? REPORT
+          : role === 'link-auditor'
+            ? JSON.stringify({ links: [{ url: URL_, status, reason: 'because' }] })
+            : defaultScript(decisionJson({ verdict: 'MERGE', mustFix: [], suggestions: [] }))(
+                role,
+                req,
+              ),
+    });
+  const linkReport = (r: Run) => {
+    const user = r.models.calls.find((c) => c.role === 'judge')?.req.user ?? '';
+    return user;
+  };
+
+  it('UNCLEAR gives no finding: the row says "verify manually" and a note says the place was not in the excerpt', async () => {
+    const r = await run('UNCLEAR');
+    expect(r.out).toMatchObject({ ok: true });
+    const body = reviewActs(r)[0]?.body ?? '';
+    expect(body).toContain(`| \`${URL_}\` |`);
+    expect(body).toContain('verify manually');
+    expect(body).toContain('the cited place was not in the excerpt');
+    expect(body).not.toContain('(check by hand):');
+    expect(linkReport(r)).not.toContain('because');
+  });
+
+  it.each(['WRONG-PAGE', 'UNSUPPORTED'])(
+    '%s becomes a MINOR finding to check by hand and never blocks the Links dimension',
+    async (status) => {
+      const r = await run(status);
+      expect(r.out).toMatchObject({ ok: true });
+      const user = linkReport(r);
+      expect(user).toContain(`${status} (check by hand)`);
+      expect(user).not.toMatch(/"severity":"BLOCKER"[^}]*(WRONG-PAGE|UNSUPPORTED)/);
+      const body = reviewActs(r)[0]?.body ?? '';
+      expect(body).not.toMatch(/links & sources[^\n]*BLOCK/i);
+    },
+  );
+});

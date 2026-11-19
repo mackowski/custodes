@@ -1088,6 +1088,17 @@ describe('render.inertMarkdown', () => {
     expect(out).toContain('`` https://medium.com/＠attacker/post ``');
   });
 
+  it('puts a bare www. host in a code span, so GitHub never autolinks it (#155)', () => {
+    const out = inertMarkdown('see www.evil.example/login now', allowed);
+    expect(out).toContain('`` www.evil.example/login ``');
+    expect(out).not.toMatch(/(^|[^`] )www\.evil\.example\/login(?! ``)/);
+  });
+
+  it('keeps an allowed URL an autolink, not a code span', () => {
+    const out = inertMarkdown('see https://ok.example.com/page now', allowed);
+    expect(out).toBe('see <https://ok.example.com/page> now');
+  });
+
   it('keeps an allowed URL with @ as one autolink', () => {
     expect(inertMarkdown('cited https://medium.com/@author/post here', allowed)).toBe(
       'cited <https://medium.com/@author/post> here',
@@ -2379,6 +2390,11 @@ describe('links.scanLinks', () => {
 });
 
 describe('pipeline.linkStatus', () => {
+  it('keeps UNCLEAR as it is, for a new and for a moved link (#155)', () => {
+    expect(linkStatus('UNCLEAR', true)).toBe('UNCLEAR');
+    expect(linkStatus('UNCLEAR', false)).toBe('UNCLEAR');
+  });
+
   it('reads a moved link only as same or different resource, or stale', () => {
     expect(linkStatus('DIFFERENT-RESOURCE', true)).toBe('DIFFERENT-RESOURCE');
     expect(linkStatus('WRONG-PAGE', true)).toBe('DIFFERENT-RESOURCE');

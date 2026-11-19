@@ -21,6 +21,8 @@ import {
   refutedNote,
   reportsForJudge,
   sourceUrls,
+  UNCHECKED_NOTE,
+  withoutMachinery,
   type ClaimDeps,
   type ClaimedFinding,
   type ClaimResult,
@@ -41,6 +43,7 @@ import {
 import { VERIFIER_PROMPT } from '../src/agents/cheatsheet-review/prompts.js';
 import type { ScopedFile } from '../src/agents/cheatsheet-review/scope.js';
 import {
+  normaliseDecision,
   ReviewDecision,
   ReviewerReport,
   type Finding,
@@ -1152,5 +1155,111 @@ describe('claims in the review, the logs and the approval note', () => {
     expect(full.length).toBeLessThanOrEqual(4_000);
     expect(full).toContain('5 refuted claim(s)');
     for (let i = 1; i <= 5; i++) expect(full).toContain(`${SHEET}:${i} (security-reviewer)`);
+  });
+});
+
+describe('claims.withoutMachinery: the author never reads about the review machinery (#155)', () => {
+  it('removes sentences naming reviewers, auditors, verifiers, recollections, the second voice or the judge', () => {
+    const sentences = [
+      'The reviewers disagreed about this.',
+      'The reviewer found a gap.',
+      'The link audit flagged it.',
+      'The link auditor was unsure.',
+      'The verifier could not confirm it.',
+      'The recollections do not establish the claim.',
+      'The second voice agreed.',
+      'The judge weighed both.',
+    ];
+    for (const gone of sentences) {
+      const { decision: out, removed } = withoutMachinery(
+        decision({ rationale: `Keep this one. ${gone} And this one.` }),
+      );
+      expect(out.rationale, gone).toBe('Keep this one. And this one.');
+      expect(removed, gone).toBe(1);
+    }
+  });
+
+  it('cleans the reply to the author the same way and counts both', () => {
+    const { decision: out, removed } = withoutMachinery(
+      decision({
+        rationale: 'The reviewers were split. The change adds a section.',
+        replyToAuthor: 'Thanks for the PR. The verifier did not agree. Please add a source.',
+      }),
+    );
+    expect(out.rationale).toBe('The change adds a section.');
+    expect(out.replyToAuthor).toBe('Thanks for the PR. Please add a source.');
+    expect(removed).toBe(2);
+  });
+
+  it('keeps ordinary prose, including "The PR reports..." and "reports" on their own', () => {
+    const d = decision({
+      rationale: 'The PR reports a bug in the example. The reports of breakage are old.',
+      replyToAuthor: 'The PR reports a fix. Thanks.',
+    });
+    const { decision: out, removed } = withoutMachinery(d);
+    expect(removed).toBe(0);
+    expect(out.rationale).toBe(d.rationale);
+    expect(out.replyToAuthor).toBe(d.replyToAuthor);
+  });
+
+  it('gives a neutral line when the rationale empties and drops an emptied reply', () => {
+    const { decision: out, removed } = withoutMachinery(
+      decision({
+        rationale: 'The judge decided. The reviewers agreed.',
+        replyToAuthor: 'The verifier objected.',
+      }),
+    );
+    expect(out.rationale).toBe('The findings below give the reasons.');
+    expect(out).not.toHaveProperty('replyToAuthor');
+    expect(removed).toBe(3);
+  });
+
+  it('leaves a decision with no reply without one', () => {
+    const { decision: out } = withoutMachinery(decision({ rationale: 'Fine.' }));
+    expect(out).not.toHaveProperty('replyToAuthor');
+  });
+});
+
+describe('claims.enforceClaims: an unchecked claim never makes a must-fix (#155)', () => {
+  const CLAIM = finding(
+    { severity: 'BLOCKER', line: 7, problem: 'RFC 9999 section 4 forbids the cookie flag here.' },
+    { text: 'RFC 9999 section 4 forbids it.', sourceUrl: 'https://example.com/rfc', locator: '4' },
+  );
+  const item = (severity: 'BLOCKER' | 'MAJOR' | 'MINOR') => ({
+    dimension: 'Security' as const,
+    severity,
+    file: SHEET,
+    line: 7,
+    text: 'RFC 9999 section 4 forbids the cookie flag here.',
+  });
+
+  it.each(['BLOCKER', 'MAJOR'] as const)(
+    'a NOT-FOUND %s must-fix becomes MINOR with the note, and normaliseDecision moves it to should-fix',
+    (severity) => {
+      const d = decision({ mustFix: [item(severity)] });
+      const { decision: out } = enforceClaims(d, [result('NOT-FOUND', CLAIM)]);
+      expect(out.mustFix[0]?.severity).toBe('MINOR');
+      expect(out.mustFix[0]?.text.endsWith(UNCHECKED_NOTE)).toBe(true);
+      const n = normaliseDecision(out, false);
+      expect(n.mustFix).toEqual([]);
+      expect(n.shouldFix).toHaveLength(1);
+      expect(n.shouldFix[0]?.text).toContain(UNCHECKED_NOTE.trim());
+    },
+  );
+
+  it('a CONFIRMED finding keeps its severity and is not marked unchecked', () => {
+    const d = decision({ mustFix: [item('BLOCKER')] });
+    const { decision: out } = enforceClaims(d, [result('CONFIRMED', CLAIM)]);
+    expect(out.mustFix[0]?.severity).toBe('BLOCKER');
+    expect(out.mustFix[0]?.text).not.toContain(UNCHECKED_NOTE);
+    expect(out.mustFix[0]?.text).toContain('verified against');
+  });
+
+  it('a NOT-FOUND MINOR stays MINOR and is still marked', () => {
+    const { decision: out } = enforceClaims(decision({ shouldFix: [item('MINOR')] }), [
+      result('NOT-FOUND', CLAIM),
+    ]);
+    expect(out.shouldFix[0]?.severity).toBe('MINOR');
+    expect(out.shouldFix[0]?.text.endsWith(UNCHECKED_NOTE)).toBe(true);
   });
 });
