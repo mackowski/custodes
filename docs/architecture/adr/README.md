@@ -21,6 +21,6 @@
 | [0017](0017-cheatsheet-review-multi-model-reviewer.md)                   | cheatsheet-review: multi-model pull request reviewer started by the operator's label     | accepted                        |
 | [0018](0018-one-worker-per-agent-and-agent-held-signing-keys.md)         | One Worker per agent and agent-held signing keys                                         | accepted (2026-11-16)           |
 | [0019](0019-one-click-triage-proposals.md)                               | One-click triage proposals (triage-apply)                                                | accepted (amended 2026-11-13)   |
-| [0020](0020-cheatsheet-review-source-fetch-for-the-security-reviewer.md) | cheatsheet-review: a bounded source fetch for the security reviewer                      | proposed                        |
+| [0020](0020-cheatsheet-review-source-fetch-for-the-security-reviewer.md) | cheatsheet-review: a bounded source fetch for the security reviewer                      | accepted                        |
 
 Create new records with the `/adr` skill.
