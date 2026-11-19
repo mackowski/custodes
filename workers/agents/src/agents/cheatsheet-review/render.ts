@@ -23,7 +23,7 @@ const SLOT = (i: number) => `\u0001${i}\u0001`;
 /**
  * Markdown-safe single line of model text. Truncated first, then:
  * - URLs the link auditor fetched and accepted become `<url>` autolinks; nothing else can become a
- *   link: `[` and `]` are escaped (no inline or reference links), every other `http(s)://` URL or
+ *   link: `[` and `]` become entities (no inline or reference links), every other `http(s)://` URL or
  *   `www.` host is shown whole in a double-backtick code span that no model backtick can pair with
  *   (GitHub never links code; #155), and `//host` or `https:/host` are inert as plain text;
  * - every `@` becomes a full-width `＠`, so no mention and no e-mail autolink, inside URLs too;
@@ -52,7 +52,10 @@ export function inertMarkdown(s: string, allowed: ReadonlySet<string>, max = 800
   const inert = text
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
-    .replace(/[[\]]/g, (c) => `\\${c}`);
+    // Entities, not backslashes: a model backslash or tableCell's doubling would undo `\[` and
+    // free a link such as `[x](//evil.example)` (third security review of #155).
+    .replace(/\[/g, '&#91;')
+    .replace(/\]/g, '&#93;');
   // \u0001 and \u0002 cannot come from the model: inertText removed every control character first.
   return (
     inert

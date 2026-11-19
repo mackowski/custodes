@@ -104,7 +104,10 @@ pass 2 cannot ask for more.
 - **The claim checks stay a safeguard, never a weapon.** Security review, 2026-11-19:
   - When the claim verifier sees injection, every verdict becomes NOT-FOUND, and nothing is
     demoted (`demoteUnchecked`).
-  - Claims on findings that pass 2 added act only through the reports. They never remove or demote
+  - A page only the reviewer fetched may confirm any claim, but may refute only a claim on a finding
+    that pass 2 added. For an earlier finding, REFUTED becomes NOT-FOUND.
+  - Claims on findings that pass 2 added are checked after every other claim, and act only through
+    the reports. They never remove or demote
     a judge item, which could be pass 1's.
   - A must-fix is demoted only when every finding of its dimension that it refers to had its claim
     left unchecked.

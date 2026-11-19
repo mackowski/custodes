@@ -432,7 +432,9 @@ command (A, Opus 5.5) on 28 OWASP pull requests:
 - A wide "reports" word in the machinery filter.
 
 **Accepted risk (operator, 2026-11-19).** A wrong link, or a must-fix whose claim could not be
-checked, can now reach the review as a MINOR instead of blocking. This applies to the OWASP PR
+checked, can now reach the review as a MINOR instead of blocking. A PR author can cause the second
+case on purpose for a claim on a link they control (a 403, an empty page); the narrower rule of
+no demotion for PR links was declined after the third security review. This applies to the OWASP PR
 2878 shape (a correct "wrong NIST section" finding against a PDF that answered 403). The operator
 reads every OWASP review before it posts. Owner: operator.
 

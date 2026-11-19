@@ -222,7 +222,12 @@ export async function claimStage(
   const results: ClaimResult[] = [];
   if (claimed.length === 0) return { results, outcome: undefined, injectionSeen: false };
 
-  const sources = new Set([...sourceUrls(snap), ...fetched.keys()]);
+  const prSources = sourceUrls(snap);
+  const sources = new Set([...prSources, ...fetched.keys()]);
+  // ADR 0020: a page the reviewer fetched may confirm a claim, and may refute only a claim on a
+  // finding pass 2 added; it never removes an earlier finding (third security review of #155).
+  const fetchedOnly = (c: { role: ReviewerRole; index: number; source: string }) =>
+    !late(c.role, c.index) && citedSource(c.source, prSources) === undefined;
   const cited: ((typeof claimed)[number] & { source: string })[] = [];
   for (const c of claimed) {
     const source = citedSource(c.finding.claim.sourceUrl, sources);
@@ -335,6 +340,8 @@ export async function claimStage(
       // A refutation needs the cited passage; the start of the document is not enough.
       else if (a.verdict === 'REFUTED' && !input.found)
         results.push(code('the locator is not in the source, so the claim cannot be refuted'));
+      else if (a.verdict === 'REFUTED' && fetchedOnly(c))
+        results.push(code('a source the reviewer fetched cannot refute an earlier finding'));
       else results.push({ ...base, verdict: a.verdict, by: 'verifier', reason: a.reason });
     }
   }

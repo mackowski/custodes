@@ -1142,6 +1142,18 @@ describe('render.inertMarkdown', () => {
     );
   });
 
+  it('never frees a link with a model backslash or inside a table cell (third security review of #155)', () => {
+    for (const out of [
+      inertMarkdown('\\[x\\](//evil.example)', allowed),
+      tableCell(inertMarkdown('[docs](//evil.example)', allowed)),
+      tableCell(inertMarkdown('\\[docs\\](//evil.example) and [r]: //evil.example', allowed)),
+    ]) {
+      expect(out).not.toContain('[');
+      expect(out).not.toContain(']');
+      expect(out).toContain('&#91;');
+    }
+  });
+
   it('keeps an unchecked URL inside its code span whatever backticks the model wrote (#155)', () => {
     for (const text of [
       'a ` b https://evil.example/x ` c',

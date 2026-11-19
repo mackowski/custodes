@@ -1359,6 +1359,41 @@ describe('claims: pass-2 ("late") claims and the claim cap (security review of #
     }
   });
 
+  it('a page only the reviewer fetched confirms, but never refutes, an earlier finding (third security review of #155)', async () => {
+    const FETCHED = 'https://www.rfc-editor.org/rfc/rfc10027.html#section-6.1.12';
+    const early = finding({ severity: 'BLOCKER' }, { sourceUrl: FETCHED, locator: '6.1.12' });
+    const added = finding(
+      { severity: 'MAJOR', problem: 'added' },
+      { sourceUrl: FETCHED, locator: '6.1.12' },
+    );
+    const page: SourceDoc = {
+      kind: 'text',
+      format: 'html',
+      text: '6.1.12. Sender-Constrained Tokens text',
+    };
+    const f = fakes(
+      () => pdf(),
+      (req) => {
+        const ids = [...req.user.matchAll(/^Claim id: (C\d+)$/gm)].map((m) => m[1] ?? '');
+        return verdicts(ids.map((id) => ({ id, verdict: 'REFUTED' })));
+      },
+    );
+    const r = await claimStage(
+      snap(),
+      [{ role: 'security-reviewer', report: report([early, added]) }],
+      f.deps,
+      new Map([[FETCHED, page]]),
+      (_role, index) => index >= 1,
+    );
+    expect(f.fetched).toEqual([]); // reused, never fetched again
+    expect(r.results.find((x) => x.index === 0)).toMatchObject({
+      verdict: 'NOT-FOUND',
+      by: 'code',
+      reason: 'a source the reviewer fetched cannot refute an earlier finding',
+    });
+    expect(r.results.find((x) => x.index === 1)).toMatchObject({ verdict: 'REFUTED' });
+  });
+
   it('marks only cap-skipped results `skipped`; a source failure is not skipped', async () => {
     const f = fakes(
       () => ({ kind: 'failed', why: 'HTTP 403' }),
