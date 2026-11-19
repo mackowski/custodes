@@ -79,8 +79,8 @@ export const ReviewerReport = z.object({
    * loosely so a long list never fails the parse; code uses the first MAX_SOURCE_REQUESTS.
    */
   sourceRequests: z
-    .array(z.object({ url: z.string().max(2_000), why: z.string().max(400) }))
-    .max(20)
+    .array(z.object({ url: clipped(2_000), why: clipped(400) }))
+    .transform((a) => a.slice(0, 20))
     .optional(),
 });
 export type ReviewerReport = z.infer<typeof ReviewerReport>;

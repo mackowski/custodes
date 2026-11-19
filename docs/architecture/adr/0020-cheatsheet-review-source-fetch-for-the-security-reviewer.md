@@ -1,6 +1,6 @@
 # 0020. cheatsheet-review: a bounded source fetch for the security reviewer
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-11-19
 - Deciders: Jakub Maćkowski (/grill-plan, 2026-11-19)
 
@@ -84,9 +84,10 @@ pass 2 cannot ask for more.
   - `fetchable()`: https, public DNS, re-checked redirects. Workers cannot reach private networks
     anyway.
   - At most 4 pages, size and time caps, no userinfo, no non-default port.
-- **Exfiltration.** The reviewer holds no secret, only the public pull request and public sheets.
-  A query string can therefore carry nothing that is not already public; this is why query
-  strings are allowed. At worst, a fetch tells the attacker's server that a review ran.
+- **Exfiltration.** The reviewer holds no secret: only the public pull request, public sheets and
+  its own draft findings. A steered query string could leak a draft review that the operator later
+  rejects, or tell the attacker's server that a review ran. This is low value and accepted (operator,
+  2026-11-19), which is why query strings are allowed.
 - **Injection through fetched pages.**
   - Every page enters pass 2 only through `untrusted()`. Pass 2 can only add findings: code keeps
     every pass-1 finding and the stronger verdict. `parseStructured()` validates the output,
@@ -96,7 +97,16 @@ pass 2 cannot ask for more.
   - On OWASP the operator approves every review before it posts.
   - Eval cases with injected text in a fetched page are added and never removed.
 - **No new credentials, bindings or GitHub authority.** Fetches go straight from the agent Worker,
-  like the link audit. They do not go through the broker, because they are not GitHub calls
-  (invariant 1 is unchanged).
+  like the link audit, with no credentials. A model can ask for a public `github.com` or
+  `raw.githubusercontent.com` page, as the link audit already fetches links an author cites. These
+  are anonymous reads of public web pages, not GitHub API calls through the broker. Invariant 1 is
+  about credentials and the broker's `/v1/read`, and is unchanged.
+- **The claim checks stay a safeguard, never a weapon.** Security review, 2026-11-19:
+  - When the claim verifier sees injection, every verdict becomes NOT-FOUND, and nothing is
+    demoted (`demoteUnchecked`).
+  - Claims on findings that pass 2 added act only through the reports. They never remove or demote
+    a judge item, which could be pass 1's.
+  - A must-fix is demoted only when every finding of its dimension that it refers to had its claim
+    left unchecked.
 - **Logging and tracing.** Logs and spans carry hosts and statuses. Page text appears only in trace
   spans while `TRACE_PAYLOADS` is `"true"` (ADR 0016).

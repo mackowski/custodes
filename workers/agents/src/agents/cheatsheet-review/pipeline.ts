@@ -121,6 +121,8 @@ export interface SourceLog {
 
 interface SourcePass {
   report: ReviewerReport;
+  /** Findings from pass 1: the merged report's first ones (mergePasses keeps them in order). */
+  pass1Findings: number;
   docs: ReadonlyMap<string, SourceDoc>;
   log: SourceLog | undefined;
 }
@@ -138,7 +140,12 @@ async function sourcePass(
 ): Promise<SourcePass> {
   const asked = pass1.sourceRequests ?? [];
   if (asked.length === 0 || outcome.status === 'unavailable')
-    return { report: mergePasses(pass1, undefined), docs: new Map(), log: undefined };
+    return {
+      report: mergePasses(pass1, undefined),
+      pass1Findings: pass1.findings.length,
+      docs: new Map(),
+      log: undefined,
+    };
   const { log, docs } = await fetchSources(asked, deps);
   const pass2 =
     docs.size === 0
@@ -154,6 +161,7 @@ async function sourcePass(
   const report = mergePasses(pass1, pass2);
   return {
     report,
+    pass1Findings: pass1.findings.length,
     docs,
     log: {
       fetched: log,
@@ -333,8 +341,10 @@ async function linkStage(snap: Snapshot, deps: PipelineDeps): Promise<LinkStage>
       if (row) row.status = status;
       if (status === 'OK' || status === 'SAME-RESOURCE') continue;
       if (status === 'UNCLEAR') {
-        // #155: the excerpt did not reach the cited place: a note, never a finding.
+        // #155: the excerpt did not reach the cited place: a note, never a finding, and never a
+        // live link (the audit did not accept it).
         if (row) row.status = 'verify manually';
+        allowed.delete(page.url);
         notes.push(
           `${page.url.slice(0, 300)} (the cited place was not in the excerpt; check it by hand)`,
         );
@@ -467,7 +477,10 @@ export async function reviewPipeline(snap: Snapshot, deps: PipelineDeps): Promis
   // #90: claims are checked before the judge, which sees only what the verdicts leave.
   const claims = await claimStage(snap, reports, deps, sources?.docs);
   if (claims.outcome) outcomes.push(claims.outcome);
-  const judgedReports = reportsForJudge(reports, claims.results);
+  // Security review of #155: injection seen by the verifier turns every verdict into NOT-FOUND;
+  // that must never weaken the review.
+  const demoteUnchecked = !claims.injectionSeen;
+  const judgedReports = reportsForJudge(reports, claims.results, demoteUnchecked);
 
   const judged = await runRole(
     deps,
@@ -477,7 +490,17 @@ export async function reviewPipeline(snap: Snapshot, deps: PipelineDeps): Promis
     judgeMessage(snap, judgedReports, notRun, judgeClaims(claims.results)),
   );
   outcomes.push(judged.outcome);
-  const enforced = judged.answer && enforceClaims(judged.answer, claims.results);
+  // ADR 0020: claims on findings pass 2 added act only through the reports (a REFUTED one is gone, a
+  // NOT-FOUND one is marked); they never remove or demote a judge item, which may be pass 1's.
+  const added = (r: ClaimResult) =>
+    r.role === 'security-reviewer' && sources !== undefined && r.index >= sources.pass1Findings;
+  const enforced =
+    judged.answer &&
+    enforceClaims(
+      judged.answer,
+      claims.results.filter((r) => !added(r)),
+      { demoteUnchecked, reports },
+    );
   const plain = enforced && withoutMachinery(enforced.decision);
 
   // #89: lines whose only change is a link target, for every sheet (also when no link stage ran).

@@ -2096,6 +2096,8 @@ describe('cheatsheet-review: link auditor statuses (#155)', () => {
     expect(body).toContain('the cited place was not in the excerpt');
     expect(body).not.toContain('(check by hand):');
     expect(linkReport(r)).not.toContain('because');
+    // The audit did not accept it: never a live link (security review of #155).
+    expect(body).not.toContain(`<${URL_}>`);
   });
 
   it.each(['WRONG-PAGE', 'UNSUPPORTED'])(

@@ -1122,6 +1122,21 @@ describe('render.inertMarkdown', () => {
     }
   });
 
+  it('puts a www. host after _ in a code span too, which GFM would otherwise link (security review of #155)', () => {
+    const out = inertMarkdown('see _www.evil.example/login_ now', allowed);
+    expect(out).toContain('`` www.evil.example/login_ ``');
+    expect(out.replace(/`` [^`]* ``/g, '')).not.toMatch(/www\./);
+  });
+
+  it('shows no stray backticks when the model already put the URL in a code span (lean review of #155)', () => {
+    expect(inertMarkdown('see `https://evil.example/x` here', allowed)).toBe(
+      'see  `` https://evil.example/x ``  here',
+    );
+    expect(inertMarkdown('see `https://ok.example.com/page` here', allowed)).toBe(
+      'see <https://ok.example.com/page> here',
+    );
+  });
+
   it('keeps an unchecked URL inside its code span whatever backticks the model wrote (#155)', () => {
     for (const text of [
       'a ` b https://evil.example/x ` c',

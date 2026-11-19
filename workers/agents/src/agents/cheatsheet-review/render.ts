@@ -21,11 +21,11 @@ const BODY_LIMIT = 55_000;
 const SLOT = (i: number) => `\u0001${i}\u0001`;
 
 /**
- * Markdown-safe single line of model text, without relying on code spans (model text can hold
- * stray backticks). Truncated first, then:
- * - URLs the link auditor fetched become `<url>` autolinks; nothing else can become a link: `[` and
- *   `]` are escaped (no inline or reference links), `http(s)://` and `www.` are defanged so
- *   GitHub does not autolink them, and `//host` or `https:/host` are inert as plain text;
+ * Markdown-safe single line of model text. Truncated first, then:
+ * - URLs the link auditor fetched and accepted become `<url>` autolinks; nothing else can become a
+ *   link: `[` and `]` are escaped (no inline or reference links), every other `http(s)://` URL or
+ *   `www.` host is shown whole in a double-backtick code span that no model backtick can pair with
+ *   (GitHub never links code; #155), and `//host` or `https:/host` are inert as plain text;
  * - every `@` becomes a full-width `＠`, so no mention and no e-mail autolink, inside URLs too;
  * - `<` and `>` are escaped, so no HTML.
  */
@@ -37,7 +37,8 @@ export function inertMarkdown(s: string, allowed: ReadonlySet<string>, max = 800
   const text = inertText(s, max)
     .replace(/`{2,}/g, '`')
     .replace(/@/g, '＠')
-    .replace(URL_OR_WWW, (url) => {
+    .replace(URL_OR_WWW, (token) => {
+      const url = token.replace(/^`|`$/g, '');
       const raw = url.replace(/＠/g, '@');
       if (allowed.has(raw)) {
         kept.push(raw);
@@ -65,7 +66,9 @@ export function inertMarkdown(s: string, allowed: ReadonlySet<string>, max = 800
 }
 
 /** An http(s) URL or a bare `www.` host: both are autolinked by GitHub outside code. */
-const URL_OR_WWW = /(?:https?:\/\/|\bwww\.)[^\s<>"'`)\]]+/gi;
+// GFM autolinks www. after _, *, ~ or (: `\b` misses `_www.` (security review of #155).
+// One backtick the model already put around the URL is consumed, so it does not show (lean review).
+const URL_OR_WWW = /`?(?:https?:\/\/|(?<![A-Za-z0-9])www\.)[^\s<>"'`)\]]+`?/gi;
 const CODE = (i: number) => `\u0002${i}\u0002`;
 
 const NONE: ReadonlySet<string> = new Set();

@@ -6,6 +6,7 @@
  * later claims against the same text without a second fetch.
  */
 import { cutWhole, untrusted } from '@custodes/llm';
+import { hostOf } from './claims.js';
 import { fetchable, type SourceDoc } from './links.js';
 import type { ReviewerReport } from './types.js';
 
@@ -37,14 +38,6 @@ export function requestable(url: string): boolean {
   }
 }
 
-const hostOf = (url: string) => {
-  try {
-    return new URL(url).hostname.toLowerCase();
-  } catch {
-    return 'invalid';
-  }
-};
-
 /**
  * Fetches the URLs pass 1 asked for: distinct, at most MAX_SOURCE_REQUESTS, refused ones listed with
  * a code reason. `docs` holds the text of every page that was read, keyed by the requested URL.
@@ -58,23 +51,21 @@ export async function fetchSources(
   },
 ): Promise<{ log: FetchedSource[]; docs: Map<string, Extract<SourceDoc, { kind: 'text' }>> }> {
   const urls = [...new Set(requests.map((r) => r.url.trim()))].slice(0, MAX_SOURCE_REQUESTS);
-  const log: FetchedSource[] = [];
   const docs = new Map<string, Extract<SourceDoc, { kind: 'text' }>>();
-  for (const url of urls) {
-    const host = hostOf(url);
-    if (!requestable(url)) {
-      log.push({ url, host, status: 'refused', why: 'not fetched (host, scheme or port)' });
-      continue;
-    }
-    await deps.guard();
-    const doc = await deps.limit(() => deps.fetchSource(url));
-    if (doc.kind === 'failed') log.push({ url, host, status: 'failed', why: doc.why });
-    else if (doc.text.trim() === '') log.push({ url, host, status: 'failed', why: 'no text' });
-    else {
-      log.push({ url, host, status: 'read' });
+  // In parallel, bounded by the shared limiter; the log keeps the requested order.
+  const log = await Promise.all(
+    urls.map(async (url): Promise<FetchedSource> => {
+      const host = hostOf(url);
+      if (!requestable(url))
+        return { url, host, status: 'refused', why: 'not fetched (host, scheme or port)' };
+      await deps.guard();
+      const doc = await deps.limit(() => deps.fetchSource(url));
+      if (doc.kind === 'failed') return { url, host, status: 'failed', why: doc.why };
+      if (doc.text.trim() === '') return { url, host, status: 'failed', why: 'no text' };
       docs.set(url, doc);
-    }
-  }
+      return { url, host, status: 'read' };
+    }),
+  );
   return { log, docs };
 }
 
@@ -90,7 +81,8 @@ export function sourcesMessage(
     const doc = docs.get(s.url);
     return doc
       ? untrusted(`source:${s.host}`, `URL: ${s.url}\n${cutWhole(doc.text, SOURCE_CHARS)}`)
-      : `URL: ${s.url} could not be read (${s.why ?? s.status}).`;
+      : // The URL is pass-1 output steered by the PR: enveloped, clipped (security review of #155).
+        `${untrusted('source-request', s.url.slice(0, 300))}\nThat source could not be read (${s.why ?? s.status}).`;
   });
   return [
     reviewerInput,

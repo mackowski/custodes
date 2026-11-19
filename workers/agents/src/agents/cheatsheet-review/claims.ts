@@ -185,7 +185,7 @@ export function excerptFor(text: string, locator: string): { excerpt: string; fo
   };
 }
 
-const hostOf = (url: string): string => {
+export const hostOf = (url: string): string => {
   try {
     return new URL(url).hostname.toLowerCase();
   } catch {
@@ -352,12 +352,18 @@ const VERDICT_RANK = { PASS: 0, CONCERNS: 1, BLOCK: 2 } as const;
 /**
  * The reports the judge sees, and the ones code reads reviewer verdicts from: REFUTED findings
  * removed, CONFIRMED and NOT-FOUND ones marked `"verified": "CONFIRMED" | "NOT-FOUND"` (a field
- * only code sets: zod strips it from model output). NOT-FOUND never removes or weakens anything:
- * only a report that lost a REFUTED finding gets the verdict of what is left, never a higher one.
+ * only code sets: zod strips it from model output). NOT-FOUND never removes a finding; since #155 a
+ * BLOCK that rests only on BLOCKERs with unchecked claims counts as CONCERNS. Otherwise only a report
+ * that lost a REFUTED finding gets the verdict of what is left, never a higher one.
  */
 export function reportsForJudge(
   reports: readonly { role: ReviewerRole; report: ReviewerReport }[],
   results: readonly ClaimResult[],
+  /**
+   * #155: an unchecked BLOCKER no longer blocks. False when the verifier saw injection: that
+   * turns every verdict into NOT-FOUND, and detecting an attack must never weaken the review.
+   */
+  demoteUnchecked = true,
 ): { role: ReviewerRole; report: ReviewerReport }[] {
   const verdictOf = (role: ReviewerRole, index: number) =>
     results.find((r) => r.role === role && r.index === index)?.verdict;
@@ -372,9 +378,10 @@ export function reportsForJudge(
     });
     // #155: a finding whose claim could not be checked never blocks on its own.
     const unchecked = (f: (typeof findings)[number]) =>
-      'verified' in f && f.verified === 'NOT-FOUND';
+      demoteUnchecked && 'verified' in f && f.verified === 'NOT-FOUND';
     if (
-      (findings.length === report.findings.length && !findings.some(unchecked)) ||
+      (findings.length === report.findings.length &&
+        !findings.some((f) => f.severity === 'BLOCKER' && unchecked(f))) ||
       report.verdict === 'N/A'
     )
       return { role, report: { ...report, findings } };
@@ -484,8 +491,8 @@ export const UNCHECKED_NOTE = ' (claim not confirmed against its source)';
 
 /** The code-written mark on a confirmed finding. */
 export function verifiedNote(r: ClaimResult): string {
-  // Without "www.": the review defangs www. hosts in model text, and "www\[.\]rfc-editor.org" in
-  // an author-facing note reads as a typo (OWASP PRs 2976, 3004). A bare host is not a link anyway.
+  // Without "www.": inertMarkdown puts a www. host in a code span, which reads oddly inside an
+  // author-facing note (OWASP PRs 2976, 3004). A bare host is not a link anyway.
   const host = r.host?.replace(/^www\./i, '') ?? 'its source';
   return ` (verified against ${host}, ${inertText(r.finding.claim.locator, 80)})`;
 }
@@ -502,10 +509,11 @@ function withoutSentences(text: string, gone: readonly ClaimedFinding[]): string
 /**
  * Words that name the review's own machinery. The author never sees the reviewer reports, so a
  * sentence about them ("the reviewers' recollections do not establish…", OWASP PR 2878) reads as
- * noise or as an excuse (#155). Narrow on purpose: "reports" alone is ordinary prose.
+ * noise or as an excuse (#155). Only the forms the pipeline uses: "reports" alone is ordinary prose,
+ * and "the code verifier" (PKCE) or "auditors" in a logging sheet are content (lean review of #155).
  */
 const MACHINERY =
-  /\b(?:reviewers?|link audit(?:or)?s?|auditors?|verifiers?|recollections?|second voice|the judge)\b/i;
+  /\b(?:(?:the|other|both|all|independent|some|several) reviewers?|reviewers'|reviewer reports?|link audit(?:or)?s?|the auditor|claim verifier|the verifier|recollections?|second voice|the judge)\b/i;
 
 /**
  * The judge's rationale and reply to the author without sentences that name the machinery (#155,
@@ -544,6 +552,15 @@ export function withoutMachinery(d: ReviewDecision): { decision: ReviewDecision;
 export function enforceClaims(
   d: ReviewDecision,
   results: readonly ClaimResult[],
+  opts: {
+    /** #155: false when the verifier saw injection (see reportsForJudge). */
+    demoteUnchecked?: boolean;
+    /**
+     * Every reviewer finding, to check that an item a NOT-FOUND claim refers to does not also rest
+     * on a finding that was not left unchecked (security review of #155).
+     */
+    reports?: readonly { role: ReviewerRole; report: ReviewerReport }[];
+  } = {},
 ): { decision: ReviewDecision; removed: number } {
   const gone = results.filter((r) => r.verdict === 'REFUTED');
   const refuted = gone.map((r) => r.finding);
@@ -599,14 +616,32 @@ export function enforceClaims(
   // Confirmed findings: marked where the judge kept them. One the judge dropped stays dropped.
   // A kept NOT-FOUND finding carries its own caveat: it is no longer listed under "Claims to
   // verify manually", and an unchecked claim must not read as a checked one (#154 review).
+  // #155: a must-fix becomes MINOR only when every finding of its dimension that it refers to had
+  // its claim left unchecked; another finding behind it (no claim, or confirmed) keeps it.
+  const unchecked = (role: ReviewerRole, index: number) =>
+    notFound.some((c) => c.role === role && c.index === index);
+  const backed = (i: Item) =>
+    (opts.reports ?? []).some(({ role, report }) =>
+      report.findings.some(
+        (f, index) =>
+          DIMENSION[role] === i.dimension &&
+          !unchecked(role, index) &&
+          !gone.some((g) => g.role === role && g.index === index) &&
+          refersTo(i, { ...f, claim: f.claim ?? { text: '', sourceUrl: '', locator: '' } }),
+      ),
+    );
   const mark = (i: Item): Item => {
     const r = confirmed.find((c) => refersTo(i, c.finding));
-    const unchecked = notFound.some((c) => refersTo(i, c.finding));
-    const note = `${r ? verifiedNote(r) : ''}${unchecked ? UNCHECKED_NOTE : ''}`;
+    const uncheckedHere = notFound.some((c) => refersTo(i, c.finding));
+    const note = `${r ? verifiedNote(r) : ''}${uncheckedHere ? UNCHECKED_NOTE : ''}`;
     const marked = note ? { ...i, text: `${i.text.slice(0, 800 - note.length)}${note}` } : i;
-    return unchecked && !r && (i.severity === 'BLOCKER' || i.severity === 'MAJOR')
-      ? { ...marked, severity: 'MINOR' }
-      : marked;
+    const demote =
+      opts.demoteUnchecked !== false &&
+      !r &&
+      (i.severity === 'BLOCKER' || i.severity === 'MAJOR') &&
+      notFound.some((c) => DIMENSION[c.role] === i.dimension && refersTo(i, c.finding)) &&
+      !backed(i);
+    return demote ? { ...marked, severity: 'MINOR' } : marked;
   };
   const marked = {
     mustFix: lists.mustFix.map(mark),

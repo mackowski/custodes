@@ -824,6 +824,29 @@ describe('claims.claimId: a narrow backstop for ids models rewrite', () => {
 });
 
 describe('claims.reportsForJudge and judgeClaims', () => {
+  it('keeps a BLOCK when the verifier saw injection (security review of #155)', () => {
+    const blocker = finding({ severity: 'BLOCKER' });
+    const out = reportsForJudge(
+      [{ role: 'security-reviewer', report: report([blocker], 'BLOCK') }],
+      [result('NOT-FOUND', blocker)],
+      false,
+    );
+    expect(out[0]?.report.verdict).toBe('BLOCK');
+  });
+
+  it('an unchecked NIT never lifts a BLOCK that rests on something else (lean review of #155)', () => {
+    const major = {
+      ...finding({ severity: 'MAJOR', line: 9 }),
+      claim: undefined,
+    } as unknown as Finding;
+    const nit = finding({ severity: 'NIT' });
+    const out = reportsForJudge(
+      [{ role: 'security-reviewer', report: report([major, nit], 'BLOCK') }],
+      [result('NOT-FOUND', nit, { index: 1 })],
+    );
+    expect(out[0]?.report.verdict).toBe('BLOCK');
+  });
+
   it('removes REFUTED findings only, marks CONFIRMED and NOT-FOUND ones, and only lowers the verdict', () => {
     const blocker = finding({ severity: 'BLOCKER' });
     const kept = { severity: 'MINOR' as const, file: SHEET, problem: 'Wording.' };
@@ -1162,7 +1185,8 @@ describe('claims.withoutMachinery: the author never reads about the review machi
   it('removes sentences naming reviewers, auditors, verifiers, recollections, the second voice or the judge', () => {
     const sentences = [
       'The reviewers disagreed about this.',
-      'The reviewer found a gap.',
+      "The reviewers' reports differ on this.",
+      'The claim verifier could not open the PDF.',
       'The link audit flagged it.',
       'The link auditor was unsure.',
       'The verifier could not confirm it.',
@@ -1177,6 +1201,14 @@ describe('claims.withoutMachinery: the author never reads about the review machi
       expect(out.rationale, gone).toBe('Keep this one. And this one.');
       expect(removed, gone).toBe(1);
     }
+  });
+
+  it('keeps content that uses the same words: the PKCE code verifier, auditors in a logging sheet (lean review of #155)', () => {
+    const rationale =
+      'The new text lets the code verifier be reused, which RFC 7636 forbids. Auditors need tamper-evident logs. A reviewer of pull requests should check the scope.';
+    const { decision: out, removed } = withoutMachinery(decision({ rationale }));
+    expect(out.rationale).toBe(rationale);
+    expect(removed).toBe(0);
   });
 
   it('cleans the reply to the author the same way and counts both', () => {
@@ -1246,6 +1278,35 @@ describe('claims.enforceClaims: an unchecked claim never makes a must-fix (#155)
       expect(n.shouldFix[0]?.text).toContain(UNCHECKED_NOTE.trim());
     },
   );
+
+  it('demotes nothing when the verifier saw injection (security review of #155)', () => {
+    const d = decision({ mustFix: [item('BLOCKER')] });
+    const { decision: out } = enforceClaims(d, [result('NOT-FOUND', CLAIM)], {
+      demoteUnchecked: false,
+    });
+    expect(out.mustFix[0]?.severity).toBe('BLOCKER');
+  });
+
+  it('keeps the severity when another finding of the same dimension backs the item (lean review of #155)', () => {
+    const d = decision({ mustFix: [item('BLOCKER')] });
+    const second = { ...CLAIM, claim: undefined } as unknown as Finding;
+    const { decision: out } = enforceClaims(d, [result('NOT-FOUND', CLAIM)], {
+      reports: [
+        { role: 'security-reviewer', report: report([CLAIM], 'BLOCK') },
+        { role: 'security-second-voice', report: report([second], 'BLOCK') },
+      ],
+    });
+    expect(out.mustFix[0]?.severity).toBe('BLOCKER');
+    expect(out.mustFix[0]?.text.endsWith(UNCHECKED_NOTE)).toBe(true);
+  });
+
+  it('an unchecked claim of another dimension never demotes a Security item (lean review of #155)', () => {
+    const d = decision({ mustFix: [item('BLOCKER')] });
+    const { decision: out } = enforceClaims(d, [
+      result('NOT-FOUND', CLAIM, { role: 'practicality-reviewer' }),
+    ]);
+    expect(out.mustFix[0]?.severity).toBe('BLOCKER');
+  });
 
   it('a CONFIRMED finding keeps its severity and is not marked unchecked', () => {
     const d = decision({ mustFix: [item('BLOCKER')] });
