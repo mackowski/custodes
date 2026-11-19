@@ -608,6 +608,12 @@ export function enforceClaims(
      * on a finding that was not left unchecked (security review of #155).
      */
     reports?: readonly { role: ReviewerRole; report: ReviewerReport }[];
+    /**
+     * ADR 0020: findings pass 2 added. Their unchecked claims demote an item only when no earlier
+     * finding of the same dimension sits at the same file and line (eighth security review: matched
+     * by location, never by wording).
+     */
+    late?: (role: ReviewerRole, index: number) => boolean;
   } = {},
 ): { decision: ReviewDecision; removed: number } {
   const gone = results.filter((r) => r.verdict === 'REFUTED');
@@ -680,6 +686,17 @@ export function enforceClaims(
           refersTo(i, { ...f, claim: f.claim ?? { text: '', sourceUrl: '', locator: '' } }),
       ),
     );
+  // An earlier (not pass-2) finding of the item's dimension at the same file and line.
+  const earlierAt = (i: Item) =>
+    (opts.reports ?? []).some(({ role, report }) =>
+      report.findings.some(
+        (f, index) =>
+          DIMENSION[role] === i.dimension &&
+          opts.late?.(role, index) !== true &&
+          f.file === i.file &&
+          (f.line === undefined || i.line === undefined || f.line === i.line),
+      ),
+    );
   const mark = (i: Item): Item => {
     const r = confirmed.find((c) => refersTo(i, c.finding));
     const uncheckedHere = notFound.some((c) => refersTo(i, c.finding));
@@ -689,7 +706,12 @@ export function enforceClaims(
       opts.demoteUnchecked !== false &&
       !r &&
       (i.severity === 'BLOCKER' || i.severity === 'MAJOR') &&
-      notChecked.some((c) => DIMENSION[c.role] === i.dimension && refersTo(i, c.finding)) &&
+      notChecked.some(
+        (c) =>
+          DIMENSION[c.role] === i.dimension &&
+          refersTo(i, c.finding) &&
+          (opts.late?.(c.role, c.index) !== true || !earlierAt(i)),
+      ) &&
       !backed(i);
     return demote ? { ...marked, severity: 'MINOR' } : marked;
   };

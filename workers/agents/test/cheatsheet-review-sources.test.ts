@@ -274,6 +274,8 @@ describe('sources.sourcesMessage', () => {
 });
 
 describe('sources.mergePasses', () => {
+  const READ = new Set(['https://example.com/s']);
+  const merge = (a: ReviewerReport, b?: ReviewerReport) => mergePasses(a, b, READ);
   const f = (problem: string, severity: Finding['severity'] = 'MINOR'): Finding => ({
     severity,
     file: 'a.md',
@@ -287,37 +289,47 @@ describe('sources.mergePasses', () => {
     over: Partial<ReviewerReport> = {},
   ): ReviewerReport => ({ verdict, findings, ...over });
 
+  it('drops a pass-2 finding whose claim cites a page pass 2 was not given (eighth security review of #155)', () => {
+    const other = {
+      ...f('elsewhere', 'BLOCKER'),
+      claim: { text: 't', sourceUrl: 'https://other.example/x', locator: '1' },
+    };
+    const out = mergePasses(rep('CONCERNS', [f('a')]), rep('BLOCK', [other, f('kept')]), READ);
+    expect(out.findings.map((x) => x.problem)).toEqual(['a', 'kept']);
+    expect(out.verdict).toBe('CONCERNS');
+  });
+
   it('drops a pass-2 finding without a claim: the verifier must stand between a page and the review (fourth security review of #155)', () => {
     const { claim: _c, ...bare } = f('no claim', 'BLOCKER');
-    const out = mergePasses(rep('CONCERNS', [f('a')]), rep('BLOCK', [bare]));
+    const out = merge(rep('CONCERNS', [f('a')]), rep('BLOCK', [bare]));
     expect(out.findings.map((x) => x.problem)).toEqual(['a']);
     expect(out.verdict).toBe('CONCERNS');
   });
 
   it('keeps every pass-1 finding even when pass 2 answers PASS with no findings', () => {
     const p1 = rep('BLOCK', [f('one', 'BLOCKER'), f('two')]);
-    const out = mergePasses(p1, rep('PASS', []));
+    const out = merge(p1, rep('PASS', []));
     expect(out.findings).toEqual(p1.findings);
     expect(out.verdict).toBe('BLOCK');
   });
 
   it('can raise the verdict but never lower it', () => {
-    expect(mergePasses(rep('BLOCK', [f('a')]), rep('PASS', [f('b')])).verdict).toBe('BLOCK');
-    expect(mergePasses(rep('CONCERNS', [f('a')]), rep('PASS', [f('b')])).verdict).toBe('CONCERNS');
-    expect(mergePasses(rep('PASS', []), rep('BLOCK', [f('b', 'BLOCKER')])).verdict).toBe('BLOCK');
-    expect(mergePasses(rep('CONCERNS', [f('a')]), rep('BLOCK', [f('b', 'BLOCKER')])).verdict).toBe(
+    expect(merge(rep('BLOCK', [f('a')]), rep('PASS', [f('b')])).verdict).toBe('BLOCK');
+    expect(merge(rep('CONCERNS', [f('a')]), rep('PASS', [f('b')])).verdict).toBe('CONCERNS');
+    expect(merge(rep('PASS', []), rep('BLOCK', [f('b', 'BLOCKER')])).verdict).toBe('BLOCK');
+    expect(merge(rep('CONCERNS', [f('a')]), rep('BLOCK', [f('b', 'BLOCKER')])).verdict).toBe(
       'BLOCK',
     );
   });
 
   it('takes the pass-2 verdict only when pass 2 added findings', () => {
-    const out = mergePasses(rep('PASS', []), rep('BLOCK', []));
+    const out = merge(rep('PASS', []), rep('BLOCK', []));
     expect(out.verdict).toBe('PASS');
     expect(out.findings).toEqual([]);
   });
 
   it('appends pass-2 findings after the pass-1 ones', () => {
-    const out = mergePasses(rep('CONCERNS', [f('a')]), rep('CONCERNS', [f('b')]));
+    const out = merge(rep('CONCERNS', [f('a')]), rep('CONCERNS', [f('b')]));
     expect(out.findings.map((x) => x.problem)).toEqual(['a', 'b']);
   });
 
@@ -330,11 +342,11 @@ describe('sources.mergePasses', () => {
       'CONCERNS',
       Array.from({ length: 10 }, (_, i) => f(`p2-${i}`)),
     );
-    const out = mergePasses(p1, p2);
+    const out = merge(p1, p2);
     expect(out.findings).toHaveLength(25);
     expect(out.findings.slice(0, 20)).toEqual(p1.findings);
     expect(out.findings[24]?.problem).toBe('p2-4');
-    const full = mergePasses(
+    const full = merge(
       rep(
         'CONCERNS',
         Array.from({ length: 25 }, (_, i) => f(`x${i}`)),
@@ -346,21 +358,21 @@ describe('sources.mergePasses', () => {
   });
 
   it('reports injectionSeen from either pass', () => {
-    expect(
-      mergePasses(rep('PASS', [], { injectionSeen: true }), rep('PASS', [])).injectionSeen,
-    ).toBe(true);
-    expect(
-      mergePasses(rep('PASS', []), rep('PASS', [], { injectionSeen: true })).injectionSeen,
-    ).toBe(true);
-    expect(mergePasses(rep('PASS', []), rep('PASS', [])).injectionSeen).toBeUndefined();
+    expect(merge(rep('PASS', [], { injectionSeen: true }), rep('PASS', [])).injectionSeen).toBe(
+      true,
+    );
+    expect(merge(rep('PASS', []), rep('PASS', [], { injectionSeen: true })).injectionSeen).toBe(
+      true,
+    );
+    expect(merge(rep('PASS', []), rep('PASS', [])).injectionSeen).toBeUndefined();
   });
 
   it('removes sourceRequests from the merged report and from a lone pass 1', () => {
     const p1 = rep('CONCERNS', [f('a')], { sourceRequests: [{ url: RFC, why: 'w' }] });
     expect(
-      mergePasses(p1, rep('CONCERNS', [f('b')], { sourceRequests: [{ url: RFC, why: 'w' }] })),
+      merge(p1, rep('CONCERNS', [f('b')], { sourceRequests: [{ url: RFC, why: 'w' }] })),
     ).not.toHaveProperty('sourceRequests');
-    const alone = mergePasses(p1, undefined);
+    const alone = merge(p1, undefined);
     expect(alone).not.toHaveProperty('sourceRequests');
     expect(alone).toEqual(rep('CONCERNS', [f('a')]));
   });

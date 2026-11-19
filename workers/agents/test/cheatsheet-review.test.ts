@@ -2031,7 +2031,7 @@ describe('cheatsheet-review: the security reviewer reads sources in a second pas
     expect(judgeUser(r)).toContain('"verified":"CONFIRMED"');
   });
 
-  it('a claim citing a URL the reviewer did not read and the PR does not link stays unfetched', async () => {
+  it('drops a pass-2 finding whose claim cites a URL the reviewer did not read: never fetched, never posted (eighth security review)', async () => {
     const fetched: string[] = [];
     const claim = { text: 'x', sourceUrl: 'https://example.org/other', locator: 'x' };
     const r = await drive({
@@ -2040,7 +2040,7 @@ describe('cheatsheet-review: the security reviewer reads sources in a second pas
     });
     expect(fetched).toEqual([RFC]);
     expect(r.models.calls.some((c) => c.role === 'claim-verifier')).toBe(false);
-    expect(judgeUser(r)).toContain('"verified":"NOT-FOUND"');
+    expect(judgeUser(r)).not.toContain(P2_MARK);
   });
 
   it('is skipped while halted, like every other side effect: no model call and no fetch', async () => {
@@ -2316,7 +2316,7 @@ describe('cheatsheet-review: claims on pass-2 findings (security review of #155)
       fetchImpl: serve,
       toMarkdown: toMd,
       script: scripted(
-        first([{ severity: 'MINOR', file: SHEET, line: 3, problem: 'Unrelated wording.' }]),
+        first([{ severity: 'MINOR', file: SHEET, line: 9, problem: 'Unrelated wording.' }]),
         JSON.stringify({ verdict: 'CONCERNS', findings: [added] }),
         everyClaim('NOT-FOUND'),
         judgeItem('MAJOR', added.problem),

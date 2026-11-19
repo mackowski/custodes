@@ -455,5 +455,10 @@ export function reviewBody(r: ReviewBodyInput): string {
   lines.push('---', `<sub>[How this review works](${DOCS_URL}) · Custodes cheatsheet-review</sub>`);
   const body = lines.join('\n');
   const note = '\n\n…(truncated)';
-  return body.length > BODY_LIMIT ? `${body.slice(0, BODY_LIMIT - note.length)}${note}` : body;
+  if (body.length <= BODY_LIMIT) return body;
+  // Cut on a line boundary: every inertMarkdown code span is on one line, so none is split and no
+  // unchecked URL is freed (eighth security review of #155).
+  const head = body.slice(0, BODY_LIMIT - note.length);
+  const cut = head.lastIndexOf('\n');
+  return `${cut > 0 ? head.slice(0, cut) : ''}${note}`;
 }

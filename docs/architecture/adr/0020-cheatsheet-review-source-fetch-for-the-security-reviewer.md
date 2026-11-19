@@ -110,8 +110,11 @@ pass 2 cannot ask for more.
   - A page only the reviewer fetched may confirm any claim, but may refute only a claim on a finding
     that pass 2 added. For an earlier finding, REFUTED becomes NOT-FOUND: the finding cannot be
     removed, and at most stays unchecked, as it would without the fetch.
-  - Pass 2 findings without a claim are dropped in code, so the verifier always stands between a
-    fetched page and the review.
+  - Pass 2 findings without a claim, or with a claim on a page pass 2 was not given, are dropped in
+    code, so the verifier always stands between a fetched page and the review.
+  - An unchecked claim on a pass-2 finding marks its item, and demotes it only when no earlier
+    finding of the same dimension sits at the same file and line. The match is by location, never
+    by wording.
   - `fetchable` refuses `api.github.com` and `*.workers.dev` on every hop of every fetch.
   - Claims on findings that pass 2 added are checked after every other claim, and act only through
     the reports. They never remove or demote

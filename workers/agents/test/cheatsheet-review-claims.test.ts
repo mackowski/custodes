@@ -1308,6 +1308,42 @@ describe('claims.enforceClaims: an unchecked claim never makes a must-fix (#155)
     expect(out.mustFix[0]?.severity).toBe('BLOCKER');
   });
 
+  it('a pass-2 claim never demotes an item an earlier finding sits under, even reworded (eighth security review of #155)', () => {
+    const early = {
+      ...finding({
+        severity: 'BLOCKER',
+        line: 7,
+        problem: 'line 7 cites the wrong NIST section; secrets are covered elsewhere',
+      }),
+      claim: undefined,
+    } as unknown as Finding;
+    const late = finding(
+      { severity: 'BLOCKER', line: 7 },
+      { locator: '3.1.4', text: 'Section 3.1.4 covers embedded clear text secrets.' },
+    );
+    const judged = decision({
+      mustFix: [
+        {
+          dimension: 'Security',
+          severity: 'BLOCKER',
+          file: SHEET,
+          line: 7,
+          text: 'Cite NIST SP 800-190 Section 3.1.4 instead of 3.1.3.',
+        },
+      ],
+    });
+    const reports = [
+      { role: 'security-reviewer' as const, report: report([early, late], 'BLOCK') },
+    ];
+    const isLate = (role: string, index: number) => role === 'security-reviewer' && index >= 1;
+    const res = [result('NOT-FOUND', late, { index: 1 })];
+    expect(
+      enforceClaims(judged, res, { reports, late: isLate }).decision.mustFix[0]?.severity,
+    ).toBe('BLOCKER');
+    // Without the location rule the same input would be demoted (the reworded item shares few words).
+    expect(enforceClaims(judged, res, { reports }).decision.mustFix[0]?.severity).toBe('MINOR');
+  });
+
   it('a CONFIRMED finding keeps its severity and is not marked unchecked', () => {
     const d = decision({ mustFix: [item('BLOCKER')] });
     const { decision: out } = enforceClaims(d, [result('CONFIRMED', CLAIM)]);

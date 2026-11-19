@@ -1393,6 +1393,19 @@ describe('render.reviewBody', () => {
     expect(body.endsWith('…(truncated)')).toBe(true);
   });
 
+  it('cuts on a line boundary, so no code span is split and no unchecked URL is freed (eighth security review of #155)', () => {
+    const url = 'https://evil.example.com/z';
+    const body = reviewBody(
+      input({ facts: `${'y'.repeat(54_960)}\n- see ${url} here\n${'x'.repeat(10_000)}` }),
+    );
+    expect(body.endsWith('…(truncated)')).toBe(true);
+    const lines = body.split('\n');
+    // Every line that holds the URL holds it inside a closed span.
+    for (const l of lines.filter((x) => x.includes(url)))
+      expect(l.replace(/`` [^`]* ``/g, '')).not.toContain(url);
+    expect(body.length).toBeLessThan(60_000);
+  });
+
   it('lists close reasons only for a CLOSE verdict and drops should-fix then', () => {
     const d = decision({
       verdict: 'CLOSE',

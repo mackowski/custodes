@@ -6,7 +6,7 @@
  * later claims against the same text without a second fetch.
  */
 import { cutWhole, untrusted } from '@custodes/llm';
-import { hostOf } from './claims.js';
+import { citedSource, hostOf } from './claims.js';
 import { fetchable, type SourceDoc } from './links.js';
 import type { ReviewerReport } from './types.js';
 
@@ -109,13 +109,15 @@ const RANK = { 'N/A': -1, PASS: 0, CONCERNS: 1, BLOCK: 2 } as const;
 export function mergePasses(
   pass1: ReviewerReport,
   pass2: ReviewerReport | undefined,
+  /** The URLs pass 2 was given (read pages): an added finding's claim must cite one of them. */
+  read: ReadonlySet<string> = new Set(),
 ): ReviewerReport {
   const { sourceRequests: _asked, ...first } = pass1;
   if (!pass2) return first;
-  // Only findings with a claim: the claim verifier must stand between a fetched page and the review
-  // (fourth security review of #155).
+  // Only findings with a claim on a page pass 2 was given: the claim verifier must stand between a
+  // fetched page and the review (fourth and eighth security reviews of #155).
   const added = pass2.findings
-    .filter((f) => f.claim !== undefined)
+    .filter((f) => f.claim !== undefined && citedSource(f.claim.sourceUrl, read) !== undefined)
     .slice(0, Math.max(0, 25 - first.findings.length));
   // The verdict the added findings carry, computed by code: pass 2's own word never raises it.
   const raised = added.some((f) => f.severity === 'BLOCKER')

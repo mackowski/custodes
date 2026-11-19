@@ -161,7 +161,7 @@ async function sourcePass(
           SOURCES_PROMPT,
           sourcesMessage(input, pass1, log, docs),
         );
-  const report = mergePasses(pass1, pass2);
+  const report = mergePasses(pass1, pass2, new Set(docs.keys()));
   return {
     report,
     pass1Findings: pass1.findings.length,
@@ -523,7 +523,7 @@ export async function reviewPipeline(snap: Snapshot, deps: PipelineDeps): Promis
       // A NOT-FOUND claim on an added finding still marks (and may demote) its own item; backed()
       // keeps any item a pass-1 finding stands behind (fifth security review of #155).
       claims.results.filter((r) => !added(r) || r.verdict === 'NOT-FOUND'),
-      { demoteUnchecked, reports },
+      { demoteUnchecked, reports, late: (role, index) => added({ role, index }) },
     );
   const plain = enforced && withoutMachinery(enforced.decision);
 
