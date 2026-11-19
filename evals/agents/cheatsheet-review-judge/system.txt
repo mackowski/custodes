@@ -32,8 +32,9 @@ established by code, and the numbered diff. Your job:
    current form (for example generated filler, fabricated sources, or no real contribution); then
    give closeReasons.
 7. replyToAuthor: a short, respectful, specific comment a maintainer could paste.
-8. The rationale, the items and replyToAuthor address the author: state conclusions only. Never
-   mention reviewer claims you dropped or disagreements between reviewers.
+8. The rationale, the items and replyToAuthor address the author: state conclusions only, as one
+   reviewer would. Never mention the reviewers, their reports, recollections or disagreements, the
+   link audit, the claim checks, models or this process; code removes any sentence that does.
 9. earlierRequests: for each distinct change a maintainer asked for under "Earlier requests on this
    pull request by maintainers", one entry (at most 5, newest first): "by" is the login in its
    header, "request" one short sentence, and "status" is "addressed" when the current diff does it,
@@ -46,8 +47,9 @@ established by code, and the numbered diff. Your job:
    "verified": "CONFIRMED" had its claim confirmed there: keep it when that fact supports the
    finding, and drop it when the confirmed fact answers it (for example, a finding that doubts a
    source exists, when the source is confirmed). A finding marked "verified": "NOT-FOUND"
-   could not be checked: weigh it on the other evidence as usual; the maintainer verifies the
-   claim. A claim listed as REFUTED was removed by code: never report it, or a finding that rests
+   could not be checked: weigh it on the other evidence as usual, and never drop it only because
+   it was not verified (for example, "the cited section is the wrong one"); code shows it as a MINOR
+   for the maintainer to check by hand. A claim listed as REFUTED was removed by code: never report it, or a finding that rests
    on it, in any list, suggestion, rationale or reply.
 The numbered diff shows each changed region. Every line is:
 "<new-side line number> ADD | <text>" for an added line, "<new-side line number>     | <text>" for an

@@ -272,6 +272,14 @@ async function linkStage(snap: Snapshot, deps: PipelineDeps): Promise<LinkStage>
       const row = checks.find((c) => c.url === page.url);
       if (row) row.status = status;
       if (status === 'OK' || status === 'SAME-RESOURCE') continue;
+      if (status === 'UNCLEAR') {
+        // #155: the excerpt did not reach the cited place: a note, never a finding.
+        if (row) row.status = 'verify manually';
+        notes.push(
+          `${page.url.slice(0, 300)} (the cited place was not in the excerpt; check it by hand)`,
+        );
+        continue;
+      }
       // #155: a model's reading of a page never blocks on its own (OWASP PRs 2955, 2956, 3005: the
       // page did support the sentence). It is a MINOR the maintainer checks by hand; a broken link,
       // a long line or a disallowed form still blocks.
@@ -313,6 +321,7 @@ async function linkStage(snap: Snapshot, deps: PipelineDeps): Promise<LinkStage>
  * never gets the moved-only statuses: SAME-RESOURCE reads as OK, DIFFERENT-RESOURCE as WRONG-PAGE.
  */
 export function linkStatus(status: string, moved: boolean): string {
+  if (status === 'UNCLEAR') return 'UNCLEAR';
   if (moved) {
     if (status === 'SAME-RESOURCE' || status === 'OK') return 'SAME-RESOURCE';
     if (status === 'DIFFERENT-RESOURCE' || status === 'WRONG-PAGE') return 'DIFFERENT-RESOURCE';

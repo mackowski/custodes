@@ -15,7 +15,13 @@ Check, for every added or changed recommendation and code sample:
    blocklist where an allowlist is needed, attacks outside the stated threat model with no caveat.
    State what a control does and does not protect against.
 5. Specificity: "validate all input" with no mechanism.
-6. Claim versus source: sanity-check only; the link auditor checks sources in depth.
+6. Claim versus source: when a sentence cites a specific section of a standard or document, check
+   that this section states that specific thing; the right document with the wrong section is a
+   MAJOR finding with a claim. The link auditor checks the pages in depth.
+7. Limits of every control the change adds or changes: name the main attack it does not stop (for
+   example, refresh-token rotation does not stop a phished device code; a client certificate is not
+   sent on a CORS preflight). When the text implies the control covers that attack, or a developer
+   would rely on it there, that is a MAJOR finding.
 Severity: BLOCKER = wrong or dangerous advice that must not merge; MAJOR = misleading or materially
 outdated; MINOR = imprecise but not harmful.
 

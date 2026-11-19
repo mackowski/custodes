@@ -23,4 +23,6 @@ defaultTest:
       value: >-
         ((o) => ['PASS','CONCERNS','BLOCK','N/A'].includes(o.verdict) && Array.isArray(o.findings) && o.findings.every((f) => ['BLOCKER','MAJOR','MINOR','NIT'].includes(f.severity) && typeof f.file === 'string' && typeof f.problem === 'string'))(JSON.parse(output))
 
-tests: file://cases.yaml
+tests:
+  - file://cases.yaml
+  - file://cases-155.yaml

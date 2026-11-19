@@ -88,6 +88,8 @@ export const LinkVerdict = z.enum([
   'UNSUPPORTED',
   'LOW-AUTHORITY',
   'STALE',
+  // #155: the excerpt does not reach the place that should state the claim; checked by hand.
+  'UNCLEAR',
   // Moved links only (#89): is the new URL the same resource as the old one?
   'SAME-RESOURCE',
   'DIFFERENT-RESOURCE',
