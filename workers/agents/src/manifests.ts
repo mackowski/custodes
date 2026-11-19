@@ -44,7 +44,7 @@ export const PR_GATE_MANIFEST: AgentManifest = {
 
 export const CHEATSHEET_REVIEW_MANIFEST: AgentManifest = {
   id: 'cheatsheet-review',
-  version: '0.2.0',
+  version: '0.3.0',
   description:
     'Multi-model review of a cheat sheet pull request when the operator adds the trigger label: posts one review with inline suggestions, e-mails a close recommendation for low-quality PRs.',
   mode: 'hotl',

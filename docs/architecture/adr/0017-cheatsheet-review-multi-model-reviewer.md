@@ -1,6 +1,6 @@
 # 0017. cheatsheet-review: a multi-model pull request reviewer started by the operator's label
 
-- Status: accepted
+- Status: accepted (amended 2026-11-19)
 - Date: 2026-10-29
 - Deciders: Jakub Maćkowski
 
@@ -378,3 +378,68 @@ places. Decisions (operator, /grill-plan):
   the link audit fetched and accepted; with any other link, mention or HTML the text is not shown.
   Never a "[removed]" link (OWASP PRs 2976, 3008).
 - Size facts count every line; "verified against" shows the host without `www.`.
+
+## Amendment (2026-11-19): fixes from the A/B test against the original OWASP command (#155)
+
+**Context.** Issue #155 graded cheatsheet-review@0.2.0 (B) blind against the original OWASP
+command (A, Opus 5.5) on 28 OWASP pull requests:
+
+- **Scores:** A 103.0, B 45.5.
+- **Verdicts:** B was better (22 of 23 right in round 2, against 20 of 22 for A).
+- **Where B lost points:**
+  - false link and claim alarms that became must-fixes (OWASP PRs 3001, 2976, 3008, 3005, 2955,
+    2956, 2941);
+  - citations to the wrong section that were not caught, or were caught by a reviewer and then
+    dropped by the judge (3001, 2878);
+  - no "what this control does not protect against" (3001, 3008);
+  - internal pipeline wording in the posted text;
+  - a size line read from the moving default branch;
+  - caps that left work undone.
+
+**Decision (operator, 2026-11-19, /grill-plan).**
+
+- **A model's reading of a page never blocks on its own.**
+  - Link auditor WRONG-PAGE, UNSUPPORTED and DIFFERENT-RESOURCE become a MINOR "(check by hand)".
+    Broken links, lines too long to audit, target forms that are not allowed and broken internal
+    anchors still block.
+  - A new auditor status, UNCLEAR, is a "verify manually" note.
+  - A kept must-fix whose claim is NOT-FOUND becomes MINOR. A reviewer BLOCK that rests only on
+    unchecked BLOCKERs counts as CONCERNS.
+  - This narrows the 2026-11-16 rule that "NOT-FOUND never downgrades a finding".
+- **Excerpts start at the cited anchor.** HTML text starts at the element the URL's `#fragment`
+  names, for the link audit and the claim sources. This **reverses #154's ruled-out item**
+  ("excerpting the section an anchor points to"): rounds 1 and 2 showed cited anchors beyond the
+  first 8,000 characters (2955, 2956).
+- **Prompts.**
+  - The security reviewer checks that the cited section states the specific thing (item 6) and
+    names the attack each control does not stop (item 7). Practicality checks what a relied-on
+    control leaves exposed.
+  - The link auditor judges the sentence's specific assertion.
+  - Judge rule 8 lists what never to mention. Rule 10 never drops an unchecked finding only
+    because it was not verified.
+- **Code removes machinery wording.** Sentences naming the review's machinery are removed from the
+  rationale and the reply (`withoutMachinery`). Code-written notes no longer name the auditor, the
+  verifier or "code". URLs that were not checked are shown in code spans instead of being defanged.
+- **The size line's "before" comes from the head and the diff**, not the default branch.
+- **Caps:** 10 claims (was 5); 5 further citing sentences per URL (was 2).
+- The security reviewer's source fetch is ADR 0020.
+
+**Ruled out.**
+
+- A host allowlist for the source fetch (ADR 0020).
+- The tool for the second voice.
+- A broker read with `ref` for the size line, which would need a schema and policy change.
+- A wide "reports" word in the machinery filter.
+
+**Accepted risk (operator, 2026-11-19).** A wrong link, or a must-fix whose claim could not be
+checked, can now reach the review as a MINOR instead of blocking. This applies to the OWASP PR
+2878 shape (a correct "wrong NIST section" finding against a PDF that answered 403). The operator
+reads every OWASP review before it posts. Owner: operator.
+
+**Evals:**
+
+- security `cases-155.yaml` (first reviewer only): 3001 control limits and the wrong section,
+  3008 mTLS preflight, 2970 `Origin: null`, and an injection that asks for an exfiltration source;
+- links +3: the sentence-level assertion, UNCLEAR, and an injection inside the anchored section;
+- judge +1: the 2878 finding is kept, with no machinery words;
+- new suite `cheatsheet-review-sources` (ADR 0020).
