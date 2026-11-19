@@ -49,7 +49,10 @@ export function inertMarkdown(s: string, allowed: ReadonlySet<string>, max = 800
       shown.push(url);
       return CODE(shown.length - 1);
     });
+  // `&` first: a character reference such as `&#64;victim` would otherwise render as a live mention
+  // (sixth security review of #155; specialists/evidence.ts drops them for the same reason).
   const inert = text
+    .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     // Entities, not backslashes: a model backslash or tableCell's doubling would undo `\[` and

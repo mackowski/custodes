@@ -1154,6 +1154,14 @@ describe('render.inertMarkdown', () => {
     );
   });
 
+  it('never yields a mention through a character reference (sixth security review of #155)', () => {
+    for (const text of ['thanks &#64;victim', 'hi &#x40;victim', 'cc &commat;victim']) {
+      const out = inertMarkdown(text, allowed);
+      expect(out, text).toContain('&amp;');
+      expect(out, text).not.toMatch(/(^|[^&])&(#64|#x40|commat);/);
+    }
+  });
+
   it('never frees a link with a model backslash or inside a table cell (third security review of #155)', () => {
     for (const out of [
       inertMarkdown('\\[x\\](//evil.example)', allowed),

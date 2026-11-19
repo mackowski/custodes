@@ -84,6 +84,9 @@ pass 2 cannot ask for more.
   - `fetchable()`: https, public DNS, re-checked redirects. Workers cannot reach private networks
     anyway.
   - At most 4 pages, size and time caps, no userinfo, no non-default port.
+- **GET proxy.** A PR can steer up to 4 anonymous GETs per labelled run to a third-party URL,
+  including one that acts on GET (an unsubscribe link, a GET webhook). The requests carry no
+  credentials and identify the agent. This is accepted (operator, 2026-11-19).
 - **Exfiltration.** The reviewer holds no secret: only the public pull request, public sheets and
   its own draft findings. A steered query string could leak a draft review that the operator later
   rejects, or tell the attacker's server that a review ran. This is low value and accepted (operator,

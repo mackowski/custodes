@@ -402,6 +402,10 @@ The label can also be removed from the repository's label list; nothing triggers
   recommendation. The narrower rule (no demotion for claims on PR links) was offered and declined:
   the operator approves every OWASP review before it posts (operator decision, 2026-11-19, third
   security review of #155). On the sandbox nobody sees it. Owner: operator.
+- A PR can steer the security reviewer into up to 4 anonymous GETs to a third-party URL per
+  labelled run, for example one that acts on GET (an unsubscribe or magic link, a GET webhook).
+  The requests carry the agent's user agent and Cloudflare egress, and no credentials. Owner:
+  operator (ADR 0020).
 - The security reviewer may fetch any public https page it asks for, with no host allowlist (ADR
   0020, operator decision 2026-11-19). Only public pull request data is in reach, so a URL can
   leak nothing new. A page the author controls can make pass 2 add a finding that the verifier
