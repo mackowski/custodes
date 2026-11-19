@@ -39,7 +39,6 @@ import {
   type ToMarkdown,
 } from '../src/agents/cheatsheet-review/links.js';
 import { VERIFIER_PROMPT } from '../src/agents/cheatsheet-review/prompts.js';
-import { reviewBody } from '../src/agents/cheatsheet-review/render.js';
 import type { ScopedFile } from '../src/agents/cheatsheet-review/scope.js';
 import {
   ReviewDecision,
@@ -933,9 +932,30 @@ describe('claims.enforceClaims: the judge cannot bring a removed finding back', 
     expect(JSON.stringify(out)).not.toContain('0.10.3');
   });
 
-  it('keeps a NOT-FOUND finding where the judge put it (it is also listed for the maintainer)', () => {
+  it('adds both marks when one item matches a CONFIRMED and a NOT-FOUND claim (#154 review)', () => {
+    const d = decision({
+      mustFix: [
+        item('Section 3.1.3 of NIST SP 800-190 is embedded malware; cite 3.1.4.', { line: 3 }),
+      ],
+    });
+    const { decision: out } = enforceClaims(d, [
+      result('CONFIRMED', finding()),
+      result('NOT-FOUND', finding()),
+    ]);
+    expect(out.mustFix[0]?.text).toMatch(
+      /\(verified against nvlpubs\.nist\.gov, 3\.1\.3\) \(claim not confirmed against its source\)$/,
+    );
+  });
+
+  it('keeps a NOT-FOUND finding where the judge put it, marked as not confirmed', () => {
     const d = decision({ mustFix: [item('rand 0.10.3 does not exist; pin rand 0.9.')] });
-    expect(enforceClaims(d, [result('NOT-FOUND', RAND)])).toEqual({ decision: d, removed: 0 });
+    const { decision: out, removed } = enforceClaims(d, [result('NOT-FOUND', RAND)]);
+    expect(removed).toBe(0);
+    expect(out.verdict).toBe(d.verdict);
+    expect(out.mustFix).toHaveLength(1);
+    expect(out.mustFix[0]?.text).toBe(
+      'rand 0.10.3 does not exist; pin rand 0.9. (claim not confirmed against its source)',
+    );
   });
 
   it("REFUTED removes only the claimant's own dimension; a corroborating finding elsewhere stays", () => {
@@ -1037,6 +1057,19 @@ describe('claims.enforceClaims: the judge cannot bring a removed finding back', 
     expect(removed).toBe(0);
   });
 
+  it('marks a NOT-FOUND finding the judge kept, so an unchecked claim never reads as checked (#154 review)', () => {
+    const d = decision({
+      mustFix: [
+        item('Section 3.1.3 of NIST SP 800-190 is embedded malware; cite 3.1.4.', { line: 3 }),
+      ],
+    });
+    const { decision: out } = enforceClaims(d, [result('NOT-FOUND', finding())]);
+    expect(out.mustFix[0]?.text).toMatch(
+      /cite 3\.1\.4\. \(claim not confirmed against its source\)$/,
+    );
+    expect(out.verdict).toBe(d.verdict);
+  });
+
   it('leaves the decision alone when there are no claims', () => {
     const d = decision({ mustFix: [item('Anything.')], replyToAuthor: 'Hi.\nThanks.' });
     expect(enforceClaims(d, [])).toEqual({ decision: d, removed: 0 });
@@ -1068,52 +1101,6 @@ describe('claims in the review, the logs and the approval note', () => {
       locator: '<b>3.1.3</b>',
     },
   );
-
-  it('lists NOT-FOUND claims under "Claims to verify manually", inert and unlinked', () => {
-    const body = reviewBody({
-      decision: decision(),
-      outcomes: [],
-      changeClass: 'content',
-      classWhy: 'x',
-      facts: '- f',
-      rejected: [],
-      linkNotes: [],
-      allowed: new Set(['https://evil.example.com']),
-      claimsToVerify: [
-        result('NOT-FOUND', evil, { by: 'code', reason: 'source not read: HTTP 403' }),
-        result('NOT-FOUND', finding({ severity: 'BLOCKER' }), {
-          host: undefined,
-          by: 'code',
-          reason: 'the source is not a link in this pull request, so it was not fetched',
-        }),
-      ],
-    });
-    expect(body).toContain('### Claims to verify manually');
-    expect(body).toContain(
-      '- **MAJOR** `cheatsheets/Secrets_Management_Cheat_Sheet.md:3` (Security)',
-    );
-    expect(body).toContain('Source: `nvlpubs.nist.gov`');
-    expect(body).toContain('Source: not fetched');
-    expect(body).toContain('Not confirmed: source not read: HTTP 403');
-    expect(body).not.toContain('<https://evil');
-    expect(body).not.toContain('<img');
-    expect(body).not.toContain('<b>');
-    expect(body).not.toMatch(/(^|[^＠])@(maintainers|owasp)/);
-  });
-
-  it('leaves the section out when every claim was checked', () => {
-    const body = reviewBody({
-      decision: decision(),
-      outcomes: [],
-      changeClass: 'content',
-      classWhy: 'x',
-      facts: '- f',
-      rejected: [],
-      linkNotes: [],
-      allowed: new Set(),
-    });
-    expect(body).not.toContain('Claims to verify manually');
-  });
 
   it('logs ids, counts, verdicts, hosts and code reasons only', () => {
     const log = claimLog(

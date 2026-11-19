@@ -7,7 +7,8 @@
  * - CONFIRMED marks the finding "verified against <host>, <locator>" where the judge kept it; the
  *   judge has the last word, so a dropped finding stays dropped (OWASP PR 3001: a confirmed claim
  *   can refute its own finding, as when a reviewer doubts that a real source exists);
- * - NOT-FOUND leaves the finding to the judge and also lists it under "Claims to verify manually";
+ * - NOT-FOUND leaves the finding to the judge: an item the judge kept is marked "claim not
+ *   confirmed against its source", and one the judge dropped stays dropped;
  * - REFUTED removes it from the review and records it for the operator.
  *
  * Every failure (no PR link, over the limit, fetch, PDF, verifier) is NOT-FOUND with a code-written
@@ -470,9 +471,15 @@ export const DIMENSION: Readonly<Record<ReviewerRole, Dimension>> = {
   'language-reviewer': 'Language',
 };
 
+/** The code-written mark on a kept finding whose claim could not be checked (NOT-FOUND). */
+export const UNCHECKED_NOTE = ' (claim not confirmed against its source)';
+
 /** The code-written mark on a confirmed finding. */
 export function verifiedNote(r: ClaimResult): string {
-  return ` (verified against ${r.host ?? 'its source'}, ${inertText(r.finding.claim.locator, 80)})`;
+  // Without "www.": the review defangs www. hosts in model text, and "www\[.\]rfc-editor.org" in
+  // an author-facing note reads as a typo (OWASP PRs 2976, 3004). A bare host is not a link anyway.
+  const host = r.host?.replace(/^www\./i, '') ?? 'its source';
+  return ` (verified against ${host}, ${inertText(r.finding.claim.locator, 80)})`;
 }
 
 /** Sentences of `text` that do not mention any of the claims. */
@@ -488,8 +495,8 @@ function withoutSentences(text: string, gone: readonly ClaimedFinding[]): string
  * the claimant's own item: judge items of the claimant's dimension about it, and the claimant's
  * own suggestion; another reviewer's corroborating finding in another dimension survives. No
  * sentence about a REFUTED claim stays in the rationale, close reasons, reply, dimension headlines
- * or earlier-request summaries. NOT-FOUND changes nothing here (it is also listed for the
- * maintainer). A CONFIRMED finding is marked verified where the judge kept it; code never adds a
+ * or earlier-request summaries. A NOT-FOUND finding the judge kept is marked "claim not confirmed
+ * against its source". A CONFIRMED finding is marked verified where the judge kept it; code never adds a
  * dropped finding back and never changes the verdict. Runs before normaliseDecision.
  */
 export function enforceClaims(
@@ -499,6 +506,7 @@ export function enforceClaims(
   const gone = results.filter((r) => r.verdict === 'REFUTED');
   const refuted = gone.map((r) => r.finding);
   const confirmed = results.filter((r) => r.verdict === 'CONFIRMED');
+  const notFound = results.filter((r) => r.verdict === 'NOT-FOUND');
   let removed = 0;
   const keep = <T>(list: readonly T[], drop: (x: T) => boolean): T[] =>
     list.filter((x) => {
@@ -547,11 +555,13 @@ export function enforceClaims(
   }
 
   // Confirmed findings: marked where the judge kept them. One the judge dropped stays dropped.
+  // A kept NOT-FOUND finding carries its own caveat: it is no longer listed under "Claims to
+  // verify manually", and an unchecked claim must not read as a checked one (#154 review).
   const mark = (i: Item): Item => {
     const r = confirmed.find((c) => refersTo(i, c.finding));
-    if (!r) return i;
-    const note = verifiedNote(r);
-    return { ...i, text: `${i.text.slice(0, 800 - note.length)}${note}` };
+    const unchecked = notFound.some((c) => refersTo(i, c.finding));
+    const note = `${r ? verifiedNote(r) : ''}${unchecked ? UNCHECKED_NOTE : ''}`;
+    return note ? { ...i, text: `${i.text.slice(0, 800 - note.length)}${note}` } : i;
   };
   const marked = {
     mustFix: lists.mustFix.map(mark),

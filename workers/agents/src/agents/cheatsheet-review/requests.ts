@@ -87,12 +87,17 @@ export interface SheetSize {
   codeBlocks: number;
 }
 
-/** Words, non-empty lines and fenced code blocks of a Markdown file. */
+/**
+ * Words, lines and fenced code blocks of a Markdown file. Lines count every line, blank ones too,
+ * as the diff and editors do (a final newline does not start another line; `wc -l` counts one fewer
+ * when the file has no final newline): a maintainer compares this fact with the diff (OWASP PR 3004 showed 59 → 66 for a 96 → 107 line file).
+ */
 export function sheetSize(markdown: string): SheetSize {
   const fences = (markdown.match(/^\s{0,3}(`{3,}|~{3,})/gm) ?? []).length;
+  const lines = markdown === '' ? 0 : markdown.replace(/\r?\n$/, '').split(/\r?\n/).length;
   return {
     words: (markdown.match(/\S+/g) ?? []).length,
-    lines: markdown.split('\n').filter((l) => l.trim() !== '').length,
+    lines,
     codeBlocks: Math.floor(fences / 2),
   };
 }

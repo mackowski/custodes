@@ -23,6 +23,7 @@ import {
   scanLinks,
   type AddedLink,
   MAX_EXTERNAL_LINKS,
+  NON_TEXT_MARK,
   type FetchedLink,
   type SourceDoc,
 } from './links.js';
@@ -217,8 +218,14 @@ async function linkStage(snap: Snapshot, deps: PipelineDeps): Promise<LinkStage>
       );
     await deps.guard();
     const got = await deps.limit(() => deps.fetchLink(link.url));
+    // A page with no text (a script-rendered shell) or a file that is not text (a PDF) cannot
+    // support or refute anything: the auditor would answer UNSUPPORTED for a correct source (OWASP
+    // PR 3008, crbug.com). Code says "verify manually" instead; the page is not sent and not linked.
+    const unreadable =
+      got.kind === 'page' &&
+      (`${got.title}${got.excerpt}`.trim() === '' || got.excerpt.startsWith(NON_TEXT_MARK));
     if (got.kind === 'broken') check(link, `broken (HTTP ${got.status})`);
-    else if (got.kind === 'unreachable') check(link, 'verify manually');
+    else if (got.kind === 'unreachable' || unreadable) check(link, 'verify manually');
     else check(link, 'not judged');
     if (got.kind === 'broken')
       findings.push({
@@ -228,6 +235,8 @@ async function linkStage(snap: Snapshot, deps: PipelineDeps): Promise<LinkStage>
         problem: `Link \`${link.url.slice(0, 300)}\` is broken (HTTP ${got.status}).`,
       });
     else if (got.kind === 'unreachable') notes.push(`${link.url.slice(0, 300)} (${got.why})`);
+    else if (unreadable)
+      notes.push(`${link.url.slice(0, 300)} (could not read the page; check it by hand)`);
     else {
       allowed.add(link.url);
       pages.push({
