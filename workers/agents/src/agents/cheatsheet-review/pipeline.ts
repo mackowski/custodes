@@ -126,6 +126,8 @@ interface SourcePass {
   report: ReviewerReport;
   /** Findings from pass 1: the merged report's first ones (mergePasses keeps them in order). */
   pass1Findings: number;
+  /** Pass 1's own verdict: a refuted pass-2 finding never takes the report below it. */
+  pass1Verdict: ReviewerReport['verdict'];
   docs: ReadonlyMap<string, SourceDoc>;
   log: SourceLog | undefined;
 }
@@ -146,6 +148,7 @@ async function sourcePass(
     return {
       report: mergePasses(pass1, undefined),
       pass1Findings: pass1.findings.length,
+      pass1Verdict: pass1.verdict,
       docs: new Map(),
       log: undefined,
     };
@@ -165,6 +168,7 @@ async function sourcePass(
   return {
     report,
     pass1Findings: pass1.findings.length,
+    pass1Verdict: pass1.verdict,
     docs,
     log: {
       fetched: log,
@@ -489,7 +493,16 @@ export async function reviewPipeline(snap: Snapshot, deps: PipelineDeps): Promis
     added({ role, index }),
   );
   if (claims.outcome) outcomes.push(claims.outcome);
-  const judgedReports = reportsForJudge(reports, claims.results);
+  // ADR 0020: a refuted pass-2 finding never takes the security verdict below pass 1's own, unless
+  // a pass-1 finding was refuted too (security review of #155).
+  const pass1Refuted = claims.results.some(
+    (r) => r.role === 'security-reviewer' && r.verdict === 'REFUTED' && !added(r),
+  );
+  const judgedReports = reportsForJudge(reports, claims.results).map((x) =>
+    x.role === 'security-reviewer' && sources && !pass1Refuted
+      ? { ...x, report: { ...x.report, verdict: atLeast(x.report.verdict, sources.pass1Verdict) } }
+      : x,
+  );
 
   const judged = await runRole(
     deps,
@@ -525,8 +538,8 @@ export async function reviewPipeline(snap: Snapshot, deps: PipelineDeps): Promis
           ] as const,
       ),
   );
-  // The original reports minus REFUTED findings (reportsForJudge); a BLOCKER whose claim is
-  // NOT-FOUND no longer blocks (#155). The agent reads the same reports for reviewEvent.
+  // The original reports minus REFUTED findings (reportsForJudge); NOT-FOUND never weakens a
+  // finding. The agent reads the same reports for reviewEvent.
   const blockedBy = blockingDimensions(judgedReports);
   const reviewerBlocked = blockedBy.size > 0;
   const scoped = (d: ReviewDecision): ReviewDecision => {
@@ -573,7 +586,7 @@ const BLOCKING = new Set(['WRONG-PAGE', 'UNSUPPORTED', 'DIFFERENT-RESOURCE']);
  * #155: the links that block, for the operator's approval note, with their URL to open by hand: a
  * false alarm is rejected there instead of being softened in code. Code-written, within a budget.
  */
-export function linksNote(checks: readonly LinkCheck[], budget = 1_200): string {
+export function linksNote(checks: readonly LinkCheck[], budget = 800): string {
   const bad = checks.filter((c) => c.status.startsWith('broken') || BLOCKING.has(c.status));
   if (bad.length === 0) return '';
   const lines: string[] = [];
@@ -593,3 +606,7 @@ export function linksNote(checks: readonly LinkCheck[], budget = 1_200): string 
     ...(rest > 0 ? [`…and ${rest} more; see the review's "Links checked" table.`] : []),
   ].join('\n');
 }
+
+const RANK_V = { 'N/A': -1, PASS: 0, CONCERNS: 1, BLOCK: 2 } as const;
+const atLeast = (v: ReviewerReport['verdict'], floor: ReviewerReport['verdict']) =>
+  RANK_V[floor] > RANK_V[v] ? floor : v;

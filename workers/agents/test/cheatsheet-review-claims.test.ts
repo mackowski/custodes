@@ -2,6 +2,8 @@
  * #90: claim verification (claims.ts, links.fetchSource, the verifier input and the render).
  * Deterministic: fetch, toMarkdown and the model clients are injected.
  */
+import { linksNote } from '../src/agents/cheatsheet-review/pipeline.js';
+import { sourcesNote } from '../src/agents/cheatsheet-review/sources.js';
 import { describe, expect, it } from 'vitest';
 import { AgentHaltedError } from '@custodes/core/agent';
 import type { ChatModel, ChatRequest, ReviewModel } from '@custodes/llm';
@@ -1168,6 +1170,32 @@ describe('claims in the review, the logs and the approval note', () => {
     expect(full.length).toBeLessThanOrEqual(4_000);
     expect(full).toContain('5 refuted claim(s)');
     for (let i = 1; i <= 5; i++) expect(full).toContain(`${SHEET}:${i} (security-reviewer)`);
+  });
+
+  it('the whole approval note fits in 4,000 with the largest parts, refuted claims first (security review of #155)', () => {
+    const long = 'L'.repeat(600);
+    const host = `${'h'.repeat(240)}.example`;
+    const ten = Array.from({ length: 10 }, (_, i) =>
+      result('REFUTED', finding({ line: i + 1 }, { text: long }), { index: i, reason: long, host }),
+    );
+    const checks = Array.from({ length: 15 }, (_, i) => ({
+      url: `https://${'u'.repeat(250)}.example/${i}`,
+      file: SHEET,
+      line: i + 1,
+      moved: false,
+      status: 'broken (HTTP 404)',
+    }));
+    const fetched = Array.from({ length: 4 }, (_, i) => ({
+      url: `https://x${i}`,
+      host: `${'s'.repeat(1_900)}${i}.example`,
+      status: 'read' as const,
+    }));
+    const header = `REQUEST_CHANGES, REQUEST_CHANGES, 20 inline suggestion(s); run ${'0'.repeat(36)}`;
+    const note = `${header}${refutedNote(ten)}${linksNote(checks)}${sourcesNote(fetched)}`;
+    expect(note.length).toBeLessThanOrEqual(4_000);
+    expect(note).toContain('10 refuted claim(s)');
+    expect(note).toMatch(/…and \d+ more refuted claim\(s\)/);
+    expect(note).toContain('link(s) block this review');
   });
 
   it('never cuts silently: ten refuted claims on long hosts stay in budget and count the rest (tenth security review of #155)', () => {

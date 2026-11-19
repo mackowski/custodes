@@ -2354,6 +2354,32 @@ describe('cheatsheet-review: claims on pass-2 findings (security review of #155)
     expect(body(r)).toContain('PASS1-FINDING-MARK');
   });
 
+  it('a refuted pass-2 BLOCKER never takes the security verdict below pass 1 (security review of #155)', async () => {
+    const added = {
+      severity: 'BLOCKER',
+      file: SHEET,
+      line: 3,
+      problem: 'PASS2-BLOCKER-MARK stricter rule.',
+      claim: rfcClaim('REFUTED-PASS2-BLOCKER'),
+    };
+    const r = await drive({
+      scenario: sc(),
+      fetchImpl: serve,
+      toMarkdown: toMd,
+      script: scripted(
+        // Pass 1 says BLOCK with only a MAJOR finding (and no claim): nothing normalises that.
+        first([{ severity: 'MAJOR', file: SHEET, line: 3, problem: P1 }], 'BLOCK'),
+        second([added]),
+        everyClaim('REFUTED'),
+        judgeItem('MAJOR'),
+      ),
+    });
+    expect(r.out).toMatchObject({ ok: true });
+    expect(judgeUser(r)).not.toContain('PASS2-BLOCKER-MARK');
+    expect(judgeUser(r)).toMatch(/"role":"security-reviewer","report":\{"verdict":"BLOCK"/);
+    expect(r.rows[0]?.verdict).toBe('REQUEST_CHANGES');
+  });
+
   it('a NOT-FOUND pass-1 BLOCKER stays a must-fix BLOCKER with the note, whatever pass 2 saw', async () => {
     for (const injection of [true, false]) {
       await runInDurableObject(await stub(), (agent: CheatsheetReviewAgent) => {

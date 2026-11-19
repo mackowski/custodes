@@ -72,8 +72,9 @@ pass 2 cannot ask for more.
 - **Cost:** about +0.15–0.30 USD of Anthropic credit and +1–2 minutes per review (one more Opus
   call and up to 4 fetches).
 - **New failure modes:** a source page the reviewer reads in part, or misreads. The claim verifier
-  and the judge stay between those findings and the review. ADR 0017 (amended 2026-11-19) keeps
-  an unverified claim from making a must-fix on its own.
+  and the judge stay between those findings and the review. A pass-2 finding whose claim stays
+  unchecked keeps its severity, marked "not confirmed" (NOT-FOUND never weakens a finding, ADR
+  0017 amendment 2026-11-19). The operator approves every OWASP review; on the sandbox it posts.
 - **Measurement:** the eval suite `cheatsheet-review-sources` and a blind re-run on the A/B pull
   requests measure the effect.
 

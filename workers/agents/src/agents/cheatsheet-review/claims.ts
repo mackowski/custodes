@@ -672,7 +672,9 @@ export function claimLog(results: readonly ClaimResult[], removedItems: number) 
  * on the approval page, OWASP). Model text, made inert and clipped; empty when nothing was refuted.
  */
 /** Characters of refuted-claim entries in the approval note (its rationale is cut at 4,000). */
-export const REFUTED_BUDGET = 3_000;
+// The approval rationale is cut at 4,000: refuted claims come first (they are the only trace of a
+// removed finding), then blocking links (800) and fetched hosts (about 400). Security review of #155.
+export const REFUTED_BUDGET = 2_400;
 
 export function refutedNote(results: readonly ClaimResult[]): string {
   const refuted = results.filter((r) => r.verdict === 'REFUTED');

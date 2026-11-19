@@ -5,7 +5,7 @@
  * envelopes and can only add findings. The pages are kept for the claim verifier, which checks
  * later claims against the same text without a second fetch.
  */
-import { cutWhole, untrusted } from '@custodes/llm';
+import { cutWhole, inertText, untrusted } from '@custodes/llm';
 import { citedSource, hostOf } from './claims.js';
 import { fetchable, type SourceDoc } from './links.js';
 import type { ReviewerReport } from './types.js';
@@ -143,6 +143,7 @@ export function mergePasses(
 export function sourcesNote(log: readonly FetchedSource[] | undefined): string {
   if (!log?.length) return '';
   return `\n\nSources the security reviewer asked for (host:status): ${log
-    .map((x) => `${x.host}:${x.status}`)
+    .slice(0, MAX_SOURCE_REQUESTS)
+    .map((x) => `${inertText(x.host, 80)}:${x.status}`)
     .join(', ')}`;
 }

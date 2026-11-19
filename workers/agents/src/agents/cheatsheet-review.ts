@@ -444,7 +444,7 @@ export class CheatsheetReviewAgent extends CustodesAgent<AgentsEnv, CheatsheetRe
       // #90: on OWASP the operator sees the refuted claims on the approval page.
       const asked = await this.requestApproval(
         review,
-        `${d.verdict}, ${event}, ${checked.comments.length} inline suggestion(s); run ${runId}${linksNote(result.linkChecks)}${sourcesNote(result.sources?.fetched)}${refutedNote(result.claims)}`,
+        `${d.verdict}, ${event}, ${checked.comments.length} inline suggestion(s); run ${runId}${refutedNote(result.claims)}${linksNote(result.linkChecks)}${sourcesNote(result.sources?.fetched)}`,
         runId,
         trig,
         { turn },
