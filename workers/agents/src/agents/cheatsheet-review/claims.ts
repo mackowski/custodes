@@ -61,6 +61,11 @@ export interface ClaimResult {
   found?: boolean;
   /** `code`: a fixed phrase written by code. `verifier`: the model's sentence (rendered inert, never logged). */
   by: 'code' | 'verifier';
+  /**
+   * Not tried: over MAX_CLAIMS. Marked like an unchecked claim, but never demoted for it (security
+   * review of #155): otherwise more claims, for example from pass 2, would weaken earlier ones.
+   */
+  skipped?: true;
   reason: string;
 }
 
@@ -204,6 +209,8 @@ export async function claimStage(
   deps: ClaimDeps,
   /** ADR 0020: sources the security reviewer fetched, accepted as cited sources with no refetch. */
   fetched: ReadonlyMap<string, SourceDoc> = new Map(),
+  /** ADR 0020: claims on findings pass 2 added, checked after every other claim. */
+  late: (role: ReviewerRole, index: number) => boolean = () => false,
 ): Promise<ClaimStageResult> {
   const claimed = reports.flatMap(({ role, report }) =>
     role === 'link-auditor'
@@ -230,7 +237,8 @@ export async function claimStage(
       });
     else cited.push({ ...c, source });
   }
-  cited.sort((a, b) => RANK[a.finding.severity] - RANK[b.finding.severity]);
+  const order = (c: (typeof cited)[number]) => (late(c.role, c.index) ? 10 : 0);
+  cited.sort((a, b) => order(a) - order(b) || RANK[a.finding.severity] - RANK[b.finding.severity]);
   for (const c of cited.slice(MAX_CLAIMS))
     results.push({
       role: c.role,
@@ -239,6 +247,7 @@ export async function claimStage(
       host: hostOf(c.source),
       verdict: 'NOT-FOUND',
       by: 'code',
+      skipped: true,
       reason: `not checked: at most ${MAX_CLAIMS} claims are checked per review`,
     });
 
@@ -365,20 +374,21 @@ export function reportsForJudge(
    */
   demoteUnchecked = true,
 ): { role: ReviewerRole; report: ReviewerReport }[] {
-  const verdictOf = (role: ReviewerRole, index: number) =>
-    results.find((r) => r.role === role && r.index === index)?.verdict;
+  const resultOf = (role: ReviewerRole, index: number) =>
+    results.find((r) => r.role === role && r.index === index);
   return reports.map(({ role, report }) => {
     const findings: Finding[] = [];
+    const tried = new Set<Finding>();
     report.findings.forEach((f, index) => {
-      const v = verdictOf(role, index);
-      if (v === 'REFUTED') return;
+      const r = resultOf(role, index);
+      if (r?.verdict === 'REFUTED') return;
       const kept: Finding & { verified?: 'CONFIRMED' | 'NOT-FOUND' } =
-        v === undefined ? f : { ...f, verified: v };
+        r === undefined ? f : { ...f, verified: r.verdict };
+      if (r?.verdict === 'NOT-FOUND' && r.skipped !== true) tried.add(kept);
       findings.push(kept);
     });
-    // #155: a finding whose claim could not be checked never blocks on its own.
-    const unchecked = (f: (typeof findings)[number]) =>
-      demoteUnchecked && 'verified' in f && f.verified === 'NOT-FOUND';
+    // #155: a finding whose claim was tried and could not be checked never blocks on its own.
+    const unchecked = (f: (typeof findings)[number]) => demoteUnchecked && tried.has(f);
     if (
       (findings.length === report.findings.length &&
         !findings.some((f) => f.severity === 'BLOCKER' && unchecked(f))) ||
@@ -566,6 +576,8 @@ export function enforceClaims(
   const refuted = gone.map((r) => r.finding);
   const confirmed = results.filter((r) => r.verdict === 'CONFIRMED');
   const notFound = results.filter((r) => r.verdict === 'NOT-FOUND');
+  // Only claims that were tried can demote: one over the cap was never checked (security review).
+  const notChecked = notFound.filter((r) => r.skipped !== true);
   let removed = 0;
   const keep = <T>(list: readonly T[], drop: (x: T) => boolean): T[] =>
     list.filter((x) => {
@@ -619,7 +631,7 @@ export function enforceClaims(
   // #155: a must-fix becomes MINOR only when every finding of its dimension that it refers to had
   // its claim left unchecked; another finding behind it (no claim, or confirmed) keeps it.
   const unchecked = (role: ReviewerRole, index: number) =>
-    notFound.some((c) => c.role === role && c.index === index);
+    notChecked.some((c) => c.role === role && c.index === index);
   const backed = (i: Item) =>
     (opts.reports ?? []).some(({ role, report }) =>
       report.findings.some(
@@ -639,7 +651,7 @@ export function enforceClaims(
       opts.demoteUnchecked !== false &&
       !r &&
       (i.severity === 'BLOCKER' || i.severity === 'MAJOR') &&
-      notFound.some((c) => DIMENSION[c.role] === i.dimension && refersTo(i, c.finding)) &&
+      notChecked.some((c) => DIMENSION[c.role] === i.dimension && refersTo(i, c.finding)) &&
       !backed(i);
     return demote ? { ...marked, severity: 'MINOR' } : marked;
   };

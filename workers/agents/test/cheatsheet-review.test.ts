@@ -2113,3 +2113,168 @@ describe('cheatsheet-review: link auditor statuses (#155)', () => {
     },
   );
 });
+
+describe('cheatsheet-review: claims on pass-2 findings (security review of #155)', () => {
+  const NIST = 'https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-190.pdf';
+  const RFC = 'https://www.rfc-editor.org/rfc/rfc9110.html';
+  const PAGE_MARK = 'PAGE-MARK-9110';
+  const LINE = `Keep secrets out of images ([NIST SP 800-190](${NIST})).`;
+  const sc = (over: Partial<Scenario> = {}): Scenario =>
+    scenario({
+      files: [
+        {
+          filename: SHEET,
+          status: 'modified',
+          additions: 1,
+          deletions: 0,
+          patch: `@@ -1,3 +1,4 @@\n # Foo\n \n+${LINE}\n Intro text.`,
+        },
+      ],
+      headText: `# Foo\n\n${LINE}\nIntro text.\n`,
+      ...over,
+    });
+  const serve: typeof fetch = (input) => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+    if (url === NIST)
+      return Promise.resolve(
+        new Response(new Uint8Array([37, 80, 68, 70]), {
+          headers: { 'content-type': 'application/pdf' },
+        }),
+      );
+    if (url === RFC)
+      return Promise.resolve(
+        new Response(`<title>RFC</title><p>${PAGE_MARK} servers must validate.</p>`, {
+          headers: { 'content-type': 'text/html' },
+        }),
+      );
+    return Promise.resolve(new Response('', { status: 404 }));
+  };
+  const toMd: ToMarkdown = () =>
+    Promise.resolve({
+      format: 'markdown',
+      data: '### 3.1.3 Embedded Malware\nImages may contain malware.',
+    });
+  const P1 = 'PASS1-FINDING-MARK cite section 3.1.4 for secrets.';
+  const p1Claim = { text: 'PASS1-CLAIM-TEXT 3.1.3 is malware.', sourceUrl: NIST, locator: '3.1.3' };
+  const p1Finding = (severity = 'MAJOR', claim: unknown = p1Claim) => ({
+    severity,
+    file: SHEET,
+    line: 3,
+    problem: P1,
+    claim,
+  });
+  const rfcClaim = (text: string) => ({ text, sourceUrl: RFC, locator: PAGE_MARK });
+  const first = (findings: unknown[], verdict = 'CONCERNS') =>
+    JSON.stringify({ verdict, findings, sourceRequests: [{ url: RFC, why: 'w' }] });
+  const second = (findings: unknown[], extra: Record<string, unknown> = {}) =>
+    JSON.stringify({ verdict: 'BLOCK', findings, ...extra });
+  const everyClaim = (verdict: string) => (req: ChatRequest) =>
+    JSON.stringify({
+      claims: [...req.user.matchAll(/^Claim id: (C\d+)$/gm)].map((m) => ({
+        id: m[1],
+        verdict,
+        reason: 'Checked.',
+      })),
+    });
+  const scripted =
+    (p1: string, p2: string, verifier: (req: ChatRequest) => string, judge: string): Script =>
+    (role, req) =>
+      role === 'claim-verifier'
+        ? verifier(req)
+        : role === 'security-reviewer'
+          ? req.system.includes('Second pass')
+            ? p2
+            : p1
+          : role === 'security-second-voice'
+            ? REPORT
+            : defaultScript(judge)(role, req);
+  const judgeItem = (severity: string, text = P1) =>
+    decisionJson({
+      mustFix: [{ dimension: 'Security', severity, file: SHEET, line: 3, text }],
+      suggestions: [],
+    });
+  const judgeUser = (r: Run) => r.models.calls.find((c) => c.role === 'judge')?.req.user ?? '';
+  const body = (r: Run) => reviewActs(r)[0]?.body ?? '';
+
+  it('checks the pass-1 claim first when pass 2 adds ten BLOCKERs with claims; the judge item keeps MAJOR', async () => {
+    const many = Array.from({ length: 10 }, (_, i) => ({
+      severity: 'BLOCKER',
+      file: SHEET,
+      line: 3,
+      problem: `PASS2-FINDING-${i} the RFC differs.`,
+      claim: rfcClaim(`PASS2-CLAIM-${i}`),
+    }));
+    const r = await drive({
+      scenario: sc(),
+      fetchImpl: serve,
+      toMarkdown: toMd,
+      script: scripted(
+        first([p1Finding()]),
+        second(many),
+        everyClaim('CONFIRMED'),
+        judgeItem('MAJOR'),
+      ),
+    });
+    expect(r.out).toMatchObject({ ok: true });
+    const verifier = r.models.calls.find((c) => c.role === 'claim-verifier');
+    expect(verifier?.req.user).toContain('PASS1-CLAIM-TEXT');
+    // Ten claims are checked at most: the late one that does not fit is the pass-2 one.
+    expect(verifier?.req.user.match(/^Claim id: C\d+$/gm)).toHaveLength(10);
+    expect(verifier?.req.user).not.toContain('PASS2-CLAIM-9');
+    expect(body(r)).toMatch(/\*\*MAJOR\*\*[^\n]*PASS1-FINDING-MARK/);
+    expect(body(r)).not.toMatch(/\*\*MINOR\*\*[^\n]*PASS1-FINDING-MARK/);
+  });
+
+  it('a pass-2 repeat of a pass-1 finding that the verifier REFUTES is not shown to the judge and does not remove the pass-1 item', async () => {
+    const repeat = {
+      severity: 'MAJOR',
+      file: SHEET,
+      line: 3,
+      problem: `${P1} Again.`,
+      claim: rfcClaim('REFUTED-REPEAT-CLAIM'),
+    };
+    const r = await drive({
+      scenario: sc(),
+      fetchImpl: serve,
+      toMarkdown: toMd,
+      script: scripted(
+        first([{ severity: 'MAJOR', file: SHEET, line: 3, problem: P1 }]),
+        second([repeat]),
+        everyClaim('REFUTED'),
+        judgeItem('MAJOR'),
+      ),
+    });
+    expect(r.out).toMatchObject({ ok: true });
+    expect(r.models.calls.some((c) => c.role === 'claim-verifier')).toBe(true);
+    expect(judgeUser(r)).not.toContain('REFUTED-REPEAT-CLAIM');
+    expect(judgeUser(r)).not.toContain('"verdict":"REFUTED"');
+    expect(body(r)).toContain('PASS1-FINDING-MARK');
+  });
+
+  it('injectionSeen from pass 2 keeps a NOT-FOUND pass-1 BLOCKER a must-fix; without it the item is demoted', async () => {
+    const blocker = p1Finding('BLOCKER');
+    const run = (injection: boolean) =>
+      drive({
+        scenario: sc(),
+        fetchImpl: serve,
+        toMarkdown: toMd,
+        script: scripted(
+          first([blocker], 'BLOCK'),
+          JSON.stringify({
+            verdict: 'PASS',
+            findings: [],
+            ...(injection ? { injectionSeen: true } : {}),
+          }),
+          everyClaim('NOT-FOUND'),
+          judgeItem('BLOCKER'),
+        ),
+      });
+    const hit = await run(true);
+    expect(hit.models.calls.some((c) => c.role === 'claim-verifier')).toBe(true);
+    expect(body(hit)).toMatch(
+      /Must-fix before merge[\s\S]*\*\*BLOCKER\*\*[^\n]*PASS1-FINDING-MARK/,
+    );
+    const clean = await run(false);
+    expect(body(clean)).not.toMatch(/Must-fix before merge/);
+  });
+});

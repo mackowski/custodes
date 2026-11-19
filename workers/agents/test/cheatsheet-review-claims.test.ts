@@ -1324,3 +1324,82 @@ describe('claims.enforceClaims: an unchecked claim never makes a must-fix (#155)
     expect(out.shouldFix[0]?.text.endsWith(UNCHECKED_NOTE)).toBe(true);
   });
 });
+
+describe('claims: pass-2 ("late") claims and the claim cap (security review of #155)', () => {
+  it('checks non-late claims first, even when late ones are BLOCKERs and more than MAX_CLAIMS', async () => {
+    const findings = [
+      ...[0, 1, 2].map((i) => finding({ severity: 'MINOR', problem: `early ${i}` })),
+      ...Array.from({ length: 12 }, (_, i) =>
+        finding({ severity: 'BLOCKER', problem: `late ${i}` }),
+      ),
+    ];
+    const late = (role: string, index: number) => role === 'security-reviewer' && index >= 3;
+    const f = fakes(
+      () => pdf(),
+      (req) => {
+        const ids = [...req.user.matchAll(/^Claim id: (C\d+)$/gm)].map((m) => m[1] ?? '');
+        return verdicts(ids.map((id) => ({ id, verdict: 'CONFIRMED' })));
+      },
+    );
+    const r = await claimStage(
+      snap(),
+      [{ role: 'security-reviewer', report: report(findings) }],
+      f.deps,
+      new Map(),
+      late,
+    );
+    const checked = r.results.filter((x) => x.verdict === 'CONFIRMED');
+    expect(checked).toHaveLength(MAX_CLAIMS);
+    for (const i of [0, 1, 2]) expect(checked.some((x) => x.index === i)).toBe(true);
+    const skipped = r.results.filter((x) => x.verdict === 'NOT-FOUND');
+    expect(skipped).toHaveLength(5);
+    for (const s of skipped) {
+      expect(s.skipped).toBe(true);
+      expect(s.index).toBeGreaterThanOrEqual(3);
+    }
+  });
+
+  it('marks only cap-skipped results `skipped`; a source failure is not skipped', async () => {
+    const f = fakes(
+      () => ({ kind: 'failed', why: 'HTTP 403' }),
+      () => new Error('not expected'),
+    );
+    const r = await claimStage(
+      snap(),
+      [{ role: 'security-reviewer' as const, report: report([finding()]) }],
+      f.deps,
+    );
+    expect(r.results[0]).toMatchObject({ verdict: 'NOT-FOUND' });
+    expect(r.results[0]).not.toHaveProperty('skipped');
+  });
+});
+
+describe('claims: a cap-skipped claim never weakens a finding (security review of #155)', () => {
+  const blocker = finding({ severity: 'BLOCKER', line: 7, problem: 'RFC 9999 forbids the flag.' });
+
+  it('reportsForJudge keeps a BLOCK whose BLOCKER claim was cap-skipped, and still demotes a tried one', () => {
+    const reports = [{ role: 'security-reviewer' as const, report: report([blocker], 'BLOCK') }];
+    const skipped = reportsForJudge(reports, [result('NOT-FOUND', blocker, { skipped: true })]);
+    expect(skipped[0]?.report.verdict).toBe('BLOCK');
+    expect(skipped[0]?.report.findings).toEqual([{ ...blocker, verified: 'NOT-FOUND' }]);
+    const tried = reportsForJudge(reports, [result('NOT-FOUND', blocker)]);
+    expect(tried[0]?.report.verdict).toBe('CONCERNS');
+  });
+
+  it('enforceClaims does not demote a must-fix whose claim was cap-skipped, but still marks it', () => {
+    const d = decision({
+      mustFix: [
+        {
+          dimension: 'Security' as const,
+          severity: 'BLOCKER' as const,
+          file: SHEET,
+          line: 7,
+          text: 'RFC 9999 forbids the flag.',
+        },
+      ],
+    });
+    const { decision: out } = enforceClaims(d, [result('NOT-FOUND', blocker, { skipped: true })]);
+    expect(out.mustFix[0]?.severity).toBe('BLOCKER');
+    expect(out.mustFix[0]?.text.endsWith(UNCHECKED_NOTE)).toBe(true);
+  });
+});

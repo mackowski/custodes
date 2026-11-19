@@ -474,12 +474,19 @@ export async function reviewPipeline(snap: Snapshot, deps: PipelineDeps): Promis
   }
   const notRun = roles.filter((r) => !reports.some((x) => x.role === r));
 
+  // ADR 0020: claims on findings pass 2 added are checked last, never remove or demote a judge item
+  // (which may be pass 1's), and the judge is not told about refuted ones (security review of #155).
+  const pass1Findings = sources?.pass1Findings;
+  const added = (r: { role: ReviewerRole; index: number }) =>
+    r.role === 'security-reviewer' && pass1Findings !== undefined && r.index >= pass1Findings;
   // #90: claims are checked before the judge, which sees only what the verdicts leave.
-  const claims = await claimStage(snap, reports, deps, sources?.docs);
+  const claims = await claimStage(snap, reports, deps, sources?.docs, (role, index) =>
+    added({ role, index }),
+  );
   if (claims.outcome) outcomes.push(claims.outcome);
-  // Security review of #155: injection seen by the verifier turns every verdict into NOT-FOUND;
-  // that must never weaken the review.
-  const demoteUnchecked = !claims.injectionSeen;
+  // Security review of #155: injection turns every verifier verdict into NOT-FOUND; detecting an
+  // attack (by the verifier or by pass 2 in a fetched page) must never weaken the review.
+  const demoteUnchecked = !claims.injectionSeen && sources?.report.injectionSeen !== true;
   const judgedReports = reportsForJudge(reports, claims.results, demoteUnchecked);
 
   const judged = await runRole(
@@ -487,13 +494,14 @@ export async function reviewPipeline(snap: Snapshot, deps: PipelineDeps): Promis
     'judge',
     ReviewDecision,
     JUDGE_PROMPT,
-    judgeMessage(snap, judgedReports, notRun, judgeClaims(claims.results)),
+    judgeMessage(
+      snap,
+      judgedReports,
+      notRun,
+      judgeClaims(claims.results.filter((r) => !(added(r) && r.verdict === 'REFUTED'))),
+    ),
   );
   outcomes.push(judged.outcome);
-  // ADR 0020: claims on findings pass 2 added act only through the reports (a REFUTED one is gone, a
-  // NOT-FOUND one is marked); they never remove or demote a judge item, which may be pass 1's.
-  const added = (r: ClaimResult) =>
-    r.role === 'security-reviewer' && sources !== undefined && r.index >= sources.pass1Findings;
   const enforced =
     judged.answer &&
     enforceClaims(

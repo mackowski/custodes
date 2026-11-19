@@ -32,7 +32,12 @@ export interface FetchedSource {
 export function requestable(url: string): boolean {
   if (!fetchable(url)) return false;
   try {
-    return new URL(url).port === '';
+    const u = new URL(url);
+    const host = u.hostname.toLowerCase().replace(/\.$/, '');
+    // GitHub's API is read through the broker only (invariant 1), and Workers are not sources.
+    if (host === 'api.github.com' || host === 'workers.dev' || host.endsWith('.workers.dev'))
+      return false;
+    return u.port === '';
   } catch {
     return false;
   }
@@ -55,9 +60,15 @@ export async function fetchSources(
   // In parallel, bounded by the shared limiter; the log keeps the requested order.
   const log = await Promise.all(
     urls.map(async (url): Promise<FetchedSource> => {
-      const host = hostOf(url);
+      // A refused URL's host is model text steered by the PR: never logged (ids-only logs).
       if (!requestable(url))
-        return { url, host, status: 'refused', why: 'not fetched (host, scheme or port)' };
+        return {
+          url,
+          host: 'refused',
+          status: 'refused',
+          why: 'not fetched (host, scheme or port)',
+        };
+      const host = hostOf(url);
       await deps.guard();
       const doc = await deps.limit(() => deps.fetchSource(url));
       if (doc.kind === 'failed') return { url, host, status: 'failed', why: doc.why };

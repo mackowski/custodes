@@ -1094,6 +1094,11 @@ describe('render.inertMarkdown', () => {
     expect(out).not.toMatch(/(^|[^`] )www\.evil\.example\/login(?! ``)/);
   });
 
+  it('puts an ftp:// URL in a code span', () => {
+    const out = inertMarkdown('get ftp://evil.example/x now', allowed);
+    expect(out).toContain('`` ftp://evil.example/x ``');
+  });
+
   it('keeps an allowed URL an autolink, not a code span', () => {
     const out = inertMarkdown('see https://ok.example.com/page now', allowed);
     expect(out).toBe('see <https://ok.example.com/page> now');

@@ -68,7 +68,7 @@ export function inertMarkdown(s: string, allowed: ReadonlySet<string>, max = 800
 /** An http(s) URL or a bare `www.` host: both are autolinked by GitHub outside code. */
 // GFM autolinks www. after _, *, ~ or (: `\b` misses `_www.` (security review of #155).
 // One backtick the model already put around the URL is consumed, so it does not show (lean review).
-const URL_OR_WWW = /`?(?:https?:\/\/|(?<![A-Za-z0-9])www\.)[^\s<>"'`)\]]+`?/gi;
+const URL_OR_WWW = /`?(?:(?:https?|ftp):\/\/|(?<![A-Za-z0-9])www\.)[^\s<>"'`)\]]+`?/gi;
 const CODE = (i: number) => `\u0002${i}\u0002`;
 
 const NONE: ReadonlySet<string> = new Set();

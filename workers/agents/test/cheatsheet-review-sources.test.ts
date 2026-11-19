@@ -42,6 +42,20 @@ describe('sources.requestable', () => {
     expect(requestable('https://www.rfc-editor.org:443/x')).toBe(true);
   });
 
+  it('refuses the GitHub API and Workers hosts (api.github.com, workers.dev, *.workers.dev)', () => {
+    for (const url of [
+      'https://api.github.com/x',
+      'https://API.GITHUB.COM/x',
+      'https://api.github.com./x',
+      'https://foo.workers.dev/x',
+      'https://workers.dev/x',
+      'https://a.b.workers.dev/x',
+    ])
+      expect(requestable(url), url).toBe(false);
+    expect(requestable('https://docs.github.com/x')).toBe(true);
+    expect(requestable('https://notworkers.dev/x')).toBe(true);
+  });
+
   it('accepts a normal https URL, with a fragment and with a query string', () => {
     expect(requestable(RFC)).toBe(true);
     expect(requestable(`${RFC}#section-9.2.1`)).toBe(true);
@@ -130,6 +144,17 @@ describe('sources.fetchSources', () => {
       { url: 'https://example.com/good', host: 'example.com', status: 'read' },
     ]);
     expect([...docs.keys()]).toEqual(['https://example.com/good']);
+  });
+
+  it("logs host 'refused', not the model's host text, for a refused URL", async () => {
+    const d = deps();
+    const { log } = await fetchSources(
+      [{ url: 'https://api.github.com/x' }, { url: 'https://secret-token-host.workers.dev/x' }],
+      d.deps,
+    );
+    expect(log.map((l) => l.host)).toEqual(['refused', 'refused']);
+    expect(JSON.stringify(log.map((l) => l.host))).not.toContain('secret-token');
+    expect(d.fetched).toEqual([]);
   });
 
   it('calls guard() before every fetch, and not for refused URLs', async () => {
