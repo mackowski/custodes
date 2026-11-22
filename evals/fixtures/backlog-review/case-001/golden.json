@@ -1,0 +1,256 @@
+{
+  "t0": "2026-11-17T07:30:00Z",
+  "source": "Manual backlog run on 2026-11-17: Claude Code session acting for the operator (mackowski), with operator decisions in the loop. 'expected' = what the agent should conclude from the snapshot alone; 'actual' = what happened (actor: session = Claude Code on the operator's account, operator = the human).",
+  "state_enum": [
+    "close",
+    "needs_full_review",
+    "needs_rereview",
+    "waiting_author",
+    "waiting_maintainer",
+    "ready_to_merge",
+    "needs_fix_by_us",
+    "untriaged_leave_to_triage",
+    "no_action"
+  ],
+  "prs": [
+    {
+      "number": 2982,
+      "expected_state": "waiting_author",
+      "why": "New CS hub; a maintainer left 5 open inline threads <24h before T0; Index-drift check fails because the new sheet is missing from Index.md.",
+      "expected_actions": [
+        "comment: run Update_CheatSheets_Index.py (or the agent applies index.regenerate)",
+        "label: add WAITING_UPDATE"
+      ],
+      "actual": [
+        { "actor": "session", "action": "comment Index drift" },
+        { "actor": "session", "action": "label +WAITING_UPDATE" }
+      ],
+      "hitl": "none needed"
+    },
+    {
+      "number": 2981,
+      "expected_state": "needs_fix_by_us",
+      "why": "Approved by a maintainer; only Index-drift fails because the PR's merge ref is on a stale master; no full review on record.",
+      "expected_actions": [
+        "branch.update (not a job re-run: re-running reuses the stale merge ref)",
+        "label custodes_cheatsheet_review (no full review on record)"
+      ],
+      "actual": [
+        { "actor": "session", "action": "re-ran check (ineffective)" },
+        { "actor": "operator", "action": "approved update-branch; session executed it" },
+        {
+          "actor": "session",
+          "action": "full review (local fan-out) -> MINOR: example lacks object-level authz note"
+        },
+        { "actor": "session", "action": "comment with 2 requested lines; label +WAITING_UPDATE" }
+      ],
+      "lesson": "Re-running a failed Index-drift job does not fix a stale merge ref."
+    },
+    {
+      "number": 2976,
+      "expected_state": "waiting_maintainer",
+      "why": "Author answered all 8 threads of the requesting maintainer (CHANGES_REQUESTED still active) and fixed the operator's 3 points; fork workflows held (action_required).",
+      "expected_actions": [
+        "approve held workflow runs (md-only revisions)",
+        "re-request review from the maintainer who requested changes",
+        "label: remove WAITING_UPDATE"
+      ],
+      "actual": [
+        { "actor": "session", "action": "label -WAITING_UPDATE" },
+        {
+          "actor": "session",
+          "action": "approved head workflow runs (after operator granted workflow approval)"
+        },
+        { "actor": "session", "action": "re-requested review" }
+      ]
+    },
+    {
+      "number": 2972,
+      "expected_state": "waiting_author",
+      "why": "Operator CHANGES_REQUESTED + source material from a reviewer <24h before T0; no new commits.",
+      "expected_actions": [],
+      "actual": [],
+      "note": "Too early to ping."
+    },
+    {
+      "number": 2970,
+      "expected_state": "needs_full_review",
+      "why": "No review at all; author pinged the operator; Index-drift fails (stale master, not the author's fault).",
+      "expected_actions": ["label custodes_cheatsheet_review"],
+      "actual": [
+        {
+          "actor": "session",
+          "action": "full review (local 5-agent fan-out) -> REQUEST_CHANGES (proxy SSL header on by default, HSTS preload default, snippet duplicates sheet, .env never loaded, wrong citation)"
+        },
+        { "actor": "session", "action": "posted review in Custodes format with LLM disclaimer" }
+      ],
+      "expected_review_verdict": "REQUEST_CHANGES"
+    },
+    {
+      "number": 2955,
+      "expected_state": "ready_to_merge",
+      "why": "Full Custodes review + several rounds; operator APPROVED; CI green; operator had asked two maintainers for a 2nd review a day earlier.",
+      "expected_actions": [
+        "label: remove stale WAITING_UPDATE",
+        "merge proposal (HITL) or wait for 2nd maintainer"
+      ],
+      "actual": [
+        { "actor": "session", "action": "label -WAITING_UPDATE" },
+        { "actor": "operator", "action": "merged 09:31" }
+      ]
+    },
+    {
+      "number": 2946,
+      "expected_state": "needs_rereview",
+      "why": "After operator CHANGES_REQUESTED the author pushed fixes and asked for review; fork workflows held.",
+      "expected_actions": [
+        "approve held runs (md-only)",
+        "re-review against the 3 points -> all addressed",
+        "approve PR",
+        "label: remove WAITING_UPDATE",
+        "approval audit: approve+cancel obsolete held runs"
+      ],
+      "actual": [
+        { "actor": "session", "action": "label -WAITING_UPDATE" },
+        { "actor": "session", "action": "re-review, APPROVE" },
+        {
+          "actor": "session",
+          "action": "approved head runs; approved+cancelled 6 obsolete held runs; audit clean"
+        },
+        { "actor": "operator", "action": "merged 08:43" }
+      ]
+    },
+    {
+      "number": 2941,
+      "expected_state": "waiting_author",
+      "why": "12 unresolved threads (8 from a maintainer, 4 LLM suggestions) with no reply and no commit for 7 days; an approval from a non-maintainer does not count.",
+      "expected_actions": ["comment: ping author about open threads"],
+      "actual": [{ "actor": "session", "action": "ping comment" }]
+    },
+    {
+      "number": 2934,
+      "expected_state": "waiting_author",
+      "why": "Author said PTAL, but the branch conflicts and Index.md is broken (duplicate count line, MD012) although the PR adds no sheet.",
+      "expected_actions": [
+        "comment: revert Index.md and rebase (or agent applies index.restore + branch.update)"
+      ],
+      "actual": [
+        { "actor": "session", "action": "comment" },
+        { "actor": "author", "action": "force-pushed a clean rebase at 08:48" },
+        {
+          "actor": "session",
+          "action": "verified both remaining review points present; approved held runs; APPROVE"
+        },
+        { "actor": "operator", "action": "merged 09:31 (closes #2775)" }
+      ],
+      "lesson": "Session misread a stale local ref (git fetch without --force) as a regression and tried to push a 'restore' commit; push was rejected because the remote had moved. Always read by SHA via the API."
+    },
+    {
+      "number": 2901,
+      "expected_state": "needs_rereview",
+      "why": "Draft new CS; author addressed all 5 operator points and 3 maintainer threads; fork workflows held.",
+      "expected_actions": [
+        "approve held runs (md-only)",
+        "re-review -> APPROVE",
+        "label: remove WAITING_UPDATE",
+        "request 2nd review from the maintainer who proposed the sheet (new CS)"
+      ],
+      "actual": [
+        { "actor": "session", "action": "label -WAITING_UPDATE" },
+        {
+          "actor": "session",
+          "action": "re-review; noticed head moved 2069aa61 -> d809c182 (link-only change) before approving; APPROVE"
+        },
+        {
+          "actor": "session",
+          "action": "approved 50 obsolete held runs + cancel; this cancelled the current link-check (concurrency) -> re-ran it"
+        },
+        {
+          "actor": "operator",
+          "action": "re-requested maintainer review; not merged (waiting 2nd review)"
+        }
+      ],
+      "lesson": "Approving obsolete runs in a cancel-in-progress concurrency group cancels the current run."
+    }
+  ],
+  "arrived_during_run": [
+    {
+      "number": 2999,
+      "note": "Closed at T0 (author closed 05:05 pending ACK), reopened 08:00 after ACK. Session approved after a quick source check WITHOUT a full review; operator merged 09:31; full review afterwards found only MINOR items.",
+      "lesson": "No approve without a full review on record."
+    },
+    { "number": 2996, "note": "Same as 2999. Merged 09:32." }
+  ],
+  "issues": [
+    {
+      "numbers": [2992, 2989, 2977, 2936, 2951, 2931],
+      "expected_state": "close (after their PRs merged during the run)",
+      "why": "Linked PR merged; PR said 'Part of'/'#N' not 'Fixes', so GitHub did not auto-close.",
+      "actual": [{ "actor": "session", "action": "close with thank-you comment linking the PR" }]
+    },
+    {
+      "numbers": [2796],
+      "expected_state": "close",
+      "why": "Multi-PR cleanup; all 3 plan bullets map to merged PRs (2904, 2953, 2954).",
+      "actual": [{ "actor": "session", "action": "close with per-bullet summary" }]
+    },
+    {
+      "numbers": [2775],
+      "expected_state": "close via PR 2934 'Closes #2775'",
+      "actual": [{ "actor": "operator", "action": "auto-closed by merge" }]
+    },
+    {
+      "numbers": [3000, 2995, 2991],
+      "expected_state": "untriaged_leave_to_triage",
+      "why": "Operator instruction: backlog run does not triage new issues.",
+      "actual": []
+    },
+    {
+      "numbers": [2990, 2993],
+      "expected_state": "waiting_maintainer",
+      "why": "Operator asked two maintainers the same day.",
+      "actual": []
+    },
+    {
+      "numbers": [2792],
+      "expected_state": "waiting_maintainer",
+      "why": "Operator asked the project lead 5 days earlier; no answer.",
+      "expected_actions": ["re-ping the project lead"],
+      "actual": [{ "actor": "session", "action": "re-ping comment" }]
+    },
+    {
+      "numbers": [2797],
+      "expected_state": "waiting_author",
+      "why": "Assigned; last PR 12 days ago; assignee also has 2 other open PRs.",
+      "expected_actions": ["status-check comment offering unassign"],
+      "actual": [{ "actor": "session", "action": "comment" }]
+    },
+    {
+      "numbers": [2987],
+      "expected_state": "waiting_maintainer",
+      "why": "ACK'd but no maintainer reply; same topic deferred to the Docker sheet in PR 2901.",
+      "expected_actions": [
+        "comment: scope + link to the PR 2901 discussion, open for contributors"
+      ],
+      "actual": [{ "actor": "session", "action": "comment" }]
+    },
+    {
+      "numbers": [2994, 2983, 2980, 2948, 2935, 2930, 2988],
+      "expected_state": "no_action",
+      "why": "Assigned/ACK'd <=7 days ago; too early to ping."
+    },
+    {
+      "numbers": [2973, 2971, 2856, 2805, 2793, 2789],
+      "expected_state": "no_action",
+      "why": "Open PR in progress."
+    },
+    { "numbers": [2843], "expected_state": "no_action (operator's own task; mention only)" }
+  ],
+  "operator_rules_given_during_run": [
+    "Full review needed -> add label custodes_cheatsheet_review (Custodes runs it in the background).",
+    "Do not triage new issues in the backlog run.",
+    "Commits and actions may go under the operator's account.",
+    "Workflow approval is allowed (md-only changes).",
+    "Merge stays with the operator; agent may approve and ask another maintainer instead."
+  ]
+}
