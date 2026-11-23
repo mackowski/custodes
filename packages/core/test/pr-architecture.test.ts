@@ -117,6 +117,12 @@ describe('PR architecture section check (/ship)', () => {
     expect(checkPrBody(named, changed).errors).toEqual([]);
   });
 
+  it('wants the ADR or issue when only boundary.json changes (ADR 0022)', () => {
+    const body = filled({ verdict: 'Data flow: unchanged: the ceiling is a CI-only file' });
+    const changed = ['workers/github-broker/policy/boundary.json'];
+    expect(checkPrBody(body, changed).errors.join()).toMatch(/must name its ADR or issue/);
+  });
+
   it('refuses a section with a placeholder left in, such as the key-pin one before it is filled', () => {
     const section = readFileSync(new URL('docs/runbooks/key-pin-pr-section.md', ROOT), 'utf8');
     const keys = ['packages/schema/src/agent-keys.json'];

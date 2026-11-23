@@ -34,7 +34,9 @@ lists only registered manifests.
    `scheduleEvery` in `onStart` guarded by a state flag. Its Durable Object is created by an
    `exports` entry in its own file, never in `workers/agents/wrangler.jsonc`.
 4. **Policy**: add `$0` to `workers/github-broker/policy/policy.json` with the minimum `repos` and
-   `actions`, `mode`, `requiresApproval`, a conservative `rateLimitPerHour` and `tokenBinding: PAT_<UPPER>`.
+   `actions`, `mode`, `tier` (the highest tier of its actions, ADR 0021), `requiresApproval`, a
+   conservative `rateLimitPerHour` and `tokenBinding: PAT_<UPPER>`. Add the same entry to
+   `boundary.json` (the ceiling, ADR 0022); CI fails when the policy grants more than the boundary.
    Signing keys need no configuration; the broker Keyring generates them.
 5. **PAT plumbing** (the only per-agent secret): add the `secrets_store_secrets` binding
    `{ binding: PAT_<UPPER>, secret_name: github-pat-$0 }` in `workers/github-broker/wrangler.jsonc`;

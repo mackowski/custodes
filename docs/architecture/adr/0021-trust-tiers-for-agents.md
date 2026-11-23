@@ -83,7 +83,7 @@ guardrails, garak or content constraints. This is accepted while every OWASP rev
 operator's approval (`requiresApprovalOn`), which makes each one the operator's own review. If that
 approval is removed, the exception lapses and the T2 controls apply.
 
-**Enforcement.** This ADR defines the scale. Enforcement in code belongs to #139 (the action
+**Enforcement.** ADR 0022 implements the policy side (registry, declared `tier`, boundary). This ADR defines the scale. Enforcement in code belongs to #139 (the action
 registry carries `tier` next to `risk`, and CI checks that an agent's declared tier equals the
 highest tier of its actions) and #140 (`tier` in `agent.md` is checked against policy). The broker
 already enforces actions, so it does not check tiers per request.

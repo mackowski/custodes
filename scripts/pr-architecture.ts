@@ -33,7 +33,11 @@ const FLOW_FILES: RegExp[] = [
   /^infra\/terraform\//,
 ];
 const DATA_FLOW_DOC = 'docs/architecture/data-flow.md';
-const POLICY = 'workers/github-broker/policy/policy.json';
+/** The policy and its ceiling (ADR 0022): widening either needs an ADR or issue (invariant 4). */
+const POLICY_FILES = [
+  'workers/github-broker/policy/policy.json',
+  'workers/github-broker/policy/boundary.json',
+];
 /** Placeholders the template and the key-pin section ship with; left in, the section is not done. */
 const PLACEHOLDERS = /<(reason|custodes-\.\.\.|kid|worker)>/i;
 
@@ -96,11 +100,11 @@ export function checkPrBody(body: string, changed: readonly string[]): Verdict {
       // A policy change must name the ADR or issue behind it (CLAUDE.md invariant 4).
       else if (
         aspect.startsWith('Authority') &&
-        changed.includes(POLICY) &&
+        changed.some((f) => POLICY_FILES.includes(f)) &&
         !/\bADR \d{4}\b|#\d+/.test(cells[4] ?? '')
       )
         errors.push(
-          'security table: policy.json changes, so "Authority" must name its ADR or issue',
+          'security table: policy.json or boundary.json changes, so "Authority" must name its ADR or issue',
         );
     }
 

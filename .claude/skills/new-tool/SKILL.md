@@ -14,6 +14,8 @@ denial path first.
 
 1. `packages/schema/src/actions.ts`: add a `z.object({ type: z.literal('$0'), ... })` variant with
    tight bounds (max lengths, positive ints, enums). `BrokerActionType` updates automatically.
+   Add its `tier` (ADR 0021: who wrote the bytes that land) and `risk` to `ACTION_REGISTRY` in
+   `packages/schema/src/tiers.ts`; the build fails until you do.
 2. `packages/github/src/api.ts`: add the REST call to `GitHubRest` and a `case '$0'` in
    `executeAction`. Text bodies must go through `decorate()` so trailers are appended.
 3. Tests: `packages/schema/test` (bounds), `packages/github/test/api.test.ts` (request shape, no

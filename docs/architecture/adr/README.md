@@ -23,5 +23,6 @@
 | [0019](0019-one-click-triage-proposals.md)                               | One-click triage proposals (triage-apply)                                                | accepted (amended 2026-11-13)   |
 | [0020](0020-cheatsheet-review-source-fetch-for-the-security-reviewer.md) | cheatsheet-review: a bounded source fetch for the security reviewer                      | accepted                        |
 | [0021](0021-trust-tiers-for-agents.md)                                   | Trust tiers for agents (T0–T3), separate from mode and risk                              | accepted (2026-11-23)           |
+| [0022](0022-policy-integrity-registry-boundary-strict-schema.md)         | Policy integrity: action registry, declared tier, boundary and strict schema             | accepted (2026-11-23)           |
 
 Create new records with the `/adr` skill.

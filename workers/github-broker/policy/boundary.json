@@ -1,0 +1,112 @@
+{
+  "$comment": "Ceiling for policy.json (ADR 0022): CI fails when policy.json grants more than this file (an agent, repo, action, read resource or label it lacks; a higher tier, rate, TTL or pending cap; a looser mode; a dropped approval, bundleOnly or visible trailer). Widening it needs an ADR or issue in the PR. Owned by the operator (CODEOWNERS); with a second maintainer, the code-owners ruleset makes the operator's review required. Today it equals policy.json.",
+  "version": 1,
+  "agents": {
+    "pr-gate": {
+      "tokenBinding": "PAT_PR_GATE",
+      "mode": "hotl",
+      "tier": "T1",
+      "repos": ["OWASP/CheatSheetSeries", "mackowski/custodes-sandbox"],
+      "actions": ["pr.close"],
+      "requiresApproval": [],
+      "rateLimitPerHour": 5
+    },
+    "cheatsheet-review": {
+      "tokenBinding": "PAT_CHEATSHEET_REVIEW",
+      "mode": "hotl",
+      "tier": "T2",
+      "repos": ["mackowski/custodes-sandbox", "OWASP/CheatSheetSeries"],
+      "actions": ["pr.review.inline", "issue.label.remove"],
+      "requiresApproval": [],
+      "requiresApprovalOn": {
+        "OWASP/CheatSheetSeries": ["pr.review.inline"]
+      },
+      "rateLimitPerHour": 20,
+      "labels": ["custodes_cheatsheet_review"]
+    },
+    "triage-apply": {
+      "tokenBinding": "PAT_TRIAGE_APPLY",
+      "mode": "hitl",
+      "tier": "T1",
+      "repos": ["mackowski/custodes-sandbox", "OWASP/CheatSheetSeries"],
+      "actions": ["issue.assign", "issue.label.add", "issue.label.remove", "issue.comment"],
+      "requiresApproval": [],
+      "requiresApprovalOn": {},
+      "rateLimitPerHour": 30,
+      "labels": [
+        "ACK_OBTAINED",
+        "ACK_WAITING",
+        "bug_bash_cincy",
+        "dependencies",
+        "docker",
+        "github_actions",
+        "HacktoberFest",
+        "HELP_WANTED",
+        "INTERNAL",
+        "javascript",
+        "MIGRATION",
+        "NEW_CS",
+        "python",
+        "REQUEST_ASVS",
+        "REQUEST_OPC",
+        "UPDATE_CS",
+        "WAITING_UPDATE",
+        "WEBSITE"
+      ],
+      "approvalTtlHours": 168,
+      "maxPendingApprovals": 50,
+      "trailer": "hidden",
+      "bundleOnly": true
+    }
+  },
+  "reads": {
+    "triage": {
+      "tokenBinding": "PAT_READONLY",
+      "repos": ["OWASP/CheatSheetSeries", "mackowski/custodes-sandbox"],
+      "resources": ["issues", "labels", "cheatsheets"]
+    },
+    "implementation-check": {
+      "tokenBinding": "PAT_READONLY",
+      "repos": ["OWASP/CheatSheetSeries", "mackowski/custodes-sandbox"],
+      "resources": [
+        "issue",
+        "comments",
+        "timeline",
+        "pull",
+        "pull_files",
+        "cheatsheets",
+        "cheatsheet"
+      ]
+    },
+    "proposal-review": {
+      "tokenBinding": "PAT_READONLY",
+      "repos": ["OWASP/CheatSheetSeries", "mackowski/custodes-sandbox"],
+      "resources": ["issue", "comments", "timeline", "labels", "cheatsheets", "cheatsheet"]
+    },
+    "pr-gate": {
+      "tokenBinding": "PAT_READONLY",
+      "repos": ["OWASP/CheatSheetSeries", "mackowski/custodes-sandbox"],
+      "resources": ["pulls", "pull_files", "issue", "issues", "comments"]
+    },
+    "cheatsheet-review": {
+      "tokenBinding": "PAT_READONLY",
+      "repos": ["mackowski/custodes-sandbox", "OWASP/CheatSheetSeries"],
+      "resources": [
+        "pull",
+        "pull_files",
+        "pull_file_at_ref",
+        "timeline",
+        "issue",
+        "cheatsheets",
+        "cheatsheet",
+        "comments",
+        "pull_reviews"
+      ]
+    },
+    "triage-apply": {
+      "tokenBinding": "PAT_READONLY",
+      "repos": ["mackowski/custodes-sandbox", "OWASP/CheatSheetSeries"],
+      "resources": ["issue", "comments"]
+    }
+  }
+}

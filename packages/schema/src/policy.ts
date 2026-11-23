@@ -2,6 +2,18 @@ import { z } from 'zod';
 import { AgentId, AgentMode, GitHubRepo } from './agent.js';
 import { BrokerActionType } from './actions.js';
 import { ReadResource } from './read.js';
+import { Tier, highestTier } from './tiers.js';
+
+/**
+ * `$comment` and `$comment_<field>` are the only keys a policy may carry besides its fields; they
+ * are dropped before the strict parse. Any other unknown key fails, so a misspelt field (say
+ * `requiresAprovalOn`) cannot be silently ignored (ADR 0022).
+ */
+const COMMENT_KEY = /^\$comment(_[A-Za-z][A-Za-z0-9]*)?$/;
+function withoutComments(value: unknown): unknown {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return value;
+  return Object.fromEntries(Object.entries(value).filter(([k]) => !COMMENT_KEY.test(k)));
+}
 
 /**
  * Labels that start automation when added from the operator's account: `custodes_cheatsheet_review`
@@ -11,11 +23,16 @@ import { ReadResource } from './read.js';
  */
 export const AUTOMATION_TRIGGER_LABELS: readonly string[] = ['custodes_cheatsheet_review', 'jules'];
 
-export const AgentPolicy = z
-  .object({
+const AgentPolicyObject = z
+  .strictObject({
     /** Name of the Secrets Store binding that holds this agent's GitHub PAT. */
     tokenBinding: z.string().regex(/^PAT_[A-Z0-9_]+$/),
     mode: AgentMode,
+    /**
+     * Declared trust tier (ADR 0021). Must equal the highest tier of `actions`
+     * (`ACTION_REGISTRY`), so granting a higher-tier action is a visible tier change.
+     */
+    tier: Tier,
     repos: z.array(GitHubRepo).min(1),
     actions: z.array(BrokerActionType).min(1),
     /** Subset of `actions` that always needs an approval id, even for hotl agents. */
@@ -74,22 +91,33 @@ export const AgentPolicy = z
       message: 'requiresApprovalOn may only name actions the agent has',
       path: ['requiresApprovalOn'],
     },
-  );
+  )
+  .refine((a) => a.tier === highestTier(a.actions), {
+    message: "tier must equal the highest tier of the agent's actions (ACTION_REGISTRY, ADR 0021)",
+    path: ['tier'],
+  });
+export const AgentPolicy = z.preprocess(withoutComments, AgentPolicyObject);
 export type AgentPolicy = z.infer<typeof AgentPolicy>;
 
 /** Read access through the broker: GET-only, allow-listed resources, with a read-only token. */
-export const ReadPolicy = z.object({
-  /** Secrets Store binding holding a PAT limited to public repositories, read-only. */
-  tokenBinding: z.string().regex(/^PAT_[A-Z0-9_]+$/),
-  repos: z.array(GitHubRepo).min(1),
-  /** The only resources this agent may read. Explicit, so a new resource is never granted by default. */
-  resources: z.array(ReadResource).min(1),
-});
+export const ReadPolicy = z.preprocess(
+  withoutComments,
+  z.strictObject({
+    /** Secrets Store binding holding a PAT limited to public repositories, read-only. */
+    tokenBinding: z.string().regex(/^PAT_[A-Z0-9_]+$/),
+    repos: z.array(GitHubRepo).min(1),
+    /** The only resources this agent may read. Explicit, so a new resource is never granted by default. */
+    resources: z.array(ReadResource).min(1),
+  }),
+);
 export type ReadPolicy = z.infer<typeof ReadPolicy>;
 
-export const Policy = z.object({
-  version: z.literal(1),
-  agents: z.record(AgentId, AgentPolicy),
-  reads: z.record(AgentId, ReadPolicy).default({}),
-});
+export const Policy = z.preprocess(
+  withoutComments,
+  z.strictObject({
+    version: z.literal(1),
+    agents: z.record(AgentId, AgentPolicy),
+    reads: z.record(AgentId, ReadPolicy).default({}),
+  }),
+);
 export type Policy = z.infer<typeof Policy>;

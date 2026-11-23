@@ -2,6 +2,9 @@
 *                                   @mackowski
 /workers/github-broker/             @mackowski
 /workers/github-broker/policy/      @mackowski
+# The policy ceiling (ADR 0022) stays the operator's even if policy/ gets more owners: with the
+# code-owners ruleset, widening it needs the operator's review.
+/workers/github-broker/policy/boundary.json @mackowski
 /packages/core/                     @mackowski
 /infra/                             @mackowski
 /.github/workflows/                 @mackowski
