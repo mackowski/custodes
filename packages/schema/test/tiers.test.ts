@@ -65,6 +65,11 @@ describe('strict policy keys (ADR 0022)', () => {
     expect(Object.keys(p)).not.toContain('$comment_repos');
   });
 
+  it('refuses a comment key that carries a real field instead of text (review of #139, L1)', () => {
+    const hidden = { ...agent, $comment_requiresApprovalOn: { 'o/r': ['issue.comment'] } };
+    expect(AgentPolicy.safeParse(hidden).success).toBe(false);
+  });
+
   it('refuses other $-keys', () => {
     expect(AgentPolicy.safeParse({ ...agent, $commentary: 'x' }).success).toBe(false);
     expect(AgentPolicy.safeParse({ ...agent, $note: 'x' }).success).toBe(false);

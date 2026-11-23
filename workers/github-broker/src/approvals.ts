@@ -17,6 +17,8 @@ import {
   type BundleApprovalAsk,
   type BundleStep,
   type DecideOutcome,
+  DEFAULT_APPROVAL_TTL_HOURS,
+  DEFAULT_MAX_PENDING_APPROVALS,
   GitHubLogin,
   type IssueSnapshot,
 } from '@custodes/schema';
@@ -34,9 +36,9 @@ import { ApprovalStore, AuditStore } from './store.js';
  * - on approval the broker runs the stored request itself through `act()`, so what runs is what
  *   was shown, and the agent never needs to come back.
  */
-export const APPROVAL_TTL_SECONDS = 86_400;
+export const APPROVAL_TTL_SECONDS = DEFAULT_APPROVAL_TTL_HOURS * 3600;
 /** Pending requests per agent: a looping agent cannot flood the operator's queue. */
-export const MAX_PENDING_PER_AGENT = 20;
+export const MAX_PENDING_PER_AGENT = DEFAULT_MAX_PENDING_APPROVALS;
 
 /** Bundle approval requests per agent per hour, refused ones included (review L5). */
 export const MAX_BUNDLE_ASKS_PER_HOUR = 40;

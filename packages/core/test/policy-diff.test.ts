@@ -1,6 +1,12 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import {
+  DEFAULT_APPROVAL_TTL_HOURS,
+  DEFAULT_MAX_PENDING_APPROVALS,
+  Policy,
+} from '@custodes/schema';
 import { capabilityDiff, cell, grants, renderDiff } from '../../../scripts/policy-diff.js';
+import { needsApproval } from '../src/policy-eval.js';
 
 const live: unknown = JSON.parse(
   readFileSync(
@@ -34,7 +40,7 @@ const base: Fixture = {
       mode: 'hotl',
       tier: 'T1',
       repos: ['o/a'],
-      actions: ['issue.comment'],
+      actions: ['issue.comment', 'issue.label.add'],
       requiresApprovalOn: { 'o/a': ['issue.comment'] },
       labels: ['bug'],
     },
@@ -74,6 +80,23 @@ describe('policy capability diff (ADR 0022)', () => {
         'x | read | o/a pulls',
       ]),
     );
+  });
+
+  it('uses the broker defaults (it cannot import them) and the broker approval rule', () => {
+    const lines = [...grants(live)];
+    const ttl = `ttl=${DEFAULT_APPROVAL_TTL_HOURS}h pending=${DEFAULT_MAX_PENDING_APPROVALS}`;
+    expect(lines.some((l) => l.startsWith('pr-gate | approvals | ') && l.includes(ttl))).toBe(true);
+    const parsed = Policy.parse(live);
+    for (const [id, a] of Object.entries(parsed.agents))
+      for (const repo of a.repos)
+        for (const t of a.actions) {
+          const yes = needsApproval(a, repo, t) ? 'yes' : 'no';
+          expect(lines).toContain(`${id} | action | ${repo} ${t} approval=${yes}`);
+        }
+  });
+
+  it('shows no label row for an agent without a label action', () => {
+    expect([...grants(live)].some((l) => l.startsWith('pr-gate | label'))).toBe(false);
   });
 
   it('treats a missing base file as empty, so a new file shows every grant', () => {

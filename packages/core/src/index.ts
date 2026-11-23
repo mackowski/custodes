@@ -4,7 +4,6 @@ export * from './audit.js';
 export * from './killswitch.js';
 export * from './approval-token.js';
 export * from './policy-eval.js';
-export * from './policy-boundary.js';
 export * from './ladder.js';
 export * from './tracing.js';
 export * from './request-signature.js';

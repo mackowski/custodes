@@ -49,7 +49,10 @@ export function grants(policy: unknown): Set<string> {
       }
     }
     const labels = a['labels'];
-    if (labels === undefined) out.add(`${cell(id)} | label | *any*`);
+    const labelActions = strings(a['actions']).some((t) => t.startsWith('issue.label.'));
+    if (!labelActions) {
+      // No label action, so no label grant whatever `labels` says.
+    } else if (labels === undefined) out.add(`${cell(id)} | label | *any*`);
     else for (const l of strings(labels)) out.add(`${cell(id)} | label | ${cell(l)}`);
     out.add(
       `${cell(id)} | approvals | ttl=${cell(a['approvalTtlHours'] ?? 24)}h pending=${cell(a['maxPendingApprovals'] ?? 20)} trailer=${cell(a['trailer'] ?? 'visible')} bundleOnly=${cell(a['bundleOnly'] ?? false)}`,

@@ -12,8 +12,16 @@ import { Tier, highestTier } from './tiers.js';
 const COMMENT_KEY = /^\$comment(_[A-Za-z][A-Za-z0-9]*)?$/;
 function withoutComments(value: unknown): unknown {
   if (value === null || typeof value !== 'object' || Array.isArray(value)) return value;
-  return Object.fromEntries(Object.entries(value).filter(([k]) => !COMMENT_KEY.test(k)));
+  // Only string comments are dropped: an object under `$comment_requiresApprovalOn` would look like
+  // the field in a raw diff while the schema ignored it (security review of #139, L1).
+  return Object.fromEntries(
+    Object.entries(value).filter(([k, v]) => !(COMMENT_KEY.test(k) && typeof v === 'string')),
+  );
 }
+
+/** Broker defaults when a policy leaves these out; the boundary check uses the same values. */
+export const DEFAULT_APPROVAL_TTL_HOURS = 24;
+export const DEFAULT_MAX_PENDING_APPROVALS = 20;
 
 /**
  * Labels that start automation when added from the operator's account: `custodes_cheatsheet_review`

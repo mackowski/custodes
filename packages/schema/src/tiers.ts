@@ -10,11 +10,10 @@ export const Tier = z.enum(['T0', 'T1', 'T2', 'T3']);
 export type Tier = z.infer<typeof Tier>;
 
 /**
- * How bad one action can be (ADR 0022). Informational for now: shown in the capability diff, no
- * effect on approvals until the first `critical` action exists (#143).
+ * How bad one action can be (ADR 0022). Recorded only: nothing reads it until the first `critical`
+ * action, when "critical needs an approval" is added (#143).
  */
-export const Risk = z.enum(['low', 'medium', 'high', 'critical']);
-export type Risk = z.infer<typeof Risk>;
+export type Risk = 'low' | 'medium' | 'high' | 'critical';
 
 export interface ActionEntry {
   readonly tier: Tier;
@@ -34,7 +33,7 @@ export const ACTION_REGISTRY: Readonly<Record<BrokerActionType, ActionEntry>> = 
   // Contributor-facing and public, but a person can reopen it.
   'pr.close': { tier: 'T1', risk: 'high' },
   // Model-authored suggestion blocks a maintainer can commit with one click.
-  'pr.review.inline': { tier: 'T2', risk: 'medium' },
+  'pr.review.inline': { tier: 'T2', risk: 'high' },
   // Retired (never executed); kept so old audit records parse. pr.review could approve.
   'pr.comment': { tier: 'T1', risk: 'medium' },
   'pr.review': { tier: 'T1', risk: 'critical' },

@@ -1,4 +1,13 @@
-import type { BrokerRequest, Policy } from '@custodes/schema';
+import type { AgentPolicy, BrokerActionType, BrokerRequest, Policy } from '@custodes/schema';
+
+/** Whether this action on this repository waits for a human approval (ADR 0004, ADR 0017). */
+export function needsApproval(agent: AgentPolicy, repo: string, type: BrokerActionType): boolean {
+  return (
+    agent.mode === 'hitl' ||
+    agent.requiresApproval.includes(type) ||
+    (agent.requiresApprovalOn[repo]?.includes(type) ?? false)
+  );
+}
 
 export type PolicyDecision =
   | { allow: true; needsApproval: boolean }
@@ -38,9 +47,5 @@ export function evaluatePolicy(policy: Policy, req: BrokerRequest): PolicyDecisi
     if (other !== undefined)
       return { allow: false, code: 'policy_denied', reason: `label ${other} not allowed` };
   }
-  const needsApproval =
-    agent.mode === 'hitl' ||
-    agent.requiresApproval.includes(req.action.type) ||
-    (agent.requiresApprovalOn[req.action.repo]?.includes(req.action.type) ?? false);
-  return { allow: true, needsApproval };
+  return { allow: true, needsApproval: needsApproval(agent, req.action.repo, req.action.type) };
 }

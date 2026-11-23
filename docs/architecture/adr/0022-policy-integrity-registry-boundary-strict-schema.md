@@ -27,13 +27,16 @@ We will:
 1. **Keep a registry of every broker action** with its `tier` (ADR 0021) and `risk`
    (`low | medium | high | critical`) in `packages/schema/src/tiers.ts`, typed as a `Record` over
    `BrokerActionType` so a new action does not compile without an entry. Risk is informational for
-   now: it shows in reviews and has no effect on approvals. A "critical needs an approval" rule
+   now: it is recorded only and nothing reads it. A "critical needs an approval" rule
    comes with the first critical action (#143), so no hotl agent changes behaviour.
 2. **Declare a `tier` per agent in `policy.json`.** The schema refuses a policy whose tier differs
    from the highest tier of the agent's actions, so the broker fails at startup and CI fails first.
-   Read-only agents have no entry and are T0.
+   Read-only agents have no entry and are T0 (an entry added by mistake still declares its actions'
+   tier, and the broker denies it anyway).
 3. **Parse the policy strictly.** Unknown keys fail at every level (policy, agent, read). Only
-   `$comment` and `$comment_<field>` are allowed; they are dropped before parsing.
+   `$comment` and `$comment_<field>` with a **string** value are allowed; they are dropped before
+   parsing. A non-string value fails, so a real field cannot hide under a comment key. (zod records
+   skip a `__proto__` key instead of refusing it; that grants nothing, as it only drops an entry.)
 4. **Add `boundary.json`, a policy-shaped ceiling**, next to `policy.json`. A test fails when the
    policy grants more than the boundary: an agent, repository, action, read resource or label it
    lacks; a higher tier, rate, approval TTL or pending cap; a looser mode; a dropped approval,
@@ -42,14 +45,18 @@ We will:
    (`scripts/pr-architecture.ts`).
 5. **Make the boundary the operator's.** CODEOWNERS gives `boundary.json` its own line, and the
    ruleset `code-owners` (created 2026-11-23) requires a code owner's review, with a bypass for the
-   Admin role through pull requests only. With one maintainer this changes nothing; once a second
-   person has write access, they can change the policy inside the boundary, but widening the
-   boundary needs the operator. **Nobody else gets the Admin role**, or they bypass that ruleset.
+   Admin role through pull requests only. The code that enforces the boundary (`policy.ts`,
+   `tiers.ts`, `policy-boundary.ts` and its test, `policy-diff.ts`) has the same explicit lines.
+   Today the operator owns everything, so this changes nothing; once `policy/` has another code
+   owner, they can change the policy inside the boundary, but widening the boundary needs the
+   operator. **Nobody else gets the Admin role**, or they bypass that ruleset.
 6. **Print a capability diff** of both files (agent × repository × action × approval, rates,
    labels, approval settings, reads) to the job summary of `pr-architecture.yml`, from
    `scripts/policy-diff.ts`. No PR comment, so the workflow keeps a read-only token.
 
 The policy stays `version: 1`: every change adds fields, so there is nothing to migrate.
+
+Broker content constraints for write actions (paths, size, new link domains; a T2 control in ADR 0021) are not part of this ADR: they come with the first T2 write action (#134).
 
 ## Alternatives considered
 
@@ -71,8 +78,10 @@ The policy stays `version: 1`: every change adds fields, so there is nothing to 
 - The operator merges their own PRs with "merge without waiting for requirements" (the
   `code-owners` bypass). Dependabot PRs need an approval or the same bypass.
 - `/new-tool` adds a registry entry; `/new-agent` adds a boundary entry and a tier.
-- The broker defaults for approval TTL (24 h) and pending approvals (20) now also live in
-  `policy-boundary.ts`; a change to one must change the other.
+- The broker defaults for approval TTL and pending approvals now live in `packages/schema`
+  (`DEFAULT_APPROVAL_TTL_HOURS`, `DEFAULT_MAX_PENDING_APPROVALS`), shared by the broker and the
+  boundary check; `policy-diff.ts` keeps literal copies (it imports no workspace package), pinned
+  by a test.
 
 ## Security considerations
 

@@ -28,11 +28,14 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        # Against the merge base, as the next step does: the base tip would show main's later policy
+        # changes as this PR's, inverted (review of #139).
         run: |
+          base=$(git merge-base "$BASE_SHA" "$HEAD_SHA")
           for name in policy boundary; do
             path="workers/github-broker/policy/$name.json"
-            if git diff --quiet "$BASE_SHA" "$HEAD_SHA" -- "$path"; then continue; fi
-            git show "$BASE_SHA:$path" > "$RUNNER_TEMP/$name-base.json" 2>/dev/null || rm -f "$RUNNER_TEMP/$name-base.json"
+            if git diff --quiet "$base" "$HEAD_SHA" -- "$path"; then continue; fi
+            git show "$base:$path" > "$RUNNER_TEMP/$name-base.json" 2>/dev/null || rm -f "$RUNNER_TEMP/$name-base.json"
             git show "$HEAD_SHA:$path" > "$RUNNER_TEMP/$name-head.json" 2>/dev/null || rm -f "$RUNNER_TEMP/$name-head.json"
             node --experimental-strip-types scripts/policy-diff.ts "$RUNNER_TEMP/$name-base.json" "$RUNNER_TEMP/$name-head.json" "$name.json" >> "$GITHUB_STEP_SUMMARY"
           done

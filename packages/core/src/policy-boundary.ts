@@ -1,18 +1,18 @@
-import { tierRank, type AgentPolicy, type Policy } from '@custodes/schema';
-
-/** Broker defaults when a policy leaves these out (workers/github-broker/src/approvals.ts). */
-const DEFAULT_APPROVAL_TTL_HOURS = 24;
-const DEFAULT_MAX_PENDING_APPROVALS = 20;
+import {
+  DEFAULT_APPROVAL_TTL_HOURS,
+  DEFAULT_MAX_PENDING_APPROVALS,
+  tierRank,
+  type AgentPolicy,
+  type Policy,
+} from '@custodes/schema';
+import { needsApproval } from './policy-eval.js';
 
 /** readonly grants nothing, hitl approves everything, hotl acts on its own. */
 const STRICTNESS = { readonly: 2, hitl: 1, hotl: 0 } as const;
 
-function needsApproval(a: AgentPolicy, repo: string, action: AgentPolicy['actions'][number]) {
-  return (
-    a.mode === 'hitl' ||
-    a.requiresApproval.includes(action) ||
-    (a.requiresApprovalOn[repo]?.includes(action) ?? false)
-  );
+/** Own entries only: zod records are plain objects, so `constructor` would hit Object.prototype. */
+function own<T>(record: Record<string, T>, id: string): T | undefined {
+  return Object.hasOwn(record, id) ? record[id] : undefined;
 }
 
 function agentViolations(id: string, b: AgentPolicy, p: AgentPolicy): string[] {
@@ -51,17 +51,17 @@ function agentViolations(id: string, b: AgentPolicy, p: AgentPolicy): string[] {
 
 /**
  * Every way `policy` grants more than `boundary` (ADR 0022). Empty when the policy is contained.
- * The boundary is a policy-shaped ceiling the operator owns (CODEOWNERS, ruleset `code-owners`).
+ * CI only (a vitest test); not exported from the package, so no Worker imports it.
  */
 export function boundaryViolations(boundary: Policy, policy: Policy): string[] {
   const out: string[] = [];
   for (const [id, p] of Object.entries(policy.agents)) {
-    const b = boundary.agents[id];
+    const b = own(boundary.agents, id);
     if (b === undefined) out.push(`agents.${id}: not in the boundary`);
     else out.push(...agentViolations(id, b, p));
   }
   for (const [id, p] of Object.entries(policy.reads)) {
-    const b = boundary.reads[id];
+    const b = own(boundary.reads, id);
     if (b === undefined) {
       out.push(`reads.${id}: not in the boundary`);
       continue;

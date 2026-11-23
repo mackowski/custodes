@@ -96,6 +96,39 @@ describe('boundaryViolations (ADR 0022)', () => {
     expect(found).toContain('agents.x: bundleOnly off, boundary says on');
   });
 
+  it('treats a hidden trailer under a visible boundary as a widening', () => {
+    const strict: Policy = {
+      ...ceiling,
+      agents: { x: { ...agent, mode: 'hitl', trailer: 'visible', bundleOnly: true } },
+    };
+    const hidden: Policy = {
+      ...ceiling,
+      agents: { x: { ...agent, mode: 'hitl', trailer: 'hidden', bundleOnly: true } },
+    };
+    expect(boundaryViolations(strict, hidden)).toEqual([
+      'agents.x: trailer hidden, boundary says visible',
+    ]);
+  });
+
+  it('treats hitl under a readonly boundary as a widening', () => {
+    const ro: Policy = { ...ceiling, agents: { x: { ...agent, mode: 'readonly' } } };
+    expect(boundaryViolations(ro, withAgent({ mode: 'hitl' }))).toContain(
+      'agents.x: mode hitl is looser than readonly',
+    );
+  });
+
+  it('reports a read moved to another token, and an agent named like an Object property', () => {
+    const p: Policy = {
+      ...ceiling,
+      agents: { ...ceiling.agents, constructor: agent },
+      reads: { x: { tokenBinding: 'PAT_TRIAGE_APPLY', repos: ['o/a'], resources: ['issue'] } },
+    };
+    expect(boundaryViolations(ceiling, p)).toEqual([
+      'agents.constructor: not in the boundary',
+      'reads.x: tokenBinding differs',
+    ]);
+  });
+
   it('reports a new agent and read widenings', () => {
     const p: Policy = {
       ...ceiling,
