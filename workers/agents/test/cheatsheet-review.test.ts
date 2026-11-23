@@ -2132,6 +2132,17 @@ describe('cheatsheet-review: link auditor statuses (#155)', () => {
     expect(reviewActs(r)[0]?.body ?? '').not.toContain(`<${URL_}>`);
   });
 
+  it.each(['STALE', 'LOW-AUTHORITY', 'SAME-RESOURCE'])(
+    'an auditor that saw injection and answered %s cannot keep the link live: UNSUPPORTED, a BLOCKER',
+    async (status) => {
+      const r = await run(status, true);
+      expect(r.out).toMatchObject({ ok: true });
+      expect(linkReport(r)).toMatch(/"severity":"BLOCKER"[^}]*UNSUPPORTED[^}]*tried to instruct/);
+      expect(r.rows[0]).toMatchObject({ verdict: 'REQUEST_CHANGES' });
+      expect(reviewActs(r)[0]?.body ?? '').not.toContain(`<${URL_}>`);
+    },
+  );
+
   it('an auditor that saw injection and left a link out cannot keep it live: UNSUPPORTED, a BLOCKER', async () => {
     const r = await drive({
       scenario: sc(),

@@ -352,10 +352,11 @@ async function linkStage(snap: Snapshot, deps: PipelineDeps): Promise<LinkStage>
     for (const v of r.answer?.links ?? []) {
       const page = pages.find((p) => p.url === v.url);
       if (!page) continue;
-      // Injection taints the auditor's own call, as it does the verifier's: never OK.
-      const said = linkStatus(v.status, page.previous !== undefined);
-      const status =
-        injectionSeen && (said === 'OK' || said === 'SAME-RESOURCE') ? 'UNSUPPORTED' : said;
+      // Injection taints the auditor's own call, as it does the verifier's: every link it answered
+      // blocks, whatever status it gave (security review of #156: STALE kept a steered link live).
+      const status = injectionSeen
+        ? 'UNSUPPORTED'
+        : linkStatus(v.status, page.previous !== undefined);
       const row = checks.find((c) => c.url === page.url);
       if (row) row.status = status;
       if (status === 'OK' || status === 'SAME-RESOURCE') continue;
