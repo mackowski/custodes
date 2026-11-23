@@ -2125,6 +2125,9 @@ describe('cheatsheet-review: link auditor statuses (#155)', () => {
     const r = await run('OK', true);
     expect(r.out).toMatchObject({ ok: true });
     expect(linkReport(r)).toMatch(/"severity":"BLOCKER"[^}]*UNSUPPORTED/);
+    // The steered call's own reason never reaches the judge; code writes it.
+    expect(linkReport(r)).not.toContain('because');
+    expect(linkReport(r)).toContain('tried to instruct the checker');
     expect(r.rows[0]).toMatchObject({ verdict: 'REQUEST_CHANGES' });
     expect(reviewActs(r)[0]?.body ?? '').not.toContain(`<${URL_}>`);
   });

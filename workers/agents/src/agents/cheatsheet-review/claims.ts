@@ -673,8 +673,9 @@ export function claimLog(results: readonly ClaimResult[], removedItems: number) 
  */
 /** Characters of refuted-claim entries in the approval note (its rationale is cut at 4,000). */
 // The approval rationale is cut at 4,000: refuted claims come first (they are the only trace of a
-// removed finding), then blocking links (800) and fetched hosts (about 400). Security review of #155.
-export const REFUTED_BUDGET = 2_400;
+// removed finding), then blocking links (about 930) and fetched hosts (about 415). Security reviews
+// of #155 and #156: 2,300 keeps the worst case under 4,000, so no host is cut without notice.
+export const REFUTED_BUDGET = 2_300;
 
 export function refutedNote(results: readonly ClaimResult[]): string {
   const refuted = results.filter((r) => r.verdict === 'REFUTED');

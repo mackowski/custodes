@@ -361,12 +361,14 @@ async function linkStage(snap: Snapshot, deps: PipelineDeps): Promise<LinkStage>
       if (status === 'OK' || status === 'SAME-RESOURCE') continue;
       // As in the original OWASP command: WRONG-PAGE, UNSUPPORTED and DIFFERENT-RESOURCE block;
       // LOW-AUTHORITY and STALE are concerns. The operator sees each blocking link on the approval
-      // page with its URL (#155).
+      // page with its URL (#155). A steered call's own reason never reaches the judge: code writes
+      // it, as claimStage does.
+      const reason = injectionSeen ? INJECTED_LINK_REASON : v.reason;
       findings.push({
         severity: status === 'LOW-AUTHORITY' || status === 'STALE' ? 'MINOR' : 'BLOCKER',
         file: page.file,
         line: page.line,
-        problem: `${status}: \`${page.url.slice(0, 300)}\`${page.previous !== undefined ? ` (moved from \`${page.previous.slice(0, 300)}\`)` : ''}${page.also ? ` (also cited at ${page.also})` : ''}: ${v.reason}`,
+        problem: `${status}: \`${page.url.slice(0, 300)}\`${page.previous !== undefined ? ` (moved from \`${page.previous.slice(0, 300)}\`)` : ''}${page.also ? ` (also cited at ${page.also})` : ''}: ${reason}`,
       });
       if (status !== 'LOW-AUTHORITY' && status !== 'STALE') allowed.delete(page.url);
     }
@@ -581,6 +583,9 @@ export async function reviewPipeline(snap: Snapshot, deps: PipelineDeps): Promis
 
 /** Link statuses that block, as in the original OWASP command. */
 const BLOCKING = new Set(['WRONG-PAGE', 'UNSUPPORTED', 'DIFFERENT-RESOURCE']);
+/** Code-written reason for every link from an auditor call that saw injection (security review of #156). */
+const INJECTED_LINK_REASON =
+  'the page held text that tried to instruct the checker; open it by hand';
 
 /**
  * #155: the links that block, for the operator's approval note, with their URL to open by hand: a

@@ -142,7 +142,7 @@ reading: the auditor reads most of each page (Claude Sonnet 5.5; up to 40,000 ch
 within 160,000 a call, starting at the element the URL's `#anchor` names after the page's first 500
 characters) and judges the sentence's specific assertion. A false alarm is caught by the operator:
 the approval note lists every blocking link with its file, line and URL to open (`linksNote`), and
-a wrong one is rejected there. An auditor that saw injection cannot answer OK. Up to 5 further
+a wrong one is rejected there. An auditor that saw injection cannot answer OK, and its reasons are replaced by a code-written one. Up to 5 further
 sentences citing the same URL are audited (was 2).
 
 **Source fetch for the security reviewer** (ADR 0020, #155; the approval note lists the hosts it fetched, `host:status`): pass 1 may list up to 4
