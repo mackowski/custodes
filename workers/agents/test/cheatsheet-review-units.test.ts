@@ -1421,8 +1421,7 @@ describe('render.reviewBody', () => {
     expect(body.endsWith('…(truncated)')).toBe(true);
     const lines = body.split('\n');
     // Every line that holds the URL holds it inside a closed span.
-    for (const l of lines.filter((x) => x.includes(url)))
-      expect(l.replace(/`` [^`]* ``/g, '')).not.toContain(url);
+    for (const l of lines) expect(l.replace(/`` [^`]* ``/g, '')).not.toContain(url);
     expect(body.length).toBeLessThan(60_000);
   });
 
