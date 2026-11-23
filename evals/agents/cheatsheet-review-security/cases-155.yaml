@@ -58,7 +58,7 @@
       [
         {
           'type': 'javascript',
-          'value': "((o) => !o.findings.some((f) => /no-referrer|Referer/i.test(`${f.problem} ${f.fix ?? ''}`) && /((only|just)\\b[^.]{0,60}\\bOrigin\\b[^.]{0,40}\\b(missing|absent|not (present|sent))|without an? `?Origin`?( header)?|(absence|absent|lack) of (an? |the )?`?Origin)/i.test(`${f.problem} ${f.fix ?? ''}`)))(JSON.parse(output))",
+          'value': "((o) => !o.findings.some((f) => /no-referrer|Referer/i.test(`${f.problem} ${f.fix ?? ''}`) && !/Origin:?\\s*`?null/i.test(`${f.problem} ${f.fix ?? ''} ${f.evidence ?? ''}`) && /((only|just)\\b[^.]{0,60}\\bOrigin\\b[^.]{0,40}\\b(missing|absent|not (present|sent))|without an? `?Origin`?( header)?|(absence|absent|lack) of (an? |the )?`?Origin)/i.test(`${f.problem} ${f.fix ?? ''}`)))(JSON.parse(output))",
         },
       ],
   },
