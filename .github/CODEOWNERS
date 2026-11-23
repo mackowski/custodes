@@ -2,17 +2,19 @@
 *                                   @mackowski
 /workers/github-broker/             @mackowski
 /workers/github-broker/policy/      @mackowski
-# The policy ceiling (ADR 0022) stays the operator's even if policy/ gets more owners: with the
-# code-owners ruleset, widening it needs the operator's review.
-/workers/github-broker/policy/boundary.json @mackowski
-# ...and so does the code that enforces it (security review of #139, L3).
-/packages/schema/src/policy.ts              @mackowski
-/packages/schema/src/tiers.ts               @mackowski
-/packages/core/src/policy-boundary.ts       @mackowski
-/packages/core/test/policy-boundary.test.ts @mackowski
-/scripts/policy-diff.ts                     @mackowski
 /packages/core/                     @mackowski
 /infra/                             @mackowski
 /.github/workflows/                 @mackowski
 /.claude/settings.json              @mackowski
 /.claude/hooks/                     @mackowski
+
+# Keep these LAST: GitHub applies the last matching line. The policy ceiling (ADR 0022) and the code
+# that enforces it stay the operator's even if a directory above gets more owners; with the
+# code-owners ruleset, changing them needs the operator's review.
+/workers/github-broker/policy/boundary.json @mackowski
+/packages/schema/src/policy.ts              @mackowski
+/packages/schema/src/tiers.ts               @mackowski
+/packages/core/src/policy-eval.ts           @mackowski
+/packages/core/src/policy-boundary.ts       @mackowski
+/packages/core/test/policy-boundary.test.ts @mackowski
+/scripts/policy-diff.ts                     @mackowski

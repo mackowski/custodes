@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   ACTION_REGISTRY,
   AgentPolicy,
+  DEFAULT_APPROVAL_TTL_HOURS,
+  DEFAULT_MAX_PENDING_APPROVALS,
   BrokerActionType,
   Policy,
   ReadPolicy,
@@ -81,5 +83,12 @@ describe('strict policy keys (ADR 0022)', () => {
     expect(ReadPolicy.safeParse({ ...read, resource: ['pulls'] }).success).toBe(false);
     expect(Policy.safeParse({ version: 1, agents: {}, $comment: 'x' }).success).toBe(true);
     expect(Policy.safeParse({ version: 1, agents: {}, read: {} }).success).toBe(false);
+  });
+});
+
+describe('policy defaults', () => {
+  it('pins the values: raising one widens every agent that leaves the field out (review of #139)', () => {
+    expect([DEFAULT_APPROVAL_TTL_HOURS, DEFAULT_MAX_PENDING_APPROVALS]).toEqual([24, 20]);
+    expect(AgentPolicy.parse(agent).rateLimitPerHour).toBe(60);
   });
 });
