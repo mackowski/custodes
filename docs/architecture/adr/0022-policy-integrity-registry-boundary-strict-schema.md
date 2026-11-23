@@ -46,7 +46,8 @@ We will:
 5. **Make the boundary the operator's.** CODEOWNERS gives `boundary.json` its own line, and the
    ruleset `code-owners` (created 2026-11-23) requires a code owner's review, with a bypass for the
    Admin role through pull requests only. The code that enforces the boundary (`policy.ts`,
-   `tiers.ts`, `policy-eval.ts`, `policy-boundary.ts` and its test, `policy-diff.ts`) has the same
+   `tiers.ts`, `policy-eval.ts`, `policy-boundary.ts` and its test, `policy-diff.ts`, plus
+   CODEOWNERS itself and the workflows that run the boundary test and the diff) has the same
    explicit lines, kept last in CODEOWNERS because GitHub applies the last matching line.
    Today the operator owns everything, so this changes nothing; once `policy/` has another code
    owner, they can change the policy inside the boundary, but widening the boundary needs the

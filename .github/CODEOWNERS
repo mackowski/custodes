@@ -18,3 +18,7 @@
 /packages/core/src/policy-boundary.ts       @mackowski
 /packages/core/test/policy-boundary.test.ts @mackowski
 /scripts/policy-diff.ts                     @mackowski
+/.github/CODEOWNERS                         @mackowski
+/.github/workflows/ci.yml                   @mackowski
+/.github/workflows/deploy-workers.yml       @mackowski
+/.github/workflows/pr-architecture.yml      @mackowski
