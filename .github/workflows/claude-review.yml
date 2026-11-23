@@ -67,7 +67,7 @@ jobs:
         id: code_review
         # Advisory: a failure here must not stop the security review below.
         continue-on-error: true
-        uses: anthropics/claude-code-action@c84e279f859e2591391e95bd309286eb111c345f # v1
+        uses: anthropics/claude-code-action@4d75e5f390ee76b2e09c1980ecc99ff3a2e088c8 # v1
         with:
           anthropic_federation_rule_id: ${{ env.ANTHROPIC_FEDERATION_RULE_ID }}
           anthropic_organization_id: ${{ env.ANTHROPIC_ORGANIZATION_ID }}
@@ -102,7 +102,7 @@ jobs:
       - name: Agent security review
         id: security_review
         if: always() && steps.scope.outputs.security != 'false'
-        uses: anthropics/claude-code-action@c84e279f859e2591391e95bd309286eb111c345f # v1
+        uses: anthropics/claude-code-action@4d75e5f390ee76b2e09c1980ecc99ff3a2e088c8 # v1
         with:
           anthropic_federation_rule_id: ${{ env.ANTHROPIC_FEDERATION_RULE_ID }}
           anthropic_organization_id: ${{ env.ANTHROPIC_ORGANIZATION_ID }}

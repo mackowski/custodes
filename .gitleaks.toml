@@ -38,6 +38,9 @@ commits = [
   "3a146ff65bc6a7a123fe5230ac4c20ec6db7137e",
   # PR #106: the same kind of test kid as a header value in pr-gate-poll.test.ts; assembled later.
   "4e76ef075dd9c8a3aba473758f7c2bb3ac74869d",
+  # 2026-09-25: a made-up approval token (`abc.123.xyz_-`) in packages/email/test/address.test.ts;
+  # the path allowlist that covered it was dropped in 9d0e796, so the weekly full-history scan found it.
+  "4871384baf676a4b6582b6fdc2fa70b3599b1eb1",
 ]
 paths = [
   '''pnpm-lock\.yaml''',
