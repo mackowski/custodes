@@ -1,6 +1,6 @@
 # triage-apply
 
-- Version: 0.1.0 · Mode: **hitl** (every action waits for the operator's approval of the bundle)
+- Tier: **T1** (ADR 0021) · Version: 0.1.0 · Mode: **hitl** (every action waits for the operator's approval of the bundle)
 - Repositories: mackowski/custodes-sandbox and, since 2026-11-13, OWASP/CheatSheetSeries (after the
   evals and the sandbox end-to-end run passed; #108). Every bundle still waits for the operator.
 - Worker: `custodes-triage-apply` (`workers/triage-apply/wrangler.jsonc`), with its own Keyholder key

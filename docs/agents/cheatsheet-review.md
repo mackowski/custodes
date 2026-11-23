@@ -1,6 +1,6 @@
 # cheatsheet-review
 
-- Version: 0.3.0 · Mode: **hotl** (every run is started by the operator's label; ADR 0017)
+- Tier: **T2** (ADR 0021) · Version: 0.3.0 · Mode: **hotl** (every run is started by the operator's label; ADR 0017)
 - Repositories: mackowski/custodes-sandbox (posts directly) and OWASP/CheatSheetSeries (every
   review waits for the operator's approval on the e-mailed link)
 - Class: `workers/agents/src/agents/cheatsheet-review.ts` · Logic: `workers/agents/src/agents/cheatsheet-review/`

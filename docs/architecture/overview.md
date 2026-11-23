@@ -72,6 +72,12 @@ logs. Authenticates through Cloudflare Access (browser login or service token).
 | **hitl** (human in the loop) | every side effect is proposed as an approval request; the operators (configured, not hardcoded) get an e-mail with a link and decide on its page behind Access, or by CLI | approval token (HMAC in the broker's Keyring, expiring, bound to the action hash), single use |
 | **hotl** (human on the loop) | acts within policy, appends to a daily digest                                                                                                                             | kill switch per agent or fleet-wide, rate limits, audit log                                   |
 
+Mode says who approves; it is set per action class. What an agent may do at all is its **trust
+tier** (ADR 0021): T0 reads and reports, T1 acts on threads and state or writes code-computed
+content, T2 writes model-authored content into repository files, T3 executes code. Each tier names
+the controls an agent needs before it gets that capability, and an action class goes HOTL only with
+broker-enforced limits, evals and an agreement threshold in shadow.
+
 ## Identity and attribution
 
 All PATs belong to the operator's GitHub account, so GitHub itself shows every comment as that
