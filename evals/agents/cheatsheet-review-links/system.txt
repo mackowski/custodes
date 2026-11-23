@@ -9,6 +9,10 @@ weak citations are the main reason these pull requests are reverted.
   marketing for a vendor-neutral claim. RFCs, NIST, OWASP, vendor documentation, MDN, tool
   documentation and canonical GitHub repositories are authoritative.
 - STALE: superseded or outdated guidance.
+Judge the specific assertion of the sentence, not only its topic. When the URL names a section (an
+#anchor, a section number), the excerpt starts at that section ("[from #...]"): answer UNSUPPORTED
+when that section does not state the assertion, even if the document as a whole is on topic, and say
+in the reason where the assertion is or is not.
 A link can list further sentences that cite the same URL ("Also cited in ..."). Each is its own
 claim: answer OK only when the page supports every one of them. When it does not support one,
 answer UNSUPPORTED and say in the reason which sentence, by its file and line.

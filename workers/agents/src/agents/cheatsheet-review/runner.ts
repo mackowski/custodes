@@ -123,6 +123,33 @@ async function ask<S extends z.ZodType>(
   }
 }
 
+/**
+ * One call to a given model, no fallback (ADR 0020: the security reviewer's second pass goes to the
+ * model that answered the first). Undefined when it fails; the kill switch still throws.
+ */
+export async function runOnce<S extends z.ZodType>(
+  deps: RunnerDeps,
+  role: Role,
+  name: ReviewModelName,
+  schema: S,
+  system: string,
+  user: string,
+): Promise<z.infer<S> | undefined> {
+  return invokeSubAgent(deps.turn, `${role}:sources`, async (sub, span) => {
+    try {
+      const answer = await ask(deps, role, name, schema, system, user, sub);
+      span.set('custodes.review.model', name);
+      markInjection(span, answer);
+      return answer;
+    } catch (err) {
+      if (err instanceof AgentHaltedError) throw err;
+      span.set('custodes.review.failed_model', name);
+      span.set('custodes.review.failed_why', errorType(err));
+      return undefined;
+    }
+  });
+}
+
 export async function runRole<S extends z.ZodType>(
   deps: RunnerDeps,
   role: Role,

@@ -2,6 +2,8 @@
  * #90: claim verification (claims.ts, links.fetchSource, the verifier input and the render).
  * Deterministic: fetch, toMarkdown and the model clients are injected.
  */
+import { linksNote } from '../src/agents/cheatsheet-review/pipeline.js';
+import { sourcesNote } from '../src/agents/cheatsheet-review/sources.js';
 import { describe, expect, it } from 'vitest';
 import { AgentHaltedError } from '@custodes/core/agent';
 import type { ChatModel, ChatRequest, ReviewModel } from '@custodes/llm';
@@ -21,6 +23,8 @@ import {
   refutedNote,
   reportsForJudge,
   sourceUrls,
+  UNCHECKED_NOTE,
+  withoutMachinery,
   type ClaimDeps,
   type ClaimedFinding,
   type ClaimResult,
@@ -41,6 +45,7 @@ import {
 import { VERIFIER_PROMPT } from '../src/agents/cheatsheet-review/prompts.js';
 import type { ScopedFile } from '../src/agents/cheatsheet-review/scope.js';
 import {
+  normaliseDecision,
   ReviewDecision,
   ReviewerReport,
   type Finding,
@@ -525,7 +530,7 @@ describe('claims.claimStage', () => {
     expect(r.results[0]?.host).toBeUndefined();
   });
 
-  it('checks at most 5 claims, BLOCKER first, then MAJOR; the rest are NOT-FOUND with a note', async () => {
+  it('checks at most 10 claims, BLOCKER first, then MAJOR; the rest are NOT-FOUND with a note', async () => {
     const sev: Finding['severity'][] = [
       'NIT',
       'MINOR',
@@ -534,6 +539,11 @@ describe('claims.claimStage', () => {
       'MINOR',
       'MAJOR',
       'BLOCKER',
+      'MINOR',
+      'MAJOR',
+      'BLOCKER',
+      'NIT',
+      'MINOR',
     ];
     const reports = [
       {
@@ -555,13 +565,18 @@ describe('claims.claimStage', () => {
     expect(checked.map((x) => x.finding.severity)).toEqual([
       'BLOCKER',
       'BLOCKER',
+      'BLOCKER',
+      'MAJOR',
       'MAJOR',
       'MAJOR',
       'MINOR',
+      'MINOR',
+      'MINOR',
+      'MINOR',
     ]);
     const skipped = r.results.filter((x) => x.verdict === 'NOT-FOUND');
-    expect(skipped.map((x) => x.finding.severity).sort()).toEqual(['MINOR', 'NIT']);
-    for (const s of skipped) expect(s.reason).toContain('at most 5 claims');
+    expect(skipped.map((x) => x.finding.severity)).toEqual(['NIT', 'NIT']);
+    for (const s of skipped) expect(s.reason).toContain('at most 10 claims');
   });
 
   it('turns every source failure into NOT-FOUND with the reason, and asks no model', async () => {
@@ -811,6 +826,19 @@ describe('claims.claimId: a narrow backstop for ids models rewrite', () => {
 });
 
 describe('claims.reportsForJudge and judgeClaims', () => {
+  it('an unchecked NIT never lifts a BLOCK that rests on something else (lean review of #155)', () => {
+    const major = {
+      ...finding({ severity: 'MAJOR', line: 9 }),
+      claim: undefined,
+    } as unknown as Finding;
+    const nit = finding({ severity: 'NIT' });
+    const out = reportsForJudge(
+      [{ role: 'security-reviewer', report: report([major, nit], 'BLOCK') }],
+      [result('NOT-FOUND', nit, { index: 1 })],
+    );
+    expect(out[0]?.report.verdict).toBe('BLOCK');
+  });
+
   it('removes REFUTED findings only, marks CONFIRMED and NOT-FOUND ones, and only lowers the verdict', () => {
     const blocker = finding({ severity: 'BLOCKER' });
     const kept = { severity: 'MINOR' as const, file: SHEET, problem: 'Wording.' };
@@ -832,7 +860,7 @@ describe('claims.reportsForJudge and judgeClaims', () => {
     expect(passOnly[0]?.report).toEqual({ verdict: 'PASS', findings: [] });
   });
 
-  it('never drops or downgrades for NOT-FOUND: a BLOCK stays BLOCK, the finding is marked', () => {
+  it('never drops or weakens a NOT-FOUND finding: a BLOCK stays BLOCK', () => {
     const blocker = finding({ severity: 'BLOCKER' });
     const out = reportsForJudge(
       [{ role: 'security-reviewer', report: report([blocker], 'BLOCK') }],
@@ -991,7 +1019,7 @@ describe('claims.enforceClaims: the judge cannot bring a removed finding back', 
     });
     const { decision: out } = enforceClaims(d, [result('REFUTED', RAND)]);
     expect(out.earlierRequests.map((e) => e.request)).toEqual([
-      '(summary removed by code: it repeated a refuted claim)',
+      '(summary left out: it repeated a claim its source refutes)',
       'Shorten the intro.',
     ]);
   });
@@ -1142,5 +1170,265 @@ describe('claims in the review, the logs and the approval note', () => {
     expect(full.length).toBeLessThanOrEqual(4_000);
     expect(full).toContain('5 refuted claim(s)');
     for (let i = 1; i <= 5; i++) expect(full).toContain(`${SHEET}:${i} (security-reviewer)`);
+  });
+
+  it('the whole approval note fits in 4,000 with the largest parts, refuted claims first (security review of #155)', () => {
+    const long = 'L'.repeat(600);
+    const host = `${'h'.repeat(240)}.example`;
+    const ten = Array.from({ length: 10 }, (_, i) =>
+      result('REFUTED', finding({ line: i + 1 }, { text: long }), { index: i, reason: long, host }),
+    );
+    const checks = Array.from({ length: 15 }, (_, i) => ({
+      url: `https://${'u'.repeat(250)}.example/${i}`,
+      file: SHEET,
+      line: i + 1,
+      moved: false,
+      status: 'broken (HTTP 404)',
+    }));
+    const fetched = Array.from({ length: 4 }, (_, i) => ({
+      url: `https://x${i}`,
+      host: `${'s'.repeat(1_900)}${i}.example`,
+      status: 'read' as const,
+    }));
+    const header = `REQUEST_CHANGES, REQUEST_CHANGES, 20 inline suggestion(s); run ${'0'.repeat(36)}`;
+    const note = `${header}${refutedNote(ten)}${linksNote(checks)}${sourcesNote(fetched)}`;
+    expect(note.length).toBeLessThanOrEqual(4_000);
+    expect(note).toContain('10 refuted claim(s)');
+    expect(note).toMatch(/…and \d+ more refuted claim\(s\)/);
+    expect(note).toContain('link(s) block this review');
+  });
+
+  it('never cuts silently: ten refuted claims on long hosts stay in budget and count the rest (tenth security review of #155)', () => {
+    const long = 'L'.repeat(600);
+    const host = `${'h'.repeat(240)}.example`;
+    const ten = Array.from({ length: 10 }, (_, i) =>
+      result('REFUTED', finding({ line: i + 1 }, { text: long }), { index: i, reason: long, host }),
+    );
+    const prefix = `REQUEST_CHANGES, COMMENT, 3 inline suggestion(s); run ${'0'.repeat(36)}`;
+    const sources =
+      '\n\nSources the security reviewer asked for (host:status): a.example:read, b.example:failed';
+    const full = `${prefix}${sources}${refutedNote(ten)}`;
+    expect(full.length).toBeLessThanOrEqual(4_000);
+    expect(full).toContain('10 refuted claim(s)');
+    expect(full).toMatch(/…and \d+ more refuted claim\(s\)/);
+    expect(full).toContain('a.example:read');
+    expect(full).not.toContain('h'.repeat(100));
+  });
+});
+
+describe('claims.withoutMachinery: the author never reads about the review machinery (#155)', () => {
+  it('removes sentences naming reviewers, auditors, verifiers, recollections, the second voice or the judge', () => {
+    const sentences = [
+      'The reviewers disagreed about this.',
+      "The reviewers' reports differ on this.",
+      'The claim verifier could not open the PDF.',
+      'The link audit flagged it.',
+      'The link auditor was unsure.',
+      'The verifier could not confirm it.',
+      'The recollections do not establish the claim.',
+      'The second voice agreed.',
+      'The judge weighed both.',
+    ];
+    for (const gone of sentences) {
+      const { decision: out, removed } = withoutMachinery(
+        decision({ rationale: `Keep this one. ${gone} And this one.` }),
+      );
+      expect(out.rationale, gone).toBe('Keep this one. And this one.');
+      expect(removed, gone).toBe(1);
+    }
+  });
+
+  it('keeps content that uses the same words: the PKCE code verifier, auditors in a logging sheet (lean review of #155)', () => {
+    const rationale =
+      'The new text lets the code verifier be reused, which RFC 7636 forbids. Auditors need tamper-evident logs. A reviewer of pull requests should check the scope.';
+    const { decision: out, removed } = withoutMachinery(decision({ rationale }));
+    expect(out.rationale).toBe(rationale);
+    expect(removed).toBe(0);
+  });
+
+  it('cleans the reply to the author the same way and counts both', () => {
+    const { decision: out, removed } = withoutMachinery(
+      decision({
+        rationale: 'The reviewers were split. The change adds a section.',
+        replyToAuthor: 'Thanks for the PR. The verifier did not agree. Please add a source.',
+      }),
+    );
+    expect(out.rationale).toBe('The change adds a section.');
+    expect(out.replyToAuthor).toBe('Thanks for the PR. Please add a source.');
+    expect(removed).toBe(2);
+  });
+
+  it('keeps ordinary prose, including "The PR reports..." and "reports" on their own', () => {
+    const d = decision({
+      rationale: 'The PR reports a bug in the example. The reports of breakage are old.',
+      replyToAuthor: 'The PR reports a fix. Thanks.',
+    });
+    const { decision: out, removed } = withoutMachinery(d);
+    expect(removed).toBe(0);
+    expect(out.rationale).toBe(d.rationale);
+    expect(out.replyToAuthor).toBe(d.replyToAuthor);
+  });
+
+  it('gives a neutral line when the rationale empties and drops an emptied reply', () => {
+    const { decision: out, removed } = withoutMachinery(
+      decision({
+        rationale: 'The judge decided. The reviewers agreed.',
+        replyToAuthor: 'The verifier objected.',
+      }),
+    );
+    expect(out.rationale).toBe('The findings below give the reasons.');
+    expect(out).not.toHaveProperty('replyToAuthor');
+    expect(removed).toBe(3);
+  });
+
+  it('leaves a decision with no reply without one', () => {
+    const { decision: out } = withoutMachinery(decision({ rationale: 'Fine.' }));
+    expect(out).not.toHaveProperty('replyToAuthor');
+  });
+});
+
+describe('claims.enforceClaims: an unchecked claim never changes a severity', () => {
+  const CLAIM = finding(
+    { severity: 'BLOCKER', line: 7, problem: 'RFC 9999 section 4 forbids the cookie flag here.' },
+    { text: 'RFC 9999 section 4 forbids it.', sourceUrl: 'https://example.com/rfc', locator: '4' },
+  );
+  const item = (severity: 'BLOCKER' | 'MAJOR' | 'MINOR') => ({
+    dimension: 'Security' as const,
+    severity,
+    file: SHEET,
+    line: 7,
+    text: 'RFC 9999 section 4 forbids the cookie flag here.',
+  });
+
+  it.each(['BLOCKER', 'MAJOR'] as const)(
+    'a NOT-FOUND %s must-fix keeps its severity and stays a must-fix, marked with the note',
+    (severity) => {
+      const d = decision({ mustFix: [item(severity)] });
+      const { decision: out } = enforceClaims(d, [result('NOT-FOUND', CLAIM)]);
+      expect(out.mustFix[0]?.severity).toBe(severity);
+      expect(out.mustFix[0]?.text.endsWith(UNCHECKED_NOTE)).toBe(true);
+      const n = normaliseDecision(out, false);
+      expect(n.mustFix).toHaveLength(1);
+      expect(n.shouldFix).toEqual([]);
+    },
+  );
+
+  it('a CONFIRMED finding keeps its severity and is not marked unchecked', () => {
+    const d = decision({ mustFix: [item('BLOCKER')] });
+    const { decision: out } = enforceClaims(d, [result('CONFIRMED', CLAIM)]);
+    expect(out.mustFix[0]?.severity).toBe('BLOCKER');
+    expect(out.mustFix[0]?.text).not.toContain(UNCHECKED_NOTE);
+    expect(out.mustFix[0]?.text).toContain('verified against');
+  });
+
+  it('a NOT-FOUND MINOR stays MINOR and is still marked', () => {
+    const { decision: out } = enforceClaims(decision({ shouldFix: [item('MINOR')] }), [
+      result('NOT-FOUND', CLAIM),
+    ]);
+    expect(out.shouldFix[0]?.severity).toBe('MINOR');
+    expect(out.shouldFix[0]?.text.endsWith(UNCHECKED_NOTE)).toBe(true);
+  });
+});
+
+describe('claims: pass-2 ("late") claims and the claim cap (security review of #155)', () => {
+  it('checks non-late claims first, even when late ones are BLOCKERs and more than MAX_CLAIMS', async () => {
+    const findings = [
+      ...[0, 1, 2].map((i) => finding({ severity: 'MINOR', problem: `early ${i}` })),
+      ...Array.from({ length: 12 }, (_, i) =>
+        finding({ severity: 'BLOCKER', problem: `late ${i}` }),
+      ),
+    ];
+    const late = (role: string, index: number) => role === 'security-reviewer' && index >= 3;
+    const f = fakes(
+      () => pdf(),
+      (req) => {
+        const ids = [...req.user.matchAll(/^Claim id: (C\d+)$/gm)].map((m) => m[1] ?? '');
+        return verdicts(ids.map((id) => ({ id, verdict: 'CONFIRMED' })));
+      },
+    );
+    const r = await claimStage(
+      snap(),
+      [{ role: 'security-reviewer', report: report(findings) }],
+      f.deps,
+      new Map(),
+      late,
+    );
+    const checked = r.results.filter((x) => x.verdict === 'CONFIRMED');
+    expect(checked).toHaveLength(MAX_CLAIMS);
+    for (const i of [0, 1, 2]) expect(checked.some((x) => x.index === i)).toBe(true);
+    // The five that do not fit are all late ones: the cap never costs an earlier claim.
+    const over = r.results.filter((x) => x.verdict === 'NOT-FOUND');
+    expect(over).toHaveLength(5);
+    for (const s of over) expect(s.index).toBeGreaterThanOrEqual(3);
+  });
+
+  it('a page only the reviewer fetched confirms, but never refutes, an earlier finding (third security review of #155)', async () => {
+    const FETCHED = 'https://www.rfc-editor.org/rfc/rfc10027.html#section-6.1.12';
+    const early = finding({ severity: 'BLOCKER' }, { sourceUrl: FETCHED, locator: '6.1.12' });
+    const added = finding(
+      { severity: 'MAJOR', problem: 'added' },
+      { sourceUrl: FETCHED, locator: '6.1.12' },
+    );
+    const page: SourceDoc = {
+      kind: 'text',
+      format: 'html',
+      text: '6.1.12. Sender-Constrained Tokens text',
+    };
+    const f = fakes(
+      () => pdf(),
+      (req) => {
+        const ids = [...req.user.matchAll(/^Claim id: (C\d+)$/gm)].map((m) => m[1] ?? '');
+        return verdicts(ids.map((id) => ({ id, verdict: 'REFUTED' })));
+      },
+    );
+    const r = await claimStage(
+      snap(),
+      [{ role: 'security-reviewer', report: report([early, added]) }],
+      f.deps,
+      new Map([[FETCHED, page]]),
+      (_role, index) => index >= 1,
+    );
+    expect(f.fetched).toEqual([]); // reused, never fetched again
+    expect(r.results.find((x) => x.index === 0)).toMatchObject({
+      verdict: 'NOT-FOUND',
+      by: 'code',
+      reason: 'a source the reviewer fetched cannot refute an earlier finding',
+    });
+    expect(r.results.find((x) => x.index === 1)).toMatchObject({ verdict: 'REFUTED' });
+  });
+});
+
+describe('claims: a failed verifier leaves the claim unchecked, never weaker', () => {
+  const one = [{ role: 'security-reviewer' as const, report: report([finding()]) }];
+
+  it('a verifier that is unavailable (every model throws) gives NOT-FOUND by code', async () => {
+    const f = fakes(
+      () => pdf(),
+      () => new Error('down'),
+    );
+    const r = await claimStage(snap(), one, f.deps);
+    expect(r.results).toMatchObject([
+      { verdict: 'NOT-FOUND', by: 'code', reason: 'the claim verifier was unavailable' },
+    ]);
+  });
+
+  it('a claim the verifier gives no verdict for is NOT-FOUND by code', async () => {
+    const f = fakes(
+      () => pdf(),
+      () => verdicts([{ id: 'C99', verdict: 'CONFIRMED' }]),
+    );
+    const r = await claimStage(snap(), one, f.deps);
+    expect(r.results).toMatchObject([
+      { verdict: 'NOT-FOUND', by: 'code', reason: 'the claim verifier gave no verdict' },
+    ]);
+  });
+
+  it('a NOT-FOUND from a failed verifier leaves the security BLOCK as it was', () => {
+    const blocker = finding({ severity: 'BLOCKER' });
+    const out = reportsForJudge(
+      [{ role: 'security-reviewer', report: report([blocker], 'BLOCK') }],
+      [result('NOT-FOUND', blocker, { reason: 'the claim verifier was unavailable' })],
+    );
+    expect(out[0]?.report.verdict).toBe('BLOCK');
   });
 });

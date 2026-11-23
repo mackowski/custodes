@@ -1,6 +1,6 @@
 # 0017. cheatsheet-review: a multi-model pull request reviewer started by the operator's label
 
-- Status: accepted
+- Status: accepted (amended 2026-11-19)
 - Date: 2026-10-29
 - Deciders: Jakub Maćkowski
 
@@ -355,7 +355,9 @@ REFUTED claim, a dropped CONFIRMED one is not listed for the operator. Owner: op
 **Evals:** judge cases for the 3001 shape (MERGE, no RFC 10027 finding) and the 2901 shape (no
 process request, no `unclear`); link-auditor cases for two false UNSUPPORTED verdicts from the same
 day (OWASP PRs 2976 and 3005); a security-reviewer case where a finding that only doubts a real
-source carries no claim (3001 shape); and an injection case where a hidden comment in the diff
+source carries no claim (3001 shape; removed on 2026-11-23 by the operator: since 0.3.0 the link
+audit checks that a source exists and the reviewer raises a doubtful section as a claim, so the
+case only caught that wording); and an injection case where a hidden comment in the diff
 tells the judge the confirmed claim answers the finding (the judge must keep the 2878 must-fix).
 The 2878 judge case (a CONFIRMED wrong section number stays a must-fix) is unchanged. The judge's
 input now says that code removes REFUTED findings and that CONFIRMED ones are the judge's to weigh.
@@ -378,3 +380,76 @@ places. Decisions (operator, /grill-plan):
   the link audit fetched and accepted; with any other link, mention or HTML the text is not shown.
   Never a "[removed]" link (OWASP PRs 2976, 3008).
 - Size facts count every line; "verified against" shows the host without `www.`.
+
+## Amendment (2026-11-19): fixes from the A/B test against the original OWASP command (#155)
+
+**Context.** Issue #155 graded cheatsheet-review@0.2.0 (B) blind against the original OWASP
+command (A, Opus 5.5) on 28 OWASP pull requests:
+
+- **Scores:** A 103.0, B 45.5.
+- **Verdicts:** B was better (22 of 23 right in round 2, against 20 of 22 for A).
+- **Where B lost points:**
+  - false link and claim alarms that became must-fixes (OWASP PRs 3001, 2976, 3008, 3005, 2955,
+    2956, 2941);
+  - citations to the wrong section that were not caught, or were caught by a reviewer and then
+    dropped by the judge (3001, 2878);
+  - no "what this control does not protect against" (3001, 3008);
+  - internal pipeline wording in the posted text;
+  - a size line read from the moving default branch;
+  - caps that left work undone.
+
+**Decision (operator, 2026-11-19, /grill-plan).**
+
+- **Links as in the original OWASP command.** WRONG-PAGE, UNSUPPORTED and DIFFERENT-RESOURCE stay
+  blocking, and NOT-FOUND still never weakens a finding. The false alarms came from a cheap model
+  reading 8,000 characters, so the fix is on the reading side:
+  - The link auditor is Claude Sonnet 5.5 (fallback DeepSeek V4.1 Flash).
+  - It reads up to 40,000 characters a page, within 160,000 a call.
+  - The approval note lists every blocking link with its URL, so the operator rejects a false
+    alarm instead of code softening it.
+  - A first plan, in which code demoted these readings to MINOR, was implemented, then reverted
+    on the operator's call. Ten security review rounds showed that every path producing NOT-FOUND
+    became a lever for weakening a review.
+- **Excerpts start at the cited anchor.** HTML text starts at the element the URL's `#fragment`
+  names, for the link audit and the claim sources. This **reverses #154's ruled-out item**
+  ("excerpting the section an anchor points to"): rounds 1 and 2 showed cited anchors beyond the
+  first 8,000 characters (2955, 2956).
+- **Prompts.**
+  - The security reviewer checks that the cited section states the specific thing (item 6) and
+    names the attack each control does not stop (item 7). Practicality checks what a relied-on
+    control leaves exposed.
+  - The link auditor judges the sentence's specific assertion.
+  - Judge rule 8 lists what never to mention. Rule 10 never drops an unchecked finding only
+    because it was not verified.
+- **Code removes machinery wording.** Sentences naming the review's machinery are removed from the
+  rationale and the reply (`withoutMachinery`). Code-written notes no longer name the auditor, the
+  verifier or "code". URLs that were not checked are shown in code spans instead of being defanged.
+- **The size line's "before" comes from the head and the diff**, not the default branch.
+- **Caps:** 10 claims (was 5); 5 further citing sentences per URL (was 2).
+- The security reviewer's source fetch is ADR 0020.
+
+**Ruled out.**
+
+- A host allowlist for the source fetch (ADR 0020).
+- The tool for the second voice.
+- A broker read with `ref` for the size line, which would need a schema and policy change.
+- A wide "reports" word in the machinery filter.
+
+**Ruled out after implementation (operator, 2026-11-19).** Demoting link-auditor readings and
+unchecked claims to MINOR in code. It reached the goal, but each NOT-FOUND source then needed its
+own exception: injection, the claim cap, verifier failure, pass-2 claims and author-controlled
+pages. That was too much machinery for a link check.
+
+**Accepted risk (operator, 2026-11-19).** A false link alarm can still produce REQUEST_CHANGES. On
+OWASP the operator sees the blocking links listed on the approval page and rejects a wrong one; on
+the sandbox it posts. Owner: operator.
+
+**Evals:**
+
+- security `cases-155.yaml` (first reviewer only): 3001 control limits and the wrong section,
+  3008 mTLS preflight, and an injection that asks for an exfiltration source (a 2970 `Origin: null`
+  case was removed on 2026-11-23 by the operator: it measured the model's Django knowledge, which
+  passed on one run in two);
+- links +2 (run on Claude Sonnet 5.5): the sentence-level assertion, and an injection inside the anchored section;
+- judge +1: the 2878 finding is kept, with no machinery words;
+- new suite `cheatsheet-review-sources` (ADR 0020).

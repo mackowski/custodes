@@ -93,11 +93,35 @@ export interface SheetSize {
  * when the file has no final newline): a maintainer compares this fact with the diff (OWASP PR 3004 showed 59 → 66 for a 96 → 107 line file).
  */
 export function sheetSize(markdown: string): SheetSize {
-  const fences = (markdown.match(/^\s{0,3}(`{3,}|~{3,})/gm) ?? []).length;
   const lines = markdown === '' ? 0 : markdown.replace(/\r?\n$/, '').split(/\r?\n/).length;
   return {
-    words: (markdown.match(/\S+/g) ?? []).length,
+    words: words(markdown),
     lines,
-    codeBlocks: Math.floor(fences / 2),
+    codeBlocks: Math.floor(fences(markdown) / 2),
+  };
+}
+
+const fences = (text: string) => (text.match(/^\s{0,3}(`{3,}|~{3,})/gm) ?? []).length;
+const words = (text: string) => (text.match(/\S+/g) ?? []).length;
+
+/**
+ * The sheet before this pull request, from its head content and the diff (#155): head minus added
+ * lines plus removed lines. The default branch is not the base: once it moves on, its size no longer
+ * matches the diff (OWASP PRs 2902 → 2925 → 2927 chained 596 → 506 → 416). Undefined when the patch
+ * does not account for every changed line (GitHub leaves `patch` out of large diffs).
+ */
+export function sizeBefore(
+  head: string,
+  added: readonly string[],
+  removed: readonly string[],
+  counts: { additions: number; deletions: number },
+): SheetSize | undefined {
+  if (added.length !== counts.additions || removed.length !== counts.deletions) return undefined;
+  const h = sheetSize(head);
+  const join = (l: readonly string[]) => l.join('\n');
+  return {
+    words: h.words - words(join(added)) + words(join(removed)),
+    lines: h.lines - added.length + removed.length,
+    codeBlocks: Math.floor((fences(head) - fences(join(added)) + fences(join(removed))) / 2),
   };
 }
