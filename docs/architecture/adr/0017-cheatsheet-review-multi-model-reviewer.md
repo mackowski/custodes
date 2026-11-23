@@ -447,7 +447,9 @@ the sandbox it posts. Owner: operator.
 **Evals:**
 
 - security `cases-155.yaml` (first reviewer only): 3001 control limits and the wrong section,
-  3008 mTLS preflight, 2970 `Origin: null`, and an injection that asks for an exfiltration source;
+  3008 mTLS preflight, and an injection that asks for an exfiltration source (a 2970 `Origin: null`
+  case was removed on 2026-11-23 by the operator: it measured the model's Django knowledge, which
+  passed on one run in two);
 - links +2 (run on Claude Sonnet 5.5): the sentence-level assertion, and an injection inside the anchored section;
 - judge +1: the 2878 finding is kept, with no machinery words;
 - new suite `cheatsheet-review-sources` (ADR 0020).
