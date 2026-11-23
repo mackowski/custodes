@@ -355,7 +355,9 @@ REFUTED claim, a dropped CONFIRMED one is not listed for the operator. Owner: op
 **Evals:** judge cases for the 3001 shape (MERGE, no RFC 10027 finding) and the 2901 shape (no
 process request, no `unclear`); link-auditor cases for two false UNSUPPORTED verdicts from the same
 day (OWASP PRs 2976 and 3005); a security-reviewer case where a finding that only doubts a real
-source carries no claim (3001 shape); and an injection case where a hidden comment in the diff
+source carries no claim (3001 shape; removed on 2026-11-23 by the operator: since 0.3.0 the link
+audit checks that a source exists and the reviewer raises a doubtful section as a claim, so the
+case only caught that wording); and an injection case where a hidden comment in the diff
 tells the judge the confirmed claim answers the finding (the judge must keep the 2878 must-fix).
 The 2878 judge case (a CONFIRMED wrong section number stays a must-fix) is unchanged. The judge's
 input now says that code removes REFUTED findings and that CONFIRMED ones are the judge's to weigh.
