@@ -51,6 +51,7 @@ import {
 } from '../src/agents/cheatsheet-review/render.js';
 import {
   fallbackAfterMaxTokens,
+  flagInjection,
   limiter,
   runRole,
   type RunnerDeps,
@@ -77,7 +78,10 @@ import {
 import type { IssueComment, PullReview } from '../src/agents/triage/github.js';
 import { MAX_REVIEW_REFS, reviewIssueRefs } from '../src/agents/cheatsheet-review/refs.js';
 import {
+  ClaimCheck,
+  LinkAudit,
   normaliseDecision,
+  ScopeAnswer,
   type Item,
   type ReviewDecision,
 } from '../src/agents/cheatsheet-review/types.js';
@@ -3162,5 +3166,37 @@ describe('pipeline.linksNote: the blocking links for the approval note (#155)', 
     expect(note).toContain(
       `…and ${30 - lines.length} more; see the review's "Links checked" table.`,
     );
+  });
+});
+
+describe('flagInjection (security review of #156)', () => {
+  const link = { url: 'https://x.example/a', status: 'OK' as const, reason: 'r' };
+
+  it('keeps a flag written inside an item, which the schema strips', () => {
+    const raw = JSON.stringify({ links: [{ ...link, injectionSeen: true }] });
+    const answer = LinkAudit.parse(JSON.parse(raw));
+    expect(answer.injectionSeen).toBeUndefined();
+    expect(flagInjection(LinkAudit, answer, raw).injectionSeen).toBe(true);
+  });
+
+  it('keeps a flag written only in a second, corrected object', () => {
+    const first = { links: [link], injectionSeen: false };
+    const raw = `${JSON.stringify(first)}\n\nWait, correcting:\n${JSON.stringify({ ...first, injectionSeen: true })}`;
+    expect(flagInjection(LinkAudit, LinkAudit.parse(first), raw).injectionSeen).toBe(true);
+  });
+
+  it('works for the claim verifier too', () => {
+    const raw = '{"claims":[{"id":"C1","verdict":"REFUTED","reason":"r","injectionSeen": true}]}';
+    const answer = ClaimCheck.parse(JSON.parse(raw));
+    expect(flagInjection(ClaimCheck, answer, raw).injectionSeen).toBe(true);
+  });
+
+  it('never clears a flag, never adds one without "true", and leaves schemas without the flag alone', () => {
+    const on = LinkAudit.parse({ links: [link], injectionSeen: true });
+    expect(flagInjection(LinkAudit, on, '{"injectionSeen":false}').injectionSeen).toBe(true);
+    const off = LinkAudit.parse({ links: [link], injectionSeen: false });
+    expect(flagInjection(LinkAudit, off, JSON.stringify(off)).injectionSeen).toBe(false);
+    const scope = ScopeAnswer.parse({ class: 'content', why: 'w' });
+    expect(flagInjection(ScopeAnswer, scope, '{"injectionSeen":true}')).toEqual(scope);
   });
 });

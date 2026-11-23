@@ -2143,6 +2143,37 @@ describe('cheatsheet-review: link auditor statuses (#155)', () => {
     },
   );
 
+  it.each([
+    [
+      'inside the link',
+      JSON.stringify({
+        links: [{ url: URL_, status: 'OK', reason: 'because', injectionSeen: true }],
+      }),
+    ],
+    [
+      'in a second, corrected object',
+      `${JSON.stringify({ links: [{ url: URL_, status: 'OK', reason: 'because' }], injectionSeen: false })}\n\nWait, correcting:\n${JSON.stringify({ links: [{ url: URL_, status: 'OK', reason: 'because' }], injectionSeen: true })}`,
+    ],
+  ])(
+    'an auditor that flagged injection %s still cannot keep the link live (security review of #156)',
+    async (_where, answer) => {
+      const r = await drive({
+        scenario: sc(),
+        fetchImpl: html,
+        script: (role, req) =>
+          role.startsWith('security')
+            ? REPORT
+            : role === 'link-auditor'
+              ? answer
+              : defaultScript(decisionJson({ mustFix: [], suggestions: [] }))(role, req),
+      });
+      expect(r.out).toMatchObject({ ok: true });
+      expect(linkReport(r)).toMatch(/"severity":"BLOCKER"[^}]*UNSUPPORTED[^}]*tried to instruct/);
+      expect(linkReport(r)).not.toContain('because');
+      expect(reviewActs(r)[0]?.body ?? '').not.toContain(`<${URL_}>`);
+    },
+  );
+
   it('an auditor that saw injection and left a link out cannot keep it live: UNSUPPORTED, a BLOCKER', async () => {
     const r = await drive({
       scenario: sc(),
