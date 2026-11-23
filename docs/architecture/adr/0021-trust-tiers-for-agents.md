@@ -48,12 +48,18 @@ kind of write.
 
 **Controls by tier.** Each tier adds to the one below.
 
-| Tier | Required controls                                                                                                                                                                                                                                                                                                             |
-| ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| T0   | Reads only through `/v1/read`; `untrusted()` and `parseStructured()`; evals with injection cases.                                                                                                                                                                                                                             |
-| T1   | Policy entry, kill switch, rate limits, signed attestation. May act under the operator's account with a trailer or attestation. A code-computed write has a broker diff validator and a snapshot check.                                                                                                                       |
-| T2   | Before the first T2 write **outside the sandbox repository**: a bot identity (#141), output guardrails (#136), a garak baseline (#137), broker content constraints (paths, size, new link domains; #139), a review gate (cheatsheet-review plus the operator's approval), and the supervisor (#135) if the agent runs a loop. |
-| T3   | A sandbox with no credentials and network only to the broker and AI Gateway (#142).                                                                                                                                                                                                                                           |
+| Tier | Required controls                                                                                                                                                                                                                                                                                                                         |
+| ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| T0   | Reads only through `/v1/read`; `untrusted()` and `parseStructured()`; `guard()` before every model call and report; evals with injection cases.                                                                                                                                                                                           |
+| T1   | Policy entry, kill switch, rate limits, signed attestation. May act under the operator's account with the broker's visible trailer (hidden only for `hitl` + `bundleOnly`, ADR 0019). A code-computed write has a broker diff validator and a snapshot check, and goes only to a pull request's head branch, never to the default branch. |
+| T2   | Before the first T2 write **outside the sandbox repository**: a bot identity (#141), output guardrails (#136), a garak baseline (#137), broker content constraints (paths, size, new link domains; #139), a review gate (cheatsheet-review plus the operator's approval), and the supervisor (#135) if the agent runs a loop.             |
+| T3   | A sandbox with no credentials and network only to the broker and AI Gateway (#142).                                                                                                                                                                                                                                                       |
+
+**Approve and merge.** They are T1 by capability, and the riskiest T1 actions (#139). No agent has
+them today: `pr.review` was retired because it could approve (`security-controls.md`), and the
+threat model accepts the operator's admin-account PAT only because no agent can approve or merge. A
+`pr.approve` or `pr.merge` action therefore needs its own ADR that amends that accepted risk; merge
+stays HITL (#132).
 
 **What unlocks HOTL** (mode axis, any tier above T0). An action class moves from HITL to HOTL only
 when (1) its hard limits are enforced by the broker in code with tests, not by the prompt, (2) it
@@ -63,11 +69,14 @@ pr-gate went HOTL before (3) existed (ADR 0011, ADR 0013); the rule applies from
 **A loop is not a tier.** Every agent that runs a model loop (#140) needs round and budget caps,
 checks on tool calls, and `untrusted()` on tool results, at every tier including T0.
 
-**Triggering automation.** A label that starts one of our agents is a handoff: the target agent's
-controls apply (cheatsheet-review checks who added the label and gates OWASP behind an approval).
-Starting an external automation (`jules`) needs that automation's tier, so the
-`AUTOMATION_TRIGGER_LABELS` ban stays for every agent below it. backlog-review may add
-`custodes_cheatsheet_review` (#132, update 2).
+**Triggering automation.** Adding a label from `AUTOMATION_TRIGGER_LABELS` does not change an
+agent's tier, but no agent may add one today (ADR 0019, policy test): with the operator's PAT the
+label passes as the operator's, and cheatsheet-review's hotl mode rests on the label being the
+operator's decision (ADR 0017). `jules` stays banned for every agent. The handoff backlog-review
+needs (#132, update 2) comes with its own ADR that amends ADR 0017 and ADR 0019 with: cheatsheet-review
+telling an agent-added label from the operator's (for example by the broker attestation of that
+`issue.label.add`), approval on every repository for agent-started runs, at most one run per head
+SHA, and a daily cap.
 
 **cheatsheet-review exception.** It is T2 and posts under the operator's account without
 guardrails, garak or content constraints. This is accepted while every OWASP review needs the
@@ -88,7 +97,10 @@ already enforces actions, so it does not check tiers per request.
 - Tier raised by risk: every risky T1 action (merge, approve) would pull its agent into T2 controls
   that address model-authored content, not risk.
 - Every trigger inherits the target's tier: makes backlog-review T2 for adding the cheatsheet-review
-  label, although cheatsheet-review applies its own controls.
+  label; the label is controlled by its own rules instead (above).
+- Allowing the cheatsheet-review label for our agents in this ADR: cheatsheet-review cannot tell an
+  agent's label from the operator's, so it would pre-authorise what ADR 0017 and ADR 0019 forbid
+  (security review of #162).
 - The broker checks the tier on each request: duplicates action enforcement it already does.
 - A `tier` field and CI checks now: #139 and #140 replace the policy schema and the agent
   definition, so they would be reworked within weeks.
@@ -96,7 +108,8 @@ already enforces actions, so it does not check tiers per request.
 ## Consequences
 
 - New agents get their controls from their tier instead of a per-agent debate. backlog-review can
-  run HOTL as T1 under the operator's account without waiting for #141.
+  run HOTL as T1 under the operator's account without waiting for #141; its label handoff and any
+  approve or merge still need their own ADRs (above).
 - #134 and #133b can be built on the sandbox; their first OWASP write waits for every T2 control.
 - #142 (sandbox) is not needed until an agent reaches T3.
 - Agent pages and `docs/agents/README.md` show a tier next to the mode.
