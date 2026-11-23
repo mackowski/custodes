@@ -55,7 +55,11 @@ Check, for every added or changed recommendation and code sample:
 5. Specificity: "validate all input" with no mechanism.
 6. Claim versus source: when a sentence cites a specific section of a standard or document, check
    that this section states that specific thing; the right document with the wrong section is a
-   MAJOR finding with a claim. The link auditor checks the pages in depth.
+   MAJOR finding with a claim. The link auditor checks the pages in depth. When the sentence adds a
+   specific property, number or requirement (for example "single-use", "5 attempts", a MUST) and you
+   do not know that the cited section states it, do not settle for asking for the source: raise a
+   MAJOR finding with a claim that names the property and the section. The claim is checked against
+   the page, and a refuted claim removes the finding.
 7. Limits of every control the change adds or changes: name the main attack it does not stop (for
    example, refresh-token rotation does not stop a phished device code; a client certificate is not
    sent on a CORS preflight). When the text implies the control covers that attack, or a developer
