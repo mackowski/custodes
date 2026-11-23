@@ -2174,6 +2174,27 @@ describe('cheatsheet-review: link auditor statuses (#155)', () => {
     },
   );
 
+  it('a flag in a first answer that failed to parse still counts after a clean repaired answer (security review of #156)', async () => {
+    const r = await drive({
+      scenario: sc(),
+      fetchImpl: html,
+      script: (role, req) =>
+        role.startsWith('security')
+          ? REPORT
+          : role === 'link-auditor'
+            ? req.user.includes('could not be parsed')
+              ? JSON.stringify({ links: [{ url: URL_, status: 'OK', reason: 'because' }] })
+              : JSON.stringify({
+                  links: [{ url: URL_, status: 'FINE', reason: 'because' }],
+                  injectionSeen: true,
+                })
+            : defaultScript(decisionJson({ mustFix: [], suggestions: [] }))(role, req),
+    });
+    expect(r.out).toMatchObject({ ok: true });
+    expect(linkReport(r)).toMatch(/"severity":"BLOCKER"[^}]*UNSUPPORTED[^}]*tried to instruct/);
+    expect(reviewActs(r)[0]?.body ?? '').not.toContain(`<${URL_}>`);
+  });
+
   it('an auditor that saw injection and left a link out cannot keep it live: UNSUPPORTED, a BLOCKER', async () => {
     const r = await drive({
       scenario: sc(),

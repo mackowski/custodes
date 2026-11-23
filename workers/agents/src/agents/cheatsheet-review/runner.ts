@@ -119,7 +119,8 @@ async function ask<S extends z.ZodType>(
   } catch (err) {
     if (!(err instanceof StructuredOutputError)) throw err;
     const again = await call(`${user}\n\n${REPAIR}`);
-    return flagInjection(schema, parseStructured(schema, again.text), again.text);
+    // The first answer's flag counts even when only the repaired answer parses.
+    return flagInjection(schema, parseStructured(schema, again.text), `${res.text}\n${again.text}`);
   }
 }
 
