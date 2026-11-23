@@ -115,27 +115,12 @@ async function ask<S extends z.ZodType>(
     res = await call(user);
   }
   try {
-    return flagInjection(schema, parseStructured(schema, res.text), res.text);
+    return parseStructured(schema, res.text);
   } catch (err) {
     if (!(err instanceof StructuredOutputError)) throw err;
     const again = await call(`${user}\n\n${REPAIR}`);
-    // The first answer's flag counts even when only the repaired answer parses.
-    return flagInjection(schema, parseStructured(schema, again.text), `${res.text}\n${again.text}`);
+    return parseStructured(schema, again.text);
   }
-}
-
-const INJECTION_TRUE = /"injectionSeen"\s*:\s*true\b/;
-
-/**
- * A model that saw an injection keeps that flag wherever it wrote it: inside an item (which the
- * schema strips) or in a second, "corrected" object (which parsing ignores). Only ever adds the
- * flag, and only for answers whose schema has one (security review of #156).
- */
-export function flagInjection<T>(schema: z.ZodType, answer: T, raw: string): T {
-  const shape = (schema as { shape?: Record<string, unknown> }).shape;
-  if (shape?.['injectionSeen'] === undefined) return answer;
-  if (typeof answer !== 'object' || answer === null || !INJECTION_TRUE.test(raw)) return answer;
-  return { ...answer, injectionSeen: true };
 }
 
 /**
