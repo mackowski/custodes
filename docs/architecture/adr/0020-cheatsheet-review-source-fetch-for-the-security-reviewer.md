@@ -104,7 +104,8 @@ pass 2 cannot ask for more.
   like the link audit, with no credentials. A model can ask for a public `github.com` or
   `raw.githubusercontent.com` page, as the link audit already fetches links an author cites. These
   are anonymous reads of public web pages, not GitHub API calls through the broker. Invariant 1 is
-  about credentials and the broker's `/v1/read`, and is unchanged.
+  about credentials and the broker's `/v1/read`; on 2026-11-23 the operator reworded it to "every
+  GitHub API read" to say so.
 - **The claim checks stay a safeguard, never a weapon.** Security review, 2026-11-19:
   - A page only the reviewer fetched may confirm any claim, but may refute only a claim on a finding
     that pass 2 added. For an earlier finding, REFUTED becomes NOT-FOUND: the finding cannot be
