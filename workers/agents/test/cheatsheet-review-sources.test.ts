@@ -43,9 +43,10 @@ describe('sources.requestable', () => {
     expect(requestable('https://www.rfc-editor.org:443/x')).toBe(true);
   });
 
-  it('refuses the GitHub API and Workers hosts (api.github.com, workers.dev, *.workers.dev)', () => {
+  it('refuses the GitHub API and Workers hosts (api/uploads.github.com, workers.dev, *.workers.dev)', () => {
     for (const url of [
       'https://api.github.com/x',
+      'https://uploads.github.com/x',
       'https://API.GITHUB.COM/x',
       'https://api.github.com./x',
       'https://foo.workers.dev/x',

@@ -142,7 +142,7 @@ reading: the auditor reads most of each page (Claude Sonnet 5.5; up to 40,000 ch
 within 160,000 a call, starting at the element the URL's `#anchor` names after the page's first 500
 characters) and judges the sentence's specific assertion. A false alarm is caught by the operator:
 the approval note lists every blocking link with its file, line and URL to open (`linksNote`), and
-a wrong one is rejected there. An auditor that saw injection cannot answer OK, and its reasons are replaced by a code-written one. Up to 5 further
+a wrong one is rejected there. An auditor that saw injection cannot answer OK (a link it leaves out blocks too), and its reasons are replaced by a code-written one. Up to 5 further
 sentences citing the same URL are audited (was 2).
 
 **Source fetch for the security reviewer** (ADR 0020, #155; the approval note lists the hosts it fetched, `host:status`): pass 1 may list up to 4
@@ -277,7 +277,7 @@ The label can also be removed from the repository's label list; nothing triggers
    - Pass 1 may ask for at most 4 URLs (`sourceRequests`). These are **model output steered by
      untrusted text**, so code treats them as untrusted input.
    - Code fetches them with `fetchLink`/`fetchSource`: `fetchable` on every hop (never
-     `api.github.com` or `*.workers.dev`), no userinfo, no non-default port, 10 s, 2 MB (10 MB for PDFs). There is no host allowlist (operator decision).
+     `api.github.com`, `uploads.github.com` or `*.workers.dev`), no userinfo, no non-default port, 10 s, 2 MB (10 MB for PDFs). There is no host allowlist (operator decision).
    - Each page, excerpted from its `#anchor` and at most 12,000 characters, reaches **only** pass 2
      of the same model, inside `untrusted('source:<host>')`. The claim verifier may check later
      claims against the same text, with no second fetch.

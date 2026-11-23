@@ -372,6 +372,23 @@ async function linkStage(snap: Snapshot, deps: PipelineDeps): Promise<LinkStage>
       });
       if (status !== 'LOW-AUTHORITY' && status !== 'STALE') allowed.delete(page.url);
     }
+    // A steered call that leaves a link out must not keep it live: unanswered links from that call
+    // block like an OK one would (security review of #156).
+    if (injectionSeen) {
+      const answered = new Set((r.answer?.links ?? []).map((v) => v.url));
+      for (const page of pages) {
+        if (answered.has(page.url)) continue;
+        const row = checks.find((c) => c.url === page.url);
+        if (row) row.status = 'UNSUPPORTED';
+        findings.push({
+          severity: 'BLOCKER',
+          file: page.file,
+          line: page.line,
+          problem: `UNSUPPORTED: \`${page.url.slice(0, 300)}\`: ${INJECTED_LINK_REASON}`,
+        });
+        allowed.delete(page.url);
+      }
+    }
     if (r.outcome.status === 'unavailable')
       notes.push('the sources could not be checked; check them by hand');
   }

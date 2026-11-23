@@ -450,7 +450,12 @@ export function fetchable(url: string): boolean {
   if (host === 'custodes.work' || host.endsWith('.custodes.work')) return false;
   // GitHub's API is read through the broker only (invariant 1), and Workers are not sources; on
   // every hop of every fetch (security review of #155).
-  if (host === 'api.github.com' || host === 'workers.dev' || host.endsWith('.workers.dev'))
+  if (
+    host === 'api.github.com' ||
+    host === 'uploads.github.com' ||
+    host === 'workers.dev' ||
+    host.endsWith('.workers.dev')
+  )
     return false;
   if (/^[\d.]+$/.test(host) || host.includes(':')) return false;
   return host.includes('.');

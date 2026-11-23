@@ -2132,6 +2132,23 @@ describe('cheatsheet-review: link auditor statuses (#155)', () => {
     expect(reviewActs(r)[0]?.body ?? '').not.toContain(`<${URL_}>`);
   });
 
+  it('an auditor that saw injection and left a link out cannot keep it live: UNSUPPORTED, a BLOCKER', async () => {
+    const r = await drive({
+      scenario: sc(),
+      fetchImpl: html,
+      script: (role, req) =>
+        role.startsWith('security')
+          ? REPORT
+          : role === 'link-auditor'
+            ? JSON.stringify({ links: [], injectionSeen: true })
+            : defaultScript(decisionJson({ mustFix: [], suggestions: [] }))(role, req),
+    });
+    expect(r.out).toMatchObject({ ok: true });
+    expect(linkReport(r)).toMatch(/"severity":"BLOCKER"[^}]*UNSUPPORTED[^}]*tried to instruct/);
+    expect(r.rows[0]).toMatchObject({ verdict: 'REQUEST_CHANGES' });
+    expect(reviewActs(r)[0]?.body ?? '').not.toContain(`<${URL_}>`);
+  });
+
   it('the approval note lists the blocking link with its file, line and URL, before the refuted claims', async () => {
     const r = await drive({
       scenario: { ...sc(), actFor: needsApproval },

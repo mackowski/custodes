@@ -116,6 +116,6 @@ pass 2 cannot ask for more.
     neither shown to the judge nor applied to judge items, which could be pass 1's.
   - NOT-FOUND never weakens a finding (#155 follows the original OWASP command), so there is
     nothing to exploit by making a check fail.
-  - `fetchable` refuses `api.github.com` and `*.workers.dev` on every hop of every fetch.
+  - `fetchable` refuses `api.github.com`, `uploads.github.com` and `*.workers.dev` on every hop of every fetch.
 - **Logging and tracing.** Logs and spans carry hosts and statuses. Page text appears only in trace
   spans while `TRACE_PAYLOADS` is `"true"` (ADR 0016).
