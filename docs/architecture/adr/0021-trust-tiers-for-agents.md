@@ -1,6 +1,6 @@
 # 0021. Trust tiers for agents
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-11-23
 - Deciders: Jakub Maćkowski
 
