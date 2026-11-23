@@ -13,6 +13,8 @@ Verified against `agents@0.24.0` (`dist/src-*.js`, `callable-decorator.js`) on 2
 
 Re-checked on `agents@0.28.0` (2026-10-15): the Agent constructor creates its `cf_agents_*` SQLite tables and persists the name before `onRequest` runs, and WebSocket upgrades go to `onConnect` (sends state/identity), never `onRequest`. So a 404 returned from `onRequest` does NOT prevent DO/state creation; an instance allow-list has to sit in the Worker `fetch` before `routeAgentRequest`.
 
+Re-checked on `agents@0.33.0` (2026-11-09): `routeAgentRequest` maps EVERY env value with `idFromName` (any DO binding, not only Agent classes) to `/agents/<kebab(binding)>/<name>` and calls `stub.fetch()`; all-caps names just lowercase (`KEYHOLDER` → `keyholder`). Any non-agent DO bound in a Worker that uses the router is HTTP-routable unless the Worker's own allow-list refuses its class segment. The router parses `pathname.split('/').filter(Boolean)`, so empty segments vanish: `/agents//keyholder/default` and `/agents//pr-gate-agent/evil` skip a `^/agents/([^/]+)/([^/]+)` allow-list (returns true on no match) and still route; the gateway's Hono `/agents/*` forwards them (verified 2026-11-09). Allow-lists must split the same way or refuse `//`.
+
 **Why:** These decide whether a finding is "any Access user" (client-reachable) or "another agent in the same Worker" (accepted shared trust domain), and whether cost caps can be bypassed.
 
 **How to apply:** Check version first (`node_modules/.pnpm/agents@*`); hook names may change. Flag any new `@callable()` as client-reachable surface behind Access.

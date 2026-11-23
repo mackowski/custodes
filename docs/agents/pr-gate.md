@@ -1,6 +1,6 @@
 # pr-gate
 
-- Version: 0.1.0 · Mode: **hotl**, closing enabled (`PR_GATE_ENFORCE="true"`)
+- Tier: **T1** (ADR 0021) · Version: 0.1.0 · Mode: **hotl**, closing enabled (`PR_GATE_ENFORCE="true"`)
 - Repositories: OWASP/CheatSheetSeries, and mackowski/custodes-sandbox for tests (ADR 0012)
 - Class: `workers/agents/src/agents/pr-gate.ts` · Logic: `workers/agents/src/agents/pr-gate/`
 - Policy: `agents.pr-gate` (`pr.close`, 5/h) and `reads.pr-gate` (`pulls`, `pull_files`, `issue`,

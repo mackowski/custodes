@@ -22,5 +22,6 @@
 | [0018](0018-one-worker-per-agent-and-agent-held-signing-keys.md)         | One Worker per agent and agent-held signing keys                                         | accepted (2026-11-16)           |
 | [0019](0019-one-click-triage-proposals.md)                               | One-click triage proposals (triage-apply)                                                | accepted (amended 2026-11-13)   |
 | [0020](0020-cheatsheet-review-source-fetch-for-the-security-reviewer.md) | cheatsheet-review: a bounded source fetch for the security reviewer                      | accepted                        |
+| [0021](0021-trust-tiers-for-agents.md)                                   | Trust tiers for agents (T0–T3), separate from mode and risk                              | accepted (2026-11-23)           |
 
 Create new records with the `/adr` skill.

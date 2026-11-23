@@ -1,6 +1,6 @@
 # proposal-review
 
-- Version: 0.1.0 · Mode: **readonly** · Repositories: OWASP/CheatSheetSeries; mackowski/custodes-sandbox for tests (ADR 0012, run on demand only)
+- Tier: **T0** (ADR 0021) · Version: 0.1.0 · Mode: **readonly** · Repositories: OWASP/CheatSheetSeries; mackowski/custodes-sandbox for tests (ADR 0012, run on demand only)
 - Class: `workers/agents/src/agents/proposal-review.ts` · Logic: `workers/agents/src/agents/specialists/`
 - Policy: no `agents` entry. `reads.proposal-review` allows `issue`, `comments`, `labels`,
   `cheatsheets`, `cheatsheet`, `timeline` (ADR 0010 and its 2026-10-13 amendment).
