@@ -6,7 +6,8 @@ of this diagram it touches, before and after, and updates this file when the flo
 (`docs/sdlc.md`, `.github/workflows/pr-architecture.yml`). Derived from the Workers' `wrangler.jsonc` files, the broker policy and the
 gateway routes, not from memory; when they disagree, the code is right and this file is stale.
 
-Last checked against the code: 2026-11-19 (#155, cheatsheet-review 0.3.0: the public web pages the
+Last checked against the code: 2026-11-23 (#139, ADR 0022: `policy.json` gains a declared `tier`
+per agent and a CI-only ceiling, `boundary.json`; no runtime flow changes). Before that, 2026-11-19 (#155, cheatsheet-review 0.3.0: the public web pages the
 agent fetches are drawn, including the sources its security reviewer asks for (ADR 0020); the size
 facts no longer read the default branch. Before that, 2026-11-18: tombstones, the `isolated` policy
 flag and the cutover workflow removed; triage keeps to new issues; the digest carries the author's

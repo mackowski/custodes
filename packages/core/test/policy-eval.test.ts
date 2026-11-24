@@ -14,6 +14,7 @@ const policy: Policy = {
   agents: {
     triage: {
       tokenBinding: 'PAT_TRIAGE',
+      tier: 'T1',
       mode: 'hotl',
       repos: ['OWASP/CheatSheetSeries', 'mackowski/custodes-sandbox'],
       actions: ['issue.comment', 'issue.label.add'],
@@ -136,6 +137,7 @@ describe('evaluatePolicy: approval per repository', () => {
       agents: {
         a: {
           tokenBinding: 'PAT_A',
+          tier: 'T1',
           mode: 'hotl',
           repos: ['o/r'],
           actions: ['issue.comment'],
@@ -155,6 +157,7 @@ describe('evaluatePolicy for read-only agents', () => {
       agents: {
         watcher: {
           tokenBinding: 'PAT_WATCHER',
+          tier: 'T1',
           mode: 'readonly',
           repos: ['OWASP/CheatSheetSeries'],
           actions: ['issue.comment'],

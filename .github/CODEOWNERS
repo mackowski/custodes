@@ -7,3 +7,20 @@
 /.github/workflows/                 @mackowski
 /.claude/settings.json              @mackowski
 /.claude/hooks/                     @mackowski
+
+# Keep these LAST: GitHub applies the last matching line. The policy ceiling (ADR 0022) and the code
+# that enforces it stay the operator's even if a directory above gets more owners; with the
+# code-owners ruleset, changing them needs the operator's review.
+/workers/github-broker/policy/boundary.json @mackowski
+/packages/schema/src/policy.ts              @mackowski
+/packages/schema/src/tiers.ts               @mackowski
+/packages/core/src/policy-eval.ts           @mackowski
+/packages/core/src/policy-boundary.ts       @mackowski
+/packages/core/test/policy-boundary.test.ts @mackowski
+/packages/core/vitest.config.ts             @mackowski
+/packages/core/package.json                 @mackowski
+/scripts/policy-diff.ts                     @mackowski
+/.github/CODEOWNERS                         @mackowski
+/.github/workflows/ci.yml                   @mackowski
+/.github/workflows/deploy-workers.yml       @mackowski
+/.github/workflows/pr-architecture.yml      @mackowski

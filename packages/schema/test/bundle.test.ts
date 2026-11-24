@@ -81,7 +81,13 @@ describe('issue.assign', () => {
 });
 
 describe('AgentPolicy approval fields', () => {
-  const base = { tokenBinding: 'PAT_X', mode: 'hitl', repos: ['o/r'], actions: ['issue.comment'] };
+  const base = {
+    tokenBinding: 'PAT_X',
+    mode: 'hitl',
+    tier: 'T1',
+    repos: ['o/r'],
+    actions: ['issue.comment'],
+  };
   it('defaults: no ttl or pending limit, visible trailer', () => {
     const p = AgentPolicy.parse(base);
     expect(p.approvalTtlHours).toBeUndefined();
@@ -113,6 +119,7 @@ describe('AgentPolicy approval fields', () => {
 describe('policy: a hidden trailer only behind a bundle approval (Claude review of #106)', () => {
   const agent = {
     tokenBinding: 'PAT_X',
+    tier: 'T1',
     mode: 'hitl',
     repos: ['mackowski/custodes-sandbox'],
     actions: ['issue.comment'],

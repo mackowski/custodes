@@ -48,6 +48,7 @@ describe('schema', () => {
       agents: {
         triage: {
           tokenBinding: 'PAT_TRIAGE',
+          tier: 'T1',
           mode: 'hotl',
           repos: ['OWASP/CheatSheetSeries'],
           actions: ['issue.comment', 'issue.label.add'],
@@ -206,7 +207,13 @@ describe('label actions and policy token bindings', () => {
       Policy.safeParse({
         version: 1,
         agents: {
-          x1: { tokenBinding, mode: 'hotl', repos: ['a/b'], actions: ['issue.comment'] },
+          x1: {
+            tokenBinding,
+            mode: 'hotl',
+            tier: 'T1',
+            repos: ['a/b'],
+            actions: ['issue.comment'],
+          },
         },
       }).success;
     expect(agent('PAT_X')).toBe(true);
@@ -222,6 +229,7 @@ describe('policy label grants', () => {
       agents: {
         x1: {
           tokenBinding: 'PAT_X',
+          tier: 'T1',
           mode: 'hotl',
           repos: ['a/b'],
           actions: ['issue.label.remove'],
