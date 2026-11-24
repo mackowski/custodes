@@ -17,6 +17,8 @@
 /packages/core/src/policy-eval.ts           @mackowski
 /packages/core/src/policy-boundary.ts       @mackowski
 /packages/core/test/policy-boundary.test.ts @mackowski
+/packages/core/vitest.config.ts             @mackowski
+/packages/core/package.json                 @mackowski
 /scripts/policy-diff.ts                     @mackowski
 /.github/CODEOWNERS                         @mackowski
 /.github/workflows/ci.yml                   @mackowski

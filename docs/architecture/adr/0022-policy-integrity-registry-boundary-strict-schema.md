@@ -46,7 +46,8 @@ We will:
 5. **Make the boundary the operator's.** CODEOWNERS gives `boundary.json` its own line, and the
    ruleset `code-owners` (created 2026-11-23) requires a code owner's review, with a bypass for the
    Admin role through pull requests only. The code that enforces the boundary (`policy.ts`,
-   `tiers.ts`, `policy-eval.ts`, `policy-boundary.ts` and its test, `policy-diff.ts`, plus
+   `tiers.ts`, `policy-eval.ts`, `policy-boundary.ts` and its test, the core package's
+   `vitest.config.ts` and `package.json` (they decide whether that test runs), `policy-diff.ts`, plus
    CODEOWNERS itself and the workflows that run the boundary test and the diff) has the same
    explicit lines, kept last in CODEOWNERS because GitHub applies the last matching line.
    Today the operator owns everything, so this changes nothing; once `policy/` has another code
@@ -90,7 +91,11 @@ Broker content constraints for write actions (paths, size, new link domains; a T
 - Closes the fail-open on unknown policy keys.
 - Authority still lives only in `policy.json` and the broker's evaluation; the boundary and the
   diff run in CI and add no runtime path.
-- The capability diff parses files from the pull request, which are untrusted: it executes
-  nothing, and every table cell keeps only a safe character set.
+- The capability diff parses files from the pull request, which are untrusted: it executes nothing
+  from them, and every table cell keeps only a safe character set. The script itself also comes
+  from the pull request, so when a PR changes `scripts/policy-diff.ts` its summary is not evidence
+  and the raw JSON diff is authoritative (the script needs the operator's review through CODEOWNERS).
+- A failing boundary test blocks the merge: the `check` job of `ci.yml`, which runs it, is a
+  required status check of the `main` ruleset, which has no bypass (as of 2026-11-24).
 - The boundary protects against a second maintainer only while they lack the Admin role and the
   `code-owners` ruleset stays active. Rulesets are set by hand, not in Terraform.
