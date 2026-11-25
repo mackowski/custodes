@@ -43,7 +43,8 @@ makes the policy decisions, in `packages/core`. Agents are declared in `agent.md
 bounded model loops over read tools, and end each run with one typed proposal. Deterministic code,
 not the model, routes that proposal to a side effect.
 
-**Agent definition.** Each agent or role is an `agent.md` file. The frontmatter has `id`, `tier`,
+**Agent definition.** Each agent or role is an `agent.md` file. The frontmatter is JSON (valid
+YAML, so no YAML parser is added) and has `id`, `tier`,
 `triggers`, `model`, `tools` (a subset of the agent's read policy plus runtime tools), `agents`
 (roles it may delegate to), `context` (SOP files bundled with it), `outputSchema` (the name of a
 zod schema in `packages/schema`, because zod cannot be written in Markdown) and `budget`. The body
@@ -70,7 +71,8 @@ passes the dispatcher only if:
 1. its target was read by a tool in this run, and the snapshot comes from that read;
 2. the evidence its action kind requires is re-verified by code through the broker (for example,
    `issue.close` needs a merged pull request that references the issue in its timeline);
-3. the run has made fewer than 10 HOTL writes. Every later action is raised to HITL.
+3. the run has made fewer than 10 HOTL writes. Every later action is raised to HITL;
+4. a label action names only labels in the agent's allow-list.
 
 Every rule that guards a write is enforced in the dispatcher or the broker, even when the same
 rule is also written in a `context` file for the model.
@@ -84,10 +86,14 @@ identical tool calls, undeclared tools and arguments outside the agent's scope.
 **Run tree.** An agent may be an orchestrator: a model agent that sees full issue and pull
 request content (through `untrusted()`), decides what to do and proposes actions. It never writes
 itself; its proposals go through the dispatcher like any other. It may hand an item to a child
-with `delegate(role, item)`, for example to keep a large pull request out of its own context.
+with `delegate(role, target)`, for example to keep a large pull request out of its own context.
+The tool takes a role and a structured target only: code builds the child's task, the child's
+proposal goes from the host straight to the dispatcher, and the parent gets back only action
+types, evidence and `needsHuman`, never the child's text.
 Children are roles inside the same agent identity: one Worker, key and policy entry (ADR 0018),
 listed in the orchestrator's `agents`. Children cannot delegate (depth 1). At most 3 children run
-at once and at most 60 per orchestrator run. Other deployed agents (cheatsheet-review, pr-gate)
+at once (the loop runs tool calls one at a time, so this binds only a host that runs children in
+parallel) and at most 60 per orchestrator run. Other deployed agents (cheatsheet-review, pr-gate)
 are described in `context` and reached only through broker actions, never by RPC.
 
 **Restart.** When a run hits its round cap, the runtime ends it and starts a fresh run. The fresh
@@ -97,7 +103,8 @@ summary. Spend carries over: the per-run budget covers the run and its restarts.
 restarts, the run is escalated to the digest.
 
 **Run-scoped kill.** Run state (`runId`, `parentRunId`, `killed`) lives in the agent's Durable
-Object, which is strongly consistent. The runtime checks it before every round. Killing a run kills
+Object, which is strongly consistent. The runtime checks it before every round and every tool
+call. Killing a run kills
 its whole tree. The operator kills a run from the CLI through the Access-protected gateway, which
 calls the agent's Durable Object; that route is new. Before every round the runtime also calls
 `guard()`, so the agent and fleet flags, which stay in KV and are read through the broker, stop a
@@ -187,3 +194,9 @@ uses.
   out-of-scope arguments, restart. Injection cases cover injection via tool results and
   cross-item injection (pull request A asks to close issue B, add the cheatsheet-review trigger
   label, or ping strangers), and `issue.close` without a merged pull request.
+
+## Update, 2026-11-25 (slice 2)
+
+The model price table that turns tokens into dollars lives in `packages/llm/src/prices.ts`, not
+in `models.ts`: changing `models.ts` starts every paid eval suite. A model with no price refuses
+to run instead of counting as free.
