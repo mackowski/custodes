@@ -251,30 +251,17 @@ export class AnthropicGateway {
         { type: 'text', content: clipPayload(req.system) },
       ]);
       // A runtime loop resends the whole history every round, and a span attribute past ADR
-      // 0016's limit is dropped whole: several messages become one clipped part (lean review of
-      // #140). A single message keeps its own shape.
+      // 0016's limit is dropped whole. Record only the newest two messages (the last tool-use turn
+      // and its results, or the one request), each clipped: every round traces what is new, with
+      // its own role (security review round 2 of #140).
       const asText = (m: MessageParam) =>
         typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
       span.payload(
         'gen_ai.input.messages',
-        req.messages.length === 1
-          ? req.messages.map((m) => ({
-              role: m.role,
-              parts: [{ type: 'text', content: clipPayload(asText(m)) }],
-            }))
-          : [
-              {
-                role: 'user',
-                parts: [
-                  {
-                    type: 'text',
-                    content: clipPayload(
-                      req.messages.map((m) => `${m.role}: ${asText(m)}`).join('\n\n'),
-                    ),
-                  },
-                ],
-              },
-            ],
+        req.messages.slice(-2).map((m) => ({
+          role: m.role,
+          parts: [{ type: 'text', content: clipPayload(asText(m)) }],
+        })),
       );
       const out = await withTimeout(this.cfg.timeoutMs ?? ANTHROPIC_TIMEOUT_MS, (signal) =>
         this.exchange(headers, body, signal, span),

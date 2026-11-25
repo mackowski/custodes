@@ -65,7 +65,7 @@ the results are weak.
 **Proposal and dispatcher.** A run ends with a `Proposal`: target, actions, evidence (short
 constrained refs such as `#12`, never prose) and reason. It carries no snapshot: the dispatcher
 attaches the one code built from this run's read of the target. A dispatcher in `core` routes each action by policy: a shadow or T0 agent's actions go
-to the digest, an action that needs approval goes to an approval bundle (#143), and a HOTL action
+to the digest, an action that needs approval goes to an approval bundle (ADR 0024), and a HOTL action
 goes to `act()`. The model may raise an action to HITL (`needsHuman`), never lower one. An action
 passes the dispatcher only if:
 
@@ -79,7 +79,8 @@ passes the dispatcher only if:
 
 A shadow run passes the same checks before its actions reach the digest, so the shadow digest
 shows what a live run would do (ADR 0021's agreement threshold). The dispatcher calls the run guard
-before it routes and again before each direct write, so a killed tree never acts.
+before it routes and again before each direct write, so a killed tree never routes to act; the host calls
+the run guard again immediately before each `act()` it executes.
 
 Every rule that guards a write is enforced in the dispatcher or the broker, even when the same
 rule is also written in a `context` file for the model.
@@ -173,8 +174,8 @@ uses.
   ADR 0016 rule that payloads appear only in trace spans.
 - `cheatsheet_search` adds a GitHub code search dependency with a low rate limit. The round cap
   keeps a loop below it.
-- #140b and #135 build on this. #143 has to land before the dispatcher's HITL route can ask for
-  approvals on pull requests.
+- #140b and #135 build on this. #143 (ADR 0024, merged 2026-11-25) gives the dispatcher's HITL route
+  approvals on pull requests; runtime routes carry a `PullSnapshot` for them.
 
 ## Security considerations
 

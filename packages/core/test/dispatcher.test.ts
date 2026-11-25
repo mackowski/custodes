@@ -18,6 +18,8 @@ const SNAP = {
 };
 const target = { repo: REPO, kind: 'issue' as const, number: 7 };
 const read: TargetRead = { target, snapshot: SNAP };
+const PULL_SNAP = { ...SNAP, headSha: 'a'.repeat(40), reviewsDigest: 'c'.repeat(64) };
+const pullTarget = { repo: REPO, kind: 'pull' as const, number: 7 };
 
 const agent = (over: Partial<AgentPolicy> = {}): AgentPolicy => ({
   tokenBinding: 'PAT_X',
@@ -33,7 +35,12 @@ const agent = (over: Partial<AgentPolicy> = {}): AgentPolicy => ({
   bundleOnly: false,
   ...over,
 });
-const policyWith = (a: AgentPolicy): Policy => ({ version: 1, reads: {}, agents: { br: a } });
+const policyWith = (a: AgentPolicy): Policy => ({
+  version: 1,
+  reads: {},
+  maintainers: {},
+  agents: { br: a },
+});
 
 const comment: BrokerAction = { type: 'issue.comment', repo: REPO, issue: 7, body: 'ping' };
 const label: BrokerAction = { type: 'issue.label.add', repo: REPO, issue: 7, labels: ['docs'] };
@@ -97,8 +104,41 @@ describe('routeProposal', () => {
   });
 
   it('a pull request read does not count for an issue with the same number', async () => {
-    const pullRead = { target: { ...target, kind: 'pull' as const }, snapshot: SNAP };
+    const pullRead: TargetRead = { target: pullTarget, snapshot: PULL_SNAP };
     expect((await run({ reads: [pullRead] }))[0]).toMatchObject({ route: 'drop' });
+  });
+
+  it('routes a pull request action with the pull snapshot, head SHA included (ADR 0024)', async () => {
+    const pullRead: TargetRead = { target: pullTarget, snapshot: PULL_SNAP };
+    const routes = await run({
+      reads: [pullRead],
+      proposal: { ...proposal(), target: pullTarget },
+    });
+    expect(routes[0]).toMatchObject({ route: 'act', snapshot: { headSha: 'a'.repeat(40) } });
+  });
+
+  it('drops a pull request target read without a head SHA, and a close of the wrong kind', async () => {
+    const badRead = { target: pullTarget, snapshot: SNAP } as unknown as TargetRead;
+    expect(
+      (await run({ reads: [badRead], proposal: { ...proposal(), target: pullTarget } }))[0],
+    ).toMatchObject({ route: 'drop', reason: 'snapshot does not match the target kind' });
+    const issueClose: BrokerAction = {
+      type: 'issue.close',
+      repo: REPO,
+      issue: 7,
+      body: 'Closing.',
+      stateReason: 'completed',
+    };
+    const pullRead: TargetRead = { target: pullTarget, snapshot: PULL_SNAP };
+    const routes = await run({
+      reads: [pullRead],
+      policy: policyWith(agent({ actions: ['issue.comment', 'issue.close'] })),
+      proposal: { ...proposal(), target: pullTarget, actions: [issueClose] },
+    });
+    expect(routes[0]).toMatchObject({
+      route: 'drop',
+      reason: 'closing action does not match the target kind',
+    });
   });
 
   it("drops an action the policy does not grant, with the broker's own reason", async () => {
@@ -182,7 +222,7 @@ describe('routeProposal', () => {
     });
   });
 
-  it('checks the run guard before routing and before each direct write (a killed tree never acts)', async () => {
+  it('checks the run guard before routing and before each direct write (a killed tree never routes to act)', async () => {
     const killed = () => Promise.reject(new Error('run killed'));
     await expect(run({ guard: killed })).rejects.toThrow('run killed');
     let calls = 0;

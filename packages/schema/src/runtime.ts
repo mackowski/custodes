@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { BrokerAction } from './actions.js';
-import type { IssueSnapshot } from './admin.js';
+import type { IssueSnapshot, PullSnapshot } from './admin.js';
 import { AgentId, GitHubRepo } from './agent.js';
 import { Tier } from './tiers.js';
 
@@ -105,9 +105,11 @@ export const ProgressState = z.strictObject({
 });
 export type ProgressState = z.infer<typeof ProgressState>;
 
-/** A read of one target in this run, with the snapshot code built from it. */
-// TODO(#143, PR #165): a union with PullSnapshot once the generic approval bundle lands.
-export interface TargetRead {
-  target: ProposalTarget;
-  snapshot: IssueSnapshot;
-}
+/**
+ * A read of one target in this run, with the snapshot code built from it: an issue's, or a pull
+ * request's with its head SHA and reviews (ADR 0024), so a push after the read turns the write
+ * into a no-op.
+ */
+export type TargetRead =
+  | { target: ProposalTarget & { kind: 'issue' }; snapshot: IssueSnapshot }
+  | { target: ProposalTarget & { kind: 'pull' }; snapshot: PullSnapshot };

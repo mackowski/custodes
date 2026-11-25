@@ -9,7 +9,7 @@ runtime adds. "Missing" controls are the build list for #140a.
 The runtime is library code: the loop and `delegate` in `packages/llm`, the dispatcher and the run store in `packages/core`. Each agent that uses it (first: backlog-review,
 #132) runs it in its own Worker (ADR 0018). It runs a bounded model loop over broker read tools,
 optionally delegates items to child roles, and ends with one `Proposal` that a dispatcher routes to
-the digest, an approval bundle (#143, PR #165) or `act()`.
+the digest, an approval bundle (ADR 0024) or `act()`.
 
 | Asset                       | Why it matters here                                                                                                                                         |
 | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -76,7 +76,7 @@ L/I: likelihood and impact (H/M/L).
 | Risk                              | How it looks here                                                                                             | Control                                                                                                                                                                                                                                         |
 | --------------------------------- | ------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | LLM01 Prompt injection (indirect) | Tool results are the main input; the orchestrator sees full content of many items at once (operator decision) | Runtime wraps every tool result in `untrusted()` (`packages/llm/src/untrusted.ts`) with `UNTRUSTED_DATA_RULES` in the system prompt; dispatcher rules 1-3 bound what any injection can achieve; evals (below). Missing: all of the runtime part |
-| LLM02 Insecure output handling    | Tool-call arguments and the final proposal are model output                                                   | Arguments validated by the tool's zod schema; final output only through `parseStructured()`; comment bodies checked by the broker (mentions, #143). Missing: argument schemas per tool                                                          |
+| LLM02 Insecure output handling    | Tool-call arguments and the final proposal are model output                                                   | Arguments validated by the tool's zod schema; final output only through `parseStructured()`; comment bodies checked by the broker (people and comment rules on every path, ADR 0024). Missing: argument schemas per tool                        |
 | LLM06 Excessive agency            | An autonomous orchestrator decides actions over the whole backlog                                             | No write tools in the loop; dispatcher + broker policy; HITL by default, HOTL only per ADR 0021; ≤10 HOTL writes per run; kill per run/agent/fleet                                                                                              |
 | LLM07 System prompt leakage       | An issue asks the agent to print its prompt and SOPs into a comment                                           | Low value (prompts and SOPs are in a public repository); comments come from validated fields only                                                                                                                                               |
 | LLM02/LLM07 Sensitive information | Event channel or a comment quoting something secret                                                           | Agents hold no GitHub/e-mail credentials (invariant 1); only `AI_GATEWAY_TOKEN`, never in prompts; event canary tests (missing)                                                                                                                 |
@@ -153,6 +153,8 @@ trigger label, to ping a stranger); `issue.close` without a merged PR.
 - The DO alarm calls `RunStore.prune()`.
 - Every `act()` and approval request carries the `runId`.
 - The CLI shows event text as untrusted data.
+- The host calls `runGuard` immediately before each `act()` it executes from the routes, not
+  only when routing (security review round 2).
 - The host passes `runGuard` and `takeHotlSlot` (backed by the store) to the dispatcher, and a
   required daily ledger and event recorder to the loop.
 

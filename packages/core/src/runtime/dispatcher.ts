@@ -1,4 +1,11 @@
-import type { BrokerAction, IssueSnapshot, Policy, Proposal, TargetRead } from '@custodes/schema';
+import type {
+  BrokerAction,
+  IssueSnapshot,
+  Policy,
+  Proposal,
+  PullSnapshot,
+  TargetRead,
+} from '@custodes/schema';
 import { actionDenial, needsApproval } from '../policy-eval.js';
 
 /**
@@ -7,7 +14,11 @@ import { actionDenial, needsApproval } from '../policy-eval.js';
  * snapshot code built from this run's read of the target; the model never writes one.
  */
 export type Route =
-  | { action: BrokerAction; route: 'digest' | 'approval' | 'act'; snapshot: IssueSnapshot }
+  | {
+      action: BrokerAction;
+      route: 'digest' | 'approval' | 'act';
+      snapshot: IssueSnapshot | PullSnapshot;
+    }
   | { action: BrokerAction; route: 'drop'; reason: string };
 
 /** Re-verifies the evidence an action needs through the broker (e.g. a merged PR for a close). */
@@ -70,6 +81,13 @@ export async function routeProposal(input: DispatchInput): Promise<Route[]> {
       continue;
     }
     const snapshot = lastRead.snapshot;
+    // A pull request needs its head SHA in the snapshot (ADR 0024); an issue never has one. GitHub's
+    // issue endpoints also take a pull request number, so the closing action must match the kind
+    // (checked after the policy, so a refused action keeps the broker's own reason).
+    if ((t.kind === 'pull') !== 'headSha' in snapshot) {
+      drop('snapshot does not match the target kind');
+      continue;
+    }
     // 2. The broker's own policy rules (repos, actions, labels, retired actions).
     if (live) {
       const denial = actionDenial(input.agentId, agent, action);
@@ -77,6 +95,13 @@ export async function routeProposal(input: DispatchInput): Promise<Route[]> {
         drop(denial);
         continue;
       }
+    }
+    if (
+      (action.type === 'issue.close' && t.kind !== 'issue') ||
+      (action.type === 'pr.close' && t.kind !== 'pull')
+    ) {
+      drop('closing action does not match the target kind');
+      continue;
     }
     // 3. Evidence the action needs, checked again by code.
     const evidence = await input.checkEvidence(action, proposal);
