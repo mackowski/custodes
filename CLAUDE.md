@@ -72,4 +72,5 @@ suites a fix touched, after asking the operator.
 TypeScript strict with `exactOptionalPropertyTypes`; exact dependency pins; tests deterministic
 (inject `now`, keys, `fetchImpl`); structured JSON logs with ids only, never bodies or tokens.
 Model and tool payloads may appear only in trace spans set by `@custodes/core` tracing while
-`TRACE_PAYLOADS` is `"true"` (ADR 0016); tokens and error text never.
+`TRACE_PAYLOADS` is `"true"` (ADR 0016) and in the runtime's event channel in the agent's Durable
+Object (ADR 0023: capped, 14 days, untrusted data); tokens and error text never.

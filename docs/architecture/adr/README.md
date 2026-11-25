@@ -24,7 +24,7 @@
 | [0020](0020-cheatsheet-review-source-fetch-for-the-security-reviewer.md) | cheatsheet-review: a bounded source fetch for the security reviewer                      | accepted                        |
 | [0021](0021-trust-tiers-for-agents.md)                                   | Trust tiers for agents (T0–T3), separate from mode and risk                              | accepted (2026-11-23)           |
 | [0022](0022-policy-integrity-registry-boundary-strict-schema.md)         | Policy integrity: action registry, declared tier, boundary and strict schema             | accepted (2026-11-23)           |
-| [0023](0023-agent-runtime-loop-caps-run-tree-and-run-kill.md)            | Agent runtime: agent.md, proposals, loop caps, run tree and run-scoped kill              | proposed                        |
+| [0023](0023-agent-runtime-loop-caps-run-tree-and-run-kill.md)            | Agent runtime: agent.md, proposals, loop caps, run tree and run-scoped kill              | accepted (2026-11-25)           |
 | [0024](0024-generalised-proposal-approval-and-review-label-handoff.md)   | Generalised proposal approval and the cheatsheet-review label handoff                    | accepted (2026-11-25)           |
 
 Create new records with the `/adr` skill.

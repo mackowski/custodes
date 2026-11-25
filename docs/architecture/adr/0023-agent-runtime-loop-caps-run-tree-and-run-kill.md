@@ -1,6 +1,6 @@
 # 0023. Agent runtime: agent.md, proposals, loop caps, run tree and run-scoped kill
 
-- Status: proposed
+- Status: accepted (2026-11-25)
 - Date: 2026-11-25
 - Deciders: Jakub Maćkowski
 
