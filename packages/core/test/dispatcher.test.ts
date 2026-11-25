@@ -98,6 +98,13 @@ describe('routeProposal', () => {
     expect(r[0]).toMatchObject({ route: 'drop', reason: 'not allowed by policy' });
   });
 
+  it('drops a label outside the allow-list, such as an automation trigger', async () => {
+    const trigger: BrokerAction = { ...label, labels: ['docs', 'custodes_cheatsheet_review'] };
+    const routes = await run({ proposal: proposal({ actions: [label, trigger] }) });
+    expect(routes.map((r) => r.route)).toEqual(['act', 'drop']);
+    expect(routes[1]).toMatchObject({ reason: 'label not allowed by policy' });
+  });
+
   it('drops an action whose evidence does not hold', async () => {
     const checkEvidence = vi.fn<EvidenceChecker>(() =>
       Promise.resolve({ ok: false, reason: 'no merged PR references the issue' }),

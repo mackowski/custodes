@@ -72,6 +72,14 @@ export async function routeProposal(input: DispatchInput): Promise<Route[]> {
       drop('not allowed by policy');
       continue;
     }
+    // The label allow-list too, so an injected label never even becomes an approval request.
+    if (
+      (action.type === 'issue.label.add' || action.type === 'issue.label.remove') &&
+      action.labels.some((l) => !(agent.labels ?? []).includes(l))
+    ) {
+      drop('label not allowed by policy');
+      continue;
+    }
     // 2. Evidence the action needs, checked again by code.
     const evidence = await input.checkEvidence(action, proposal);
     if (!evidence.ok) {
