@@ -897,7 +897,7 @@ describe('security-review fixes (ADR 0024)', () => {
       const stored = await new ApprovalStore(testEnv.AUDIT).get(id);
       expect(stored?.consumedAt).not.toBeNull();
       // The same link cannot run it again.
-      expect(await decide(id, now)).toMatchObject({ result: expect.not.stringMatching(/^ok$/) });
+      expect((await decide(id, now)).result).not.toBe('ok');
       expect(gh.writes).toHaveLength(3);
     });
   });
