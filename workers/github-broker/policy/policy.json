@@ -65,6 +65,10 @@
       "bundleOnly": true
     }
   },
+  "$comment_maintainers": "ADR 0024: logins an agent's comment may @-mention besides the thread's people (never assign). OWASP/CheatSheetSeries: the project leaders in its README and CODEOWNERS (operator decision, 2026-11-25).",
+  "maintainers": {
+    "OWASP/CheatSheetSeries": ["mackowski", "jmanico", "randomstuff"]
+  },
   "reads": {
     "triage": {
       "tokenBinding": "PAT_READONLY",
