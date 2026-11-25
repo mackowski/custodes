@@ -226,9 +226,15 @@ export abstract class CustodesAgent<
     rationale: string,
     runId: string,
     triggeredBy: Trigger,
-    opts: { turn?: Turn } = {},
+    opts: { turn?: Turn; snapshot?: IssueSnapshot | PullSnapshot } = {},
   ): Promise<{ ok: true; created: ApprovalCreated } | { ok: false; status: number }> {
-    const request: BrokerRequest = { ...(await this.sideEffect(runId, triggeredBy)), action };
+    // A runtime approval carries the snapshot it was routed with: the broker checks it at the
+    // click (ADR 0023; security review of #166 slice 3, L2).
+    const request: BrokerRequest = {
+      ...(await this.sideEffect(runId, triggeredBy)),
+      action,
+      ...(opts.snapshot !== undefined ? { snapshot: opts.snapshot } : {}),
+    };
     return executeTool(opts.turn, 'approval.request', async (span) => {
       const res = await this.broker.fetch('https://broker.internal/v1/approvals', {
         method: 'POST',

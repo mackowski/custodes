@@ -37,7 +37,15 @@ export function defineTool<A extends z.ZodType>(t: {
 }
 
 export type StopReason =
-  'rounds' | 'budget' | 'repeat' | 'undeclared_tool' | 'invalid_args' | 'halted' | 'invalid_output';
+  | 'rounds'
+  | 'budget'
+  | 'repeat'
+  | 'undeclared_tool'
+  | 'invalid_args'
+  | 'halted'
+  | 'invalid_output'
+  /** Something threw (transport, a read, the store): set by the host, never with error text. */
+  | 'error';
 
 export interface LoopInput<S extends z.ZodType> {
   model: string;

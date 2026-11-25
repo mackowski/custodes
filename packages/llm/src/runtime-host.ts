@@ -49,7 +49,12 @@ export type ReadFn = (
 /** What the agent lends the host. Each method is the agent's own, broker-backed primitive. */
 export interface HostPort {
   agentId: string;
-  /** The bundled broker policy: the dispatcher routes with it, the broker still decides. */
+  /**
+   * The bundled broker policy: the dispatcher routes with it, the broker still decides.
+   * shortcut: a copy older than the broker's can only drop or misroute an action (the broker
+   * answers approval_required, or refuses an approval that needs none): never widen. Both answers
+   * show in the run's outcomes; the agent redeploys with every policy change (deploy-workers.yml).
+   */
   policy: Policy;
   /** The agent's read policy: its repositories and resources. */
   repos: readonly [string, ...string[]];
@@ -60,14 +65,22 @@ export interface HostPort {
   read: ReadFn;
   send(req: MessagesRequest): Promise<MessagesResponse>;
   costOf(usage: MessagesResponse['usage']): number;
-  /** `CustodesAgent.act()` with the route's snapshot. */
+  /**
+   * `CustodesAgent.act()`. The first write on a target carries the route's snapshot; later writes
+   * of the same proposal do not, because the first one changed the target (ADR 0023).
+   */
   act(
     action: BrokerAction,
     runId: string,
-    snapshot: IssueSnapshot | PullSnapshot,
+    snapshot?: IssueSnapshot | PullSnapshot,
   ): Promise<BrokerResponse>;
   requestBundle(bundle: ApprovalBundle, rationale: string, runId: string): Promise<{ ok: boolean }>;
-  requestApproval(action: BrokerAction, rationale: string, runId: string): Promise<{ ok: boolean }>;
+  requestApproval(
+    action: BrokerAction,
+    rationale: string,
+    runId: string,
+    snapshot: IssueSnapshot | PullSnapshot,
+  ): Promise<{ ok: boolean }>;
   now?: () => Date;
 }
 
@@ -113,6 +126,58 @@ export function readTools(
   const pages = (r: string, number: number, resource: 'comments' | 'pull_reviews') =>
     readAllPages((page) => read({ repo: r, resource, number, query: { per_page: 100, page } }));
   const text = (data: unknown) => JSON.stringify(data);
+  /**
+   * The fields the model decides on, not GitHub's raw JSON: user objects and URLs would fill the
+   * 40k clip and hide the newest comments (lean review of #166 slice 3). Snapshots are still built
+   * from the raw data.
+   */
+  type Raw =
+    | {
+        number?: unknown;
+        title?: unknown;
+        state?: unknown;
+        labels?: unknown;
+        user?: unknown;
+        created_at?: unknown;
+        updated_at?: unknown;
+        merged_at?: unknown;
+        submitted_at?: unknown;
+        body?: unknown;
+      }
+    | null
+    | undefined;
+  const login = (u: unknown) => (u as { login?: unknown } | null | undefined)?.login ?? null;
+  const labelNames = (l: unknown) =>
+    Array.isArray(l)
+      ? l.map((x) => (typeof x === 'string' ? x : ((x as { name?: unknown } | null)?.name ?? null)))
+      : [];
+  const item = (d: unknown) => {
+    const x = d as Raw;
+    return {
+      number: x?.number ?? null,
+      title: x?.title ?? null,
+      state: x?.state ?? null,
+      labels: labelNames(x?.labels),
+      author: login(x?.user),
+      created_at: x?.created_at ?? null,
+      updated_at: x?.updated_at ?? null,
+      ...(x?.merged_at !== undefined ? { merged_at: x.merged_at } : {}),
+      body: x?.body ?? null,
+    };
+  };
+  const comment = (d: unknown) => {
+    const x = d as Raw;
+    return { author: login(x?.user), created_at: x?.created_at ?? null, body: x?.body ?? null };
+  };
+  const review = (d: unknown) => {
+    const x = d as Raw;
+    return {
+      author: login(x?.user),
+      state: x?.state ?? null,
+      submitted_at: x?.submitted_at ?? null,
+      body: x?.body ?? null,
+    };
+  };
   const failed = (reason: string) => ({ content: `read failed: ${reason}` });
   const numbered = z.strictObject({
     repo,
@@ -136,7 +201,7 @@ export function readTools(
         const comments = await pages(r, number, 'comments');
         if (!comments.ok) return failed(comments.reason);
         const thread = await issueThreadFrom(got.data, comments.items);
-        const content = text({ issue: got.data, comments: comments.items });
+        const content = text({ issue: item(got.data), comments: comments.items.map(comment) });
         if (!thread.ok) return { content };
         const read_: TargetRead = {
           target: { repo: r, kind: 'issue', number },
@@ -157,7 +222,11 @@ export function readTools(
         const reviews = await pages(r, number, 'pull_reviews');
         if (!reviews.ok) return failed(reviews.reason);
         const thread = await pullThreadFrom(got.data, comments.items, reviews.items);
-        const content = text({ pull: got.data, comments: comments.items, reviews: reviews.items });
+        const content = text({
+          pull: item(got.data),
+          comments: comments.items.map(comment),
+          reviews: reviews.items.map(review),
+        });
         if (!thread.ok) return { content };
         const read_: TargetRead = {
           target: { repo: r, kind: 'pull', number },
@@ -185,6 +254,10 @@ export function readTools(
       },
     }),
   };
+  const shape: Partial<Record<ReadResource, (d: unknown) => unknown>> = {
+    comments: comment,
+    pull_reviews: review,
+  };
   for (const resource of ['timeline', 'comments', 'pull_files', 'pull_reviews'] as const)
     all[resource] = defineTool({
       name: resource,
@@ -193,7 +266,9 @@ export function readTools(
       async run({ repo: r, number, page }) {
         const query = page === undefined ? {} : { page };
         const got = await read({ repo: r, resource, number, query });
-        return got.ok ? { content: text(got.data) } : failed(got.reason);
+        if (!got.ok) return failed(got.reason);
+        const f = shape[resource];
+        return { content: text(f && Array.isArray(got.data) ? got.data.map(f) : got.data) };
       },
     });
   for (const resource of ['issues', 'pulls', 'labels', 'cheatsheets'] as const)
@@ -223,7 +298,10 @@ export function readTools(
 /**
  * Evidence an action needs, checked again through the broker (ADR 0023). Never defaults to ok for
  * an action that needs evidence: a missing, unknown or unreadable one drops the action.
- * `issue.close` needs a merged pull request that references the issue in its timeline.
+ * `issue.close` needs a merged pull request of the same repository that the issue's timeline
+ * cross-references AND whose own title or body names the issue: anyone can create a
+ * cross-reference by commenting "#7" elsewhere, but only a merged PR's author wrote its text
+ * (security review of #166 slice 3, M2).
  */
 export function brokerEvidence(
   read: (req: Omit<BrokerReadRequest, 'agentId' | 'runId'>) => ReturnType<ReadFn>,
@@ -259,9 +337,9 @@ export function brokerEvidence(
         };
         const src = ev.source?.issue;
         const full = src?.repository?.full_name;
+        // A missing repository fails closed.
         const sameRepo =
-          full === undefined ||
-          (typeof full === 'string' && full.toLowerCase() === action.repo.toLowerCase());
+          typeof full === 'string' && full.toLowerCase() === action.repo.toLowerCase();
         return (
           ev.event === 'cross-referenced' &&
           src?.number === n &&
@@ -272,11 +350,24 @@ export function brokerEvidence(
       if (!referenced) continue;
       const pull = await read({ repo: action.repo, resource: 'pull', number: n, query: {} });
       if (!pull.ok) return { ok: false, reason: 'evidence unreadable' };
-      const merged = (pull.data as { merged_at?: unknown } | null)?.merged_at;
-      if (typeof merged === 'string' && merged.length > 0) return { ok: true };
+      const pr = pull.data as { merged_at?: unknown; title?: unknown; body?: unknown } | null;
+      const merged = pr?.merged_at;
+      if (typeof merged !== 'string' || merged.length === 0) continue;
+      const own = `${typeof pr?.title === 'string' ? pr.title : ''}\n${typeof pr?.body === 'string' ? pr.body : ''}`;
+      if (namesIssue(own, action.repo, action.issue)) return { ok: true };
     }
     return { ok: false, reason: 'no merged pull request references the issue' };
   };
+}
+
+/** Whether text names the issue as `#N` or `owner/repo#N` (not as part of a longer number). */
+export function namesIssue(text: string, repo: string, issue: number): boolean {
+  const n = String(issue);
+  const escaped = repo.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return (
+    new RegExp(`(^|[^\\w/])#${n}(?!\\d)`).test(text) ||
+    new RegExp(`(^|\\W)${escaped}#${n}(?!\\d)`, 'i').test(text)
+  );
 }
 
 /**
@@ -307,27 +398,47 @@ export async function runAgentTree(
     LoopResult<unknown> | ({ ok: false; stop: 'escalate' } & Omit<LoopResult<unknown>, 'ok'>)
   > => {
     const d = agent.definition;
-    const result = await runWithRestarts(
-      {
-        model: d.model,
-        system: agent.prompt,
-        task: runTask,
-        tools,
-        output,
-        caps: { rounds: d.budget.roundsPerRun, usd: d.budget.usdPerRun },
-        maxTokens: MAX_OUTPUT_TOKENS,
-        metadata: { agentId, runId },
-      },
-      {
-        send: (req) => port.send(req),
-        guard: runGuard(store, runId, () => port.brokerGuard()),
-        costOf: (u) => port.costOf(u),
-        daily: { ledger: storeLedger(store, agentId, runId, now), usd: d.budget.usdPerDay },
-        record: (e) => {
-          store.recordEvent({ runId, ...e });
+    // A throw (transport, a read, the store) ends this run, not the tree: earlier children's
+    // outcomes and digest stay (lean review of #166 slice 3). The stop is an enum, never error text.
+    const failed = (): { ok: false; stop: 'error' } & Omit<LoopResult<unknown>, 'ok'> => ({
+      ok: false,
+      stop: 'error',
+      progress: { calls: [], restarts: 0 },
+      reads: [],
+      usd: 0,
+      rounds: 0,
+    });
+    let result: Awaited<ReturnType<typeof runWithRestarts>>;
+    try {
+      result = await runWithRestarts(
+        {
+          model: d.model,
+          system: agent.prompt,
+          task: runTask,
+          tools,
+          output,
+          caps: { rounds: d.budget.roundsPerRun, usd: d.budget.usdPerRun },
+          maxTokens: MAX_OUTPUT_TOKENS,
+          metadata: { agentId, runId },
         },
-      },
-    );
+        {
+          send: (req) => port.send(req),
+          guard: runGuard(store, runId, () => port.brokerGuard()),
+          costOf: (u) => port.costOf(u),
+          daily: { ledger: storeLedger(store, agentId, runId, now), usd: d.budget.usdPerDay },
+          record: (e) => {
+            store.recordEvent({ runId, ...e });
+          },
+        },
+      );
+    } catch {
+      try {
+        store.finish(runId, 'stopped');
+      } catch {
+        // The store itself failed: the run stays open until the 14-day prune.
+      }
+      return failed();
+    }
     store.finish(runId, result.ok ? 'done' : result.stop === 'escalate' ? 'escalated' : 'stopped');
     return result;
   };
@@ -375,22 +486,41 @@ export async function runAgentTree(
       return;
     }
 
+    /** A port call that throws halts the tree; the outcome says `error`, never its text. */
+    const attempt = async <T>(call: () => Promise<T>): Promise<T | undefined> => {
+      try {
+        return await call();
+      } catch {
+        tree.halted = true;
+        return undefined;
+      }
+    };
     const approvals = routes.filter(
       (r): r is Exclude<Route, { route: 'drop' }> => r.route === 'approval',
     );
+    const order = (t: string) => (BUNDLE_ORDER as readonly string[]).indexOf(t);
+    const acts = routes
+      .filter((r): r is Exclude<Route, { route: 'drop' }> => r.route === 'act')
+      .sort((a, b) => order(a.action.type) - order(b.action.type));
     for (const r of routes) {
       if (r.route === 'drop') record(r, r.reason);
       else if (r.route === 'digest') {
         digest.push(r);
         record(r, 'digest');
-      } else if (r.route === 'act') {
-        if (!(await stillAllowed())) {
-          record(r, 'halted');
-          continue;
-        }
-        const res = await port.act(r.action, runId, r.snapshot);
-        record(r, res.ok ? 'ok' : res.code);
       }
+    }
+    // Direct writes in bundle order (the closing one last). Only the first carries the snapshot:
+    // the first write changes the target, so the later ones would always look stale. They still
+    // pass the broker's people and comment rules (ADR 0023; reviews of #166 slice 3, L1).
+    for (const [i, r] of acts.entries()) {
+      if (!(await stillAllowed())) {
+        record(r, 'halted');
+        continue;
+      }
+      const res = await attempt(() =>
+        i === 0 ? port.act(r.action, runId, r.snapshot) : port.act(r.action, runId),
+      );
+      record(r, res === undefined ? 'error' : res.ok ? 'ok' : res.code);
     }
     if (approvals.length === 0) return;
     if (!(await stillAllowed())) {
@@ -398,7 +528,6 @@ export async function runAgentTree(
       return;
     }
     // One approval for the actions on this target when they form a bundle (ADR 0019, 0024).
-    const order = (t: string) => (BUNDLE_ORDER as readonly string[]).indexOf(t);
     const bundle = ApprovalBundle.safeParse({
       actions: [...approvals]
         .sort((a, b) => order(a.action.type) - order(b.action.type))
@@ -406,13 +535,20 @@ export async function runAgentTree(
       snapshot: approvals[0]?.snapshot,
     });
     if (bundle.success) {
-      const res = await port.requestBundle(bundle.data, proposal.reason, runId);
-      for (const r of approvals) record(r, res.ok ? 'approval requested' : 'approval refused');
+      const res = await attempt(() => port.requestBundle(bundle.data, proposal.reason, runId));
+      for (const r of approvals)
+        record(r, res === undefined ? 'error' : res.ok ? 'approval requested' : 'approval refused');
       return;
     }
     for (const r of approvals) {
-      const res = await port.requestApproval(r.action, proposal.reason, runId);
-      record(r, res.ok ? 'approval requested' : 'approval refused');
+      if (tree.halted) {
+        record(r, 'halted');
+        continue;
+      }
+      const res = await attempt(() =>
+        port.requestApproval(r.action, proposal.reason, runId, r.snapshot),
+      );
+      record(r, res === undefined ? 'error' : res.ok ? 'approval requested' : 'approval refused');
     }
   };
 

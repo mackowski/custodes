@@ -46,7 +46,17 @@ const COMMENTS = [{ id: 1, updated_at: '2026-11-25T10:00:00Z', user: { login: 'c
 
 type ReadReq = Omit<BrokerReadRequest, 'agentId' | 'runId'>;
 /** A fake broker read: issue 7 with one comment, a timeline and pull 12 as configured. */
-function fakeRead(opts: { merged?: boolean; crossRef?: boolean; fail?: string } = {}) {
+function fakeRead(
+  opts: {
+    merged?: boolean;
+    crossRef?: boolean;
+    fail?: string;
+    /** The merged PR's own text; by default it names the issue. */
+    prBody?: string;
+    /** The cross-reference's repository; `null` leaves it out. */
+    refRepo?: string | null;
+  } = {},
+) {
   const calls: (ReadReq & { runId: string })[] = [];
   const read = (runId: string, req: ReadReq) => {
     calls.push({ ...req, runId });
@@ -59,9 +69,27 @@ function fakeRead(opts: { merged?: boolean; crossRef?: boolean; fail?: string } 
           : req.resource === 'timeline'
             ? opts.crossRef === false
               ? []
-              : [{ event: 'cross-referenced', source: { issue: { number: 12, pull_request: {} } } }]
+              : [
+                  {
+                    event: 'cross-referenced',
+                    source: {
+                      issue: {
+                        number: 12,
+                        pull_request: {},
+                        ...(opts.refRepo === null
+                          ? {}
+                          : { repository: { full_name: opts.refRepo ?? REPO } }),
+                      },
+                    },
+                  },
+                ]
             : req.resource === 'pull'
-              ? { number: 12, merged_at: opts.merged === false ? null : '2026-11-24T10:00:00Z' }
+              ? {
+                  number: 12,
+                  title: 'Fix the cheat sheet',
+                  body: opts.prBody ?? 'Fixes #7.',
+                  merged_at: opts.merged === false ? null : '2026-11-24T10:00:00Z',
+                }
               : [];
     return Promise.resolve({ ok: true as const, data });
   };
@@ -91,6 +119,45 @@ describe('readTools', () => {
       target: { repo: REPO, kind: 'issue', number: 7 },
       snapshot: thread.snapshot,
     });
+  });
+
+  it('gives the model compact fields, not GitHub JSON with users and URLs (lean 4)', async () => {
+    const raw = {
+      ...ISSUE,
+      title: 'Typo',
+      body: 'Body text',
+      html_url: 'https://github.com/x',
+      user: { login: 'author', avatar_url: 'https://avatars/x', type: 'User' },
+    };
+    const read = (_runId: string, req: ReadReq) =>
+      Promise.resolve({
+        ok: true as const,
+        data:
+          req.resource === 'issue'
+            ? raw
+            : COMMENTS.map((c) => ({ ...c, body: 'latest', user: { ...c.user, url: 'u' } })),
+      });
+    const [issue] = readTools({ repos: [REPO], resources: ['issue', 'comments'], read }, 'r', [
+      'issue',
+    ]);
+    const out = await issue!.run({ repo: REPO, number: 7 });
+    expect(out.content).not.toContain('avatar_url');
+    expect(out.content).not.toContain('html_url');
+    const parsed = JSON.parse(out.content) as {
+      issue: { number: unknown; title: unknown; author: unknown; body: unknown };
+      comments: unknown[];
+    };
+    expect(parsed.issue).toMatchObject({
+      number: 7,
+      title: 'Typo',
+      author: 'author',
+      body: 'Body text',
+    });
+    expect(parsed.comments).toEqual([{ author: 'carol', created_at: null, body: 'latest' }]);
+    // The snapshot is still built from the raw data.
+    const thread = await issueThreadFrom(raw, COMMENTS);
+    if (!thread.ok) throw new Error('fixture');
+    expect(out.read?.snapshot).toEqual(thread.snapshot);
   });
 
   it('names no target when the comments cannot be read', async () => {
@@ -145,6 +212,19 @@ describe('brokerEvidence (never ok by default for issue.close)', () => {
     expect((await check({ fail: 'timeline' }, merged)).ok).toBe(false);
     expect((await check({ fail: 'pull' }, merged)).ok).toBe(false);
   });
+  it("refuses an outsider's cross-reference: the merged PR's own text must name the issue (M2)", async () => {
+    // Anyone can comment "#7" on an old merged PR; that PR's own text does not name issue 7.
+    expect((await check({ prBody: 'Unrelated docs fix.' }, merged)).ok).toBe(false);
+    // #70 and other/repo#7 are not issue 7 of this repository.
+    expect((await check({ prBody: 'Fixes #70.' }, merged)).ok).toBe(false);
+    expect((await check({ prBody: 'Fixes other/repo#7.' }, merged)).ok).toBe(false);
+    expect((await check({ prBody: `Fixes ${REPO}#7.` }, merged)).ok).toBe(true);
+  });
+  it('fails closed when the cross-reference names no repository, or another one (M2)', async () => {
+    expect((await check({ refRepo: null }, merged)).ok).toBe(false);
+    expect((await check({ refRepo: 'other/repo' }, merged)).ok).toBe(false);
+  });
+
   it('needs nothing for an action without evidence rules', async () => {
     const { read } = fakeRead();
     const comment: BrokerAction = { type: 'issue.comment', repo: REPO, issue: 7, body: 'hi' };
@@ -206,7 +286,11 @@ const proposalOn7 = {
 };
 
 /** A port over a memory store and a scripted model; records every write and approval. */
-function port(mode: 'hotl' | 'hitl', script: MessagesResponse[]) {
+function port(
+  mode: 'hotl' | 'hitl',
+  script: MessagesResponse[],
+  opts: { actThrows?: boolean } = {},
+) {
   const store = new RunStore(memorySql());
   const { read } = fakeRead();
   const acts: { action: BrokerAction; runId: string; snapshot: unknown }[] = [];
@@ -227,6 +311,7 @@ function port(mode: 'hotl' | 'hitl', script: MessagesResponse[]) {
     },
     costOf: () => 0.001,
     act: (action, runId, snapshot) => {
+      if (opts.actThrows) return Promise.reject(new Error('broker down: secret-ish detail'));
       acts.push({ action, runId, snapshot });
       return Promise.resolve({ ok: true, attestationId: crypto.randomUUID() });
     },
@@ -313,5 +398,76 @@ describe('runAgentTree', () => {
     expect(acts).toHaveLength(1);
     const childRun = store.get(acts[0]!.runId);
     expect(childRun?.parentRunId).toBe(r.rootRunId);
+  });
+
+  it('writes a two-action hotl proposal in bundle order, the snapshot on the first only (L1)', async () => {
+    const label: BrokerAction = {
+      type: 'issue.label.add',
+      repo: REPO,
+      issue: 7,
+      labels: ['question'],
+    };
+    const two = { ...proposalOn7, actions: [commentOn7, label] };
+    const { p, acts } = port('hotl', [
+      toolUse('issue', { repo: REPO, number: 7 }, 0),
+      answer(JSON.stringify({ proposals: [two] }), 1),
+    ]);
+    const r = await runAgentTree(p, agent(), {}, 'Review.', { shadow: false });
+    expect(acts.map((a) => a.action.type)).toEqual(['issue.label.add', 'issue.comment']);
+    expect(acts[0]?.snapshot).toBeDefined();
+    expect(acts[1]?.snapshot).toBeUndefined();
+    expect(r.outcomes.map((o) => o.detail)).toEqual(['ok', 'ok']);
+  });
+
+  it('a throwing model ends the run as an error, not the whole tree result (lean 3)', async () => {
+    const { p, store } = port('hotl', []); // the script is empty: send throws
+    const r = await runAgentTree(p, agent(), {}, 'Review.', { shadow: false });
+    expect(r).toMatchObject({ status: 'stopped', stop: 'error' });
+    expect(JSON.stringify(r)).not.toContain('script ran out');
+    expect(store.get(r.rootRunId)?.status).toBe('stopped');
+  });
+
+  it('a throwing write halts the tree and records an error outcome without its text (lean 3)', async () => {
+    const { p } = port(
+      'hotl',
+      [
+        toolUse('issue', { repo: REPO, number: 7 }, 0),
+        answer(JSON.stringify({ proposals: [proposalOn7] }), 1),
+      ],
+      { actThrows: true },
+    );
+    const r = await runAgentTree(p, agent(), {}, 'Review.', { shadow: false });
+    expect(r).toMatchObject({ status: 'stopped', stop: 'halted' });
+    expect(r.outcomes).toEqual([expect.objectContaining({ route: 'act', detail: 'error' })]);
+    expect(JSON.stringify(r)).not.toContain('secret-ish');
+  });
+
+  it('a child whose read throws stops as an error and the parent keeps going (lean 3)', async () => {
+    const child = agent(
+      definition({
+        id: 'item-review',
+        outputSchema: 'Proposal',
+        budget: { roundsPerRun: 5, usdPerRun: 0.15, usdPerDay: 3 },
+      }),
+    );
+    const root = agent(definition({ tools: ['issue', 'delegate'], agents: ['item-review'] }));
+    const { p } = port('hotl', [
+      toolUse(
+        'delegate',
+        { role: 'item-review', target: { repo: REPO, kind: 'issue', number: 7 } },
+        0,
+      ),
+      toolUse('issue', { repo: REPO, number: 7 }, 1),
+      answer(JSON.stringify({ proposals: [] }), 2),
+    ]);
+    // The child's issue read throws; the root's script continues with its own answer.
+    const read = p.read;
+    let n = 0;
+    p.read = (runId, req) => {
+      if (req.resource === 'issue' && n++ === 0) return Promise.reject(new Error('boom'));
+      return read(runId, req);
+    };
+    const r = await runAgentTree(p, root, { 'item-review': child }, 'Review.', { shadow: false });
+    expect(r.status).toBe('done');
   });
 });
