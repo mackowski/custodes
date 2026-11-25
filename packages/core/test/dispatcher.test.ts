@@ -169,6 +169,18 @@ describe('routeProposal', () => {
     expect(routes[1]).toMatchObject({ reason: 'label custodes_cheatsheet_review not allowed' });
   });
 
+  it('refuses an ungranted trigger label with the broker reason, whatever its case (ADR 0024)', async () => {
+    const trigger: BrokerAction = { ...label, labels: ['Custodes_CheatSheet_Review'] };
+    const routes = await run({
+      policy: policyWith(agent({ labels: ['docs', 'Custodes_CheatSheet_Review'] })),
+      proposal: proposal({ actions: [trigger] }),
+    });
+    expect(routes[0]).toMatchObject({
+      route: 'drop',
+      reason: 'label Custodes_CheatSheet_Review starts automation',
+    });
+  });
+
   it('drops an action whose evidence does not hold', async () => {
     const checkEvidence = vi.fn<EvidenceChecker>(() =>
       Promise.resolve({ ok: false, reason: 'no merged PR references the issue' }),

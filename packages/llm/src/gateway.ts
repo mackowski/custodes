@@ -179,9 +179,9 @@ const discoveredAliases = new Map<string, string>();
 export const PAYLOAD_MAX_CHARS = 8_000;
 
 /** Cuts a payload text to PAYLOAD_MAX_CHARS and says how much was left out. */
-export function clipPayload(text: string): string {
-  if (text.length <= PAYLOAD_MAX_CHARS) return text;
-  return `${text.slice(0, PAYLOAD_MAX_CHARS)}\n[... ${String(text.length - PAYLOAD_MAX_CHARS)} characters not recorded]`;
+export function clipPayload(text: string, max = PAYLOAD_MAX_CHARS): string {
+  if (text.length <= max) return text;
+  return `${text.slice(0, max)}\n[... ${String(text.length - max)} characters not recorded]`;
 }
 
 export class AnthropicGateway {
@@ -253,14 +253,17 @@ export class AnthropicGateway {
       // A runtime loop resends the whole history every round, and a span attribute past ADR
       // 0016's limit is dropped whole. Record only the newest two messages (the last tool-use turn
       // and its results, or the one request), each clipped: every round traces what is new, with
-      // its own role (security review round 2 of #140).
+      // its own role (security review round 2 of #140). The two share one attribute's budget, so
+      // two messages get half each (round 3).
       const asText = (m: MessageParam) =>
         typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
+      const newest = req.messages.slice(-2);
+      const partMax = PAYLOAD_MAX_CHARS / newest.length;
       span.payload(
         'gen_ai.input.messages',
-        req.messages.slice(-2).map((m) => ({
+        newest.map((m) => ({
           role: m.role,
-          parts: [{ type: 'text', content: clipPayload(asText(m)) }],
+          parts: [{ type: 'text', content: clipPayload(asText(m), partMax) }],
         })),
       );
       const out = await withTimeout(this.cfg.timeoutMs ?? ANTHROPIC_TIMEOUT_MS, (signal) =>

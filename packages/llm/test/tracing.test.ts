@@ -237,6 +237,23 @@ describe('payloads', () => {
     expect(JSON.stringify(input)).toContain('NEW-RESULT');
   });
 
+  it('keep two large messages within one attribute budget', async () => {
+    const big = 'x'.repeat(20_000);
+    const history = {
+      ...msgReq,
+      messages: [
+        { role: 'user' as const, content: 'task' },
+        { role: 'assistant' as const, content: big },
+        { role: 'user' as const, content: big },
+      ],
+    };
+    const { tracer } = await inTurn(true, async (t) => {
+      await gateway(ok(msgRes())).messages(history, t);
+    });
+    const attr = tracer.named('chat')[0]?.attributes['gen_ai.input.messages'] as string;
+    expect(attr.length).toBeLessThan(8_600);
+  });
+
   it('never contain a credential, with payloads on', async () => {
     const { tracer } = await inTurn(true, callAll);
     expect(tracer.spans.length).toBeGreaterThan(3);

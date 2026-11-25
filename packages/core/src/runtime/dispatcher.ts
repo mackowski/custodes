@@ -81,9 +81,7 @@ export async function routeProposal(input: DispatchInput): Promise<Route[]> {
       continue;
     }
     const snapshot = lastRead.snapshot;
-    // A pull request needs its head SHA in the snapshot (ADR 0024); an issue never has one. GitHub's
-    // issue endpoints also take a pull request number, so the closing action must match the kind
-    // (checked after the policy, so a refused action keeps the broker's own reason).
+    // A pull request needs its head SHA in the snapshot (ADR 0024); an issue never has one.
     if ((t.kind === 'pull') !== 'headSha' in snapshot) {
       drop('snapshot does not match the target kind');
       continue;
@@ -96,6 +94,8 @@ export async function routeProposal(input: DispatchInput): Promise<Route[]> {
         continue;
       }
     }
+    // GitHub's issue endpoints also take a pull request number, so the closing action must match
+    // the kind (checked after the policy, so a refused action keeps the broker's own reason).
     if (
       (action.type === 'issue.close' && t.kind !== 'issue') ||
       (action.type === 'pr.close' && t.kind !== 'pull')
