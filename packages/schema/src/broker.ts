@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { AgentId, SemVer } from './agent.js';
 import { BrokerAction } from './actions.js';
+import { IssueSnapshot, PullSnapshot } from './snapshots.js';
 
 export const Trigger = z.object({
   kind: z.enum(['schedule', 'webhook', 'email', 'cli', 'manual']),
@@ -18,6 +19,12 @@ export const BrokerRequest = z.object({
   /** Approval id for actions that policy marks as requiring approval. */
   approvalId: z.uuid().optional(),
   action: BrokerAction,
+  /**
+   * The target as the agent read it, for a runtime write (ADR 0023): the broker reads it again and
+   * refuses the action if anything changed, closing the gap between the read and the write. Signed
+   * with the request and kept in its audit record.
+   */
+  snapshot: z.union([PullSnapshot, IssueSnapshot]).optional(),
 });
 export type BrokerRequest = z.infer<typeof BrokerRequest>;
 

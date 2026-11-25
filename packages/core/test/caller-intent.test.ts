@@ -57,6 +57,31 @@ describe('agent signature in the audit record (ADR 0018, R1)', () => {
     });
   });
 
+  it('covers the snapshot of a runtime write: kept in the record, and a changed one is caught (ADR 0023)', async () => {
+    const { priv, pinned } = await keyPair('pr-gate-20261109-a1b2c3d4');
+    const withSnapshot: BrokerRequest = {
+      ...request,
+      snapshot: {
+        state: 'open',
+        labels: [],
+        assignees: [],
+        comments: 1,
+        updatedAt: '2026-11-09T10:00:00Z',
+        commentsDigest: 'a'.repeat(64),
+        headSha: 'b'.repeat(40),
+        reviewsDigest: 'c'.repeat(64),
+      },
+    };
+    const record = await signedRecord(priv, pinned.kid, withSnapshot);
+    expect(record.snapshot).toEqual(withSnapshot.snapshot);
+    expect((await verifyCallerIntent(record, () => [pinned])).status).toBe('valid');
+    const forged: AuditRecord = { ...record, snapshot: { ...record.snapshot!, comments: 2 } };
+    expect(await verifyCallerIntent(forged, () => [pinned])).toEqual({
+      status: 'invalid',
+      reason: 'body_mismatch',
+    });
+  });
+
   it('is invalid when the record says something the agent did not send', async () => {
     const { priv, pinned } = await keyPair('pr-gate-20261109-a1b2c3d4');
     const record = await signedRecord(priv, pinned.kid);
