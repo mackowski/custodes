@@ -259,9 +259,19 @@ export async function act(
 async function threadProblem(env: BrokerEnv, req: BrokerRequest): Promise<string | null> {
   const { repo } = req.action;
   const number = numberOf(req.action);
-  // A snapshot names its kind (a pull request's has a head SHA); without one, the action does.
+  // The closing actions take their kind from the action, never from a caller's snapshot: closing a
+  // pull request is pr.close's grant, not issue.close's (security review of #166, slice 3). Other
+  // actions follow the snapshot's kind (a pull request's has a head SHA).
+  const snapPull = req.snapshot !== undefined && 'headSha' in req.snapshot;
+  if (
+    req.snapshot !== undefined &&
+    ((req.action.type === 'issue.close' && snapPull) ||
+      (req.action.type === 'pr.close' && !snapPull))
+  )
+    return 'snapshot does not match the action';
   const pull =
-    req.snapshot !== undefined ? 'headSha' in req.snapshot : req.action.type === 'pr.close';
+    req.action.type === 'pr.close' ||
+    (req.action.type !== 'issue.close' && req.snapshot !== undefined && snapPull);
   let thread = pull
     ? await readPullThread(env, req.agentId, req.runId, repo, number)
     : await readIssueThread(env, req.agentId, req.runId, repo, number);

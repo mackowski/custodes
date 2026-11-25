@@ -1055,4 +1055,51 @@ describe('runtime writes carry the snapshot the agent read (ADR 0023)', () => {
     expect(r).toMatchObject({ ok: false, reason: 'stale: the target changed since it was read' });
     expect(gh.writes).toEqual([]);
   });
+
+  it('refuses issue.close with a pull snapshot: closing a pull request is pr.close (slice 3 M1)', async () => {
+    const t: Fake = { pull: true, commenters: ['carol'], head: 'a'.repeat(40) };
+    const gh = fakeGithub(t);
+    const read = await readPullThread(testEnv, 'backlog-review', runId, REPO, 7);
+    if (!read.ok) throw new Error(read.reason);
+    const r = await act(
+      testEnv,
+      {
+        ...request({
+          type: 'issue.close',
+          repo: REPO,
+          issue: 7,
+          body: 'Done, thanks.',
+          stateReason: 'completed',
+        }),
+        snapshot: read.snapshot,
+      },
+      nextNow(),
+    );
+    expect(r).toMatchObject({ ok: false, reason: 'snapshot does not match the action' });
+    expect(gh.writes).toEqual([]);
+  });
+
+  it('refuses pr.close with an issue snapshot on an issue number (slice 3 M1)', async () => {
+    const agent = policy.agents['backlog-plain'];
+    if (!agent) throw new Error('fixture');
+    const saved = agent.actions;
+    agent.actions = [...saved, 'pr.close'];
+    try {
+      const gh = fakeGithub({ commenters: ['carol'] });
+      const read = await readIssueThread(testEnv, 'backlog-plain', runId, REPO, 7);
+      if (!read.ok) throw new Error(read.reason);
+      const r = await act(
+        testEnv,
+        {
+          ...request({ type: 'pr.close', repo: REPO, pull: 7, body: 'Closing.' }, 'backlog-plain'),
+          snapshot: read.snapshot,
+        },
+        nextNow(),
+      );
+      expect(r).toMatchObject({ ok: false, reason: 'snapshot does not match the action' });
+      expect(gh.writes).toEqual([]);
+    } finally {
+      agent.actions = saved;
+    }
+  });
 });
