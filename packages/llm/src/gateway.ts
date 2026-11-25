@@ -33,9 +33,29 @@ export interface GatewayConfig {
  */
 export const ANTHROPIC_TIMEOUT_MS = 180_000;
 
+/** A block of a multi-part message (Messages API): text, a tool call, or a tool's result. */
+export type ContentBlockParam =
+  | { type: 'text'; text: string }
+  | { type: 'tool_use'; id: string; name: string; input: unknown }
+  | { type: 'tool_result'; tool_use_id: string; content: string; is_error?: boolean };
+
 export interface MessageParam {
   role: 'user' | 'assistant';
-  content: string;
+  content: string | ContentBlockParam[];
+}
+
+/** A tool the model may call; `input_schema` is JSON Schema (from zod's `toJSONSchema`). */
+export interface ToolDefinition {
+  name: string;
+  description: string;
+  input_schema: Record<string, unknown>;
+}
+
+/** A tool call the model asked for. `input` is model output: validate it before use. */
+export interface ToolUse {
+  id: string;
+  name: string;
+  input: unknown;
 }
 
 /**
@@ -53,6 +73,8 @@ export interface MessagesRequest {
    * Short classification calls disable it so a small budget cannot be consumed by thinking.
    */
   thinking?: { type: 'disabled' } | { type: 'adaptive' };
+  /** Read tools offered to the model (agent runtime, ADR 0023). */
+  tools?: ToolDefinition[];
   metadata: { agentId: string; runId: string; [k: string]: string };
 }
 
@@ -228,7 +250,14 @@ export class AnthropicGateway {
         'gen_ai.input.messages',
         req.messages.map((m) => ({
           role: m.role,
-          parts: [{ type: 'text', content: clipPayload(m.content) }],
+          parts: [
+            {
+              type: 'text',
+              content: clipPayload(
+                typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
+              ),
+            },
+          ],
         })),
       );
       const out = await withTimeout(this.cfg.timeoutMs ?? ANTHROPIC_TIMEOUT_MS, (signal) =>
@@ -252,6 +281,17 @@ export class AnthropicGateway {
       if (out.stop_reason === 'max_tokens') throw new ModelOutputError('max_tokens');
       return out;
     });
+  }
+
+  /** The tool calls in a response, in order. Malformed blocks are dropped, never guessed at. */
+  static toolUses(res: MessagesResponse): ToolUse[] {
+    const out: ToolUse[] = [];
+    for (const c of res.content) {
+      if (c.type !== 'tool_use') continue;
+      const { id, name, input } = c as { id?: unknown; name?: unknown; input?: unknown };
+      if (typeof id === 'string' && typeof name === 'string') out.push({ id, name, input });
+    }
+    return out;
   }
 
   /** Convenience: the concatenated text blocks of a response (thinking blocks are skipped). */

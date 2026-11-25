@@ -13,3 +13,4 @@ export * from './key-store.js';
 export * from './issue-digest.js';
 export * from './access-jwt.js';
 export * from './comment-rules.js';
+export * from './runtime/dispatcher.js';

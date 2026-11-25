@@ -394,3 +394,54 @@ describe('AnthropicGateway metadata', () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 });
+
+describe('AnthropicGateway tools (ADR 0023)', () => {
+  it('sends tool definitions and multi-part messages, and reads tool calls back', async () => {
+    const fetchImpl = vi.fn((_u: RequestInfo | URL, _i?: RequestInit) =>
+      Promise.resolve(
+        Response.json({
+          id: 'm',
+          model: 'x',
+          stop_reason: 'tool_use',
+          content: [
+            { type: 'text', text: 'reading' },
+            { type: 'tool_use', id: 'tu1', name: 'issue', input: { number: 3 } },
+            // Malformed blocks are dropped, never guessed at.
+            { type: 'tool_use', name: 'issue', input: {} },
+            { type: 'tool_use', id: 'tu2', name: 7, input: {} },
+          ],
+          usage: { input_tokens: 1, output_tokens: 1 },
+        }),
+      ),
+    );
+    const gw = new AnthropicGateway({
+      accountId: 'a',
+      gatewayId: 'g',
+      gatewayToken: 't',
+      fetchImpl,
+    });
+    const req: MessagesRequest = {
+      model: 'claude-sonnet-5-5',
+      system: 's',
+      messages: [
+        { role: 'user', content: 'task' },
+        { role: 'assistant', content: [{ type: 'tool_use', id: 'tu0', name: 'issue', input: {} }] },
+        { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'tu0', content: 'r' }] },
+      ],
+      max_tokens: 10,
+      tools: [{ name: 'issue', description: 'd', input_schema: { type: 'object' } }],
+      metadata: { agentId: 'a', runId: 'r' },
+    };
+    const res = await gw.messages(req);
+    const body = JSON.parse(fetchImpl.mock.calls[0]?.[1]?.body as string) as Record<
+      string,
+      unknown
+    >;
+    expect(body['tools']).toEqual(req.tools);
+    expect(body['messages']).toEqual(req.messages);
+    expect(AnthropicGateway.toolUses(res)).toEqual([
+      { id: 'tu1', name: 'issue', input: { number: 3 } },
+    ]);
+    expect(AnthropicGateway.text(res)).toBe('reading');
+  });
+});
