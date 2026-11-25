@@ -106,7 +106,8 @@ const AgentPolicyObject = z
     trailer: z.enum(['visible', 'hidden']).default('visible'),
     /**
      * Only bundle approvals (ADR 0019): the plain one-action approval route refuses this agent, so
-     * every request goes through the bundle checks (snapshot, thread people, issues only).
+     * every request goes through the bundle checks (snapshot, thread people). Which targets it can
+     * bundle (issues, pull requests) follows from its actions and read policy (ADR 0024).
      * `true` → `false` is a widening (invariant 4).
      */
     bundleOnly: z.boolean().default(false),
@@ -201,7 +202,12 @@ export const Policy = z.preprocess(
           if (!review) return true;
           return a.repos
             .filter((r) => r !== REVIEW_SANDBOX_REPO && review.repos.includes(r))
-            .every((r) => review.requiresApprovalOn[r]?.includes('pr.review.inline') ?? false);
+            .every(
+              (r) =>
+                review.mode === 'hitl' ||
+                review.requiresApproval.includes('pr.review.inline') ||
+                (review.requiresApprovalOn[r]?.includes('pr.review.inline') ?? false),
+            );
         }),
       {
         message:

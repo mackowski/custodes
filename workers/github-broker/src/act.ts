@@ -15,6 +15,7 @@ import {
 } from '@custodes/github';
 import {
   isTriggerLabel,
+  numberOf,
   TRIGGER_LABEL_DAILY_CAP,
   type Attestation,
   type AuditDecision,
@@ -25,7 +26,13 @@ import {
   type CallerSignature,
 } from '@custodes/schema';
 import { keyring, secretBinding, type BrokerEnv } from './env.js';
-import { allowedFor, commentBody, namedBy, readIssueThread, readPullThread } from './thread.js';
+import {
+  commentBody,
+  namedBy,
+  readIssueThread,
+  readPullThread,
+  strangerProblem,
+} from './thread.js';
 import { policy } from './policy.js';
 import { ApprovalStore, AuditStore, EXECUTION_FAILED } from './store.js';
 
@@ -159,17 +166,8 @@ export async function act(
   }
 
   // ADR 0024: a trigger label starts automation as the operator; cap it per agent and repository.
-  if (req.action.type === 'issue.label.add') {
-    const since = new Date(now.getTime() - 86_400_000).toISOString();
-    for (const label of req.action.labels.filter(isTriggerLabel)) {
-      const added = await audit.countLabelAddsSince(req.agentId, req.action.repo, label, since);
-      if (added >= TRIGGER_LABEL_DAILY_CAP)
-        return deny(
-          'policy_denied',
-          `daily cap of ${TRIGGER_LABEL_DAILY_CAP} for label ${label} on ${req.action.repo} reached`,
-        );
-    }
-  }
+  const capped = await triggerLabelCapped(env, req.agentId, [req.action], now);
+  if (capped !== null) return deny('policy_denied', capped);
 
   // ADR 0024: the mention rule below reads `@` only, so a character reference (`&#64;x` renders as
   // `@x`) or a hidden comment would slip past it. The link rules stay on bundles: pr-gate's
@@ -183,14 +181,9 @@ export async function act(
 
   // ADR 0024: an action names only thread people (or, in text, listed maintainers), hotl included.
   // issue.close always reads the issue: GitHub's issue endpoints accept a pull request number, and
-  // closing one is pr.close's grant, not issue.close's (finding 2). A failed read refuses.
-  const named = namedBy(req.action);
-  const maintainersOnly = allowedFor(req.action, []).map((l) => l.toLowerCase());
-  if (
-    req.action.type === 'issue.close' ||
-    named.some((l) => !maintainersOnly.includes(l.toLowerCase()))
-  ) {
-    const problem = await threadProblem(env, req, named);
+  // closing one is pr.close's grant, not issue.close's. A failed read refuses.
+  if (req.action.type === 'issue.close' || namedBy(req.action).length > 0) {
+    const problem = await threadProblem(env, req);
     if (problem !== null) return deny('policy_denied', problem);
   }
 
@@ -251,13 +244,9 @@ export async function act(
  * comment may sit on a pull request, so its issue read falls back to the pull request; issue.close
  * never does.
  */
-async function threadProblem(
-  env: BrokerEnv,
-  req: BrokerRequest,
-  named: readonly string[],
-): Promise<string | null> {
+async function threadProblem(env: BrokerEnv, req: BrokerRequest): Promise<string | null> {
   const { repo } = req.action;
-  const number = 'pull' in req.action ? req.action.pull : req.action.issue;
+  const number = numberOf(req.action);
   let thread =
     req.action.type === 'pr.close'
       ? await readPullThread(env, req.agentId, req.runId, repo, number)
@@ -265,10 +254,29 @@ async function threadProblem(
   if (!thread.ok && thread.reason === 'not an issue' && req.action.type !== 'issue.close')
     thread = await readPullThread(env, req.agentId, req.runId, repo, number);
   if (!thread.ok) return `cannot check the thread: ${thread.reason}`;
-  const allowed = allowedFor(req.action, thread.people).map((l) => l.toLowerCase());
-  const stranger = named.find((l) => !allowed.includes(l.toLowerCase()));
-  if (stranger === undefined) return null;
-  return req.action.type === 'issue.assign'
-    ? `@${stranger} is not in the thread`
-    : `@${stranger} is neither in the thread nor a listed maintainer`;
+  return strangerProblem(req.action, thread.people);
+}
+
+/**
+ * Why these actions would pass the trigger-label daily cap (ADR 0024), or null. One definition for
+ * `act()` and the bundle pre-check, which must agree or a bundle stops half-way.
+ */
+export async function triggerLabelCapped(
+  env: BrokerEnv,
+  agentId: string,
+  actions: readonly BrokerRequest['action'][],
+  now: Date,
+): Promise<string | null> {
+  const audit = new AuditStore(env.AUDIT);
+  const since = new Date(now.getTime() - 86_400_000).toISOString();
+  for (const a of actions) {
+    if (a.type !== 'issue.label.add') continue;
+    for (const label of a.labels.filter(isTriggerLabel)) {
+      if (
+        (await audit.countLabelAddsSince(agentId, a.repo, label, since)) >= TRIGGER_LABEL_DAILY_CAP
+      )
+        return `daily cap of ${TRIGGER_LABEL_DAILY_CAP} for label ${label} on ${a.repo} reached`;
+    }
+  }
+  return null;
 }

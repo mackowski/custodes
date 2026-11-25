@@ -2,6 +2,7 @@ import type { ApprovalBundle, ApprovalRequest, Attestation, BrokerRequest } from
 import {
   Attestation as AttestationSchema,
   BrokerRequest as BrokerRequestSchema,
+  numberOf,
 } from '@custodes/schema';
 
 export class AuditStore {
@@ -261,7 +262,7 @@ export class ApprovalStore {
     let n = 0;
     for (const row of results) {
       const a = (JSON.parse(row.request_json) as ApprovalRequest).action;
-      const num = 'pull' in a ? a.pull : a.issue;
+      const num = numberOf(a);
       if (a.repo !== target.repo || num !== target.number) continue;
       const res = await this.db
         .prepare(

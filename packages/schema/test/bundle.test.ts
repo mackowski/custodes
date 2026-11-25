@@ -33,7 +33,7 @@ describe('ApprovalBundle', () => {
     expect(bundle([comment]).success).toBe(true);
     expect(bundle([assign, remove]).success).toBe(true);
   });
-  it('rejects an empty bundle and more than four actions', () => {
+  it('rejects an empty bundle and more than BUNDLE_ORDER.length actions', () => {
     expect(bundle([]).success).toBe(false);
     expect(bundle([assign, add, remove, comment, comment]).success).toBe(false);
   });

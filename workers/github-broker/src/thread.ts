@@ -213,20 +213,27 @@ async function reviewsDigest(reviews: unknown[]): Promise<string> {
 }
 
 /**
- * Logins an agent may name or assign on a thread (ADR 0024): its people plus the policy's
- * maintainers for that repository.
+ * Who this action may name: the thread's people, plus the policy's maintainers for that repository
+ * in text only (a ping). An assignee must come from the thread itself (ADR 0019), so the
+ * maintainers list never widens assignment (ADR 0024).
  */
-export function allowedPeople(repo: string, threadPeople: readonly string[]): string[] {
-  return [...threadPeople, ...(policy.maintainers[repo] ?? [])];
+export function allowedFor(a: BrokerAction, threadPeople: readonly string[]): string[] {
+  return a.type === 'issue.assign'
+    ? [...threadPeople]
+    : [...threadPeople, ...(policy.maintainers[a.repo] ?? [])];
 }
 
 /**
- * Who this action may name: maintainers only in text (a ping); an assignee must come from the
- * thread itself (ADR 0019), so the maintainers list never widens assignment (security review of
- * #143, finding 5).
+ * The people rule for one action on a thread whose people are known, as a refusal reason, or
+ * null. One definition for the bundle path and `act()`.
  */
-export function allowedFor(a: BrokerAction, threadPeople: readonly string[]): string[] {
-  return a.type === 'issue.assign' ? [...threadPeople] : allowedPeople(a.repo, threadPeople);
+export function strangerProblem(a: BrokerAction, threadPeople: readonly string[]): string | null {
+  const allowed = allowedFor(a, threadPeople).map((p) => p.toLowerCase());
+  const stranger = namedBy(a).find((l) => !allowed.includes(l.toLowerCase()));
+  if (stranger === undefined) return null;
+  return a.type === 'issue.assign'
+    ? `@${stranger} is not in the thread`
+    : `@${stranger} is neither in the thread nor a listed maintainer`;
 }
 
 /** The logins an action names: its assignee, or every @mention in its text. */

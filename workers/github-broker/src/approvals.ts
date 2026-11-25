@@ -16,16 +16,16 @@ import {
   DEFAULT_APPROVAL_TTL_HOURS,
   DEFAULT_MAX_PENDING_APPROVALS,
   isPullBundle,
+  numberOf,
   type BrokerAction,
 } from '@custodes/schema';
-import { act } from './act.js';
+import { act, triggerLabelCapped } from './act.js';
 import {
-  allowedFor,
   commentBody,
   commentProblem,
-  namedBy,
   readIssueThread,
   readPullThread,
+  strangerProblem,
 } from './thread.js';
 import { keyring, type BrokerEnv } from './env.js';
 import { policy } from './policy.js';
@@ -196,28 +196,20 @@ export function checkPeopleAndText(
   threadPeople: readonly string[],
 ): { ok: true } | { ok: false; reason: string } {
   for (const a of actions) {
-    const allowed = allowedFor(a, threadPeople).map((p) => p.toLowerCase());
     const body = commentBody(a);
     if (body !== null) {
       const bad = commentProblem(body, a.repo);
       if (bad !== null) return { ok: false, reason: bad };
     }
-    const stranger = namedBy(a).find((l) => !allowed.includes(l.toLowerCase()));
-    if (stranger !== undefined)
-      return {
-        ok: false,
-        reason:
-          a.type === 'issue.assign'
-            ? `@${stranger} is not in the thread`
-            : `@${stranger} is neither in the thread nor a listed maintainer`,
-      };
+    const stranger = strangerProblem(a, threadPeople);
+    if (stranger !== null) return { ok: false, reason: stranger };
   }
   return { ok: true };
 }
 
 /** What an action is about: one pull request or issue of one repository. */
 export function targetOf(action: BrokerRequest['action']): { repo: string; number: number } {
-  return { repo: action.repo, number: 'pull' in action ? action.pull : action.issue };
+  return { repo: action.repo, number: numberOf(action) };
 }
 
 export type TokenLookup =
@@ -271,6 +263,10 @@ export async function decideApproval(
         now,
       );
       if (used + pending.bundle.actions.length > agentPolicy.rateLimitPerHour)
+        return { result: 'rate_limited' };
+      // The trigger-label daily cap (ADR 0024) too, so a capped label never stops a bundle
+      // half-way and spends its approval.
+      if ((await triggerLabelCapped(env, pending.agentId, pending.bundle.actions, now)) !== null)
         return { result: 'rate_limited' };
     }
   }

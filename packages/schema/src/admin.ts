@@ -56,7 +56,7 @@ export const BUNDLE_ORDER = [
 ] as const;
 
 /** The issue or pull request number an action is about. */
-function numberOf(a: BrokerAction): number {
+export function numberOf(a: BrokerAction): number {
   return 'pull' in a ? a.pull : a.issue;
 }
 

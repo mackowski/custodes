@@ -1,7 +1,8 @@
 /**
- * What a comment an agent proposes may not contain (ADR 0019). One definition: triage-apply drops
- * such a comment from its bundle and the broker refuses the bundle again before asking the
- * operator. With two copies, a rule added on one side only would lose the whole one-click link.
+ * What a comment an agent proposes may not contain (ADR 0019, ADR 0024). One definition: an agent
+ * drops such a comment from its proposal and the broker refuses it again. Bundles get every rule;
+ * `act()` refuses character references and comment markers on every path (the mention check needs
+ * that), but not links, because pr-gate's code-built close comment links CONTRIBUTING.md.
  */
 export type CommentProblem = 'character_reference' | 'comment_marker' | 'link' | 'other_repository';
 

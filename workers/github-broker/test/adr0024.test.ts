@@ -253,12 +253,13 @@ describe('mentions in a hotl comment (ADR 0024)', () => {
     ]);
   });
 
-  it('allows naming only a listed maintainer without reading the thread at all', async () => {
+  it('allows naming a listed maintainer who is not in the thread, after reading it', async () => {
     policy.maintainers[REPO] = ['Maint'];
     const gh = fakeGithub();
     const r = await act(testEnv, request(comment('ping @maint')), nextNow());
     expect(r).toMatchObject({ ok: true });
-    expect(gh.gets).toEqual([]);
+    // Every mention reads the target, so a ping never posts on a thread nobody read (lean review).
+    expect(gh.gets).toContain('/issues/7');
     expect(gh.writes).toHaveLength(1);
   });
 
@@ -527,6 +528,36 @@ describe('pull request bundles (ADR 0024)', () => {
     comment('Heads up, closing.'),
     { type: 'pr.close', repo: REPO, pull: 7, body: 'Closing, superseded.' },
   ];
+
+  it('keeps a bundle pending when its trigger label is past the daily cap (lean review)', async () => {
+    const agent = policy.agents['backlog-review'];
+    if (!agent) throw new Error('fixture');
+    const gh = fakeGithub({ commenters: ['carol'] });
+    const now = nextNow();
+    for (const h of [3, 2, 1])
+      expect(
+        await act(testEnv, request(addLabels([TRIGGER])), new Date(now.getTime() - h * 3_600_000)),
+      ).toMatchObject({ ok: true });
+    const saved = agent.mode;
+    agent.mode = 'hitl';
+    try {
+      const snap = await snapshotNow();
+      const created = await createBundleApproval(
+        testEnv,
+        askFor('backlog-review', [addLabels([TRIGGER]), comment('Full review requested.')], snap),
+        now,
+      );
+      if (!created.ok) throw new Error(created.error);
+      const before = gh.writes.length;
+      expect(
+        await decideApproval(testEnv, created.approval.id, 'approved', 'op@example.org', now),
+      ).toEqual({ result: 'rate_limited' });
+      // Nothing ran and the approval is still pending, so it can be approved tomorrow.
+      expect(gh.writes).toHaveLength(before);
+    } finally {
+      agent.mode = saved;
+    }
+  });
 
   it('refuses a pull bundle for triage-apply: its policy has no pr.close', async () => {
     const t: Fake = { commenters: ['carol'] };

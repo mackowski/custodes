@@ -39,7 +39,7 @@ start cheatsheet-review by adding its label.
 - `ApprovalBundle` gets a `target` of `issue` or `pull` and a snapshot discriminated by it:
   `IssueSnapshot` as today, and a new `PullSnapshot` with `head_sha`, state, labels, assignees,
   `updated_at`, a comments digest and a reviews digest.
-- A bundle still has one target. Its actions run in an order taken from the action registry:
+- A bundle still has one target. Its actions run in the fixed order of `BUNDLE_ORDER`:
   idempotent state first (assign, unassign, labels), then text (comment), then the state change that
   ends the thread (`issue.close`, `pr.close`), which is always last.
 - The token stays bound to the hash of the actions plus the snapshot. The broker re-reads the target

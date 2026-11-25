@@ -4,7 +4,12 @@
  * URL. Everything shown can hold model output or third-party text: it is HTML-escaped, never
  * linked or rendered as Markdown, and the page has no script. It cannot be framed (clickjacking).
  */
-import type { ApprovalRequest, BundleStep, DecideOutcome } from '@custodes/schema';
+import {
+  numberOf,
+  type ApprovalRequest,
+  type BundleStep,
+  type DecideOutcome,
+} from '@custodes/schema';
 
 export const PAGE_HEADERS = {
   'content-type': 'text/html; charset=utf-8',
@@ -115,7 +120,7 @@ function bundleDetails(approval: ApprovalRequest): string {
   const snap = b.snapshot;
   const pull = 'headSha' in snap;
   const what = pull ? 'pull request' : 'issue';
-  const number = 'pull' in a ? a.pull : a.issue;
+  const number = numberOf(a);
   const head = pull ? `, head commit <code>${escapeHtml(snap.headSha)}</code>` : '';
   return `<dl><dt>Repository</dt><dd>${escapeHtml(a.repo)}</dd>
 <dt>${pull ? 'Pull request' : 'Issue'}</dt><dd>#${number}</dd></dl>
