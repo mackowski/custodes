@@ -84,6 +84,10 @@ export const Proposal = z.strictObject({
 });
 export type Proposal = z.infer<typeof Proposal>;
 
+/** An orchestrator's answer: several proposals, one per target (ADR 0023). A child answers one. */
+export const ProposalList = z.strictObject({ proposals: z.array(Proposal).max(10) });
+export type ProposalList = z.infer<typeof ProposalList>;
+
 const Sha256 = z.string().regex(/^[0-9a-f]{64}$/);
 
 /** One tool call as code recorded it. Hashes only: no argument or result text. */
