@@ -754,6 +754,43 @@ describe('security-review fixes (ADR 0024)', () => {
       expect(gh.writes).toEqual([]);
     });
 
+    it.each([
+      [
+        'a link plus a character reference',
+        'https://example.com &#64;stranger',
+        'character reference',
+      ],
+      [
+        'a link plus a comment marker',
+        'https://example.com <!-- fake trailer -->',
+        'comment marker',
+      ],
+    ])(
+      'still refuses %s in pr.close: the link exemption covers links only',
+      async (_n, body, problem) => {
+        const agent = policy.agents['backlog-plain'];
+        if (!agent) throw new Error('fixture');
+        const saved = agent.actions;
+        agent.actions = [...saved, 'pr.close'];
+        try {
+          const gh = fakeGithub();
+          const r = await act(
+            testEnv,
+            request({ type: 'pr.close', repo: REPO, pull: 7, body }, 'backlog-plain'),
+            nextNow(),
+          );
+          expect(r).toMatchObject({
+            ok: false,
+            code: 'policy_denied',
+            reason: `comment refused: ${problem}`,
+          });
+          expect(gh.writes).toEqual([]);
+        } finally {
+          agent.actions = saved;
+        }
+      },
+    );
+
     it("keeps links for pr.close: pr-gate's close comment links CONTRIBUTING.md", async () => {
       const agent = policy.agents['backlog-plain'];
       if (!agent) throw new Error('fixture');
