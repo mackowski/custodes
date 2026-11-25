@@ -4,7 +4,7 @@
  * `parseStructured()`. It lives in `@custodes/llm` because both helpers do; the dispatcher that
  * routes the result to a side effect is in `@custodes/core`.
  */
-import { canonicalJson, sha256Hex } from '@custodes/core';
+import { canonicalJson, sha256Hex, type SpendLedger } from '@custodes/core';
 import type { ProgressState, TargetRead, ToolCallRecord } from '@custodes/schema';
 import { z } from 'zod';
 import {
@@ -59,6 +59,19 @@ export interface LoopDeps {
   guard(): Promise<void>;
   /** USD for one response's usage. */
   costOf(usage: MessagesResponse['usage']): number;
+  /**
+   * The agent tree's daily spend (ADR 0023: $3/day per tree). Children share their parent's
+   * ledger, so one budget covers the whole tree. Without it only the per-run cap applies.
+   */
+  daily?: { ledger: SpendLedger; usd: number };
+  /** The run event channel (ADR 0023): one event per model turn and per tool call. */
+  record?(e: {
+    round: number;
+    tool: string | null;
+    args: unknown;
+    resultSize: number;
+    modelText: string;
+  }): Promise<void> | void;
 }
 
 interface RunState {
@@ -104,6 +117,8 @@ export async function runLoop<S extends z.ZodType>(
   for (;;) {
     if (state.rounds >= input.caps.rounds) return stop('rounds');
     if (state.usd >= input.caps.usd) return stop('budget');
+    if (deps.daily && (await deps.daily.ledger.spentToday()) >= deps.daily.usd)
+      return stop('budget');
     try {
       await deps.guard();
     } catch {
@@ -124,9 +139,18 @@ export async function runLoop<S extends z.ZodType>(
       if (err instanceof ModelOutputError) return stop('invalid_output');
       throw err;
     }
-    state.usd += deps.costOf(res.usage);
+    const cost = deps.costOf(res.usage);
+    state.usd += cost;
+    await deps.daily?.ledger.add(cost);
 
     const calls = AnthropicGateway.toolUses(res);
+    await deps.record?.({
+      round: state.rounds,
+      tool: null,
+      args: null,
+      resultSize: 0,
+      modelText: AnthropicGateway.text(res),
+    });
     if (calls.length === 0) {
       try {
         return {
@@ -158,8 +182,21 @@ export async function runLoop<S extends z.ZodType>(
 
     const results: ContentBlockParam[] = [];
     for (const c of checked) {
+      // Guard again before a tool runs: a delegate call starts a child run (ADR 0023).
+      try {
+        await deps.guard();
+      } catch {
+        return stop('halted');
+      }
       const out = await c.tool.run(c.args);
       if (out.read) state.reads.push(out.read);
+      await deps.record?.({
+        round: state.rounds,
+        tool: c.tool.name,
+        args: c.args,
+        resultSize: out.content.length,
+        modelText: '',
+      });
       const record: ToolCallRecord = {
         name: c.tool.name,
         argsHash: c.argsHash,
