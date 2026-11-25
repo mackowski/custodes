@@ -5,7 +5,6 @@ import {
   redact,
   RunStore,
   runGuard,
-  runtimeHost,
   storeLedger,
 } from '../src/runtime/run-store.js';
 import { memorySql } from './helpers/sqlite.js';
@@ -174,7 +173,7 @@ describe('RunStore events (ADR 0023, ADR 0016)', () => {
     expect(redact('plain text with no token')).toBe('plain text with no token');
   });
 
-  it('prunes events and finished runs past 14 days, keeps running ones', () => {
+  it('prunes events and runs past 14 days, crashed `running` ones too', () => {
     let now = T0;
     const s = store(() => now);
     const done = s.start('a');
@@ -187,15 +186,36 @@ describe('RunStore events (ADR 0023, ADR 0016)', () => {
       modelText: 'old',
     });
     s.finish(done, 'done');
-    const running = s.start('a');
+    const crashed = s.start('a');
     now = new Date(T0.getTime() + EVENT_RETENTION_MS + 1);
-    expect(s.prune()).toEqual({ events: 1, runs: 1 });
+    const fresh = s.start('a');
+    s.prune();
     expect(s.get(done)).toBeNull();
-    expect(s.get(running)).not.toBeNull();
+    expect(s.get(crashed)).toBeNull();
+    expect(s.listEvents(done)).toEqual([]);
+    expect(s.get(fresh)).not.toBeNull();
   });
 });
 
-describe('runGuard and RuntimeHost', () => {
+describe('RunStore HOTL slots per run tree (ADR 0023)', () => {
+  it("counts on the root run, so children share the tree's slots", () => {
+    const s = store();
+    const parent = s.start('a');
+    const c1 = s.start('a', parent);
+    const c2 = s.start('a', parent);
+    expect(s.takeHotlSlot(c1, 2)).toBe(true);
+    expect(s.takeHotlSlot(parent, 2)).toBe(true);
+    expect(s.takeHotlSlot(c2, 2)).toBe(false);
+    const other = s.start('a');
+    expect(s.takeHotlSlot(other, 2)).toBe(true);
+  });
+
+  it('gives an unknown run no slot', () => {
+    expect(store().takeHotlSlot('made-up', 10)).toBe(false);
+  });
+});
+
+describe('runGuard', () => {
   it('throws when the run or its parent is killed, or the broker says halted', async () => {
     const s = store();
     const parent = s.start('a');
@@ -207,16 +227,7 @@ describe('runGuard and RuntimeHost', () => {
     halted = true;
     await expect(guard()).rejects.toThrow('halted');
     halted = false;
-    await runtimeHost(s).kill(parent);
+    expect(s.kill(parent)).toBe(2);
     await expect(guard()).rejects.toThrow('run killed');
-  });
-
-  it('kills and lists through the host', async () => {
-    const s = store();
-    const host = runtimeHost(s);
-    const id = s.start('a');
-    s.recordEvent({ runId: id, round: 1, tool: 'issue', args: {}, resultSize: 3, modelText: '' });
-    expect(await host.listEvents(id)).toHaveLength(1);
-    expect(await host.kill(id)).toEqual({ killed: 1 });
   });
 });

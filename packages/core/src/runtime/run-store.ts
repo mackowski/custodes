@@ -76,6 +76,7 @@ interface RunRow extends Record<string, unknown> {
   killed: number;
   started_at: string;
   spent_usd: number;
+  hotl_writes: number;
 }
 
 export class RunStore {
@@ -87,7 +88,8 @@ export class RunStore {
     sql.exec(`CREATE TABLE IF NOT EXISTS runtime_runs (
       run_id TEXT PRIMARY KEY, parent_run_id TEXT, agent_id TEXT NOT NULL,
       status TEXT NOT NULL, killed INTEGER NOT NULL DEFAULT 0,
-      started_at TEXT NOT NULL, spent_usd REAL NOT NULL DEFAULT 0)`);
+      started_at TEXT NOT NULL, spent_usd REAL NOT NULL DEFAULT 0,
+      hotl_writes INTEGER NOT NULL DEFAULT 0)`);
     sql.exec(`CREATE TABLE IF NOT EXISTS runtime_events (
       run_id TEXT NOT NULL, parent_run_id TEXT, round INTEGER NOT NULL, tool TEXT,
       args TEXT NOT NULL, result_size INTEGER NOT NULL, model_text TEXT NOT NULL, at TEXT NOT NULL)`);
@@ -136,6 +138,25 @@ export class RunStore {
   addSpend(runId: string, usd: number): void {
     if (!(usd >= 0)) throw new Error('spend must be a non-negative number');
     this.sql.exec('UPDATE runtime_runs SET spent_usd = spent_usd + ? WHERE run_id = ?', usd, runId);
+  }
+
+  /**
+   * Takes one direct-write slot of the run tree (ADR 0023): counted on the root run, so 60 children
+   * share the tree's `max`, not one each. One statement, so two children cannot both take the last.
+   */
+  takeHotlSlot(runId: string, max: number): boolean {
+    const run = this.get(runId);
+    if (!run) return false;
+    const root = run.parentRunId ?? run.runId;
+    return (
+      this.sql
+        .exec(
+          'UPDATE runtime_runs SET hotl_writes = hotl_writes + 1 WHERE run_id = ? AND hotl_writes < ? RETURNING hotl_writes',
+          root,
+          max,
+        )
+        .toArray().length === 1
+    );
   }
 
   /** Killed itself, or its parent was: a kill takes the whole tree. Unknown runs count as killed. */
@@ -234,17 +255,14 @@ export class RunStore {
       }));
   }
 
-  /** Deletes events and finished runs past the retention; called by the agent's alarm. */
-  prune(): { events: number; runs: number } {
+  /**
+   * Deletes events and runs past the retention; called by the agent's alarm. A run still marked
+   * `running` after 14 days crashed or was evicted, so it goes too.
+   */
+  prune(): void {
     const cutoff = new Date(this.now().getTime() - EVENT_RETENTION_MS).toISOString();
-    const count = (q: string) => this.sql.exec<{ n: number }>(q, cutoff).toArray()[0]?.n ?? 0;
-    const events = count('SELECT COUNT(*) AS n FROM runtime_events WHERE at < ?');
-    const runs = count(
-      "SELECT COUNT(*) AS n FROM runtime_runs WHERE started_at < ? AND status != 'running'",
-    );
     this.sql.exec('DELETE FROM runtime_events WHERE at < ?', cutoff);
-    this.sql.exec("DELETE FROM runtime_runs WHERE started_at < ? AND status != 'running'", cutoff);
-    return { events, runs };
+    this.sql.exec('DELETE FROM runtime_runs WHERE started_at < ?', cutoff);
   }
 }
 
@@ -273,20 +291,6 @@ export function runGuard(
   return async () => {
     if (store.isKilled(runId)) throw new Error('run killed');
     await brokerGuard();
-  };
-}
-
-/** What the gateway and the supervisor may call on an agent's runtime (ADR 0023; routes: slice 3). */
-export interface RuntimeHost {
-  kill(runId: string): Promise<{ killed: number }>;
-  listEvents(runId: string, limit?: number): Promise<RunEvent[]>;
-}
-
-/** The host over one agent's store; the Durable Object exposes these as RPC methods. */
-export function runtimeHost(store: RunStore): RuntimeHost {
-  return {
-    kill: (runId) => Promise.resolve({ killed: store.kill(runId) }),
-    listEvents: (runId, limit) => Promise.resolve(store.listEvents(runId, limit)),
   };
 }
 
