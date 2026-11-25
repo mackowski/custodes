@@ -92,8 +92,9 @@ export async function createApproval(
 }
 
 /**
- * Asks for one approval of a bundle (ADR 0019): every action must be allowed and need an approval,
- * and the assignee and every @mention must be the issue's author or a commenter right now.
+ * Asks for one approval of a bundle (ADR 0019, ADR 0024) on an issue or a pull request: every action
+ * must be allowed and need an approval, and the assignee must be a thread person and every @mention
+ * a thread person or a listed maintainer, right now.
  */
 export async function createBundleApproval(
   env: BrokerEnv,

@@ -559,6 +559,19 @@ describe('pull request bundles (ADR 0024)', () => {
     }
   });
 
+  it('refuses a pull bundle of issue actions for triage-apply: its read policy has no pull', async () => {
+    const gh = fakeGithub({ commenters: ['carol'] });
+    const snap = await snapshotNow();
+    const out = await createBundleApproval(
+      testEnv,
+      askFor('triage-apply', [{ ...addLabels(['docker']) }], snap),
+      nextNow(),
+    );
+    expect(out).toMatchObject({ ok: false, status: 403 });
+    if (!out.ok) expect(out.error).toContain('pull read failed: policy_denied');
+    expect(gh.writes).toEqual([]);
+  });
+
   it('refuses a pull bundle for triage-apply: its policy has no pr.close', async () => {
     const t: Fake = { commenters: ['carol'] };
     const gh = fakeGithub(t);

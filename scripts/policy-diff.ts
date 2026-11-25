@@ -58,6 +58,10 @@ export function grants(policy: unknown): Set<string> {
       `${cell(id)} | approvals | ttl=${cell(a['approvalTtlHours'] ?? 24)}h pending=${cell(a['maxPendingApprovals'] ?? 20)} trailer=${cell(a['trailer'] ?? 'visible')} bundleOnly=${cell(a['bundleOnly'] ?? false)}`,
     );
   }
+  // Who agents may ping besides the thread (ADR 0024): a widening the operator should see.
+  const maintainers = isObj(doc['maintainers']) ? doc['maintainers'] : {};
+  for (const [repo, logins] of Object.entries(maintainers))
+    for (const login of strings(logins)) out.add(`* | maintainer | ${cell(repo)} ${cell(login)}`);
   for (const [id, r] of entries(doc['reads'])) {
     out.add(`${cell(id)} | read token | ${cell(r['tokenBinding'])}`);
     for (const repo of strings(r['repos']))
