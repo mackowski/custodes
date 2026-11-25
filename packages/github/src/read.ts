@@ -1,10 +1,13 @@
-import type { BrokerReadRequest } from '@custodes/schema';
+import { CHEATSHEET_SEARCH_PAGE, type BrokerReadRequest } from '@custodes/schema';
 import { GITHUB_API, githubHeaders, unboundFetch } from './http.js';
 import type { GitHubIdentity } from './identity.js';
 
 /** Builds the GitHub API path for an allow-listed read. Pure; the only place paths are formed. */
 export function buildReadPath(
-  req: Pick<BrokerReadRequest, 'repo' | 'resource' | 'query' | 'number' | 'file' | 'path' | 'ref'>,
+  req: Pick<
+    BrokerReadRequest,
+    'repo' | 'resource' | 'query' | 'number' | 'file' | 'path' | 'ref' | 'search'
+  >,
 ): string {
   const q = new URLSearchParams();
   for (const [k, v] of Object.entries(req.query)) if (v !== undefined) q.set(k, String(v));
@@ -29,6 +32,17 @@ export function buildReadPath(
       return `/repos/${req.repo}/pulls?${pullsQuery(req.query)}`;
     case 'pull':
       return `/repos/${req.repo}/pulls/${required(req.number)}`;
+    case 'cheatsheet_search': {
+      // The qualifiers come from the request's checked repo, never from the caller's words.
+      const s = new URLSearchParams({
+        q: `${required(req.search)} repo:${req.repo} path:cheatsheets`,
+        per_page: String(
+          Math.min(req.query.per_page ?? CHEATSHEET_SEARCH_PAGE, CHEATSHEET_SEARCH_PAGE),
+        ),
+        page: String(req.query.page ?? 1),
+      });
+      return `/search/code?${s.toString()}`;
+    }
     case 'pull_file_at_ref': {
       const path = required(req.path).split('/').map(encodeURIComponent).join('/');
       return `/repos/${req.repo}/contents/${path}?ref=${required(req.ref)}`;

@@ -31,6 +31,11 @@ export const ReadResource = z.enum([
    * The broker does not check that the SHA belongs to a pull request; the PAT is read-only.
    */
   'pull_file_at_ref',
+  /**
+   * Code search over the cheat sheets (needs `search`, ADR 0023). The broker adds the repository
+   * and path qualifiers itself; the caller's words cannot carry qualifiers of their own.
+   */
+  'cheatsheet_search',
 ]);
 export type ReadResource = z.infer<typeof ReadResource>;
 
@@ -43,6 +48,19 @@ export const NUMBERED_RESOURCES: readonly ReadResource[] = [
   'pull_reviews',
   'pull',
 ];
+
+/**
+ * Words for `cheatsheet_search` (ADR 0023): letters, digits, spaces and `_ . -` only, so no `:`
+ * (no `repo:` or `path:` of the caller's own), no quotes and no other search syntax.
+ */
+export const CheatSheetSearch = z
+  .string()
+  .min(2)
+  .max(100)
+  .regex(/^[A-Za-z0-9][A-Za-z0-9 _.-]*$/);
+
+/** Results per `cheatsheet_search` page; GitHub allows 100, a cheat sheet list never needs that. */
+export const CHEATSHEET_SEARCH_PAGE = 20;
 
 /** A cheat sheet file name, e.g. `Password_Storage_Cheat_Sheet.md`. No path separators. */
 export const CheatSheetFile = z.string().regex(/^[A-Za-z0-9_-][A-Za-z0-9_.-]{0,119}\.md$/);
@@ -80,6 +98,7 @@ export const BrokerReadRequest = z
     file: CheatSheetFile.optional(),
     path: CheatSheetPath.optional(),
     ref: CommitSha.optional(),
+    search: CheatSheetSearch.optional(),
   })
   .strict()
   .superRefine((r, ctx) => {
@@ -91,6 +110,11 @@ export const BrokerReadRequest = z
       });
     if ((r.resource === 'cheatsheet') !== (r.file !== undefined))
       ctx.addIssue({ code: 'custom', message: 'file is required for, and only for, cheatsheet' });
+    if ((r.resource === 'cheatsheet_search') !== (r.search !== undefined))
+      ctx.addIssue({
+        code: 'custom',
+        message: 'search is required for, and only for, cheatsheet_search',
+      });
     const atRef = r.resource === 'pull_file_at_ref';
     if (atRef !== (r.path !== undefined) || atRef !== (r.ref !== undefined))
       ctx.addIssue({
