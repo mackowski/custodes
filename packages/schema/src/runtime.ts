@@ -1,8 +1,20 @@
 import { z } from 'zod';
 import { BrokerAction } from './actions.js';
-import { IssueSnapshot } from './admin.js';
+import type { IssueSnapshot } from './admin.js';
 import { AgentId, GitHubRepo } from './agent.js';
 import { Tier } from './tiers.js';
+
+/**
+ * Ceilings no agent.md may exceed (ADR 0023). An orchestrator is an agent with `agents:`; its
+ * per-run spend is bounded by the tree's daily budget. One definition: the zod maxima below and the
+ * CI check (`checkAgentDefinitions`) both use it.
+ */
+export const BUDGET_CEILINGS = {
+  orchestratorRounds: 40,
+  childRounds: 20,
+  childUsdPerRun: 0.15,
+  usdPerDay: 3,
+} as const;
 
 /**
  * The frontmatter of an `agent.md` (ADR 0023). The body is the system prompt. Bundled at build
@@ -29,9 +41,9 @@ export const AgentDefinition = z.strictObject({
   /** Name of a zod schema exported by `packages/schema`. */
   outputSchema: z.string().regex(/^[A-Z][A-Za-z0-9]{1,60}$/),
   budget: z.strictObject({
-    roundsPerRun: z.number().int().min(1).max(100),
-    usdPerRun: z.number().positive().max(5),
-    usdPerDay: z.number().positive().max(50),
+    roundsPerRun: z.number().int().min(1).max(BUDGET_CEILINGS.orchestratorRounds),
+    usdPerRun: z.number().positive().max(BUDGET_CEILINGS.usdPerDay),
+    usdPerDay: z.number().positive().max(BUDGET_CEILINGS.usdPerDay),
   }),
 });
 export type AgentDefinition = z.infer<typeof AgentDefinition>;
@@ -44,20 +56,25 @@ export const ProposalTarget = z.strictObject({
 });
 export type ProposalTarget = z.infer<typeof ProposalTarget>;
 
-/** A machine-checkable reason for an action: numbers, ids and times, never prose. */
+/**
+ * A machine-checkable reason for an action: numbers, ids and times, never prose. `ref` is a short
+ * constrained string (a number, a thread id or a check name), not a channel for text: it reaches
+ * a parent run through `delegate` (security review of #140, L3).
+ */
 export const Evidence = z.strictObject({
   type: z.enum(['merged_pr', 'unresolved_thread', 'ci_fail', 'last_activity', 'review']),
-  /** A PR or issue number, a thread id or a check name. */
-  ref: z.string().regex(/^[A-Za-z0-9#:/_.-]{1,100}$/),
+  /** A PR or issue number (`#12`), a thread id or a check name. */
+  ref: z.string().regex(/^#?[A-Za-z0-9._-]{1,40}$/),
   at: z.iso.datetime({ offset: true }).optional(),
 });
 export type Evidence = z.infer<typeof Evidence>;
 
-/** What one run proposes for one target (ADR 0023). Routed by the dispatcher, never run as-is. */
+/**
+ * What one run proposes for one target (ADR 0023). Routed by the dispatcher, never run as-is. It
+ * carries no snapshot: the dispatcher attaches the one code built from this run's read.
+ */
 export const Proposal = z.strictObject({
   target: ProposalTarget,
-  // TODO(#143): a union with PullSnapshot once the generic approval bundle lands.
-  snapshot: IssueSnapshot,
   actions: z.array(BrokerAction).max(7),
   evidence: z.array(Evidence).max(20),
   /** Shown to the operator as untrusted model text. */
@@ -79,16 +96,17 @@ export type ToolCallRecord = z.infer<typeof ToolCallRecord>;
 
 /**
  * Carried into a fresh run after a cap (ADR 0023). Computed by code and free of text, so an
- * injection in a read cannot survive the restart.
+ * injection in a read cannot survive the restart. Items already delegated are remembered by the
+ * `delegate` tool itself, which outlives the restart.
  */
 export const ProgressState = z.strictObject({
   calls: z.array(ToolCallRecord).max(500),
-  itemsDone: z.array(ProposalTarget).max(200),
   restarts: z.number().int().min(0).max(2),
 });
 export type ProgressState = z.infer<typeof ProgressState>;
 
 /** A read of one target in this run, with the snapshot code built from it. */
+// TODO(#143, PR #165): a union with PullSnapshot once the generic approval bundle lands.
 export interface TargetRead {
   target: ProposalTarget;
   snapshot: IssueSnapshot;

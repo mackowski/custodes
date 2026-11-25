@@ -464,6 +464,9 @@ describe('cheatsheet_search request (ADR 0023)', () => {
     'pass+word',
     'user:someone',
     'password\nrepo:x',
+    'password OR secret',
+    'NOT password',
+    'a AND b',
   ])('refuses search words %j that could carry their own qualifiers', (search) => {
     expect(BrokerReadRequest.safeParse({ ...base, search }).success).toBe(false);
   });

@@ -51,13 +51,16 @@ export const NUMBERED_RESOURCES: readonly ReadResource[] = [
 
 /**
  * Words for `cheatsheet_search` (ADR 0023): letters, digits, spaces and `_ . -` only, so no `:`
- * (no `repo:` or `path:` of the caller's own), no quotes and no other search syntax.
+ * (no `repo:` or `path:` of the caller's own), no quotes and no other search syntax. The bare
+ * operators `OR`, `AND` and `NOT` are refused too, so nothing can bind against the `repo:` and
+ * `path:` qualifiers the broker appends (security review of #140, L5).
  */
 export const CheatSheetSearch = z
   .string()
   .min(2)
   .max(100)
-  .regex(/^[A-Za-z0-9][A-Za-z0-9 _.-]*$/);
+  .regex(/^[A-Za-z0-9][A-Za-z0-9 _.-]*$/)
+  .refine((q) => !/\b(OR|AND|NOT)\b/.test(q), 'search operators are not allowed');
 
 /** Results per `cheatsheet_search` page; GitHub allows 100, a cheat sheet list never needs that. */
 export const CHEATSHEET_SEARCH_PAGE = 20;

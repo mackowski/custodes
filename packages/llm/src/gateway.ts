@@ -102,7 +102,11 @@ export class GatewayError extends Error {
 
 /** The model answered but the answer is unusable for this input (refused or cut off). */
 export class ModelOutputError extends Error {
-  constructor(readonly reason: 'refusal' | 'max_tokens') {
+  constructor(
+    readonly reason: 'refusal' | 'max_tokens',
+    /** The paid usage of the unusable answer, so a budget still counts it (ADR 0023). */
+    readonly usage?: MessagesResponse['usage'],
+  ) {
     super(`model output unusable: ${reason}`);
     this.name = 'ModelOutputError';
   }
@@ -246,19 +250,31 @@ export class AnthropicGateway {
       span.payload('gen_ai.system_instructions', [
         { type: 'text', content: clipPayload(req.system) },
       ]);
+      // A runtime loop resends the whole history every round, and a span attribute past ADR
+      // 0016's limit is dropped whole: several messages become one clipped part (lean review of
+      // #140). A single message keeps its own shape.
+      const asText = (m: MessageParam) =>
+        typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
       span.payload(
         'gen_ai.input.messages',
-        req.messages.map((m) => ({
-          role: m.role,
-          parts: [
-            {
-              type: 'text',
-              content: clipPayload(
-                typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
-              ),
-            },
-          ],
-        })),
+        req.messages.length === 1
+          ? req.messages.map((m) => ({
+              role: m.role,
+              parts: [{ type: 'text', content: clipPayload(asText(m)) }],
+            }))
+          : [
+              {
+                role: 'user',
+                parts: [
+                  {
+                    type: 'text',
+                    content: clipPayload(
+                      req.messages.map((m) => `${m.role}: ${asText(m)}`).join('\n\n'),
+                    ),
+                  },
+                ],
+              },
+            ],
       );
       const out = await withTimeout(this.cfg.timeoutMs ?? ANTHROPIC_TIMEOUT_MS, (signal) =>
         this.exchange(headers, body, signal, span),
@@ -277,8 +293,8 @@ export class AnthropicGateway {
         },
       ]);
       // A refusal or a cut-off answer has no usable text; say so instead of failing later in parsing.
-      if (out.stop_reason === 'refusal') throw new ModelOutputError('refusal');
-      if (out.stop_reason === 'max_tokens') throw new ModelOutputError('max_tokens');
+      if (out.stop_reason === 'refusal') throw new ModelOutputError('refusal', usage);
+      if (out.stop_reason === 'max_tokens') throw new ModelOutputError('max_tokens', usage);
       return out;
     });
   }

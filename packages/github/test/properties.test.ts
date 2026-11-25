@@ -49,6 +49,7 @@ const request = fc.record({
     'pulls',
     'pull',
     'pull_file_at_ref',
+    'cheatsheet_search',
   ),
   query: fc.record(
     {
@@ -60,6 +61,14 @@ const request = fc.record({
     { requiredKeys: [] },
   ),
   number: fc.option(fc.integer({ min: -10, max: 2_000_000 }), { nil: undefined }),
+  search: fc.option(
+    fc.oneof(
+      pathy,
+      fc.constantFrom('password storage', 'repo:evil/x', 'a OR b', 'jwt path:x'),
+      fc.stringMatching(/^[A-Za-z0-9][A-Za-z0-9 _.-]{1,30}$/),
+    ),
+    { nil: undefined },
+  ),
   file: fc.option(pathy, { nil: undefined }),
   path: fc.option(
     fc.oneof(
@@ -90,6 +99,14 @@ describe('buildReadPath() properties', () => {
         if (!parsed.success) return;
         const path = buildReadPath(parsed.data);
         const [route = '', query = ''] = path.split('?');
+        if (parsed.data.resource === 'cheatsheet_search') {
+          // The caller's words, then exactly the broker's own two qualifiers.
+          expect(route).toBe('/search/code');
+          expect(new URLSearchParams(query).get('q')).toMatch(
+            /^[A-Za-z0-9][A-Za-z0-9 _.-]* repo:OWASP\/CheatSheetSeries path:cheatsheets$/,
+          );
+          return;
+        }
         expect(route).toMatch(
           /^\/repos\/OWASP\/CheatSheetSeries\/(issues(\/\d+(\/(timeline|comments))?)?|labels|contents\/cheatsheets(_draft)?(\/[A-Za-z0-9_.-]+\.md)?|pulls(\/\d+(\/(files|reviews))?)?)$/,
         );

@@ -16,7 +16,7 @@ import {
   type MessagesResponse,
 } from './gateway.js';
 import { parseStructured, StructuredOutputError } from './structured.js';
-import { UNTRUSTED_DATA_RULES, untrusted } from './untrusted.js';
+import { clip, UNTRUSTED_DATA_RULES, untrusted } from './untrusted.js';
 
 /** A read tool. `run` gets validated arguments; `read` names the target it read, if any. */
 export interface RuntimeTool {
@@ -61,11 +61,11 @@ export interface LoopDeps {
   costOf(usage: MessagesResponse['usage']): number;
   /**
    * The agent tree's daily spend (ADR 0023: $3/day per tree). Children share their parent's
-   * ledger, so one budget covers the whole tree. Without it only the per-run cap applies.
+   * ledger, so one budget covers the whole tree. Required, so a host cannot run without it.
    */
-  daily?: { ledger: SpendLedger; usd: number };
-  /** The run event channel (ADR 0023): one event per model turn and per tool call. */
-  record?(e: {
+  daily: { ledger: SpendLedger; usd: number };
+  /** The run event channel (ADR 0023): one event per model turn and per tool call. Required. */
+  record(e: {
     round: number;
     tool: string | null;
     args: unknown;
@@ -83,8 +83,19 @@ interface RunState {
 export type LoopResult<T> =
   ({ ok: true; output: T } & RunState) | ({ ok: false; stop: StopReason } & RunState);
 
-/** The same tool with the same arguments this many times stops the run (loop detection). */
+/** The same tool with the same arguments this many times in one run stops it (loop detection). */
 export const MAX_IDENTICAL_CALLS = 3;
+/**
+ * Tool calls in one model response. The round cap counts model calls only, so without this one
+ * response could start every child or exhaust GitHub's search quota (security review of #140, M3).
+ */
+export const MAX_CALLS_PER_ROUND = 8;
+/**
+ * Characters of one tool result the model sees. Every later round resends it, so an unclipped
+ * diff could spend a run's budget in one round (security review of #140, M1). The hash covers the
+ * whole result.
+ */
+export const MAX_TOOL_RESULT_CHARS = 40_000;
 /** Restarts after a round cap before the run is escalated to the operator (ADR 0023). */
 export const MAX_RESTARTS = 2;
 
@@ -94,7 +105,9 @@ export async function runLoop<S extends z.ZodType>(
   deps: LoopDeps,
   spentUsd = 0,
 ): Promise<LoopResult<z.infer<S>>> {
-  const progress: ProgressState = input.progress ?? { calls: [], itemsDone: [], restarts: 0 };
+  const progress: ProgressState = input.progress ?? { calls: [], restarts: 0 };
+  /** This run's calls: the loop limit is per run, so a restart may read the same item again. */
+  const runCalls: ToolCallRecord[] = [];
   const state: RunState = {
     progress: { ...progress, calls: [...progress.calls] },
     reads: [],
@@ -117,8 +130,7 @@ export async function runLoop<S extends z.ZodType>(
   for (;;) {
     if (state.rounds >= input.caps.rounds) return stop('rounds');
     if (state.usd >= input.caps.usd) return stop('budget');
-    if (deps.daily && (await deps.daily.ledger.spentToday()) >= deps.daily.usd)
-      return stop('budget');
+    if ((await deps.daily.ledger.spentToday()) >= deps.daily.usd) return stop('budget');
     try {
       await deps.guard();
     } catch {
@@ -136,15 +148,23 @@ export async function runLoop<S extends z.ZodType>(
         metadata: input.metadata,
       });
     } catch (err) {
-      if (err instanceof ModelOutputError) return stop('invalid_output');
+      if (err instanceof ModelOutputError) {
+        // A refused or cut-off answer is still paid for: count it before stopping.
+        if (err.usage) {
+          const cost = deps.costOf(err.usage);
+          state.usd += cost;
+          await deps.daily.ledger.add(cost);
+        }
+        return stop('invalid_output');
+      }
       throw err;
     }
     const cost = deps.costOf(res.usage);
     state.usd += cost;
-    await deps.daily?.ledger.add(cost);
+    await deps.daily.ledger.add(cost);
 
     const calls = AnthropicGateway.toolUses(res);
-    await deps.record?.({
+    await deps.record({
       round: state.rounds,
       tool: null,
       args: null,
@@ -164,6 +184,7 @@ export async function runLoop<S extends z.ZodType>(
       }
     }
     if (state.usd >= input.caps.usd) return stop('budget');
+    if (calls.length > MAX_CALLS_PER_ROUND) return stop('invalid_args');
 
     // Check every call before running any: a response is all-or-nothing.
     const checked: { id: string; tool: RuntimeTool; args: unknown; argsHash: string }[] = [];
@@ -174,7 +195,7 @@ export async function runLoop<S extends z.ZodType>(
       if (!parsed.success) return stop('invalid_args');
       const argsHash = await sha256Hex(canonicalJson({ tool: call.name, args: parsed.data }));
       const seen =
-        state.progress.calls.filter((c) => c.name === call.name && c.argsHash === argsHash).length +
+        runCalls.filter((c) => c.name === call.name && c.argsHash === argsHash).length +
         checked.filter((c) => c.tool.name === call.name && c.argsHash === argsHash).length;
       if (seen + 1 >= MAX_IDENTICAL_CALLS) return stop('repeat');
       checked.push({ id: call.id, tool, args: parsed.data, argsHash });
@@ -190,7 +211,7 @@ export async function runLoop<S extends z.ZodType>(
       }
       const out = await c.tool.run(c.args);
       if (out.read) state.reads.push(out.read);
-      await deps.record?.({
+      await deps.record({
         round: state.rounds,
         tool: c.tool.name,
         args: c.args,
@@ -203,10 +224,11 @@ export async function runLoop<S extends z.ZodType>(
         resultHash: await sha256Hex(out.content),
       };
       state.progress.calls.push(record);
+      runCalls.push(record);
       results.push({
         type: 'tool_result',
         tool_use_id: c.id,
-        content: untrusted(`tool:${c.tool.name}`, out.content),
+        content: untrusted(`tool:${c.tool.name}`, clip(out.content, MAX_TOOL_RESULT_CHARS)),
       });
     }
     messages.push({ role: 'assistant', content: res.content as ContentBlockParam[] });
@@ -235,12 +257,10 @@ export async function runWithRestarts<S extends z.ZodType>(
 function firstMessage(input: LoopInput<z.ZodType>): string {
   const p = input.progress;
   if (!p || p.restarts === 0) return input.task;
-  const done = p.itemsDone.map((t) => `${t.repo}#${String(t.number)} (${t.kind})`).join(', ');
   return [
     input.task,
     '',
     `This is restart ${String(p.restarts)} of ${String(MAX_RESTARTS)} after the round cap.`,
-    `Items already done: ${done || 'none'}.`,
-    `Tool calls already made in earlier runs: ${String(p.calls.length)}. Repeating one counts towards the loop limit.`,
+    `Tool calls already made in earlier runs: ${String(p.calls.length)}. Delegating an item again returns its earlier result.`,
   ].join('\n');
 }

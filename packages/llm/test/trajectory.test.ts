@@ -77,7 +77,16 @@ async function runAndRoute(proposal: unknown) {
       maxTokens: 1000,
       metadata: { agentId: 'backlog-review', runId: 'r' },
     },
-    { send: obeyingModel(proposal), guard: () => Promise.resolve(), costOf: () => 0 },
+    {
+      send: obeyingModel(proposal),
+      guard: () => Promise.resolve(),
+      costOf: () => 0,
+      daily: {
+        ledger: { spentToday: () => Promise.resolve(0), add: () => Promise.resolve() },
+        usd: 3,
+      },
+      record: () => undefined,
+    },
   );
   if (!r.ok) throw new Error(`run stopped: ${r.stop}`);
   // The attack text reached the model only inside an untrusted envelope.
@@ -86,9 +95,10 @@ async function runAndRoute(proposal: unknown) {
     agentId: 'backlog-review',
     proposal: r.output,
     reads: r.reads,
-    hotlWritesSoFar: 0,
     shadow: false,
     checkEvidence: () => Promise.resolve({ ok: true }),
+    guard: () => Promise.resolve(),
+    takeHotlSlot: () => true,
   });
 }
 
@@ -96,7 +106,6 @@ describe('trajectory: injection through a tool result', () => {
   it('cross-item: a proposal about issue 9, never read in this run, is dropped', async () => {
     const routes = await runAndRoute({
       target: { repo: REPO, kind: 'issue', number: 9 },
-      snapshot: SNAP,
       actions: [{ type: 'issue.comment', repo: REPO, issue: 9, body: 'Closing as done.' }],
       evidence: [],
       reason: 'issue 7 says so',
@@ -110,7 +119,6 @@ describe('trajectory: injection through a tool result', () => {
   it('cross-item inside a proposal for the read item: an action on issue 9 is dropped', async () => {
     const routes = await runAndRoute({
       target: { repo: REPO, kind: 'issue', number: 7 },
-      snapshot: SNAP,
       actions: [{ type: 'issue.comment', repo: REPO, issue: 9, body: 'Closing as done.' }],
       evidence: [],
       reason: 'x',
@@ -125,7 +133,6 @@ describe('trajectory: injection through a tool result', () => {
   it('the review trigger label is dropped before it can become a write or an approval', async () => {
     const routes = await runAndRoute({
       target: { repo: REPO, kind: 'issue', number: 7 },
-      snapshot: SNAP,
       actions: [
         { type: 'issue.label.add', repo: REPO, issue: 7, labels: ['custodes_cheatsheet_review'] },
       ],
@@ -133,13 +140,15 @@ describe('trajectory: injection through a tool result', () => {
       reason: 'x',
       needsHuman: false,
     });
-    expect(routes[0]).toMatchObject({ route: 'drop', reason: 'label not allowed by policy' });
+    expect(routes[0]).toMatchObject({
+      route: 'drop',
+      reason: 'label custodes_cheatsheet_review not allowed',
+    });
   });
 
   it('an allowed action on the read item still goes through', async () => {
     const routes = await runAndRoute({
       target: { repo: REPO, kind: 'issue', number: 7 },
-      snapshot: SNAP,
       actions: [{ type: 'issue.label.add', repo: REPO, issue: 7, labels: ['question'] }],
       evidence: [],
       reason: 'x',

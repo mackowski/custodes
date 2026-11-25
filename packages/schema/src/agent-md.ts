@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { Policy } from './policy.js';
-import { AgentDefinition } from './runtime.js';
+import { AgentDefinition, BUDGET_CEILINGS } from './runtime.js';
 import { highestTier } from './tiers.js';
 
 /**
@@ -26,14 +26,6 @@ export function parseAgentMd(text: string): { definition: AgentDefinition; promp
 
 /** Runtime tools that are not broker reads (ADR 0023). */
 export const RUNTIME_TOOLS = ['delegate'] as const;
-
-/** Ceilings no agent.md may exceed (ADR 0023). An orchestrator is an agent with `agents:`. */
-export const BUDGET_CEILINGS = {
-  orchestratorRounds: 40,
-  childRounds: 20,
-  childUsdPerRun: 0.15,
-  usdPerDay: 3,
-} as const;
 
 /**
  * Everything wrong with a set of agent definitions against the policy, as messages; empty means

@@ -4,7 +4,9 @@ import type { MessagesRequest, MessagesResponse } from '../src/gateway.js';
 import { ModelOutputError } from '../src/gateway.js';
 import {
   defineTool,
+  MAX_CALLS_PER_ROUND,
   MAX_RESTARTS,
+  MAX_TOOL_RESULT_CHARS,
   runLoop,
   runWithRestarts,
   type LoopDeps,
@@ -77,8 +79,30 @@ function input(over: Partial<LoopInput<typeof Out>> = {}): LoopInput<typeof Out>
   };
 }
 
+/** A daily ledger that only counts. */
+function ledger(start = 0) {
+  let spent = start;
+  return {
+    spentToday: () => Promise.resolve(spent),
+    add: (usd: number) => {
+      spent += usd;
+      return Promise.resolve();
+    },
+    get spent() {
+      return spent;
+    },
+  };
+}
+
 function deps(send: LoopDeps['send'], over: Partial<LoopDeps> = {}): LoopDeps {
-  return { send, guard: () => Promise.resolve(), costOf: () => 0.01, ...over };
+  return {
+    send,
+    guard: () => Promise.resolve(),
+    costOf: () => 0.01,
+    daily: { ledger: ledger(), usd: 3 },
+    record: () => undefined,
+    ...over,
+  };
 }
 
 describe('runLoop', () => {
@@ -193,9 +217,68 @@ describe('runLoop', () => {
     expect(await runLoop(input(), deps(send))).toMatchObject({ ok: false, stop: 'invalid_output' });
   });
 
-  it('reports a refused or cut-off answer as invalid output', async () => {
-    const send = vi.fn(() => Promise.reject(new ModelOutputError('refusal')));
-    expect(await runLoop(input(), deps(send))).toMatchObject({ ok: false, stop: 'invalid_output' });
+  it('reports a refused or cut-off answer as invalid output, and still counts what it cost', async () => {
+    const usage = { input_tokens: 100_000, output_tokens: 10 };
+    const send = vi.fn(() => Promise.reject(new ModelOutputError('max_tokens', usage)));
+    const daily = ledger();
+    const r = await runLoop(
+      input(),
+      deps(send, { costOf: () => 0.2, daily: { ledger: daily, usd: 3 } }),
+    );
+    expect(r).toMatchObject({ ok: false, stop: 'invalid_output', usd: 0.2 });
+    expect(daily.spent).toBe(0.2);
+  });
+
+  it('stops when the tree has spent its daily budget, before calling the model', async () => {
+    const { send } = scripted([{ text: '{"verdict":"keep"}' }]);
+    const r = await runLoop(input(), deps(send, { daily: { ledger: ledger(3), usd: 3 } }));
+    expect(r).toMatchObject({ ok: false, stop: 'budget', rounds: 0 });
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it(`stops a response with more than ${String(MAX_CALLS_PER_ROUND)} tool calls without running any`, async () => {
+    const run = vi.fn();
+    const many = Array.from({ length: MAX_CALLS_PER_ROUND + 1 }, (_v, k) => ({
+      name: 'read_issue',
+      input: { number: k + 1 },
+    }));
+    const { send } = scripted([{ tools: many }]);
+    const r = await runLoop(input({ tools: [{ ...readIssue, run }] }), deps(send));
+    expect(r).toMatchObject({ ok: false, stop: 'invalid_args' });
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it('clips a long tool result before the model sees it, and hashes the whole result', async () => {
+    const huge = 'x'.repeat(MAX_TOOL_RESULT_CHARS * 3);
+    const big = defineTool({
+      name: 'read_issue',
+      description: 'x',
+      args: z.strictObject({ number: z.number() }),
+      run: () => Promise.resolve({ content: huge }),
+    });
+    const { send, requests } = scripted([
+      { tools: [{ name: 'read_issue', input: { number: 7 } }] },
+      { text: '{"verdict":"keep"}' },
+    ]);
+    const r = await runLoop(input({ tools: [big] }), deps(send));
+    const sent = JSON.stringify(requests[1]!.messages.at(-1));
+    expect(sent.length).toBeLessThan(MAX_TOOL_RESULT_CHARS + 2_000);
+    const { createHash } = await import('node:crypto');
+    expect(r.progress.calls[0]?.resultHash).toBe(createHash('sha256').update(huge).digest('hex'));
+  });
+
+  it('records one event per model turn and per tool call', async () => {
+    const record = vi.fn();
+    const { send } = scripted([
+      { tools: [{ name: 'read_issue', input: { number: 7 } }] },
+      { text: '{"verdict":"keep"}' },
+    ]);
+    await runLoop(input(), deps(send, { record }));
+    expect(record.mock.calls.map((c) => (c[0] as { tool: string | null }).tool)).toEqual([
+      null,
+      'read_issue',
+      null,
+    ]);
   });
 
   it('lets transport errors through to the caller', async () => {
@@ -230,6 +313,21 @@ describe('runWithRestarts', () => {
     expect(restartFirst).toContain('restart 1 of 2');
     // No tool result text crosses a restart: only counts and ids.
     expect(restartFirst).not.toContain('body');
+  });
+
+  it('counts repeats per run, so a fresh run may read an item again (escalate, not repeat)', async () => {
+    // Every run reads issue 7 once per round: two identical calls per run, never three.
+    const send = vi.fn(() =>
+      Promise.resolve({
+        id: 'm',
+        model: 'x',
+        stop_reason: 'tool_use',
+        content: [{ type: 'tool_use', id: 't', name: 'read_issue', input: { number: 7 } }],
+        usage: { input_tokens: 1, output_tokens: 1 },
+      }),
+    );
+    const r = await runWithRestarts(input({ caps: { rounds: 2, usd: 1 } }), deps(send));
+    expect(r).toMatchObject({ ok: false, stop: 'escalate' });
   });
 
   it('carries spend across restarts so the budget still binds', async () => {
