@@ -220,6 +220,15 @@ export function allowedPeople(repo: string, threadPeople: readonly string[]): st
   return [...threadPeople, ...(policy.maintainers[repo] ?? [])];
 }
 
+/**
+ * Who this action may name: maintainers only in text (a ping); an assignee must come from the
+ * thread itself (ADR 0019), so the maintainers list never widens assignment (security review of
+ * #143, finding 5).
+ */
+export function allowedFor(a: BrokerAction, threadPeople: readonly string[]): string[] {
+  return a.type === 'issue.assign' ? [...threadPeople] : allowedPeople(a.repo, threadPeople);
+}
+
 /** The logins an action names: its assignee, or every @mention in its text. */
 export function namedBy(a: BrokerAction): string[] {
   switch (a.type) {

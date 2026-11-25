@@ -31,14 +31,16 @@
 
 ## Broker actions and the PAT permission each needs
 
-| Action                                   | GitHub REST call                                                                        | Fine-grained PAT permission                                                      |
-| ---------------------------------------- | --------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| `issue.comment`                          | `POST /repos/{r}/issues/{n}/comments`                                                   | Issues: read & write                                                             |
-| `issue.label.add` / `issue.label.remove` | `POST/DELETE /repos/{r}/issues/{n}/labels`                                              | Issues: read & write                                                             |
-| `issue.assign` (ADR 0019)                | `POST /repos/{r}/issues/{n}/assignees` (fails if GitHub leaves the login out)           | Issues: read & write; classic `public_repo` for OWASP (the account needs Triage) |
-| `pr.review`, `pr.comment` (retired)      | none: the broker cannot execute them (`pr.review` could approve a pull request)         | none                                                                             |
-| `pr.close`                               | `POST …/issues/{n}/comments`, then `PATCH /repos/{r}/pulls/{n}`                         | Pull requests: read & write (covers the PR comment too)                          |
-| `pr.review.inline`                       | `POST /repos/{r}/pulls/{n}/reviews` with `commit_id` and `comments[]` (never `APPROVE`) | Pull requests: read & write (classic `public_repo` for OWASP, ADR 0017)          |
+| Action                                   | GitHub REST call                                                                                                | Fine-grained PAT permission                                                      |
+| ---------------------------------------- | --------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `issue.comment`                          | `POST /repos/{r}/issues/{n}/comments`                                                                           | Issues: read & write                                                             |
+| `issue.label.add` / `issue.label.remove` | `POST/DELETE /repos/{r}/issues/{n}/labels`                                                                      | Issues: read & write                                                             |
+| `issue.assign` (ADR 0019)                | `POST /repos/{r}/issues/{n}/assignees` (fails if GitHub leaves the login out)                                   | Issues: read & write; classic `public_repo` for OWASP (the account needs Triage) |
+| `issue.unassign` (ADR 0024)              | `DELETE /repos/{r}/issues/{n}/assignees` (fails if GitHub still lists the login)                                | Issues: read & write                                                             |
+| `issue.close` (ADR 0024)                 | `POST …/issues/{n}/comments`, then `PATCH /repos/{r}/issues/{n}` with `state_reason`; refused on a pull request | Issues: read & write                                                             |
+| `pr.review`, `pr.comment` (retired)      | none: the broker cannot execute them (`pr.review` could approve a pull request)                                 | none                                                                             |
+| `pr.close`                               | `POST …/issues/{n}/comments`, then `PATCH /repos/{r}/pulls/{n}`                                                 | Pull requests: read & write (covers the PR comment too)                          |
+| `pr.review.inline`                       | `POST /repos/{r}/pulls/{n}/reviews` with `commit_id` and `comments[]` (never `APPROVE`)                         | Pull requests: read & write (classic `public_repo` for OWASP, ADR 0017)          |
 
 Read-only inputs (listing issues, reading diffs) on public repositories need no token; when a token
 is needed for rate limits, it will be a separate read-only PAT held by the broker (future `/v1/read`).

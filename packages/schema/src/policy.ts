@@ -50,15 +50,17 @@ export function isTriggerLabel(label: string): boolean {
 
 /** Whether this agent may add this trigger label (always false for any other label's caller). */
 export function mayAddTriggerLabel(agentId: string, label: string): boolean {
-  return (TRIGGER_LABEL_GRANTS[agentId] ?? []).some((l) => l.toLowerCase() === label.toLowerCase());
+  const granted = Object.hasOwn(TRIGGER_LABEL_GRANTS, agentId) ? TRIGGER_LABEL_GRANTS[agentId] : [];
+  return (granted ?? []).some((l) => l.toLowerCase() === label.toLowerCase());
 }
 
 /**
- * Where cheatsheet-review must keep the operator's approval for any trigger-label grant to stand
- * (ADR 0024): an agent's label is indistinguishable from the operator's, so this approval is what
- * keeps an agent-started review from posting unseen.
+ * The only repository where an agent-started review may post without the operator's approval
+ * (ADR 0024). Everywhere else a trigger-label grant needs cheatsheet-review's approval: an agent's
+ * label is indistinguishable from the operator's, so that approval keeps an agent-started review
+ * from posting unseen.
  */
-export const REVIEW_APPROVAL_REPO = 'OWASP/CheatSheetSeries';
+export const REVIEW_SANDBOX_REPO = 'mackowski/custodes-sandbox';
 
 const AgentPolicyObject = z
   .strictObject({
@@ -190,18 +192,20 @@ export const Policy = z.preprocess(
     )
     .refine(
       (p) =>
-        !Object.entries(p.agents).some(
-          ([id, a]) =>
-            a.actions.includes('issue.label.add') &&
-            (a.labels ?? []).some((l) => mayAddTriggerLabel(id, l)),
-        ) ||
-        (p.agents['cheatsheet-review']?.requiresApprovalOn[REVIEW_APPROVAL_REPO]?.includes(
-          'pr.review.inline',
-        ) ??
-          false),
+        // Every repository where a granted agent can add the label and cheatsheet-review runs,
+        // except the sandbox, keeps the approval (security review of #143, finding 4).
+        Object.entries(p.agents).every(([id, a]) => {
+          if (!a.actions.includes('issue.label.add')) return true;
+          if (!(a.labels ?? []).some((l) => mayAddTriggerLabel(id, l))) return true;
+          const review = p.agents['cheatsheet-review'];
+          if (!review) return true;
+          return a.repos
+            .filter((r) => r !== REVIEW_SANDBOX_REPO && review.repos.includes(r))
+            .every((r) => review.requiresApprovalOn[r]?.includes('pr.review.inline') ?? false);
+        }),
       {
         message:
-          "a trigger-label grant needs cheatsheet-review's approval on OWASP/CheatSheetSeries (ADR 0024)",
+          "a trigger-label grant needs cheatsheet-review's approval on every shared repository but the sandbox (ADR 0024)",
         path: ['agents'],
       },
     ),

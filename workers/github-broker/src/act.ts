@@ -1,6 +1,7 @@
 import {
   buildAuditRecord,
   canonicalJson,
+  commentProblem,
   evaluatePolicy,
   KillSwitch,
   sha256Hex,
@@ -24,7 +25,7 @@ import {
   type CallerSignature,
 } from '@custodes/schema';
 import { keyring, secretBinding, type BrokerEnv } from './env.js';
-import { allowedPeople, namedBy, readIssueThread, readPullThread } from './thread.js';
+import { allowedFor, commentBody, namedBy, readIssueThread, readPullThread } from './thread.js';
 import { policy } from './policy.js';
 import { ApprovalStore, AuditStore, EXECUTION_FAILED } from './store.js';
 
@@ -170,13 +171,27 @@ export async function act(
     }
   }
 
-  // ADR 0024: a comment names only thread people or listed maintainers, hotl included. Read the
-  // thread only when someone outside the maintainers list is named; a failed read refuses.
+  // ADR 0024: the mention rule below reads `@` only, so a character reference (`&#64;x` renders as
+  // `@x`) or a hidden comment would slip past it. The link rules stay on bundles: pr-gate's
+  // code-built close comment links CONTRIBUTING.md (security review of #143, finding 1).
+  const body = commentBody(req.action);
+  if (body !== null) {
+    const problem = commentProblem(body, req.action.repo);
+    if (problem === 'character_reference' || problem === 'comment_marker')
+      return deny('policy_denied', `comment refused: ${problem.replace('_', ' ')}`);
+  }
+
+  // ADR 0024: an action names only thread people (or, in text, listed maintainers), hotl included.
+  // issue.close always reads the issue: GitHub's issue endpoints accept a pull request number, and
+  // closing one is pr.close's grant, not issue.close's (finding 2). A failed read refuses.
   const named = namedBy(req.action);
-  const maintainers = allowedPeople(req.action.repo, []).map((l) => l.toLowerCase());
-  if (named.some((l) => !maintainers.includes(l.toLowerCase()))) {
-    const stranger = await strangerIn(env, req, named);
-    if (stranger !== null) return deny('policy_denied', stranger);
+  const maintainersOnly = allowedFor(req.action, []).map((l) => l.toLowerCase());
+  if (
+    req.action.type === 'issue.close' ||
+    named.some((l) => !maintainersOnly.includes(l.toLowerCase()))
+  ) {
+    const problem = await threadProblem(env, req, named);
+    if (problem !== null) return deny('policy_denied', problem);
   }
 
   // Execute. The attestation id is fixed up front so the trailer can reference it.
@@ -231,11 +246,12 @@ export async function act(
 }
 
 /**
- * The first login `named` that is neither in the target's thread nor a listed maintainer, as a
- * denial reason; null if every one is allowed. An issue comment may sit on a pull request, so the
- * issue read decides which thread to read.
+ * Why the action may not run on its thread, or null: the target is not what the action is for, it
+ * cannot be read, or it names someone neither in the thread nor allowed by the policy. An issue
+ * comment may sit on a pull request, so its issue read falls back to the pull request; issue.close
+ * never does.
  */
-async function strangerIn(
+async function threadProblem(
   env: BrokerEnv,
   req: BrokerRequest,
   named: readonly string[],
@@ -246,10 +262,10 @@ async function strangerIn(
     req.action.type === 'pr.close'
       ? await readPullThread(env, req.agentId, req.runId, repo, number)
       : await readIssueThread(env, req.agentId, req.runId, repo, number);
-  if (!thread.ok && thread.reason === 'not an issue')
+  if (!thread.ok && thread.reason === 'not an issue' && req.action.type !== 'issue.close')
     thread = await readPullThread(env, req.agentId, req.runId, repo, number);
-  if (!thread.ok) return `cannot check who the comment names: ${thread.reason}`;
-  const allowed = allowedPeople(repo, thread.people).map((l) => l.toLowerCase());
+  if (!thread.ok) return `cannot check the thread: ${thread.reason}`;
+  const allowed = allowedFor(req.action, thread.people).map((l) => l.toLowerCase());
   const stranger = named.find((l) => !allowed.includes(l.toLowerCase()));
   return stranger === undefined
     ? null

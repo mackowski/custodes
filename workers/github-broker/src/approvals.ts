@@ -20,7 +20,7 @@ import {
 } from '@custodes/schema';
 import { act } from './act.js';
 import {
-  allowedPeople,
+  allowedFor,
   commentBody,
   commentProblem,
   namedBy,
@@ -195,8 +195,8 @@ export function checkPeopleAndText(
   repo: string,
   threadPeople: readonly string[],
 ): { ok: true } | { ok: false; reason: string } {
-  const allowed = allowedPeople(repo, threadPeople).map((p) => p.toLowerCase());
   for (const a of actions) {
+    const allowed = allowedFor(a, threadPeople).map((p) => p.toLowerCase());
     const body = commentBody(a);
     if (body !== null) {
       const bad = commentProblem(body, a.repo);

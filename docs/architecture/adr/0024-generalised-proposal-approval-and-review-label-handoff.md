@@ -50,7 +50,9 @@ start cheatsheet-review by adding its label.
 **New actions, all T1.** Each starts `hitl` and sandbox-only:
 
 - `issue.close`: a body and `state_reason` (`completed | not_planned`). It posts the signed comment,
-  then closes, like `pr.close`. Risk `high`: public, but a person can reopen it.
+  then closes, like `pr.close`. Risk `high`: public, but a person can reopen it. GitHub's issue
+  endpoints also accept a pull request number, so the broker always reads the target first and
+  refuses `issue.close` on a pull request: closing one is `pr.close`'s grant.
 - `issue.unassign`: one login. Risk `low`.
 
 update-branch, approving held fork workflow runs and re-requesting a review come later, one
@@ -61,10 +63,13 @@ not need an approval on every repository. No grantable action is critical today.
 
 **Mentions.** The policy gets a per-repository `maintainers` list of GitHub logins, changed only by
 a reviewed policy pull request. A comment from an agent may @-mention the target's author, its
-commenters, and the listed maintainers of that repository, and nobody else. The check moves from
-the bundle path into the broker's action pipeline, so a `hotl` comment gets it too. It keeps ADR
-0019's parsing: every `@` not after a letter or digit is a mention, and HTML character references
-are refused.
+commenters and reviewers, and the listed maintainers of that repository, and nobody else. An
+assignee still has to come from the thread: the list widens pings, not assignment. The check moves
+from the bundle path into the broker's action pipeline, so a `hotl` comment gets it too. It keeps
+ADR 0019's parsing: every `@` not after a letter or digit is a mention. The two comment rules it
+depends on move with it: HTML character references (`&#64;x` renders as `@x`) and comment markers
+are refused on every path. The link and other-repository rules stay on bundles, because pr-gate's
+code-built close comment links CONTRIBUTING.md.
 
 **The label handoff.**
 
@@ -81,9 +86,14 @@ are refused.
   cheatsheet-review has no cap of its own. Before adding the label, backlog-review's dispatcher
   checks the pull request's reviews and does not ask again for a head SHA that already has a
   cheatsheet-review review.
-- **Tied condition:** if `requiresApprovalOn` for `pr.review.inline` on `OWASP/CheatSheetSeries` is
-  ever removed, telling an agent's label from the operator's becomes required again, before or in
-  the same change. This is the same condition that ends the cheatsheet-review exception in ADR 0021.
+- **Tied condition:** the policy schema refuses a grant unless cheatsheet-review keeps
+  `requiresApprovalOn` for `pr.review.inline` on every repository it shares with the granted agent,
+  except the sandbox. Removing that approval therefore needs label provenance first, so the broker
+  can tell an agent's label from the operator's. This is the same condition that ends the
+  cheatsheet-review exception in ADR 0021.
+- The cap is checked before the label is added and counted from audit rows written after, so two
+  adds at the same moment can both pass (as with the hourly rate limit). Accepted: every OWASP
+  review still waits for the operator.
 
 This ADR amends ADR 0017 (an agent may start a review), ADR 0019 (generic bundles, mention rule,
 trigger-label exception) and ADR 0021 (the handoff conditions above replace the ones ADR 0021
