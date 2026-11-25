@@ -169,13 +169,19 @@ export async function act(
   const capped = await triggerLabelCapped(env, req.agentId, [req.action], now);
   if (capped !== null) return deny('policy_denied', capped);
 
-  // ADR 0024: the mention rule below reads `@` only, so a character reference (`&#64;x` renders as
-  // `@x`) or a hidden comment would slip past it. The link rules stay on bundles: pr-gate's
-  // code-built close comment links CONTRIBUTING.md (security review of #143, finding 1).
+  // ADR 0024: the comment rules on every path. The mention rule below reads `@` only, so a
+  // character reference (`&#64;x` renders as `@x`) or a hidden comment would slip past it; links
+  // and other-repository references put model text in someone else's timeline under the
+  // operator's name. pr.close keeps links: pr-gate's code-built close comment links
+  // CONTRIBUTING.md (operator decision, 2026-11-25).
   const body = commentBody(req.action);
   if (body !== null) {
     const problem = commentProblem(body, req.action.repo);
-    if (problem === 'character_reference' || problem === 'comment_marker')
+    const linksAllowed = req.action.type === 'pr.close';
+    if (
+      problem !== null &&
+      !(linksAllowed && (problem === 'link' || problem === 'other_repository'))
+    )
       return deny('policy_denied', `comment refused: ${problem.replace('_', ' ')}`);
   }
 

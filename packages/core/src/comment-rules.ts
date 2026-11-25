@@ -1,8 +1,8 @@
 /**
  * What a comment an agent proposes may not contain (ADR 0019, ADR 0024). One definition: an agent
- * drops such a comment from its proposal and the broker refuses it again. Bundles get every rule;
- * `act()` refuses character references and comment markers on every path (the mention check needs
- * that), but not links, because pr-gate's code-built close comment links CONTRIBUTING.md.
+ * drops such a comment from its proposal and the broker refuses it again, on every path (bundles and
+ * `act()`). The one exception: `act()` lets `pr.close` carry links, because pr-gate's code-built
+ * close comment links CONTRIBUTING.md (ADR 0024).
  */
 export type CommentProblem = 'character_reference' | 'comment_marker' | 'link' | 'other_repository';
 

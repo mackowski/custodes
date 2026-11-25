@@ -740,11 +740,48 @@ describe('security-review fixes (ADR 0024)', () => {
       },
     );
 
-    it('still lets act post a comment with a link (only bundles refuse links)', async () => {
+    it.each([
+      ['a link in a comment', () => comment('see https://example.com/x'), 'comment refused: link'],
+      [
+        'another repository in a close',
+        () => close('Done in evil/repo#12.'),
+        'comment refused: other repository',
+      ],
+    ])('refuses %s on the hotl path too (operator decision)', async (_n, action, reason) => {
       const gh = fakeGithub();
-      const r = await act(testEnv, request(comment('see https://example.com/x')), nextNow());
-      expect(r).toMatchObject({ ok: true });
-      expect(gh.writes).toHaveLength(1);
+      const r = await act(testEnv, request(action(), 'backlog-plain'), nextNow());
+      expect(r).toMatchObject({ ok: false, code: 'policy_denied', reason });
+      expect(gh.writes).toEqual([]);
+    });
+
+    it("keeps links for pr.close: pr-gate's close comment links CONTRIBUTING.md", async () => {
+      const agent = policy.agents['backlog-plain'];
+      if (!agent) throw new Error('fixture');
+      const saved = agent.actions;
+      agent.actions = [...saved, 'pr.close'];
+      try {
+        const gh = fakeGithub();
+        const r = await act(
+          testEnv,
+          request(
+            {
+              type: 'pr.close',
+              repo: REPO,
+              pull: 7,
+              body: 'See https://github.com/OWASP/CheatSheetSeries/blob/master/CONTRIBUTING.md',
+            },
+            'backlog-plain',
+          ),
+          nextNow(),
+        );
+        expect(r).toMatchObject({ ok: true });
+        expect(gh.writes.map((w) => `${w.method} ${w.path}`)).toEqual([
+          'POST /issues/7/comments',
+          'PATCH /pulls/7',
+        ]);
+      } finally {
+        agent.actions = saved;
+      }
     });
   });
 
