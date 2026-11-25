@@ -221,3 +221,29 @@ event channel are required inputs of the loop; a run's repeat detection counts o
 the dispatcher shares the broker's policy check and calls the run guard; the `Proposal` carries no
 snapshot; the operator and supervisor reach the run store through Durable Object RPC methods (slice
 3), with no separate host wrapper.
+
+## Update, 2026-11-25 (slice 3)
+
+- **Host.** `runAgentTree` (`packages/llm/src/runtime-host.ts`) runs a tree for an agent that lends
+  its own primitives (read, act, approvals, guard, model) as a port, so the host holds no
+  credential. Read tools are named by their `ReadResource` and offered only when the read policy
+  grants them and the `agent.md` lists them; `issue` and `pull` name the target with the snapshot
+  the broker builds (`packages/core/src/thread-snapshot.ts`, shared with the broker). An
+  orchestrator answers with a `ProposalList`, a child with one `Proposal`.
+- **Writes.** Every write and approval carries the run id of the run that proposed. Approval routes
+  for one target become one bundle (ADR 0024) when they fit `BUNDLE_ORDER`, else one approval each.
+  The run guard is checked again immediately before each write and request; a refused guard stops
+  the tree's remaining writes.
+- **Snapshot on act.** A runtime write sends `BrokerRequest.snapshot`; the broker re-reads the
+  target and refuses the write when it changed. The snapshot is signed with the request and kept in
+  the audit record.
+- **Evidence.** `issue.close` needs a merged pull request that cross-references the issue
+  (`merged_pr` evidence), re-read through the broker; anything else that needs evidence fails
+  closed.
+- **Operator routes.** Kill and events use the existing Access-protected `/agents/*` route and the
+  agent's `handleRunRequest`, for people only. The supervisor (#135) reads events through the DO's
+  `listRunEvents`; it gets no new authority. The run store's daily prune is a cron schedule on the
+  agent.
+- **Not in this slice:** no agent runs the runtime yet; #132 v1 (#140b) brings the first one with its
+  policy entry and gateway class. The promptfoo provider for the trajectory suite needs the
+  TypeScript packages built for Node and is left for #140b.

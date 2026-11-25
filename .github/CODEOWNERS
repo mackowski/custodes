@@ -20,6 +20,8 @@
 /packages/core/vitest.config.ts             @mackowski
 /packages/core/package.json                 @mackowski
 /scripts/policy-diff.ts                     @mackowski
+# An agent.md declares an agent's tools, roles and budget (ADR 0023): the operator reviews it.
+**/agent.md                                 @mackowski
 /.github/CODEOWNERS                         @mackowski
 /.github/workflows/ci.yml                   @mackowski
 /.github/workflows/deploy-workers.yml       @mackowski

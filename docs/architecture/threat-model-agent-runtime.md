@@ -143,20 +143,38 @@ trigger label, to ping a stranger); `issue.close` without a merged PR.
     `agent.md` paths.
 12. The trajectory eval suite in section 4.
 
-**Must hold when the runtime is wired (slice 3)** (security review of slices 1-2)
+**Must hold when the runtime is wired (slice 3): status after slice 3**
 
-- The run store is reached through Durable Object RPC methods, never `@callable`.
-- The gateway's kill and event routes verify the Access JWT (`verifyAccessJwt`).
-- The `EvidenceChecker` never defaults to `ok`; an error drops the action.
-- The `act` route passes the dispatcher's snapshot to the broker, closing the gap between read and
-  write.
-- The DO alarm calls `RunStore.prune()`.
-- Every `act()` and approval request carries the `runId`.
-- The CLI shows event text as untrusted data.
-- The host calls `runGuard` immediately before each `act()` it executes from the routes, not
-  only when routing (security review round 2).
-- The host passes `runGuard` and `takeHotlSlot` (backed by the store) to the dispatcher, and a
-  required daily ledger and event recorder to the loop.
+- Run store reached through Durable Object RPC, never `@callable`: done.
+  `CustodesAgent.killRun` and `listRunEvents` are public DO methods with no `@callable`
+  (`packages/core/src/agent.ts`).
+- Kill and event routes verify the Access JWT: done. They are the existing `/agents/*` route
+  (`workers/gateway/src/index.ts`: `verifyAccessJwt`, credentials stripped, a service token may not
+  write), handled by `runRoute` (`packages/core/src/runtime/run-routes.ts`), which also refuses a
+  service token. Test: `workers/gateway/test/gateway.test.ts` ("never lets a service token kill a
+  run").
+- `EvidenceChecker` never defaults to ok for an action that needs evidence: done.
+  `brokerEvidence` (`packages/llm/src/runtime-host.ts`): `issue.close` needs a merged pull request
+  that cross-references the issue; missing, unknown or unreadable evidence drops the action.
+- The `act` route passes the snapshot to the broker: done. `BrokerRequest.snapshot`
+  (`packages/schema/src/broker.ts`), checked in `threadProblem` (`workers/github-broker/src/act.ts`),
+  signed and kept in the audit record (`signedRequestOf`).
+- The DO alarm calls `prune()`: done. `runStore()` schedules `pruneRuntimeRuns` on a daily cron
+  (`RUNTIME_PRUNE_CRON`).
+- Every `act()` and approval request carries the `runId`: done. `runAgentTree` passes the store's
+  run id of the run that proposed.
+- The CLI shows event text as untrusted data: done. `custodes runs events` prints a banner and makes
+  the text inert for the terminal (`apps/cli/src/commands/runs.ts`).
+- The host calls `runGuard` immediately before each `act()` and each approval request: done
+  (`runAgentTree`, test "a tree killed after routing never acts").
+- The host passes `runGuard` and `takeHotlSlot` to the dispatcher and a required ledger and recorder
+  to the loop: done (`runAgentTree`).
+
+Still open, for #140b (#132 v1): the first agent that runs the runtime needs its policy entry and
+read policy (`issue`, `comments`, `timeline`, `pull`, `pull_reviews`), a class in the gateway's
+`agentWorker` and the agent Worker's `allowedAgentPath`, its `agent.md` files (CODEOWNERS:
+`**/agent.md`), and it must call `handleRunRequest` from its `onRequest`. The dispatcher routes
+with the policy bundled into that Worker; the broker still decides on its own copy.
 
 **Accepted risks**
 
