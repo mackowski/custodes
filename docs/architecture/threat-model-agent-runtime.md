@@ -155,8 +155,9 @@ trigger label, to ping a stranger); `issue.close` without a merged PR.
   run").
 - `EvidenceChecker` never defaults to ok for an action that needs evidence: done.
   `brokerEvidence` (`packages/llm/src/runtime-host.ts`): `issue.close` needs a merged pull request
-  of the same repository that cross-references the issue and whose own text names it (an outsider
-  can create a cross-reference, not the merged PR's text); a cross-reference without a repository,
+  of the same repository that cross-references the issue before the merge and whose own text names
+  it (an outsider can create a cross-reference, not the merged PR's text); a cross-reference
+  without a repository or a parseable time,
   or missing, unknown or unreadable evidence drops the action.
 - The `act` route passes the snapshot to the broker: done. `BrokerRequest.snapshot`
   (`packages/schema/src/broker.ts`), checked in `threadProblem` (`workers/github-broker/src/act.ts`),
@@ -192,7 +193,8 @@ with the policy bundled into that Worker; the broker still decides on its own co
 - Kill latency for agent and fleet flags is KV propagation (up to about 60 s); a run-scoped kill is
   immediate. Owner: operator.
 - Writes 2..n of one proposal on the same target go without a snapshot check, because the first
-  write changes the target; the window is the seconds between writes, and the people and comment
-  rules still run (reviews of #166 slice 3). Owner: operator.
+  write changes the target. The first write that is not ok stops the rest, so the window is only
+  the seconds between successful writes; the people and comment rules still run (reviews of #166
+  slice 3). Owner: operator.
 - Budget numbers ($0.15 per child, $3 per day) are starting points and may stop useful runs until
   tuned after the first shadow run. Owner: operator.

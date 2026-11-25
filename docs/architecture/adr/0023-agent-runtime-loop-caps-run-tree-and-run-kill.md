@@ -233,23 +233,28 @@ snapshot; the operator and supervisor reach the run store through Durable Object
 - **Writes.** Every write and approval carries the run id of the run that proposed. Approval routes
   for one target become one bundle (ADR 0024) when they fit `BUNDLE_ORDER`, else one approval each,
   each with the route's snapshot. Direct writes of one proposal run in `BUNDLE_ORDER` (the closing
-  action last). The run guard is checked again immediately before each write and request; a refused
-  guard stops the tree's remaining writes. A throw (transport, a read, a write) ends that run with
-  the stop `error`, an enum with no error text, and keeps the tree's other results.
+  action last), and the first one that is not ok stops the rest (`not run`), like the broker's
+  bundles. A proposal that wrote directly to its target asks no approval on it (`not requested`):
+  that approval would carry a stale snapshot. The run guard is checked again immediately before each
+  write and request; a refused guard stops the tree's remaining writes. A throw inside a run's own
+  loop (the model, a read, the store) ends that run with the stop `error`, an enum with no error
+  text, and keeps the tree's other results; a throw in a write or an approval request halts the
+  tree (`halted`).
 - **Snapshot on act.** A runtime write sends `BrokerRequest.snapshot`; the broker re-reads the
   target and refuses the write when it changed. Only the first direct write of a proposal carries
   it: that write changes the target, so later ones would always look stale. They still pass the
-  broker's people and comment rules; the gap is the seconds between two writes. For `issue.close`
+  broker's people and comment rules; the gap is the seconds between two successful writes. For `issue.close`
   and `pr.close` the broker takes the thread kind from the action and refuses a snapshot of the
   other kind. The snapshot is signed with the request and kept in the audit record.
 - **Evidence.** `issue.close` needs a merged pull request of the same repository (`merged_pr`
-  evidence) that the issue's timeline cross-references and whose own title or body names the issue
-  (`#N` or `owner/repo#N`): anyone can create a cross-reference by commenting `#N` elsewhere, but
-  only the merged pull request's author wrote its text. A cross-reference without a repository fails
+  evidence) that the issue's timeline cross-references and whose own title or body names the issue (`#N` or `owner/repo#N`), with the cross-reference made
+  before the merge: anyone can create a cross-reference by commenting `#N` elsewhere, and editing a
+  merged pull request's body later does not count. A missing or unparseable time fails closed. A cross-reference without a repository fails
   closed; anything else that needs evidence fails closed.
-- **Read tools** give the model compact fields (number, title, state, labels, author, dates, body;
-  comments and reviews by author, date and body), not GitHub's JSON, so the newest comments survive
-  the 40k clip. Snapshots are built from the raw data.
+- **Read tools** give the model compact fields (number, title, state, labels, author and its
+  association, dates, body; comments and reviews by author, association, date and body), not
+  GitHub's JSON, with each body capped at 4,000 characters. That keeps more of a long thread within
+  the 40k clip; a very long thread is still cut at the end. Snapshots are built from the raw data.
 - **Operator routes.** Kill and events use the existing Access-protected `/agents/*` route and the
   agent's `handleRunRequest`, for people only. The supervisor (#135) reads events through the DO's
   `listRunEvents`; it gets no new authority. The run store's daily prune is a cron schedule on the
