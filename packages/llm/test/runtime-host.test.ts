@@ -516,7 +516,7 @@ describe('runAgentTree', () => {
     expect(r.outcomes.map((o) => o.detail)).toEqual(['policy_denied', 'not run']);
   });
 
-  it('asks a single approval with the route snapshot', async () => {
+  it('asks each approval with the route snapshot', async () => {
     // Two approvals that cannot form a bundle (the same type twice) are asked one by one.
     const again: BrokerAction = { ...commentOn7, body: 'Second.' };
     const two = { ...proposalOn7, actions: [commentOn7, again] };

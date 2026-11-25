@@ -249,7 +249,7 @@ snapshot; the operator and supervisor reach the run store through Durable Object
 - **Evidence.** `issue.close` needs a merged pull request of the same repository (`merged_pr`
   evidence) that the issue's timeline cross-references and whose own title or body names the issue (`#N` or `owner/repo#N`), with the cross-reference made
   before the merge: anyone can create a cross-reference by commenting `#N` elsewhere, and editing a
-  merged pull request's body later does not count. A missing or unparseable time fails closed. A cross-reference without a repository fails
+  merged pull request's body later does not count, but a mention in a comment before the merge plus a later body edit by the PR's author still passes (accepted risk, threat model). A missing or unparseable time fails closed. A cross-reference without a repository fails
   closed; anything else that needs evidence fails closed.
 - **Read tools** give the model compact fields (number, title, state, labels, author and its
   association, dates, body; comments and reviews by author, association, date and body), not

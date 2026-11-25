@@ -21,11 +21,10 @@ function parseRunId(v: string): string {
  */
 export function inert(text: string, max = 160): string {
   const clean = text
-    // eslint-disable-next-line no-control-regex
-    .replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g, '?')
-    // Bidi and zero-width controls could reorder or hide text in the table.
-    .replace(/[\u061c\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/g, '?')
-    .replace(/\n/g, ' ');
+    .replace(/\n/g, ' ')
+    // Every control, format (bidi, zero-width, tags) and line/paragraph separator character:
+    // they could rewrite the screen, or reorder or hide text in the table.
+    .replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, '?');
   return clean.length > max ? `${clean.slice(0, max)}…` : clean;
 }
 

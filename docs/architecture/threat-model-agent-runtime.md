@@ -184,6 +184,12 @@ with the policy bundled into that Worker; the broker still decides on its own co
 
 **Accepted risks**
 
+- `issue.close` evidence: GitHub keeps one cross-reference per source thread, so a mention of the
+  issue in a comment on a PR before its merge, followed by the PR author editing the merged PR's
+  body to name the issue, passes the evidence check. Needs a PR a maintainer merged and planning
+  before the merge; a close is reversible, listed in the digest and attested. Closing it would need
+  the body's edit history (GraphQL), not in the REST payload. Owner: operator.
+
 - The orchestrator sees full content of many items in one context (operator decision, #140 grill),
   so injection can influence decisions about other items. Bounded by dispatcher rules 1-3 and the
   broker; residual risk: a wrong but allowed action on an item that was read and has valid
