@@ -155,7 +155,8 @@ describe('RunStore events (ADR 0023, ADR 0016)', () => {
       'sk-ant-api03-' + 'C'.repeat(30),
       'sk-or-v1-' + 'D'.repeat(30),
       'Bearer ' + 'E'.repeat(30),
-      'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.signature12',
+      // Assembled, so secret scanners do not flag the made-up token itself.
+      ['eyJhbGciOiJIUzI1NiJ9', 'eyJzdWIiOiIxMjM0NTY3ODkwIn0', 'signature12'].join('.'),
     ];
     const s = store();
     const id = s.start('a');

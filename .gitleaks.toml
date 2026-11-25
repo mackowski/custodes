@@ -41,6 +41,9 @@ commits = [
   # 2026-09-25: a made-up approval token (`abc.123.xyz_-`) in packages/email/test/address.test.ts;
   # the path allowlist that covered it was dropped in 9d0e796, so the weekly full-history scan found it.
   "4871384baf676a4b6582b6fdc2fa70b3599b1eb1",
+  # #140: a made-up JWT canary (`{"alg":"HS256"}.{"sub":"1234567890"}.signature12`) in
+  # packages/core/test/run-store.test.ts; assembled from parts in a later commit of the same PR.
+  "8b31e1f5c3505c3a8546daab19354c76aa2cd62e",
 ]
 paths = [
   '''pnpm-lock\.yaml''',
