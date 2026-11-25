@@ -37,7 +37,9 @@ What exists and constrains the design:
 
 ## Decision
 
-We will build an agent runtime in `packages/core`. Agents are declared in `agent.md` files, run as
+We will build an agent runtime: the loop in `packages/llm` (it applies `untrusted()` and
+`parseStructured()`, which live there, and `llm` already depends on `core`) and the dispatcher, which
+makes the policy decisions, in `packages/core`. Agents are declared in `agent.md` files, run as
 bounded model loops over read tools, and end each run with one typed proposal. Deterministic code,
 not the model, routes that proposal to a side effect.
 
@@ -51,7 +53,8 @@ derived from policy (ADR 0022), that every tool is in the agent's read policy, a
 schema exists.
 
 **Tools.** The loop gets read tools only: the existing `ReadResource` reads, a new broker read
-`cheatsheet_search` over GitHub code search, and the runtime tools `delegate` and `finish`. The
+`cheatsheet_search` over GitHub code search, and the runtime tool `delegate`. A run ends with a model answer that calls no tool; that answer is
+the proposal. The
 runtime, not the agent author, wraps every tool result in `untrusted()` and parses the final
 output with `parseStructured()`. `cheatsheet_search` widens the read policy and `boundary.json`,
 so its policy PR links this ADR (invariant 4). GitHub code search allows 10 requests per minute
@@ -90,7 +93,8 @@ are described in `context` and reached only through broker actions, never by RPC
 **Restart.** When a run hits its round cap, the runtime ends it and starts a fresh run. The fresh
 run gets the original trusted task plus a progress state computed by code: the tool calls already
 made with their result hashes, or the items already done. The progress state is never a model
-summary. After at most 2 restarts, the run is escalated to the digest.
+summary. Spend carries over: the per-run budget covers the run and its restarts. After at most 2
+restarts, the run is escalated to the digest.
 
 **Run-scoped kill.** Run state (`runId`, `parentRunId`, `killed`) lives in the agent's Durable
 Object, which is strongly consistent. The runtime checks it before every round. Killing a run kills
