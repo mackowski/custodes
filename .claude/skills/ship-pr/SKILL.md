@@ -1,5 +1,5 @@
 ---
-name: ship
+name: ship-pr
 description: Prepare a pull request for the operator's review - check and update every doc the change touches, draw the data flow before and after with the changes and security marked, and write the "Architecture and data flow" section into the PR body. Run on every PR before asking for ready (after /agent-security-review is clean); also when the user says "ship", "prepare the PR" or "draw the data flow".
 argument-hint: [pr-number]
 ---
@@ -129,6 +129,6 @@ jq -Rs '{body: .}' "$TMPDIR/pr-body.md" | gh api -X PATCH repos/mackowski/custod
 ## 5. Before asking for ready
 
 `pnpm check`, `pnpm scan`, `/agent-security-review` until clean, and this section present and true.
-If `/ship` changed any file (docs, threat models, ADRs, CLAUDE.md), run `/agent-security-review`
+If `/ship-pr` changed any file (docs, threat models, ADRs, CLAUDE.md), run `/agent-security-review`
 again: those edits came after the last clean pass.
 Never mark the PR ready yourself: the operator decides (CLAUDE.md).

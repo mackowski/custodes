@@ -1,5 +1,5 @@
-// Checks that a pull request body carries the "Architecture and data flow" section the /ship skill
-// writes (.claude/skills/ship/SKILL.md): diagrams, the data-flow verdict, the security table and the
+// Checks that a pull request body carries the "Architecture and data flow" section the /ship-pr skill
+// writes (.claude/skills/ship-pr/SKILL.md): diagrams, the data-flow verdict, the security table and the
 // documentation list. Run by .github/workflows/pr-architecture.yml on every PR but Dependabot's.
 //
 //   PR_BODY=... node --experimental-strip-types scripts/pr-architecture.ts <changed-files.txt>
@@ -54,7 +54,7 @@ export function checkPrBody(body: string, changed: readonly string[]): Verdict {
   const start = text.indexOf(START);
   const end = text.indexOf(END);
   if (start === -1 || end === -1 || end < start) {
-    errors.push(`missing the section between ${START} and ${END} (run /ship)`);
+    errors.push(`missing the section between ${START} and ${END} (run /ship-pr)`);
     return { errors, flowFiles };
   }
   const section = text.slice(start + START.length, end);
@@ -128,7 +128,7 @@ if (process.argv[1]?.endsWith('pr-architecture.ts')) {
     console.log(`${flowFiles.length} changed file(s) usually change the data flow.`);
   for (const e of errors) console.log(`::error::Architecture section: ${e}`);
   if (errors.length > 0) {
-    console.log('See .claude/skills/ship/SKILL.md and .github/pull_request_template.md.');
+    console.log('See .claude/skills/ship-pr/SKILL.md and .github/pull_request_template.md.');
     process.exit(1);
   }
   console.log('Architecture section present.');

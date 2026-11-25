@@ -47,7 +47,7 @@ ${over.verdict ?? 'Data flow: unchanged: only tests and docs change here'}
 <!-- architecture:end -->
 `;
 
-describe('PR architecture section check (/ship)', () => {
+describe('PR architecture section check (/ship-pr)', () => {
   it('passes a filled-in section', () => {
     expect(checkPrBody(filled(), ['packages/core/test/x.test.ts']).errors).toEqual([]);
   });

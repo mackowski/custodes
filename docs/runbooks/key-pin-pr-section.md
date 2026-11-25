@@ -2,7 +2,7 @@
 
 A pull request from **Agent key pin** (`agent-key-pin.yml`) only adds or retires public keys in
 `packages/schema/src/agent-keys.json`. Paste everything below the line into its body (the
-`pr-architecture` check requires it; `.claude/skills/ship/SKILL.md`), then replace the `Worker:` and
+`pr-architecture` check requires it; `.claude/skills/ship-pr/SKILL.md`), then replace the `Worker:` and
 `kid:` placeholders (the check refuses them).
 
 ---

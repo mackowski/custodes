@@ -1,7 +1,7 @@
 # Data flow
 
 The current data flow of Custodes, with its trust boundaries and where every credential lives. It is
-the reference the `/ship` skill compares a pull request against: every pull request shows the part
+the reference the `/ship-pr` skill compares a pull request against: every pull request shows the part
 of this diagram it touches, before and after, and updates this file when the flow changes
 (`docs/sdlc.md`, `.github/workflows/pr-architecture.yml`). Derived from the Workers' `wrangler.jsonc` files, the broker policy and the
 gateway routes, not from memory; when they disagree, the code is right and this file is stale.

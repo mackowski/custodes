@@ -1,7 +1,7 @@
 name: PR architecture
-# Every pull request carries the "Architecture and data flow" section the /ship skill writes:
+# Every pull request carries the "Architecture and data flow" section the /ship-pr skill writes:
 # diagrams before and after, the data-flow verdict, the security table and the documentation list
-# (.claude/skills/ship/SKILL.md). The operator reviews architecture from it. Dependabot is exempt.
+# (.claude/skills/ship-pr/SKILL.md). The operator reviews architecture from it. Dependabot is exempt.
 on:
   pull_request:
     types: [opened, edited, synchronize, reopened, ready_for_review]
