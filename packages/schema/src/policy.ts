@@ -1,8 +1,8 @@
 import { z } from 'zod';
 import { AgentId, AgentMode, GitHubRepo } from './agent.js';
-import { BrokerActionType } from './actions.js';
+import { BrokerActionType, GitHubLogin } from './actions.js';
 import { ReadResource } from './read.js';
-import { Tier, highestTier } from './tiers.js';
+import { ACTION_REGISTRY, Tier, highestTier } from './tiers.js';
 
 /**
  * `$comment` and `$comment_<field>` are the only keys a policy may carry besides its fields; they
@@ -30,6 +30,35 @@ export const DEFAULT_MAX_PENDING_APPROVALS = 20;
  * proposals never suggest them (ADR 0019; security review of #113). Compared case-insensitively.
  */
 export const AUTOMATION_TRIGGER_LABELS: readonly string[] = ['custodes_cheatsheet_review', 'jules'];
+
+/**
+ * The only exceptions to `AUTOMATION_TRIGGER_LABELS` (ADR 0024): agent id → trigger labels it may
+ * add. In code, not in `policy.json`, so a new exception is a reviewed code change and cannot be
+ * copied into another agent's `labels`. `jules` is never granted: it pushes code as the operator.
+ */
+export const TRIGGER_LABEL_GRANTS: Readonly<Record<string, readonly string[]>> = {
+  'backlog-review': ['custodes_cheatsheet_review'],
+};
+
+/** Adds of one trigger label per agent and repository in a rolling day (ADR 0024). */
+export const TRIGGER_LABEL_DAILY_CAP = 3;
+
+/** Whether `label` starts automation (case-insensitive, as GitHub compares label names). */
+export function isTriggerLabel(label: string): boolean {
+  return AUTOMATION_TRIGGER_LABELS.some((t) => t.toLowerCase() === label.toLowerCase());
+}
+
+/** Whether this agent may add this trigger label (always false for any other label's caller). */
+export function mayAddTriggerLabel(agentId: string, label: string): boolean {
+  return (TRIGGER_LABEL_GRANTS[agentId] ?? []).some((l) => l.toLowerCase() === label.toLowerCase());
+}
+
+/**
+ * Where cheatsheet-review must keep the operator's approval for any trigger-label grant to stand
+ * (ADR 0024): an agent's label is indistinguishable from the operator's, so this approval is what
+ * keeps an agent-started review from posting unseen.
+ */
+export const REVIEW_APPROVAL_REPO = 'OWASP/CheatSheetSeries';
 
 const AgentPolicyObject = z
   .strictObject({
@@ -100,6 +129,18 @@ const AgentPolicyObject = z
       path: ['requiresApprovalOn'],
     },
   )
+  .refine(
+    (a) =>
+      a.mode === 'hitl' ||
+      a.actions.every(
+        (t) => ACTION_REGISTRY[t].risk !== 'critical' || a.requiresApproval.includes(t),
+      ),
+    {
+      // ADR 0022 recorded risk; ADR 0024 makes "critical" mean "always behind an approval".
+      message: 'a critical action needs an approval on every repository (requiresApproval)',
+      path: ['requiresApproval'],
+    },
+  )
   .refine((a) => a.tier === highestTier(a.actions), {
     message: "tier must equal the highest tier of the agent's actions (ACTION_REGISTRY, ADR 0021)",
     path: ['tier'],
@@ -122,10 +163,47 @@ export type ReadPolicy = z.infer<typeof ReadPolicy>;
 
 export const Policy = z.preprocess(
   withoutComments,
-  z.strictObject({
-    version: z.literal(1),
-    agents: z.record(AgentId, AgentPolicy),
-    reads: z.record(AgentId, ReadPolicy).default({}),
-  }),
+  z
+    .strictObject({
+      version: z.literal(1),
+      agents: z.record(AgentId, AgentPolicy),
+      reads: z.record(AgentId, ReadPolicy).default({}),
+      /**
+       * Per repository: maintainers an agent's comment may @-mention besides the thread's author and
+       * commenters (ADR 0024). Changed only by a reviewed policy pull request; a login missing here
+       * cannot be pinged, which fails safe.
+       */
+      maintainers: z.record(GitHubRepo, z.array(GitHubLogin).max(30)).default({}),
+    })
+    .refine(
+      // Only adding starts automation: cheatsheet-review lists its own label to remove it.
+      (p) =>
+        Object.entries(p.agents).every(
+          ([id, a]) =>
+            !a.actions.includes('issue.label.add') ||
+            (a.labels ?? []).every((l) => !isTriggerLabel(l) || mayAddTriggerLabel(id, l)),
+        ),
+      {
+        message: 'a trigger label (AUTOMATION_TRIGGER_LABELS) needs a TRIGGER_LABEL_GRANTS entry',
+        path: ['agents'],
+      },
+    )
+    .refine(
+      (p) =>
+        !Object.entries(p.agents).some(
+          ([id, a]) =>
+            a.actions.includes('issue.label.add') &&
+            (a.labels ?? []).some((l) => mayAddTriggerLabel(id, l)),
+        ) ||
+        (p.agents['cheatsheet-review']?.requiresApprovalOn[REVIEW_APPROVAL_REPO]?.includes(
+          'pr.review.inline',
+        ) ??
+          false),
+      {
+        message:
+          "a trigger-label grant needs cheatsheet-review's approval on OWASP/CheatSheetSeries (ADR 0024)",
+        path: ['agents'],
+      },
+    ),
 );
 export type Policy = z.infer<typeof Policy>;

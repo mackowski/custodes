@@ -31,6 +31,7 @@ const agent: AgentPolicy = {
 };
 const ceiling: Policy = {
   version: 1,
+  maintainers: {},
   agents: { x: agent },
   reads: { x: { tokenBinding: 'PAT_READONLY', repos: ['o/a'], resources: ['issue', 'comments'] } },
 };

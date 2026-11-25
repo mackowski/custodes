@@ -68,6 +68,22 @@ export const BrokerAction = z.discriminatedUnion('type', [
     ...issueRef,
     assignees: z.array(GitHubLogin).length(1),
   }),
+  /** Removes one assignee (ADR 0024). Idempotent on GitHub: removing an absent login is a no-op. */
+  z.object({
+    type: z.literal('issue.unassign'),
+    ...issueRef,
+    assignees: z.array(GitHubLogin).length(1),
+  }),
+  /**
+   * Posts the (signed) reason as a comment, then closes the issue (ADR 0024), like `pr.close`.
+   * `completed` for work that is done, `not_planned` for anything else.
+   */
+  z.object({
+    type: z.literal('issue.close'),
+    ...issueRef,
+    body,
+    stateReason: z.enum(['completed', 'not_planned']),
+  }),
   // `pr.comment` and `pr.review` are retired: kept so old audit records parse, never executed
   // (`executeAction` in @custodes/github refuses them). Use `issue.comment` and `pr.review.inline`.
   z.object({ type: z.literal('pr.comment'), ...pullRef, body }),

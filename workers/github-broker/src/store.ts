@@ -97,6 +97,29 @@ export class AuditStore {
       .first<{ n: number }>();
     return row?.n ?? 0;
   }
+
+  /**
+   * Adds of one label by an agent on a repository since a time, counted like the hourly limit
+   * (allowed, or started and failed). For the trigger-label daily cap (ADR 0024).
+   */
+  async countLabelAddsSince(
+    agentId: string,
+    repo: string,
+    label: string,
+    sinceIso: string,
+  ): Promise<number> {
+    const row = await this.db
+      .prepare(
+        `SELECT COUNT(*) AS n FROM audit, json_each(json_extract(audit.record_json, '$.action.labels')) AS l
+          WHERE audit.agent_id = ?1 AND audit.repo = ?2 AND audit.ts >= ?3
+          AND audit.action_type = 'issue.label.add' AND lower(l.value) = lower(?4)
+          AND (audit.decision = 'allowed' OR (audit.decision = 'denied'
+            AND substr(json_extract(audit.record_json, '$.reason'), 1, ?5) = ?6))`,
+      )
+      .bind(agentId, repo, sinceIso, label, EXECUTION_FAILED.length, EXECUTION_FAILED)
+      .first<{ n: number }>();
+    return row?.n ?? 0;
+  }
 }
 
 /** Reason prefix for an action whose GitHub execution started and failed (possibly half done). */

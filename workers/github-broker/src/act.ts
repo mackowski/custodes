@@ -12,16 +12,19 @@ import {
   GitHubRest,
   PatIdentity,
 } from '@custodes/github';
-import type {
-  Attestation,
-  AuditDecision,
-  AuditRecord,
-  BrokerDenialCode,
-  BrokerRequest,
-  BrokerResponse,
-  CallerSignature,
+import {
+  isTriggerLabel,
+  TRIGGER_LABEL_DAILY_CAP,
+  type Attestation,
+  type AuditDecision,
+  type AuditRecord,
+  type BrokerDenialCode,
+  type BrokerRequest,
+  type BrokerResponse,
+  type CallerSignature,
 } from '@custodes/schema';
 import { keyring, secretBinding, type BrokerEnv } from './env.js';
+import { allowedPeople, namedBy, readIssueThread, readPullThread } from './thread.js';
 import { policy } from './policy.js';
 import { ApprovalStore, AuditStore, EXECUTION_FAILED } from './store.js';
 
@@ -154,6 +157,28 @@ export async function act(
     );
   }
 
+  // ADR 0024: a trigger label starts automation as the operator; cap it per agent and repository.
+  if (req.action.type === 'issue.label.add') {
+    const since = new Date(now.getTime() - 86_400_000).toISOString();
+    for (const label of req.action.labels.filter(isTriggerLabel)) {
+      const added = await audit.countLabelAddsSince(req.agentId, req.action.repo, label, since);
+      if (added >= TRIGGER_LABEL_DAILY_CAP)
+        return deny(
+          'policy_denied',
+          `daily cap of ${TRIGGER_LABEL_DAILY_CAP} for label ${label} on ${req.action.repo} reached`,
+        );
+    }
+  }
+
+  // ADR 0024: a comment names only thread people or listed maintainers, hotl included. Read the
+  // thread only when someone outside the maintainers list is named; a failed read refuses.
+  const named = namedBy(req.action);
+  const maintainers = allowedPeople(req.action.repo, []).map((l) => l.toLowerCase());
+  if (named.some((l) => !maintainers.includes(l.toLowerCase()))) {
+    const stranger = await strangerIn(env, req, named);
+    if (stranger !== null) return deny('policy_denied', stranger);
+  }
+
   // Execute. The attestation id is fixed up front so the trailer can reference it.
   const attestationId = crypto.randomUUID();
   const identity = new PatIdentity(req.agentId, secretBinding(env, agentPolicy.tokenBinding));
@@ -203,4 +228,30 @@ export async function act(
   });
   await attestAfterExecution(record);
   return { ok: true, attestationId, ...(githubUrl !== undefined ? { githubUrl } : {}) };
+}
+
+/**
+ * The first login `named` that is neither in the target's thread nor a listed maintainer, as a
+ * denial reason; null if every one is allowed. An issue comment may sit on a pull request, so the
+ * issue read decides which thread to read.
+ */
+async function strangerIn(
+  env: BrokerEnv,
+  req: BrokerRequest,
+  named: readonly string[],
+): Promise<string | null> {
+  const { repo } = req.action;
+  const number = 'pull' in req.action ? req.action.pull : req.action.issue;
+  let thread =
+    req.action.type === 'pr.close'
+      ? await readPullThread(env, req.agentId, req.runId, repo, number)
+      : await readIssueThread(env, req.agentId, req.runId, repo, number);
+  if (!thread.ok && thread.reason === 'not an issue')
+    thread = await readPullThread(env, req.agentId, req.runId, repo, number);
+  if (!thread.ok) return `cannot check who the comment names: ${thread.reason}`;
+  const allowed = allowedPeople(repo, thread.people).map((l) => l.toLowerCase());
+  const stranger = named.find((l) => !allowed.includes(l.toLowerCase()));
+  return stranger === undefined
+    ? null
+    : `@${stranger} is neither in the thread nor a listed maintainer`;
 }

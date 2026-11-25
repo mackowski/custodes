@@ -813,7 +813,7 @@ describe('bundle approval page (ADR 0019)', () => {
     expect(html).toContain('Runs in this order (4)');
     // Not "all or nothing": a step that already ran stays done (review Info).
     expect(html).toContain('steps already done stay done');
-    expect(html).toContain('invisible attestation trailer');
+    expect(html).toContain('attestation trailer, hidden or visible as its policy says');
   });
 
   it('escapes hostile label names, logins in the snapshot and shows no buttons once decided', () => {

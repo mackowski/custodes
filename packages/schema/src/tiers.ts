@@ -27,6 +27,9 @@ export interface ActionEntry {
 export const ACTION_REGISTRY: Readonly<Record<BrokerActionType, ActionEntry>> = {
   'issue.label.add': { tier: 'T1', risk: 'low' },
   'issue.label.remove': { tier: 'T1', risk: 'low' },
+  'issue.unassign': { tier: 'T1', risk: 'low' },
+  // Contributor-facing and public, but a person can reopen it (ADR 0024).
+  'issue.close': { tier: 'T1', risk: 'high' },
   'issue.assign': { tier: 'T1', risk: 'low' },
   // Public text under the operator's account.
   'issue.comment': { tier: 'T1', risk: 'medium' },

@@ -11,13 +11,12 @@ import {
 import { act } from '../src/act.js';
 import {
   approvalByToken,
-  commentProblem,
   createApproval,
   createBundleApproval,
   MAX_BUNDLE_ASKS_PER_HOUR,
   decideApproval,
-  readIssueThread,
 } from '../src/approvals.js';
+import { commentProblem, readIssueThread } from '../src/thread.js';
 import type { BrokerEnv } from '../src/env.js';
 import { ApprovalStore } from '../src/store.js';
 

@@ -1,4 +1,11 @@
-import type { AgentPolicy, BrokerActionType, BrokerRequest, Policy } from '@custodes/schema';
+import {
+  isTriggerLabel,
+  mayAddTriggerLabel,
+  type AgentPolicy,
+  type BrokerActionType,
+  type BrokerRequest,
+  type Policy,
+} from '@custodes/schema';
 
 /** Whether this action on this repository waits for a human approval (ADR 0004, ADR 0017). */
 export function needsApproval(agent: AgentPolicy, repo: string, type: BrokerActionType): boolean {
@@ -46,6 +53,15 @@ export function evaluatePolicy(policy: Policy, req: BrokerRequest): PolicyDecisi
     const other = req.action.labels.find((l) => !allowed.includes(l));
     if (other !== undefined)
       return { allow: false, code: 'policy_denied', reason: `label ${other} not allowed` };
+  }
+  // Defence in depth for ADR 0024: the schema already refuses an ungranted trigger label in
+  // `labels`, but adding one starts automation as the operator, so check the request too.
+  if (req.action.type === 'issue.label.add') {
+    const trigger = req.action.labels.find(
+      (l) => isTriggerLabel(l) && !mayAddTriggerLabel(req.agentId, l),
+    );
+    if (trigger !== undefined)
+      return { allow: false, code: 'policy_denied', reason: `label ${trigger} starts automation` };
   }
   return { allow: true, needsApproval: needsApproval(agent, req.action.repo, req.action.type) };
 }
