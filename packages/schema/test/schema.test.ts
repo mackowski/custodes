@@ -298,7 +298,7 @@ describe('policy trigger-label grants, maintainers and critical actions (ADR 002
     tokenBinding: 'PAT_X',
     tier: 'T1',
     mode: 'hitl',
-    repos: ['a/b'],
+    repos: ['OWASP/CheatSheetSeries'],
     actions: ['issue.label.add'],
     labels,
   });
@@ -326,18 +326,62 @@ describe('policy trigger-label grants, maintainers and critical actions (ADR 002
     const agents = { 'cheatsheet-review': approvedReview };
     expect(policy({ ...agents, 'backlog-review': labeller(['jules']) }).success).toBe(false);
   });
-  it('refuses a grant when cheatsheet-review has no OWASP approval for pr.review.inline', () => {
-    const granted = { 'backlog-review': labeller(['custodes_cheatsheet_review']) };
-    expect(policy(granted).success).toBe(false);
-    const sandboxOnly = { ...approvedReview, requiresApprovalOn: {} };
-    expect(policy({ 'cheatsheet-review': sandboxOnly, ...granted }).success).toBe(false);
-    const wrongRepo = {
+  describe('the grant is tied to approval on every repository shared with cheatsheet-review', () => {
+    const SANDBOX = 'mackowski/custodes-sandbox';
+    const OWASP = 'OWASP/CheatSheetSeries';
+    const review = (repos: string[], approvedOn: string[]) => ({
       ...approvedReview,
-      repos: ['a/b'],
-      requiresApprovalOn: { 'a/b': ['pr.review.inline'] },
-    };
-    expect(policy({ 'cheatsheet-review': wrongRepo, ...granted }).success).toBe(false);
-    expect(policy({ 'cheatsheet-review': approvedReview, ...granted }).success).toBe(true);
+      repos,
+      requiresApprovalOn: Object.fromEntries(approvedOn.map((r) => [r, ['pr.review.inline']])),
+    });
+    const granted = (repos: string[]) => ({
+      'backlog-review': { ...labeller(['custodes_cheatsheet_review']), repos },
+    });
+    it('refuses a shared non-sandbox repository without the approval', () => {
+      expect(
+        policy({ 'cheatsheet-review': review([OWASP], []), ...granted([OWASP]) }).success,
+      ).toBe(false);
+      // An approval for another action or another repository does not count.
+      const other = review([OWASP, 'a/b'], ['a/b']);
+      expect(policy({ 'cheatsheet-review': other, ...granted([OWASP]) }).success).toBe(false);
+      const wrongAction = {
+        ...review([OWASP], []),
+        requiresApprovalOn: { [OWASP]: ['issue.label.remove'] },
+      };
+      expect(policy({ 'cheatsheet-review': wrongAction, ...granted([OWASP]) }).success).toBe(false);
+    });
+    it('accepts it when the approval stands on the shared repository', () => {
+      expect(
+        policy({ 'cheatsheet-review': review([OWASP], [OWASP]), ...granted([OWASP]) }).success,
+      ).toBe(true);
+    });
+    it('accepts a sandbox-only overlap without any approval', () => {
+      expect(
+        policy({ 'cheatsheet-review': review([SANDBOX], []), ...granted([SANDBOX]) }).success,
+      ).toBe(true);
+    });
+    it('refuses a third shared non-sandbox repository that lacks the approval', () => {
+      const repos = [SANDBOX, OWASP, 'a/b'];
+      expect(
+        policy({ 'cheatsheet-review': review(repos, [OWASP]), ...granted(repos) }).success,
+      ).toBe(false);
+      expect(
+        policy({ 'cheatsheet-review': review(repos, [OWASP, 'a/b']), ...granted(repos) }).success,
+      ).toBe(true);
+    });
+    it('accepts no overlap at all, without approval', () => {
+      expect(
+        policy({ 'cheatsheet-review': review([OWASP], []), ...granted(['a/b']) }).success,
+      ).toBe(true);
+    });
+    it('does not need the approval for a repository only the grantee has', () => {
+      expect(
+        policy({
+          'cheatsheet-review': review([SANDBOX, OWASP], [OWASP]),
+          ...granted([SANDBOX, OWASP, 'a/b']),
+        }).success,
+      ).toBe(true);
+    });
   });
   it('lets an agent that only removes the trigger label list it (cheatsheet-review style)', () => {
     expect(policy({ 'cheatsheet-review': approvedReview }).success).toBe(true);

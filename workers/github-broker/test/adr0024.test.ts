@@ -12,9 +12,10 @@ import {
   type PullSnapshot,
 } from '@custodes/schema';
 import { act } from '../src/act.js';
-import { createBundleApproval, decideApproval } from '../src/approvals.js';
+import { checkPeopleAndText, createBundleApproval, decideApproval } from '../src/approvals.js';
+import { ApprovalStore } from '../src/store.js';
 import { policy } from '../src/policy.js';
-import { readPullThread } from '../src/thread.js';
+import { readIssueThread, readPullThread } from '../src/thread.js';
 import type { BrokerEnv } from '../src/env.js';
 
 // ADR 0024 in the broker: the mention rule for hotl comments, the trigger-label daily cap,
@@ -68,10 +69,18 @@ beforeAll(() => {
     mode: 'hitl',
     tier: 'T1',
     repos,
-    actions: ['issue.comment', 'issue.label.add', 'pr.close'],
+    actions: ['issue.comment', 'issue.label.add', 'issue.close', 'pr.close'],
     labels,
   });
-  for (const id of ['backlog-review', 'backlog-bundle'])
+  // No label grant: assignment and unassignment.
+  policy.agents['backlog-plain'] = AgentPolicy.parse({
+    tokenBinding: 'PAT_BACKLOG_REVIEW',
+    mode: 'hotl',
+    tier: 'T1',
+    repos,
+    actions: ['issue.comment', 'issue.close', 'issue.assign', 'issue.unassign'],
+  });
+  for (const id of ['backlog-review', 'backlog-bundle', 'backlog-plain'])
     policy.reads[id] = ReadPolicy.parse({
       tokenBinding: 'PAT_READONLY',
       repos,
@@ -97,6 +106,8 @@ interface Fake {
   head?: string;
   /** Answer GETs whose path ends with one of these with a 500. */
   failReads?: string[];
+  /** Answer these writes (`METHOD /path`, repository stripped) with a 500. */
+  failWrites?: string[];
 }
 interface Call {
   method: string;
@@ -155,6 +166,20 @@ function fakeGithub(t: Fake = {}, n = 7) {
       return Promise.resolve(new Response('not found', { status: 404 }));
     }
     writes.push({ method, path, body });
+    if ((t.failWrites ?? []).includes(`${method} ${path}`))
+      return Promise.resolve(new Response('boom', { status: 500 }));
+    if (path === `/issues/${n}/assignees`)
+      return Promise.resolve(
+        Response.json(
+          {
+            assignees:
+              method === 'DELETE'
+                ? []
+                : [{ login: (body as { assignees: string[] }).assignees[0] }],
+          },
+          { status: 201 },
+        ),
+      );
     if (path === `/issues/${n}/comments`)
       return Promise.resolve(
         Response.json({ html_url: `https://github.com/x/y/issues/${n}#c1` }, { status: 201 }),
@@ -292,7 +317,7 @@ describe('mentions in a hotl comment (ADR 0024)', () => {
       expect(r.ok).toBe(false);
       if (!r.ok) {
         expect(r.code).toBe('policy_denied');
-        expect(r.reason.startsWith('cannot check who the comment names')).toBe(true);
+        expect(r.reason.startsWith('cannot check the thread')).toBe(true);
       }
       expect(gh.writes).toEqual([]);
       vi.restoreAllMocks();
@@ -303,7 +328,7 @@ describe('mentions in a hotl comment (ADR 0024)', () => {
     fakeGithub({ pull: true, failReads: ['/pulls/7/reviews'] });
     const r = await act(testEnv, request(comment('hi @author')), nextNow());
     expect(r).toMatchObject({ ok: false, code: 'policy_denied' });
-    if (!r.ok) expect(r.reason).toMatch(/^cannot check who the comment names/);
+    if (!r.ok) expect(r.reason).toMatch(/^cannot check the thread/);
   });
 });
 
@@ -633,6 +658,247 @@ describe('pull request bundles (ADR 0024)', () => {
       ok: false,
       status: 403,
       error: '@stranger is neither in the thread nor a listed maintainer',
+    });
+  });
+});
+
+describe('security-review fixes (ADR 0024)', () => {
+  const close = (body: string, issue = 7): BrokerAction => ({
+    type: 'issue.close',
+    repo: REPO,
+    issue,
+    body,
+    stateReason: 'completed',
+  });
+
+  describe('hidden text in a comment, on every path', () => {
+    const hidden: [string, string][] = [
+      ['&#64;stranger', 'comment refused: character reference'],
+      ['&#x40;stranger', 'comment refused: character reference'],
+      ['&commat;stranger', 'comment refused: character reference'],
+      ['@&#115;tranger', 'comment refused: character reference'],
+      ['<!-- hidden', 'comment refused: comment marker'],
+      ['text -->', 'comment refused: comment marker'],
+    ];
+    it.each(hidden)(
+      'refuses %j on a hotl comment and a close, with no write and no read',
+      async (body, reason) => {
+        const gh = fakeGithub({ commenters: ['carol'] });
+        const now = nextNow();
+        for (const action of [comment(body), close(body)])
+          expect(await act(testEnv, request(action), now), action.type).toMatchObject({
+            ok: false,
+            code: 'policy_denied',
+            reason,
+          });
+        expect(gh.writes).toEqual([]);
+        expect(gh.gets).toEqual([]);
+      },
+    );
+
+    it('still lets act post a comment with a link (only bundles refuse links)', async () => {
+      const gh = fakeGithub();
+      const r = await act(testEnv, request(comment('see https://example.com/x')), nextNow());
+      expect(r).toMatchObject({ ok: true });
+      expect(gh.writes).toHaveLength(1);
+    });
+  });
+
+  describe('issue.close never reaches a pull request', () => {
+    it('is refused on a pull request number even with no mentions, and writes nothing', async () => {
+      const gh = fakeGithub({ pull: true });
+      const r = await act(testEnv, request(close('Closing, thanks.')), nextNow());
+      expect(r).toMatchObject({
+        ok: false,
+        code: 'policy_denied',
+        reason: 'cannot check the thread: not an issue',
+      });
+      expect(gh.writes).toEqual([]);
+      expect(gh.gets.some((p) => p.startsWith('/pulls/'))).toBe(false);
+    });
+    it('reads the issue once on an issue with no mentions, then closes it', async () => {
+      const gh = fakeGithub();
+      expect(await act(testEnv, request(close('Done.')), nextNow())).toMatchObject({ ok: true });
+      expect(gh.gets.filter((p) => p === '/issues/7')).toHaveLength(1);
+      expect(gh.writes.map((w) => `${w.method} ${w.path}`)).toEqual([
+        'POST /issues/7/comments',
+        'PATCH /issues/7',
+      ]);
+    });
+    it('is refused when the issue cannot be read', async () => {
+      const gh = fakeGithub({ failReads: ['/issues/7'] });
+      const r = await act(testEnv, request(close('Done.')), nextNow());
+      expect(r).toMatchObject({ ok: false, code: 'policy_denied' });
+      if (!r.ok) expect(r.reason).toMatch(/^cannot check the thread:/);
+      expect(gh.writes).toEqual([]);
+    });
+  });
+
+  describe('maintainers never widen assignment', () => {
+    const assign = (login: string): BrokerAction => ({
+      type: 'issue.assign',
+      repo: REPO,
+      issue: 7,
+      assignees: [login],
+    });
+    it('refuses a maintainer outside the thread as assignee via hotl act, but lets a comment ping them', async () => {
+      policy.maintainers[REPO] = ['maint'];
+      const gh = fakeGithub({ commenters: ['carol'] });
+      const now = nextNow();
+      expect(await act(testEnv, request(assign('maint'), 'backlog-plain'), now)).toMatchObject({
+        ok: false,
+        code: 'policy_denied',
+        reason: '@maint is neither in the thread nor a listed maintainer',
+      });
+      expect(gh.writes).toEqual([]);
+      expect(
+        await act(testEnv, request(comment('ping @maint'), 'backlog-plain'), now),
+      ).toMatchObject({
+        ok: true,
+      });
+      // A thread person is still assignable.
+      expect(await act(testEnv, request(assign('carol'), 'backlog-plain'), now)).toMatchObject({
+        ok: true,
+      });
+      expect(gh.writes.map((w) => `${w.method} ${w.path}`)).toEqual([
+        'POST /issues/7/comments',
+        'POST /issues/7/assignees',
+      ]);
+    });
+    it('refuses a maintainer as assignee in a bundle but allows the mention', () => {
+      policy.maintainers[REPO] = ['maint'];
+      const people = ['author', 'carol'];
+      expect(checkPeopleAndText([assign('maint')], REPO, people)).toEqual({
+        ok: false,
+        reason: '@maint is neither in the thread nor a listed maintainer',
+      });
+      expect(checkPeopleAndText([comment('ping @Maint')], REPO, people)).toEqual({ ok: true });
+      expect(checkPeopleAndText([assign('carol'), comment('ping @maint')], REPO, people)).toEqual({
+        ok: true,
+      });
+    });
+  });
+
+  describe('issue.unassign', () => {
+    const unassign: BrokerAction = {
+      type: 'issue.unassign',
+      repo: REPO,
+      issue: 7,
+      assignees: ['alice'],
+    };
+    it('is denied for an agent without it in its policy, and writes nothing', async () => {
+      const gh = fakeGithub();
+      expect(await act(testEnv, request(unassign, 'backlog-review'), nextNow())).toMatchObject({
+        ok: false,
+        code: 'policy_denied',
+        reason: 'action issue.unassign not allowed',
+      });
+      expect(gh.writes).toEqual([]);
+    });
+    it('sends DELETE /assignees for an agent that has it, naming nobody to check', async () => {
+      const gh = fakeGithub();
+      expect(await act(testEnv, request(unassign, 'backlog-plain'), nextNow())).toMatchObject({
+        ok: true,
+      });
+      expect(gh.writes).toEqual([
+        { method: 'DELETE', path: '/issues/7/assignees', body: { assignees: ['alice'] } },
+      ]);
+      expect(gh.gets).toEqual([]);
+    });
+  });
+
+  describe('a started label add that failed still counts toward the daily cap', () => {
+    it('denies the fourth add after three failed executions', async () => {
+      const gh = fakeGithub({ failWrites: ['POST /issues/7/labels'] });
+      const now = nextNow();
+      for (const h of [-3, -2, -1]) {
+        const r = await act(
+          testEnv,
+          request(addLabels([TRIGGER])),
+          new Date(now.getTime() + h * 3_600_000),
+        );
+        expect(r).toMatchObject({ ok: false, code: 'github_error' });
+      }
+      const r = await act(testEnv, request(addLabels([TRIGGER])), now);
+      expect(r).toMatchObject({ ok: false, code: 'policy_denied' });
+      if (!r.ok) expect(r.reason).toContain('daily cap');
+      expect(gh.writes).toHaveLength(3);
+    });
+  });
+
+  describe('bundles that close', () => {
+    const ask = (
+      actions: BrokerAction[],
+      snapshot: ApprovalBundle['snapshot'],
+    ): BundleApprovalAsk => ({
+      request: {
+        agentId: 'backlog-bundle',
+        agentVersion: '0.1.0',
+        runId,
+        triggeredBy: { kind: 'cli', ref: 'close' },
+        bundle: { actions, snapshot },
+      },
+      rationale: 'proposal',
+    });
+    const created = async (actions: BrokerAction[], kind: 'issue' | 'pull', t: Fake, now: Date) => {
+      const thread =
+        kind === 'issue'
+          ? await readIssueThread(testEnv, 'backlog-bundle', runId, REPO, 7)
+          : await readPullThread(testEnv, 'backlog-bundle', runId, REPO, 7);
+      if (!thread.ok) throw new Error(thread.reason);
+      const out = await createBundleApproval(testEnv, ask(actions, thread.snapshot), now);
+      if (!out.ok) throw new Error(out.error);
+      return out.approval.id;
+    };
+    const decide = (id: string, now: Date) =>
+      decideApproval(testEnv, id, 'approved', 'op@example.org', now);
+
+    it('runs a hitl issue.close bundle: comment, then the close with its reason', async () => {
+      const t: Fake = { commenters: ['carol'] };
+      const gh = fakeGithub(t);
+      const now = nextNow();
+      const id = await created([comment('Heads up.'), close('Done in #8.')], 'issue', t, now);
+      expect(gh.writes).toEqual([]);
+      const out = await decide(id, now);
+      expect('steps' in out && out.steps?.map((s) => `${s.type}:${s.outcome}`)).toEqual([
+        'issue.comment:done',
+        'issue.close:done',
+      ]);
+      expect(gh.writes.map((w) => `${w.method} ${w.path}`)).toEqual([
+        'POST /issues/7/comments',
+        'POST /issues/7/comments',
+        'PATCH /issues/7',
+      ]);
+      expect(gh.writes[2]?.body).toEqual({ state: 'closed', state_reason: 'completed' });
+    });
+
+    it('stops at a failed pr.close after its comment, shows done/failed and spends the approval', async () => {
+      const t: Fake = { failWrites: ['PATCH /pulls/7'] };
+      const gh = fakeGithub(t);
+      const now = nextNow();
+      const id = await created(
+        [comment('Heads up.'), { type: 'pr.close', repo: REPO, pull: 7, body: 'Closing.' }],
+        'pull',
+        t,
+        now,
+      );
+      const out = await decide(id, now);
+      expect('steps' in out && out.steps?.map((s) => `${s.type}:${s.outcome}`)).toEqual([
+        'issue.comment:done',
+        'pr.close:failed',
+      ]);
+      expect('steps' in out && out.steps?.[1]?.code).toBe('github_error');
+      // pr.close posted its comment before the close failed.
+      expect(gh.writes.map((w) => `${w.method} ${w.path}`)).toEqual([
+        'POST /issues/7/comments',
+        'POST /issues/7/comments',
+        'PATCH /pulls/7',
+      ]);
+      const stored = await new ApprovalStore(testEnv.AUDIT).get(id);
+      expect(stored?.consumedAt).not.toBeNull();
+      // The same link cannot run it again.
+      expect(await decide(id, now)).toMatchObject({ result: expect.not.stringMatching(/^ok$/) });
+      expect(gh.writes).toHaveLength(3);
     });
   });
 });
