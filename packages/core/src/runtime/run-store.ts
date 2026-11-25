@@ -1,3 +1,4 @@
+import type { RunEvent } from '@custodes/schema';
 import { canonicalJson } from '../canonical.js';
 
 /**
@@ -27,19 +28,7 @@ export interface RunRecord {
   spentUsd: number;
 }
 
-export interface RunEvent {
-  runId: string;
-  parentRunId: string | null;
-  round: number;
-  /** Null for a model turn that called no tool. */
-  tool: string | null;
-  /** Canonical JSON of the arguments, capped and redacted. */
-  args: string;
-  resultSize: number;
-  /** Capped at MODEL_TEXT_CAP characters and redacted. */
-  modelText: string;
-  at: string;
-}
+export type { RunEvent };
 
 /** ADR 0016's cap for payloads, kept for the event channel (ADR 0023). */
 export const MODEL_TEXT_CAP = 8_000;

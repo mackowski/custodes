@@ -1,32 +1,18 @@
 import { Command, InvalidArgumentError } from 'commander';
+import type { RunEvent} from '@custodes/schema';
+import { RunEventsResponse, RunKilledResponse } from '@custodes/schema';
 import { z } from 'zod';
 import { ApiClient } from '../client.js';
 import { loadConfig } from '../config.js';
 import { print, rows } from '../output.js';
 
-/** A run event as the agent returns it (ADR 0023). Model text and arguments are untrusted data. */
-export const RunEventRow = z.object({
-  runId: z.uuid(),
-  parentRunId: z.uuid().nullable(),
-  round: z.number().int(),
-  tool: z.string().nullable(),
-  args: z.string(),
-  resultSize: z.number().int(),
-  modelText: z.string(),
-  at: z.string(),
-});
-export type RunEventRow = z.infer<typeof RunEventRow>;
-
-const Events = z.object({
-  runId: z.uuid(),
-  untrusted: z.literal(true),
-  events: z.array(RunEventRow),
-});
-const Killed = z.object({ runId: z.uuid(), killed: z.number().int() });
+/** A run event as the agent returns it (ADR 0023); the wire format lives in @custodes/schema. */
+export type RunEventRow = RunEvent;
 
 function parseRunId(v: string): string {
   if (!z.uuid().safeParse(v).success) throw new InvalidArgumentError('a run id (UUID)');
-  return v;
+  // The agent's run route matches lower case only.
+  return v.toLowerCase();
 }
 
 /**
@@ -34,8 +20,12 @@ function parseRunId(v: string): string {
  * screen) become `?`, and long text is cut. It came from a model reading third-party content.
  */
 export function inert(text: string, max = 160): string {
-  // eslint-disable-next-line no-control-regex
-  const clean = text.replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g, '?').replace(/\n/g, ' ');
+  const clean = text
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g, '?')
+    // Bidi and zero-width controls could reorder or hide text in the table.
+    .replace(/[\u200b-\u200f\u202a-\u202e\u2066-\u2069]/g, '?')
+    .replace(/\n/g, ' ');
   return clean.length > max ? `${clean.slice(0, max)}…` : clean;
 }
 
@@ -48,7 +38,7 @@ export function eventsTable(list: readonly RunEventRow[]): string {
     rows(
       ['AT', 'RUN', 'ROUND', 'TOOL', 'ARGS', 'MODEL TEXT'],
       list.map((e) => [
-        e.at.slice(0, 19).replace('T', ' '),
+        inert(e.at.slice(0, 19).replace('T', ' ')),
         e.runId.slice(0, 8),
         String(e.round),
         e.tool ?? '-',
@@ -72,7 +62,11 @@ export function runsCommand(): Command {
     .argument('<run-id>', 'run id', parseRunId)
     .action(async (cls: string, instance: string, runId: string, _o: unknown, c: Command) => {
       const cfg = loadConfig(c.optsWithGlobals());
-      const r = await new ApiClient(cfg).call('POST', path(cls, instance, runId, 'kill'), Killed);
+      const r = await new ApiClient(cfg).call(
+        'POST',
+        path(cls, instance, runId, 'kill'),
+        RunKilledResponse,
+      );
       print(cfg.json, r, () => `killed ${String(r.killed)} run(s) of tree ${r.runId}`);
     });
 
@@ -84,7 +78,11 @@ export function runsCommand(): Command {
     .argument('<run-id>', 'run id', parseRunId)
     .action(async (cls: string, instance: string, runId: string, _o: unknown, c: Command) => {
       const cfg = loadConfig(c.optsWithGlobals());
-      const r = await new ApiClient(cfg).call('GET', path(cls, instance, runId, 'events'), Events);
+      const r = await new ApiClient(cfg).call(
+        'GET',
+        path(cls, instance, runId, 'events'),
+        RunEventsResponse,
+      );
       print(cfg.json, r, () => eventsTable(r.events));
     });
   return cmd;

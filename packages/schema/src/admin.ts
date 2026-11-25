@@ -6,8 +6,6 @@ import { IssueSnapshot, PullSnapshot } from './snapshots.js';
 
 export const ApprovalStatus = z.enum(['pending', 'approved', 'rejected', 'expired']);
 
-export { IssueSnapshot, PullSnapshot } from './snapshots.js';
-
 /**
  * Actions a bundle may hold, in the order they run (ADR 0024): idempotent state first, then the
  * comment, then the action that closes the thread, which is always last.

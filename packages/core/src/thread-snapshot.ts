@@ -17,7 +17,7 @@ export type PullThread =
   { ok: true; snapshot: PullSnapshot; people: string[] } | { ok: false; reason: string };
 
 /** Comment (and review) pages read at most (100 each); a longer thread fails closed. */
-export const MAX_THREAD_PAGES = 10;
+const MAX_THREAD_PAGES = 10;
 
 type RawUser = { login?: unknown; type?: unknown } | null | undefined;
 interface RawThread {
@@ -121,7 +121,7 @@ export async function issueThreadFrom(data: unknown, comments: unknown[]): Promi
 }
 
 /** The pull request's head SHA, or null for an unexpected shape. */
-export function headShaOf(data: unknown): string | null {
+function headShaOf(data: unknown): string | null {
   const sha = (data as { head?: { sha?: unknown } | null } | null)?.head?.sha;
   return typeof sha === 'string' && /^[0-9a-f]{40}$/.test(sha) ? sha : null;
 }

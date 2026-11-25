@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { BrokerAction } from './actions.js';
-import type { IssueSnapshot, PullSnapshot } from './admin.js';
+import type { IssueSnapshot, PullSnapshot } from './snapshots.js';
 import { AgentId, GitHubRepo } from './agent.js';
 import { Tier } from './tiers.js';
 
@@ -117,3 +117,34 @@ export type ProgressState = z.infer<typeof ProgressState>;
 export type TargetRead =
   | { target: ProposalTarget & { kind: 'issue' }; snapshot: IssueSnapshot }
   | { target: ProposalTarget & { kind: 'pull' }; snapshot: PullSnapshot };
+
+/**
+ * One event of the runtime's event channel as the agent's run route returns it (ADR 0023). Model
+ * text and arguments are untrusted data: capped and redacted by the store, never tool results.
+ */
+export const RunEvent = z.object({
+  runId: z.uuid(),
+  parentRunId: z.uuid().nullable(),
+  round: z.number().int(),
+  /** Null for a model turn that called no tool. */
+  tool: z.string().nullable(),
+  /** Canonical JSON of the arguments, capped and redacted. */
+  args: z.string(),
+  resultSize: z.number().int(),
+  /** Capped and redacted. */
+  modelText: z.string(),
+  at: z.string(),
+});
+export type RunEvent = z.infer<typeof RunEvent>;
+
+/** `GET …/runs/:runId/events`: a run's events and its children's, marked untrusted. */
+export const RunEventsResponse = z.object({
+  runId: z.uuid(),
+  untrusted: z.literal(true),
+  events: z.array(RunEvent),
+});
+export type RunEventsResponse = z.infer<typeof RunEventsResponse>;
+
+/** `POST …/runs/:runId/kill`: how many runs of the tree were marked killed. */
+export const RunKilledResponse = z.object({ runId: z.uuid(), killed: z.number().int() });
+export type RunKilledResponse = z.infer<typeof RunKilledResponse>;

@@ -19,8 +19,6 @@ import { read } from './read.js';
  * snapshot and the thread people are built in `@custodes/core` (`thread-snapshot.ts`), the same
  * code the agent runtime uses, so a runtime proposal's snapshot matches the broker's (ADR 0023).
  */
-export type { IssueThread, PullThread };
-
 interface Base {
   agentId: string;
   runId: string;
