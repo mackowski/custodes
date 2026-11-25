@@ -59,6 +59,10 @@
       "bundleOnly": true
     }
   },
+  "$comment_maintainers": "ADR 0024: logins agents may @-mention besides the thread's people; policy.json may list only these.",
+  "maintainers": {
+    "OWASP/CheatSheetSeries": ["mackowski", "jmanico", "randomstuff"]
+  },
   "reads": {
     "triage": {
       "tokenBinding": "PAT_READONLY",

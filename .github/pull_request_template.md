@@ -13,7 +13,7 @@
 
 ## Architecture and data flow
 
-<!-- Filled in by the /ship skill (.claude/skills/ship/SKILL.md). Required on every PR except
+<!-- Filled in by the /ship-pr skill (.claude/skills/ship-pr/SKILL.md). Required on every PR except
      Dependabot's; .github/workflows/pr-architecture.yml checks it. Diagrams in Mermaid, drawn
      from the code against docs/architecture/data-flow.md, changes marked. -->
 

@@ -99,6 +99,13 @@ describe('policy capability diff (ADR 0022)', () => {
     expect([...grants(live)].some((l) => l.startsWith('pr-gate | label'))).toBe(false);
   });
 
+  it('shows a new maintainer as an added grant (ADR 0024)', () => {
+    const next = { ...base, maintainers: { 'OWASP/CheatSheetSeries': ['alice'] } };
+    expect(capabilityDiff(base, next).added).toEqual([
+      '* | maintainer | OWASP/CheatSheetSeries alice',
+    ]);
+  });
+
   it('treats a missing base file as empty, so a new file shows every grant', () => {
     expect(capabilityDiff({}, base).added.length).toBe(grants(base).size);
   });

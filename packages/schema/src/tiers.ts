@@ -10,8 +10,8 @@ export const Tier = z.enum(['T0', 'T1', 'T2', 'T3']);
 export type Tier = z.infer<typeof Tier>;
 
 /**
- * How bad one action can be (ADR 0022). Recorded only: nothing reads it until the first `critical`
- * action, when "critical needs an approval" is added (#143).
+ * How bad one action can be (ADR 0022). The policy schema refuses a `critical` action without an
+ * approval on every repository (ADR 0024); the other levels are recorded only.
  */
 export type Risk = 'low' | 'medium' | 'high' | 'critical';
 
@@ -27,6 +27,9 @@ export interface ActionEntry {
 export const ACTION_REGISTRY: Readonly<Record<BrokerActionType, ActionEntry>> = {
   'issue.label.add': { tier: 'T1', risk: 'low' },
   'issue.label.remove': { tier: 'T1', risk: 'low' },
+  'issue.unassign': { tier: 'T1', risk: 'low' },
+  // Contributor-facing and public, but a person can reopen it (ADR 0024).
+  'issue.close': { tier: 'T1', risk: 'high' },
   'issue.assign': { tier: 'T1', risk: 'low' },
   // Public text under the operator's account.
   'issue.comment': { tier: 'T1', risk: 'medium' },

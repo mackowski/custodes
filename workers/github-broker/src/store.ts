@@ -2,6 +2,7 @@ import type { ApprovalBundle, ApprovalRequest, Attestation, BrokerRequest } from
 import {
   Attestation as AttestationSchema,
   BrokerRequest as BrokerRequestSchema,
+  numberOf,
 } from '@custodes/schema';
 
 export class AuditStore {
@@ -94,6 +95,29 @@ export class AuditStore {
             AND substr(json_extract(record_json, '$.reason'), 1, ?4) = ?5))`,
       )
       .bind(agentId, repo, sinceIso, EXECUTION_FAILED.length, EXECUTION_FAILED)
+      .first<{ n: number }>();
+    return row?.n ?? 0;
+  }
+
+  /**
+   * Adds of one label by an agent on a repository since a time, counted like the hourly limit
+   * (allowed, or started and failed). For the trigger-label daily cap (ADR 0024).
+   */
+  async countLabelAddsSince(
+    agentId: string,
+    repo: string,
+    label: string,
+    sinceIso: string,
+  ): Promise<number> {
+    const row = await this.db
+      .prepare(
+        `SELECT COUNT(*) AS n FROM audit, json_each(json_extract(audit.record_json, '$.action.labels')) AS l
+          WHERE audit.agent_id = ?1 AND audit.repo = ?2 AND audit.ts >= ?3
+          AND audit.action_type = 'issue.label.add' AND lower(l.value) = lower(?4)
+          AND (audit.decision = 'allowed' OR (audit.decision = 'denied'
+            AND substr(json_extract(audit.record_json, '$.reason'), 1, ?5) = ?6))`,
+      )
+      .bind(agentId, repo, sinceIso, label, EXECUTION_FAILED.length, EXECUTION_FAILED)
       .first<{ n: number }>();
     return row?.n ?? 0;
   }
@@ -238,7 +262,7 @@ export class ApprovalStore {
     let n = 0;
     for (const row of results) {
       const a = (JSON.parse(row.request_json) as ApprovalRequest).action;
-      const num = 'pull' in a ? a.pull : a.issue;
+      const num = numberOf(a);
       if (a.repo !== target.repo || num !== target.number) continue;
       const res = await this.db
         .prepare(

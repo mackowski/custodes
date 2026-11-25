@@ -195,7 +195,10 @@ published: the operator gets the partial review by e-mail and the label stays on
 ## Schedule / triggers
 
 1. The operator (`reviewTrigger.actor` in `workers/agents/src/instances.ts`) adds the label
-   (`reviewTrigger.label`).
+   (`reviewTrigger.label`). Since ADR 0024 an agent granted the label (only backlog-review, #132,
+   not yet in the policy) may add it too, from the same account, capped at 3 per repository per
+   day. The agent does not tell the two apart: on OWASP every review still waits for the operator's
+   approval, which the policy schema ties to that grant.
 2. GitHub sends `pull_request.labeled`; the gateway verifies the HMAC and queues the label name.
 3. `dispatch.ts` routes it only if the label and the sender match the instance; the agent schedules
    one run per pull request.

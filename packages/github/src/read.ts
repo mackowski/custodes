@@ -82,6 +82,9 @@ export class GitHubReadClient {
     const res = await this.fetchImpl(`${GITHUB_API}${path}`, {
       method: 'GET',
       headers: await githubHeaders(this.identity),
+      // A transferred issue or renamed repository answers 301; following it would read outside
+      // the agent's read policy. A 3xx is not `ok`, so the read fails closed (CI review of #165).
+      redirect: 'manual',
     });
     if (!res.ok) {
       return {

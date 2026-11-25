@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { INLINE_COMMENT_MARKER } from '@custodes/schema';
-import { executeAction, GitHubRest } from '../src/api.js';
+import { executeAction, GitHubApiError, GitHubRest } from '../src/api.js';
 import { GitHubReadClient } from '../src/read.js';
 import type { GitHubIdentity } from '../src/identity.js';
 
@@ -34,6 +34,42 @@ describe('GitHubRest', () => {
     await expect(api.createIssueComment('x/y', 1, 'SECRET-BODY')).rejects.not.toThrow(
       /SECRET-BODY/,
     );
+  });
+});
+
+describe('GitHubReadClient redirects', () => {
+  it('never follows a redirect: a 301 is a failed read', async () => {
+    const fetchMock = vi.fn(() => Promise.resolve(new Response(null, { status: 301 })));
+    const client = new GitHubReadClient(id, fetchMock);
+    const r = await client.get('/repos/x/y/issues/1');
+    expect(r.ok).toBe(false);
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(init.redirect).toBe('manual');
+  });
+});
+
+describe('GitHubRest redirects', () => {
+  it('never follows a redirect: a 301 for a transferred issue throws before anything is written', async () => {
+    const fetchMock = vi.fn(() =>
+      Promise.resolve(
+        new Response(null, {
+          status: 301,
+          headers: { location: 'https://api.github.com/repositories/9/issues/1' },
+        }),
+      ),
+    );
+    const api = new GitHubRest(id, fetchMock);
+    await expect(
+      executeAction(
+        api,
+        { type: 'issue.close', repo: 'x/y', issue: 1, body: 'done', stateReason: 'completed' },
+        (b) => b,
+      ),
+    ).rejects.toThrow(/GitHub 301/);
+    // Only the comment was attempted, with redirects off; the close never ran.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(init.redirect).toBe('manual');
   });
 });
 
@@ -89,15 +125,109 @@ describe('executeAction pr.close', () => {
   });
 });
 
+describe('executeAction issue.close (ADR 0024)', () => {
+  const action = {
+    type: 'issue.close' as const,
+    repo: 'o/r',
+    issue: 9,
+    body: 'fixed in #10',
+    stateReason: 'not_planned' as const,
+  };
+  const record = (respond: (n: number) => Response) => {
+    const calls: { url: string; method: string; body: unknown }[] = [];
+    const fetchMock = vi.fn((url: string, init: RequestInit) => {
+      calls.push({ url, method: init.method ?? '', body: JSON.parse(init.body as string) });
+      return Promise.resolve(respond(calls.length));
+    });
+    return { calls, api: new GitHubRest(id, fetchMock as unknown as typeof fetch) };
+  };
+
+  it('posts the decorated comment first, then closes with state_reason', async () => {
+    const { calls, api } = record(() =>
+      Response.json({ html_url: 'https://github.com/o/r/issues/9#c', state: 'closed' }),
+    );
+    const r = await executeAction(api, action, (b) => `${b}\n--trailer`);
+    expect(r.githubUrl).toBe('https://github.com/o/r/issues/9#c');
+    expect(calls).toEqual([
+      {
+        url: 'https://api.github.com/repos/o/r/issues/9/comments',
+        method: 'POST',
+        body: { body: 'fixed in #10\n--trailer' },
+      },
+      {
+        url: 'https://api.github.com/repos/o/r/issues/9',
+        method: 'PATCH',
+        body: { state: 'closed', state_reason: 'not_planned' },
+      },
+    ]);
+  });
+  it('keeps the posted comment and propagates the error when the close fails', async () => {
+    const { calls, api } = record((n) =>
+      n === 1
+        ? Response.json({ html_url: 'https://github.com/o/r/issues/9#c' })
+        : new Response('no', { status: 422 }),
+    );
+    await expect(executeAction(api, action, (b) => b)).rejects.toMatchObject({
+      name: 'GitHubApiError',
+      status: 422,
+    });
+    expect(calls.map((c) => c.method)).toEqual(['POST', 'PATCH']);
+  });
+  it('does not close the issue when the comment fails', async () => {
+    const { calls, api } = record(() => new Response('forbidden', { status: 403 }));
+    await expect(executeAction(api, action, (b) => b)).rejects.toThrow(/GitHub 403/);
+    expect(calls).toHaveLength(1);
+  });
+});
+
+describe('executeAction issue.unassign (ADR 0024)', () => {
+  const action = {
+    type: 'issue.unassign' as const,
+    repo: 'o/r',
+    issue: 9,
+    assignees: ['Alice'],
+  };
+  const api = (reply: unknown) => {
+    const calls: { url: string; method: string; body: unknown }[] = [];
+    const fetchMock = vi.fn((url: string, init: RequestInit) => {
+      calls.push({ url, method: init.method ?? '', body: JSON.parse(init.body as string) });
+      return Promise.resolve(Response.json(reply));
+    });
+    return { calls, api: new GitHubRest(id, fetchMock as unknown as typeof fetch) };
+  };
+
+  it('sends DELETE /assignees and accepts a result without the login', async () => {
+    const t = api({ assignees: [{ login: 'bob' }] });
+    await expect(executeAction(t.api, action, (b) => b)).resolves.toEqual({});
+    expect(t.calls).toEqual([
+      {
+        url: 'https://api.github.com/repos/o/r/issues/9/assignees',
+        method: 'DELETE',
+        body: { assignees: ['Alice'] },
+      },
+    ]);
+  });
+  it('throws GitHubApiError 422 when GitHub still lists the login, whatever its case', async () => {
+    for (const reply of [
+      { assignees: [{ login: 'alice' }] },
+      { assignees: [{ login: 'ALICE' }] },
+    ]) {
+      const err = await executeAction(api(reply).api, action, (b) => b).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(GitHubApiError);
+      expect(err).toMatchObject({ status: 422 });
+    }
+  });
+});
+
 describe('executeAction pr.review.inline', () => {
   const sha = '0123456789abcdef0123456789abcdef01234567';
   it('posts one review pinned to the commit, trailers on the body only, multi-line ranges mapped', async () => {
-    const fetchMock = vi.fn((_url: string, _init: RequestInit) =>
+    const fetchMock = vi.fn(() =>
       Promise.resolve(
         Response.json({ html_url: 'https://github.com/o/r/pull/7#pullrequestreview-1' }),
       ),
     );
-    const api = new GitHubRest(id, fetchMock as unknown as typeof fetch);
+    const api = new GitHubRest(id, fetchMock);
     const r = await executeAction(
       api,
       {

@@ -31,6 +31,7 @@ const agent: AgentPolicy = {
 };
 const ceiling: Policy = {
   version: 1,
+  maintainers: {},
   agents: { x: agent },
   reads: { x: { tokenBinding: 'PAT_READONLY', repos: ['o/a'], resources: ['issue', 'comments'] } },
 };
@@ -143,6 +144,17 @@ describe('boundaryViolations (ADR 0022)', () => {
       'reads.x: repo o/b not in the boundary',
       'reads.x: resource pulls not in the boundary',
       'reads.z: not in the boundary',
+    ]);
+  });
+
+  it('reports a maintainer the boundary does not list (ADR 0024), case-insensitively', () => {
+    const b: Policy = { ...ceiling, maintainers: { 'o/a': ['Alice'] } };
+    expect(boundaryViolations(b, { ...b, maintainers: { 'o/a': ['alice'] } })).toEqual([]);
+    expect(
+      boundaryViolations(b, { ...b, maintainers: { 'o/a': ['alice', 'bob'], 'o/b': ['carol'] } }),
+    ).toEqual([
+      'maintainers.o/a: bob not in the boundary',
+      'maintainers.o/b: carol not in the boundary',
     ]);
   });
 });

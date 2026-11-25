@@ -65,6 +65,10 @@
       "bundleOnly": true
     }
   },
+  "$comment_maintainers": "ADR 0024: logins an agent's comment may @-mention besides the thread's people (never assign). OWASP/CheatSheetSeries: the project leaders in its README and CODEOWNERS (operator decision, 2026-11-25).",
+  "maintainers": {
+    "OWASP/CheatSheetSeries": ["mackowski", "jmanico", "randomstuff"]
+  },
   "reads": {
     "triage": {
       "tokenBinding": "PAT_READONLY",
@@ -111,7 +115,7 @@
       ]
     },
     "triage-apply": {
-      "$comment": "ADR 0019: the issue and its comments, to check a proposal against the thread before asking for an approval (the broker reads them again before running it).",
+      "$comment": "ADR 0019: the issue and its comments, to check a proposal against the thread before asking for an approval (the broker reads them again before running it). No pull or pull_reviews: adding them lets triage-apply bundles target pull requests (ADR 0024).",
       "tokenBinding": "PAT_READONLY",
       "repos": ["mackowski/custodes-sandbox", "OWASP/CheatSheetSeries"],
       "resources": ["issue", "comments"]

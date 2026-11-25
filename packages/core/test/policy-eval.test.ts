@@ -10,6 +10,7 @@ import { evaluatePolicy } from '../src/policy-eval.js';
 
 const policy: Policy = {
   version: 1,
+  maintainers: {},
   reads: {},
   agents: {
     triage: {
@@ -153,6 +154,7 @@ describe('evaluatePolicy for read-only agents', () => {
   it('denies every action even when the policy lists it', () => {
     const ro: Policy = {
       version: 1,
+      maintainers: {},
       reads: {},
       agents: {
         watcher: {
@@ -389,5 +391,54 @@ describe('evaluatePolicy for cheatsheet-review (real broker policy)', () => {
         allow: false,
       });
     }
+  });
+  it('refuses a trigger label for an agent without a grant even if its labels list has it (ADR 0024)', () => {
+    // Built directly, bypassing the Policy schema that would refuse this file.
+    const agent = {
+      tokenBinding: 'PAT_X',
+      tier: 'T1' as const,
+      mode: 'hotl' as const,
+      repos: ['mackowski/custodes-sandbox'],
+      actions: ['issue.label.add' as const],
+      requiresApproval: [],
+      requiresApprovalOn: {},
+      rateLimitPerHour: 60,
+      trailer: 'visible' as const,
+      bundleOnly: false,
+      labels: [
+        'custodes_cheatsheet_review',
+        'CUSTODES_CHEATSHEET_REVIEW',
+        'Custodes_CheatSheet_Review',
+        'jules',
+        'docker',
+      ],
+    };
+    const p: Policy = {
+      version: 1,
+      maintainers: {},
+      reads: {},
+      agents: { 'some-agent': agent, 'backlog-review': agent },
+    };
+    const add = (agentId: string, labels: string[]) =>
+      evaluatePolicy(p, {
+        ...base,
+        agentId,
+        action: { type: 'issue.label.add', repo: 'mackowski/custodes-sandbox', issue: 1, labels },
+      });
+    expect(add('some-agent', ['custodes_cheatsheet_review'])).toEqual({
+      allow: false,
+      code: 'policy_denied',
+      reason: 'label custodes_cheatsheet_review starts automation',
+    });
+    expect(add('some-agent', ['docker', 'Custodes_CheatSheet_Review'])).toMatchObject({
+      allow: false,
+      code: 'policy_denied',
+    });
+    expect(add('some-agent', ['jules'])).toMatchObject({ allow: false });
+    expect(add('some-agent', ['docker'])).toMatchObject({ allow: true });
+    // The granted agent may add its label, in any case, but never jules.
+    expect(add('backlog-review', ['custodes_cheatsheet_review'])).toMatchObject({ allow: true });
+    expect(add('backlog-review', ['CUSTODES_CHEATSHEET_REVIEW'])).toMatchObject({ allow: true });
+    expect(add('backlog-review', ['jules'])).toMatchObject({ allow: false });
   });
 });

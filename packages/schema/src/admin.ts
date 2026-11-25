@@ -9,7 +9,7 @@ export const ApprovalStatus = z.enum(['pending', 'approved', 'rejected', 'expire
  * An issue as triage-apply saw it when it asked for an approval (ADR 0019). The broker reads the
  * issue again before running a bundle and refuses it if any field differs.
  */
-export const IssueSnapshot = z.object({
+const issueSnapshotShape = {
   state: z.enum(['open', 'closed']),
   /** Sorted. */
   labels: z.array(z.string().min(1).max(50)).max(100),
@@ -23,25 +23,53 @@ export const IssueSnapshot = z.object({
    * edited comment, and one deleted while another was added.
    */
   commentsDigest: z.string().regex(/^[0-9a-f]{64}$/),
-});
+};
+/** Strict, so a pull request snapshot can never be read as an issue snapshot. */
+export const IssueSnapshot = z.strictObject(issueSnapshotShape);
 export type IssueSnapshot = z.infer<typeof IssueSnapshot>;
 
-/** Actions a bundle may hold, in the order they run: idempotent first, the comment last. */
+/**
+ * A pull request as the agent saw it (ADR 0024): the issue fields (GitHub serves a pull request's
+ * conversation as an issue) plus the head commit and the reviews. A push or a new review between
+ * the proposal and the click turns the approval into a no-op.
+ */
+export const PullSnapshot = z.strictObject({
+  ...issueSnapshotShape,
+  headSha: z.string().regex(/^[0-9a-f]{40}$/),
+  /** sha256 of the canonical JSON of every review's `[id, state, submitted_at]`, in order. */
+  reviewsDigest: z.string().regex(/^[0-9a-f]{64}$/),
+});
+export type PullSnapshot = z.infer<typeof PullSnapshot>;
+
+/**
+ * Actions a bundle may hold, in the order they run (ADR 0024): idempotent state first, then the
+ * comment, then the action that closes the thread, which is always last.
+ */
 export const BUNDLE_ORDER = [
   'issue.assign',
+  'issue.unassign',
   'issue.label.add',
   'issue.label.remove',
   'issue.comment',
+  'issue.close',
+  'pr.close',
 ] as const;
 
+/** The issue or pull request number an action is about. */
+export function numberOf(a: BrokerAction): number {
+  return 'pull' in a ? a.pull : a.issue;
+}
+
 /**
- * Several actions on one issue under one approval (ADR 0019): approved or rejected together, run
- * in BUNDLE_ORDER (each type at most once), and only if the issue still matches `snapshot`.
+ * Several actions on one issue or pull request under one approval (ADR 0019, generalised by
+ * ADR 0024): approved or rejected together, run in BUNDLE_ORDER (each type at most once), and only
+ * if the target still matches `snapshot`. A `PullSnapshot` makes the target a pull request.
  */
 export const ApprovalBundle = z
   .object({
-    actions: z.array(BrokerAction).min(1).max(4),
-    snapshot: IssueSnapshot,
+    actions: z.array(BrokerAction).min(1).max(BUNDLE_ORDER.length),
+    // Pull first: the issue snapshot is strict, so the order only decides which error is shown.
+    snapshot: z.union([PullSnapshot, IssueSnapshot]),
   })
   .refine(
     (b) => {
@@ -49,23 +77,32 @@ export const ApprovalBundle = z
       const order = types.map((t) => (BUNDLE_ORDER as readonly string[]).indexOf(t));
       return order.every((i, k) => i >= 0 && (k === 0 || i > (order[k - 1] ?? -1)));
     },
-    { message: 'bundle actions must be issue actions in BUNDLE_ORDER, each at most once' },
+    { message: 'bundle actions must be in BUNDLE_ORDER, each at most once' },
   )
   .refine(
     (b) => {
       const first = b.actions[0];
-      return b.actions.every(
-        (a) =>
-          'issue' in a &&
-          first &&
-          'issue' in first &&
-          a.repo === first.repo &&
-          a.issue === first.issue,
+      return (
+        first !== undefined &&
+        b.actions.every((a) => a.repo === first.repo && numberOf(a) === numberOf(first))
       );
     },
-    { message: 'every bundle action must target the same issue' },
+    { message: 'every bundle action must target the same issue or pull request' },
+  )
+  .refine(
+    (b) => {
+      const pull = 'headSha' in b.snapshot;
+      // An issue is closed with issue.close, a pull request with pr.close; never the other way.
+      return b.actions.every((a) => (pull ? a.type !== 'issue.close' : a.type !== 'pr.close'));
+    },
+    { message: 'the closing action must match the target kind' },
   );
 export type ApprovalBundle = z.infer<typeof ApprovalBundle>;
+
+/** Whether a bundle is about a pull request (it carries a `PullSnapshot`). */
+export function isPullBundle(b: ApprovalBundle): b is ApprovalBundle & { snapshot: PullSnapshot } {
+  return 'headSha' in b.snapshot;
+}
 
 /** An agent asking for one approval of a bundle (POST /v1/approvals/bundle, ADR 0019). */
 export const BundleApprovalAsk = z.object({

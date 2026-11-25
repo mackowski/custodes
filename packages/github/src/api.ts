@@ -32,6 +32,10 @@ export class GitHubRest {
         ...(body !== undefined ? { 'content-type': 'application/json' } : {}),
       },
       body: body !== undefined ? JSON.stringify(body) : null,
+      // A transferred issue or renamed repository answers 301, and fetch would replay a PATCH at
+      // the new location: a repository outside the policy. A 3xx is not `ok`, so it throws here
+      // before anything is written (security review of #143, L1).
+      redirect: 'manual',
     });
     if (!res.ok) {
       // Never include the request body in the error: it may contain untrusted content.
@@ -63,6 +67,20 @@ export class GitHubRest {
       `/repos/${repo}/issues/${issue}/assignees`,
       { assignees },
     );
+  }
+  /** GitHub ignores a login that is not assigned; the caller checks the result. */
+  removeAssignees(repo: string, issue: number, assignees: string[]) {
+    return this.call<{ assignees?: { login?: string }[] }>(
+      'DELETE',
+      `/repos/${repo}/issues/${issue}/assignees`,
+      { assignees },
+    );
+  }
+  closeIssue(repo: string, issue: number, stateReason: 'completed' | 'not_planned') {
+    return this.call<{ state: string }>('PATCH', `/repos/${repo}/issues/${issue}`, {
+      state: 'closed',
+      state_reason: stateReason,
+    });
   }
   /** A review with inline comments on the new side of the diff, pinned to `commitId`. */
   createInlinePullReview(
@@ -119,6 +137,23 @@ export async function executeAction(
           'GitHub did not assign the requested login',
         );
       return {};
+    }
+    case 'issue.unassign': {
+      const r = await api.removeAssignees(action.repo, action.issue, action.assignees);
+      const left = new Set((r.assignees ?? []).map((a) => a.login?.toLowerCase()));
+      if (action.assignees.some((l) => left.has(l.toLowerCase())))
+        throw new GitHubApiError(
+          422,
+          `/repos/${action.repo}/issues/${action.issue}/assignees`,
+          'GitHub did not remove the requested login',
+        );
+      return {};
+    }
+    case 'issue.close': {
+      // Comment first, as for pr.close: an issue is never closed without its signed reason.
+      const r = await api.createIssueComment(action.repo, action.issue, decorate(action.body));
+      await api.closeIssue(action.repo, action.issue, action.stateReason);
+      return { githubUrl: r.html_url };
     }
     // Retired: no agent ever used them and no policy granted them, and `pr.review` could approve a
     // pull request. The variants stay in the schema only so that an old audit record still parses;

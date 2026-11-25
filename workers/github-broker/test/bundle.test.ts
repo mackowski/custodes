@@ -11,13 +11,12 @@ import {
 import { act } from '../src/act.js';
 import {
   approvalByToken,
-  commentProblem,
   createApproval,
   createBundleApproval,
   MAX_BUNDLE_ASKS_PER_HOUR,
   decideApproval,
-  readIssueThread,
 } from '../src/approvals.js';
+import { commentProblem, readIssueThread } from '../src/thread.js';
 import type { BrokerEnv } from '../src/env.js';
 import { ApprovalStore } from '../src/store.js';
 
@@ -221,7 +220,7 @@ describe('createBundleApproval', () => {
       expect(await createBundleApproval(testEnv, ask(n, FULL(n), snap), NOW)).toEqual({
         ok: false,
         status: 403,
-        error: 'stale: the issue changed since the proposal',
+        error: 'stale: the target changed since the proposal',
       });
   });
 
@@ -235,7 +234,7 @@ describe('createBundleApproval', () => {
     for (let i = 0; i < MAX_BUNDLE_ASKS_PER_HOUR; i++)
       expect(await createBundleApproval(testEnv, ask(n, FULL(n), wrong), then)).toMatchObject({
         ok: false,
-        error: 'stale: the issue changed since the proposal',
+        error: 'stale: the target changed since the proposal',
       });
     const readsBefore = gh.calls.length + gh.spy.mock.calls.length;
     expect(await createBundleApproval(testEnv, ask(n, FULL(n), snapshotOf(issue)), then)).toEqual({
@@ -369,7 +368,7 @@ describe('createBundleApproval', () => {
     expect(await createBundleApproval(testEnv, ask(n, actions, snapshotOf(issue)), NOW)).toEqual({
       ok: false,
       status: 403,
-      error: '@stranger is neither the issue author nor a commenter',
+      error: '@stranger is not in the thread',
     });
   });
 
@@ -389,7 +388,7 @@ describe('createBundleApproval', () => {
     expect(await createBundleApproval(testEnv, ask(n, actions, snapshotOf(issue)), NOW)).toEqual({
       ok: false,
       status: 403,
-      error: '@stranger is neither the issue author nor a commenter',
+      error: '@stranger is neither in the thread nor a listed maintainer',
     });
   });
 

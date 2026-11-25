@@ -1,8 +1,8 @@
 import { z } from 'zod';
 import { AgentId, AgentMode, GitHubRepo } from './agent.js';
-import { BrokerActionType } from './actions.js';
+import { BrokerActionType, GitHubLogin } from './actions.js';
 import { ReadResource } from './read.js';
-import { Tier, highestTier } from './tiers.js';
+import { ACTION_REGISTRY, Tier, highestTier } from './tiers.js';
 
 /**
  * `$comment` and `$comment_<field>` are the only keys a policy may carry besides its fields; they
@@ -30,6 +30,37 @@ export const DEFAULT_MAX_PENDING_APPROVALS = 20;
  * proposals never suggest them (ADR 0019; security review of #113). Compared case-insensitively.
  */
 export const AUTOMATION_TRIGGER_LABELS: readonly string[] = ['custodes_cheatsheet_review', 'jules'];
+
+/**
+ * The only exceptions to `AUTOMATION_TRIGGER_LABELS` (ADR 0024): agent id → trigger labels it may
+ * add. In code, not in `policy.json`, so a new exception is a reviewed code change and cannot be
+ * copied into another agent's `labels`. `jules` is never granted: it pushes code as the operator.
+ */
+export const TRIGGER_LABEL_GRANTS: Readonly<Record<string, readonly string[]>> = {
+  'backlog-review': ['custodes_cheatsheet_review'],
+};
+
+/** Adds of one trigger label per agent and repository in a rolling day (ADR 0024). */
+export const TRIGGER_LABEL_DAILY_CAP = 3;
+
+/** Whether `label` starts automation (case-insensitive, as GitHub compares label names). */
+export function isTriggerLabel(label: string): boolean {
+  return AUTOMATION_TRIGGER_LABELS.some((t) => t.toLowerCase() === label.toLowerCase());
+}
+
+/** Whether this agent may add this trigger label (always false for any other label's caller). */
+export function mayAddTriggerLabel(agentId: string, label: string): boolean {
+  const granted = Object.hasOwn(TRIGGER_LABEL_GRANTS, agentId) ? TRIGGER_LABEL_GRANTS[agentId] : [];
+  return (granted ?? []).some((l) => l.toLowerCase() === label.toLowerCase());
+}
+
+/**
+ * The only repository where an agent-started review may post without the operator's approval
+ * (ADR 0024). Everywhere else a trigger-label grant needs cheatsheet-review's approval: an agent's
+ * label is indistinguishable from the operator's, so that approval keeps an agent-started review
+ * from posting unseen.
+ */
+export const REVIEW_SANDBOX_REPO = 'mackowski/custodes-sandbox';
 
 const AgentPolicyObject = z
   .strictObject({
@@ -75,7 +106,8 @@ const AgentPolicyObject = z
     trailer: z.enum(['visible', 'hidden']).default('visible'),
     /**
      * Only bundle approvals (ADR 0019): the plain one-action approval route refuses this agent, so
-     * every request goes through the bundle checks (snapshot, thread people, issues only).
+     * every request goes through the bundle checks (snapshot, thread people). Which targets it can
+     * bundle (issues, pull requests) follows from its actions and read policy (ADR 0024).
      * `true` → `false` is a widening (invariant 4).
      */
     bundleOnly: z.boolean().default(false),
@@ -100,6 +132,18 @@ const AgentPolicyObject = z
       path: ['requiresApprovalOn'],
     },
   )
+  .refine(
+    (a) =>
+      a.mode === 'hitl' ||
+      a.actions.every(
+        (t) => ACTION_REGISTRY[t].risk !== 'critical' || a.requiresApproval.includes(t),
+      ),
+    {
+      // ADR 0022 recorded risk; ADR 0024 makes "critical" mean "always behind an approval".
+      message: 'a critical action needs an approval on every repository (requiresApproval)',
+      path: ['requiresApproval'],
+    },
+  )
   .refine((a) => a.tier === highestTier(a.actions), {
     message: "tier must equal the highest tier of the agent's actions (ACTION_REGISTRY, ADR 0021)",
     path: ['tier'],
@@ -122,10 +166,54 @@ export type ReadPolicy = z.infer<typeof ReadPolicy>;
 
 export const Policy = z.preprocess(
   withoutComments,
-  z.strictObject({
-    version: z.literal(1),
-    agents: z.record(AgentId, AgentPolicy),
-    reads: z.record(AgentId, ReadPolicy).default({}),
-  }),
+  z
+    .strictObject({
+      version: z.literal(1),
+      agents: z.record(AgentId, AgentPolicy),
+      reads: z.record(AgentId, ReadPolicy).default({}),
+      /**
+       * Per repository: maintainers an agent's comment may @-mention besides the thread's author and
+       * commenters (ADR 0024). Changed only by a reviewed policy pull request; a login missing here
+       * cannot be pinged, which fails safe.
+       */
+      maintainers: z.record(GitHubRepo, z.array(GitHubLogin).max(30)).default({}),
+    })
+    .refine(
+      // Only adding starts automation: cheatsheet-review lists its own label to remove it.
+      (p) =>
+        Object.entries(p.agents).every(
+          ([id, a]) =>
+            !a.actions.includes('issue.label.add') ||
+            (a.labels ?? []).every((l) => !isTriggerLabel(l) || mayAddTriggerLabel(id, l)),
+        ),
+      {
+        message: 'a trigger label (AUTOMATION_TRIGGER_LABELS) needs a TRIGGER_LABEL_GRANTS entry',
+        path: ['agents'],
+      },
+    )
+    .refine(
+      (p) =>
+        // Every repository where a granted agent can add the label and cheatsheet-review runs,
+        // except the sandbox, keeps the approval (security review of #143, finding 4).
+        Object.entries(p.agents).every(([id, a]) => {
+          if (!a.actions.includes('issue.label.add')) return true;
+          if (!(a.labels ?? []).some((l) => mayAddTriggerLabel(id, l))) return true;
+          const review = p.agents['cheatsheet-review'];
+          if (!review) return true;
+          return a.repos
+            .filter((r) => r !== REVIEW_SANDBOX_REPO && review.repos.includes(r))
+            .every(
+              (r) =>
+                review.mode === 'hitl' ||
+                review.requiresApproval.includes('pr.review.inline') ||
+                (review.requiresApprovalOn[r]?.includes('pr.review.inline') ?? false),
+            );
+        }),
+      {
+        message:
+          "a trigger-label grant needs cheatsheet-review's approval on every shared repository but the sandbox (ADR 0024)",
+        path: ['agents'],
+      },
+    ),
 );
 export type Policy = z.infer<typeof Policy>;

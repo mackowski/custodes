@@ -1,4 +1,5 @@
 import { describe, expect, it, vi, type Mock } from 'vitest';
+import { commentProblem } from '@custodes/core';
 import type { JevResult } from '@custodes/llm';
 import {
   APPROVAL_QUESTIONS,
@@ -597,6 +598,10 @@ describe('closeComment', () => {
         now: NOW,
       });
       expect(c).not.toContain('@');
+      // The broker refuses these in every comment (ADR 0024): one would stop every close.
+      expect(['character_reference', 'comment_marker']).not.toContain(
+        commentProblem(c, 'OWASP/CheatSheetSeries'),
+      );
       const urls = c.match(/https?:\/\/[^\s)>]+/g) ?? [];
       for (const u of urls)
         expect(u.startsWith('https://github.com/OWASP/CheatSheetSeries')).toBe(true);

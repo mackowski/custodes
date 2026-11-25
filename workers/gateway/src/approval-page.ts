@@ -4,7 +4,12 @@
  * URL. Everything shown can hold model output or third-party text: it is HTML-escaped, never
  * linked or rendered as Markdown, and the page has no script. It cannot be framed (clickjacking).
  */
-import type { ApprovalRequest, BundleStep, DecideOutcome } from '@custodes/schema';
+import {
+  numberOf,
+  type ApprovalRequest,
+  type BundleStep,
+  type DecideOutcome,
+} from '@custodes/schema';
 
 export const PAGE_HEADERS = {
   'content-type': 'text/html; charset=utf-8',
@@ -80,28 +85,48 @@ function bundleStep(a: ApprovalRequest['action'], i: number): string {
       return `<dt>${n} Add labels</dt><dd>${escapeHtml(a.labels.join(', '))}</dd>`;
     case 'issue.label.remove':
       return `<dt>${n} Remove labels</dt><dd>${escapeHtml(a.labels.join(', '))}</dd>`;
+    case 'issue.unassign':
+      return `<dt>${n} Unassign</dt><dd>@${escapeHtml(a.assignees.join(', @'))}</dd>`;
     case 'issue.comment':
       return [`<dt>${n} Comment</dt><dd>`, preformatted(a.body), '</dd>'].join('');
+    case 'issue.close':
+      return [
+        `<dt>${n} Comment, then close the issue as ${escapeHtml(a.stateReason.replace('_', ' '))}</dt><dd>`,
+        preformatted(a.body),
+        '</dd>',
+      ].join('');
+    case 'pr.close':
+      return [
+        `<dt>${n} Comment, then close the pull request</dt><dd>`,
+        preformatted(a.body),
+        '</dd>',
+      ].join('');
     case 'pr.comment':
     case 'pr.review':
     case 'pr.review.inline':
-    case 'pr.close':
-      // Never in a bundle (ApprovalBundle allows issue actions only); shown raw if it ever were.
+      // Never in a bundle (BUNDLE_ORDER does not list them); shown raw if it ever were.
       return `<dt>${n} ${escapeHtml(a.type)}</dt><dd><pre>${escapeHtml(JSON.stringify(a, null, 2))}</pre></dd>`;
   }
 }
 
-/** A bundle (ADR 0019): what runs, in order, and the issue state it was proposed for. */
+/**
+ * A bundle (ADR 0019, ADR 0024): what runs, in order, and the state of the issue or pull request
+ * it was proposed for.
+ */
 function bundleDetails(approval: ApprovalRequest): string {
   const b = approval.bundle;
   const a = approval.action;
-  if (!b || !('issue' in a)) return actionDetails(a);
+  if (!b) return actionDetails(a);
   const snap = b.snapshot;
+  const pull = 'headSha' in snap;
+  const what = pull ? 'pull request' : 'issue';
+  const number = numberOf(a);
+  const head = pull ? `, head commit <code>${escapeHtml(snap.headSha)}</code>` : '';
   return `<dl><dt>Repository</dt><dd>${escapeHtml(a.repo)}</dd>
-<dt>Issue</dt><dd>#${a.issue}</dd></dl>
+<dt>${pull ? 'Pull request' : 'Issue'}</dt><dd>#${number}</dd></dl>
 <h2>Runs in this order (${b.actions.length})</h2>
 <dl>${b.actions.map(bundleStep).join('')}</dl>
-<p class="note">Proposed for the issue as it was: ${escapeHtml(snap.state)}, ${snap.comments} comment(s), labels ${escapeHtml(snap.labels.join(', ') || '(none)')}, assignees ${escapeHtml(snap.assignees.join(', ') || '(none)')}. If any of that changed (or the issue or a comment was edited), the broker runs nothing. It stops at the first step that fails; steps already done stay done, and the result page says which ran. A comment gets an invisible attestation trailer (an HTML comment) and nothing visible.</p>`;
+<p class="note">Proposed for the ${what} as it was: ${escapeHtml(snap.state)}, ${snap.comments} comment(s), labels ${escapeHtml(snap.labels.join(', ') || '(none)')}, assignees ${escapeHtml(snap.assignees.join(', ') || '(none)')}${head}. If any of that changed (or the ${what}, a comment${pull ? ' or a review' : ''} was edited${pull ? ', or a commit was pushed' : ''}), the broker runs nothing. It stops at the first step that fails; steps already done stay done, and the result page says which ran. Each comment carries the agent's attestation trailer, hidden or visible as its policy says.</p>`;
 }
 
 /** The confirmation page: exactly what will be posted, and the two buttons while it is pending. */

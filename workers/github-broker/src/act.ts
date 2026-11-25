@@ -1,6 +1,7 @@
 import {
   buildAuditRecord,
   canonicalJson,
+  commentProblem,
   evaluatePolicy,
   KillSwitch,
   sha256Hex,
@@ -12,16 +13,26 @@ import {
   GitHubRest,
   PatIdentity,
 } from '@custodes/github';
-import type {
-  Attestation,
-  AuditDecision,
-  AuditRecord,
-  BrokerDenialCode,
-  BrokerRequest,
-  BrokerResponse,
-  CallerSignature,
+import {
+  isTriggerLabel,
+  numberOf,
+  TRIGGER_LABEL_DAILY_CAP,
+  type Attestation,
+  type AuditDecision,
+  type AuditRecord,
+  type BrokerDenialCode,
+  type BrokerRequest,
+  type BrokerResponse,
+  type CallerSignature,
 } from '@custodes/schema';
 import { keyring, secretBinding, type BrokerEnv } from './env.js';
+import {
+  commentBody,
+  namedBy,
+  readIssueThread,
+  readPullThread,
+  strangerProblem,
+} from './thread.js';
 import { policy } from './policy.js';
 import { ApprovalStore, AuditStore, EXECUTION_FAILED } from './store.js';
 
@@ -154,6 +165,35 @@ export async function act(
     );
   }
 
+  // ADR 0024: a trigger label starts automation as the operator; cap it per agent and repository.
+  const capped = await triggerLabelCapped(env, req.agentId, [req.action], now);
+  if (capped !== null) return deny('policy_denied', capped);
+
+  // ADR 0024: the comment rules on every path. The mention rule below reads `@` only, so a
+  // character reference (`&#64;x` renders as `@x`) or a hidden comment would slip past it; links
+  // and other-repository references put model text in someone else's timeline under the
+  // operator's name. pr-gate's pr.close keeps links: its code-built close comment links
+  // CONTRIBUTING.md (operator decision, 2026-11-25).
+  const body = commentBody(req.action);
+  if (body !== null) {
+    const problem = commentProblem(body, req.action.repo);
+    // pr-gate only: any other agent's close text may come from a model (CI review of #165).
+    const linksAllowed = req.action.type === 'pr.close' && req.agentId === 'pr-gate';
+    if (
+      problem !== null &&
+      !(linksAllowed && (problem === 'link' || problem === 'other_repository'))
+    )
+      return deny('policy_denied', `comment refused: ${problem.replace('_', ' ')}`);
+  }
+
+  // ADR 0024: an action names only thread people (or, in text, listed maintainers), hotl included.
+  // issue.close always reads the issue: GitHub's issue endpoints accept a pull request number, and
+  // closing one is pr.close's grant, not issue.close's. A failed read refuses.
+  if (req.action.type === 'issue.close' || namedBy(req.action).length > 0) {
+    const problem = await threadProblem(env, req);
+    if (problem !== null) return deny('policy_denied', problem);
+  }
+
   // Execute. The attestation id is fixed up front so the trailer can reference it.
   const attestationId = crypto.randomUUID();
   const identity = new PatIdentity(req.agentId, secretBinding(env, agentPolicy.tokenBinding));
@@ -203,4 +243,47 @@ export async function act(
   });
   await attestAfterExecution(record);
   return { ok: true, attestationId, ...(githubUrl !== undefined ? { githubUrl } : {}) };
+}
+
+/**
+ * Why the action may not run on its thread, or null: the target is not what the action is for, it
+ * cannot be read, or it names someone neither in the thread nor allowed by the policy. An issue
+ * comment may sit on a pull request, so its issue read falls back to the pull request; issue.close
+ * never does.
+ */
+async function threadProblem(env: BrokerEnv, req: BrokerRequest): Promise<string | null> {
+  const { repo } = req.action;
+  const number = numberOf(req.action);
+  let thread =
+    req.action.type === 'pr.close'
+      ? await readPullThread(env, req.agentId, req.runId, repo, number)
+      : await readIssueThread(env, req.agentId, req.runId, repo, number);
+  if (!thread.ok && thread.reason === 'not an issue' && req.action.type !== 'issue.close')
+    thread = await readPullThread(env, req.agentId, req.runId, repo, number);
+  if (!thread.ok) return `cannot check the thread: ${thread.reason}`;
+  return strangerProblem(req.action, thread.people);
+}
+
+/**
+ * Why these actions would pass the trigger-label daily cap (ADR 0024), or null. One definition for
+ * `act()` and the bundle pre-check, which must agree or a bundle stops half-way.
+ */
+export async function triggerLabelCapped(
+  env: BrokerEnv,
+  agentId: string,
+  actions: readonly BrokerRequest['action'][],
+  now: Date,
+): Promise<string | null> {
+  const audit = new AuditStore(env.AUDIT);
+  const since = new Date(now.getTime() - 86_400_000).toISOString();
+  for (const a of actions) {
+    if (a.type !== 'issue.label.add') continue;
+    for (const label of a.labels.filter(isTriggerLabel)) {
+      if (
+        (await audit.countLabelAddsSince(agentId, a.repo, label, since)) >= TRIGGER_LABEL_DAILY_CAP
+      )
+        return `daily cap of ${TRIGGER_LABEL_DAILY_CAP} for label ${label} on ${a.repo} reached`;
+    }
+  }
+  return null;
 }

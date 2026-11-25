@@ -1,13 +1,9 @@
 import {
   canonicalJson,
-  commentProblem as sharedCommentProblem,
-  commentsDigest,
   evaluatePolicy,
   KillSwitch,
-  mentionsIn,
   parseApprovalToken,
   sha256Hex,
-  type CommentProblem,
 } from '@custodes/core';
 import {
   type ApprovalBundle,
@@ -19,11 +15,18 @@ import {
   type DecideOutcome,
   DEFAULT_APPROVAL_TTL_HOURS,
   DEFAULT_MAX_PENDING_APPROVALS,
-  GitHubLogin,
-  type IssueSnapshot,
+  isPullBundle,
+  numberOf,
+  type BrokerAction,
 } from '@custodes/schema';
-import { act } from './act.js';
-import { read } from './read.js';
+import { act, triggerLabelCapped } from './act.js';
+import {
+  commentBody,
+  commentProblem,
+  readIssueThread,
+  readPullThread,
+  strangerProblem,
+} from './thread.js';
 import { keyring, type BrokerEnv } from './env.js';
 import { policy } from './policy.js';
 import { ApprovalStore, AuditStore } from './store.js';
@@ -89,8 +92,9 @@ export async function createApproval(
 }
 
 /**
- * Asks for one approval of a bundle (ADR 0019): every action must be allowed and need an approval,
- * and the assignee and every @mention must be the issue's author or a commenter right now.
+ * Asks for one approval of a bundle (ADR 0019, ADR 0024) on an issue or a pull request: every action
+ * must be allowed and need an approval, and the assignee must be a thread person and every @mention
+ * a thread person or a listed maintainer, right now.
  */
 export async function createBundleApproval(
   env: BrokerEnv,
@@ -163,114 +167,10 @@ async function storeApproval(
   return { ok: true, approval, token };
 }
 
-/** The issue as GitHub has it now, and everyone who wrote in it (author first). */
-export type IssueThread =
-  { ok: true; snapshot: IssueSnapshot; people: string[] } | { ok: false; reason: string };
-
-/** Comment pages read at most (100 each); a longer thread fails closed. */
-const MAX_COMMENT_PAGES = 10;
-
-/** Reads the issue and its comments through the agent's read policy (read-only token). */
-export async function readIssueThread(
-  env: BrokerEnv,
-  agentId: string,
-  runId: string,
-  repo: string,
-  issue: number,
-  fetchImpl?: typeof fetch,
-): Promise<IssueThread> {
-  const base = { agentId, runId, repo, number: issue };
-  const got = await read(env, { ...base, resource: 'issue', query: {} }, fetchImpl);
-  if (!got.ok) return { ok: false, reason: `issue read failed: ${got.code}` };
-  const data = got.data as {
-    state?: unknown;
-    comments?: unknown;
-    user?: { login?: unknown; type?: unknown } | null;
-    labels?: ({ name?: unknown } | string)[];
-    assignees?: { login?: unknown }[] | null;
-    pull_request?: unknown;
-    updated_at?: unknown;
-  };
-  if (data.pull_request !== undefined) return { ok: false, reason: 'not an issue' };
-  // `ghost` is GitHub's placeholder for a deleted account: nobody to assign or name, as the
-  // agents read it too.
-  const login = (v: unknown) =>
-    typeof v === 'string' && GitHubLogin.safeParse(v).success && v.toLowerCase() !== 'ghost'
-      ? v
-      : null;
-  const author = login(data.user?.login);
-  // A bot author often has a login we do not accept (`dependabot[bot]`): that is still a known
-  // shape. It is never a person to assign or name; the commenters still are.
-  const botAuthor =
-    data.user?.type === 'Bot' ||
-    (typeof data.user?.login === 'string' && data.user.login.toLowerCase() === 'ghost');
-  if ((author === null && !botAuthor) || (data.state !== 'open' && data.state !== 'closed'))
-    return { ok: false, reason: 'unexpected issue shape' };
-  const labels = (data.labels ?? [])
-    .map((l) => (typeof l === 'string' ? l : typeof l.name === 'string' ? l.name : ''))
-    .filter((l) => l.length > 0)
-    .sort();
-  const assigned = (data.assignees ?? []).map((a) => login(a.login));
-  // An assignee whose login we do not accept is still an assignee: dropping it would make the
-  // issue look unassigned and let a bundle assign a second person (ADR 0019).
-  if (assigned.includes(null)) return { ok: false, reason: 'unexpected issue shape' };
-  const assignees = assigned.filter((a): a is string => a !== null).sort();
-  if (typeof data.updated_at !== 'string') return { ok: false, reason: 'unexpected issue shape' };
-  const updatedAt = data.updated_at;
-  const people = botAuthor || author === null ? [] : [author];
-  const all: unknown[] = [];
-  let count = 0;
-  for (let page = 1; page <= MAX_COMMENT_PAGES; page++) {
-    const c = await read(
-      env,
-      { ...base, resource: 'comments', query: { per_page: 100, page } },
-      fetchImpl,
-    );
-    if (!c.ok) return { ok: false, reason: `comments read failed: ${c.code}` };
-    const list = Array.isArray(c.data)
-      ? (c.data as { user?: { login?: unknown; type?: unknown } | null }[])
-      : [];
-    count += list.length;
-    all.push(...list);
-    for (const item of list) {
-      // A bot is never a person to assign or name: it could start another agent.
-      if (item.user?.type === 'Bot') continue;
-      const who = login(item.user?.login);
-      if (who !== null && !people.some((p) => p.toLowerCase() === who.toLowerCase()))
-        people.push(who);
-    }
-    if (list.length < 100) break;
-    if (page === MAX_COMMENT_PAGES) return { ok: false, reason: 'thread too long to check' };
-  }
-  const comments = typeof data.comments === 'number' ? data.comments : count;
-  return {
-    ok: true,
-    snapshot: {
-      state: data.state,
-      labels,
-      assignees,
-      comments,
-      updatedAt,
-      commentsDigest: await commentsDigest(all),
-    },
-    people,
-  };
-}
-
-const PROBLEM_TEXT: Record<CommentProblem, string> = {
-  character_reference: 'comment contains an HTML character reference',
-  comment_marker: 'comment contains an HTML comment marker',
-  link: 'comment contains a link',
-  other_repository: 'comment references another repository',
-};
-
-/** The shared rule (`@custodes/core`, which triage-apply applies first), in the broker's words. */
-export function commentProblem(body: string, repo: string): string | null {
-  const problem = sharedCommentProblem(body, repo);
-  return problem === null ? null : PROBLEM_TEXT[problem];
-}
-
-/** The bundle against the issue now: same snapshot, and only thread people assigned or named. */
+/**
+ * The bundle against its target now: same snapshot, the shared comment rules, and only thread
+ * people or listed maintainers assigned or named (ADR 0019, ADR 0024).
+ */
 export async function checkBundle(
   env: BrokerEnv,
   agentId: string,
@@ -279,33 +179,38 @@ export async function checkBundle(
   fetchImpl?: typeof fetch,
 ): Promise<{ ok: true } | { ok: false; reason: string }> {
   const first = bundle.actions[0];
-  if (!first || !('issue' in first)) return { ok: false, reason: 'not an issue bundle' };
-  const thread = await readIssueThread(env, agentId, runId, first.repo, first.issue, fetchImpl);
+  if (!first) return { ok: false, reason: 'empty bundle' };
+  const { repo, number } = targetOf(first);
+  const thread = isPullBundle(bundle)
+    ? await readPullThread(env, agentId, runId, repo, number, fetchImpl)
+    : await readIssueThread(env, agentId, runId, repo, number, fetchImpl);
   if (!thread.ok) return thread;
   if (canonicalJson(thread.snapshot) !== canonicalJson(bundle.snapshot))
-    return { ok: false, reason: 'stale: the issue changed since the proposal' };
-  const inThread = (l: string) => thread.people.some((p) => p.toLowerCase() === l.toLowerCase());
-  for (const a of bundle.actions) {
-    if (a.type === 'issue.comment') {
-      const bad = commentProblem(a.body, a.repo);
+    return { ok: false, reason: 'stale: the target changed since the proposal' };
+  return checkPeopleAndText(bundle.actions, repo, thread.people);
+}
+
+/** The comment rules and the people rule for actions on one thread whose people are known. */
+export function checkPeopleAndText(
+  actions: readonly BrokerAction[],
+  repo: string,
+  threadPeople: readonly string[],
+): { ok: true } | { ok: false; reason: string } {
+  for (const a of actions) {
+    const body = commentBody(a);
+    if (body !== null) {
+      const bad = commentProblem(body, a.repo);
       if (bad !== null) return { ok: false, reason: bad };
     }
-    const named =
-      a.type === 'issue.assign'
-        ? a.assignees
-        : a.type === 'issue.comment'
-          ? mentionsIn(a.body)
-          : [];
-    const stranger = named.find((l) => !inThread(l));
-    if (stranger !== undefined)
-      return { ok: false, reason: `@${stranger} is neither the issue author nor a commenter` };
+    const stranger = strangerProblem(a, threadPeople);
+    if (stranger !== null) return { ok: false, reason: stranger };
   }
   return { ok: true };
 }
 
 /** What an action is about: one pull request or issue of one repository. */
 export function targetOf(action: BrokerRequest['action']): { repo: string; number: number } {
-  return { repo: action.repo, number: 'pull' in action ? action.pull : action.issue };
+  return { repo: action.repo, number: numberOf(action) };
 }
 
 export type TokenLookup =
@@ -359,6 +264,10 @@ export async function decideApproval(
         now,
       );
       if (used + pending.bundle.actions.length > agentPolicy.rateLimitPerHour)
+        return { result: 'rate_limited' };
+      // The trigger-label daily cap (ADR 0024) too, so a capped label never stops a bundle
+      // half-way and spends its approval.
+      if ((await triggerLabelCapped(env, pending.agentId, pending.bundle.actions, now)) !== null)
         return { result: 'rate_limited' };
     }
   }
