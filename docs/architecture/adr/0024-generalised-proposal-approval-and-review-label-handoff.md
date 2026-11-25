@@ -1,6 +1,6 @@
 # 0024. Generalised proposal approval and the cheatsheet-review label handoff
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-11-25
 - Deciders: Jakub Maćkowski
 

@@ -1,6 +1,7 @@
 # Threat model
 
 Proposed change: [agent isolation (ADR 0018)](threat-model-agent-isolation.md).
+Proposed change: [generalised proposal approval and the review label handoff (ADR 0024)](threat-model-proposal-approval.md).
 
 ## Assets
 
