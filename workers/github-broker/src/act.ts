@@ -267,7 +267,8 @@ async function threadProblem(
   if (!thread.ok) return `cannot check the thread: ${thread.reason}`;
   const allowed = allowedFor(req.action, thread.people).map((l) => l.toLowerCase());
   const stranger = named.find((l) => !allowed.includes(l.toLowerCase()));
-  return stranger === undefined
-    ? null
+  if (stranger === undefined) return null;
+  return req.action.type === 'issue.assign'
+    ? `@${stranger} is not in the thread`
     : `@${stranger} is neither in the thread nor a listed maintainer`;
 }

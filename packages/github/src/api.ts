@@ -32,6 +32,10 @@ export class GitHubRest {
         ...(body !== undefined ? { 'content-type': 'application/json' } : {}),
       },
       body: body !== undefined ? JSON.stringify(body) : null,
+      // A transferred issue or renamed repository answers 301, and fetch would replay a PATCH at
+      // the new location: a repository outside the policy. A 3xx is not `ok`, so it throws here
+      // before anything is written (security review of #143, L1).
+      redirect: 'manual',
     });
     if (!res.ok) {
       // Never include the request body in the error: it may contain untrusted content.

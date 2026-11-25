@@ -368,7 +368,7 @@ describe('createBundleApproval', () => {
     expect(await createBundleApproval(testEnv, ask(n, actions, snapshotOf(issue)), NOW)).toEqual({
       ok: false,
       status: 403,
-      error: '@stranger is neither in the thread nor a listed maintainer',
+      error: '@stranger is not in the thread',
     });
   });
 

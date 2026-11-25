@@ -748,7 +748,7 @@ describe('security-review fixes (ADR 0024)', () => {
       expect(await act(testEnv, request(assign('maint'), 'backlog-plain'), now)).toMatchObject({
         ok: false,
         code: 'policy_denied',
-        reason: '@maint is neither in the thread nor a listed maintainer',
+        reason: '@maint is not in the thread',
       });
       expect(gh.writes).toEqual([]);
       expect(
@@ -770,7 +770,7 @@ describe('security-review fixes (ADR 0024)', () => {
       const people = ['author', 'carol'];
       expect(checkPeopleAndText([assign('maint')], REPO, people)).toEqual({
         ok: false,
-        reason: '@maint is neither in the thread nor a listed maintainer',
+        reason: '@maint is not in the thread',
       });
       expect(checkPeopleAndText([comment('ping @Maint')], REPO, people)).toEqual({ ok: true });
       expect(checkPeopleAndText([assign('carol'), comment('ping @maint')], REPO, people)).toEqual({

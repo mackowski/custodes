@@ -206,7 +206,10 @@ export function checkPeopleAndText(
     if (stranger !== undefined)
       return {
         ok: false,
-        reason: `@${stranger} is neither in the thread nor a listed maintainer`,
+        reason:
+          a.type === 'issue.assign'
+            ? `@${stranger} is not in the thread`
+            : `@${stranger} is neither in the thread nor a listed maintainer`,
       };
   }
   return { ok: true };

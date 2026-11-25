@@ -69,7 +69,9 @@ from the bundle path into the broker's action pipeline, so a `hotl` comment gets
 ADR 0019's parsing: every `@` not after a letter or digit is a mention. The two comment rules it
 depends on move with it: HTML character references (`&#64;x` renders as `@x`) and comment markers
 are refused on every path. The link and other-repository rules stay on bundles, because pr-gate's
-code-built close comment links CONTRIBUTING.md.
+code-built close comment links CONTRIBUTING.md. These rules cover `issue.comment`, `issue.close` and
+`pr.close`; cheatsheet-review's own `pr.review.inline` keeps its ADR 0017 rules (a fixed marker on
+every inline comment, the operator's approval on OWASP).
 
 **The label handoff.**
 

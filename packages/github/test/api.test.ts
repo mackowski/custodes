@@ -37,6 +37,31 @@ describe('GitHubRest', () => {
   });
 });
 
+describe('GitHubRest redirects', () => {
+  it('never follows a redirect: a 301 for a transferred issue throws before anything is written', async () => {
+    const fetchMock = vi.fn(() =>
+      Promise.resolve(
+        new Response(null, {
+          status: 301,
+          headers: { location: 'https://api.github.com/repositories/9/issues/1' },
+        }),
+      ),
+    );
+    const api = new GitHubRest(id, fetchMock);
+    await expect(
+      executeAction(
+        api,
+        { type: 'issue.close', repo: 'x/y', issue: 1, body: 'done', stateReason: 'completed' },
+        (b) => b,
+      ),
+    ).rejects.toThrow(/GitHub 301/);
+    // Only the comment was attempted, with redirects off; the close never ran.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(init.redirect).toBe('manual');
+  });
+});
+
 describe('executeAction retired actions', () => {
   it('cannot post a plain review (it could approve) or a pull request comment', async () => {
     const fetchMock = vi.fn(() => Promise.resolve(Response.json({})));
@@ -186,12 +211,12 @@ describe('executeAction issue.unassign (ADR 0024)', () => {
 describe('executeAction pr.review.inline', () => {
   const sha = '0123456789abcdef0123456789abcdef01234567';
   it('posts one review pinned to the commit, trailers on the body only, multi-line ranges mapped', async () => {
-    const fetchMock = vi.fn((_url: string, _init: RequestInit) =>
+    const fetchMock = vi.fn(() =>
       Promise.resolve(
         Response.json({ html_url: 'https://github.com/o/r/pull/7#pullrequestreview-1' }),
       ),
     );
-    const api = new GitHubRest(id, fetchMock as unknown as typeof fetch);
+    const api = new GitHubRest(id, fetchMock);
     const r = await executeAction(
       api,
       {
