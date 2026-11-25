@@ -156,3 +156,9 @@ left out. Larger spans were dropped whole by Workers traces. A trace therefore s
 of a long prompt, diff or answer: an injection placed after the first 8,000 characters is not in
 the trace. AI Gateway logs keep the full request and response; use them for anything the trace
 cut.
+
+## Amendment, 2026-11-25 (ADR 0023)
+
+Traces are no longer the only store of model payloads: the agent runtime's event channel keeps
+model text and tool arguments (never tool results, tokens or error text) in the agent's Durable
+Object, capped at 8,000 characters and kept 14 days. See ADR 0023.

@@ -62,17 +62,24 @@ so its policy PR links this ADR (invariant 4). GitHub code search allows 10 requ
 and indexes the default branch only. Our own index (D1 FTS or Vectorize) comes only if evals show
 the results are weak.
 
-**Proposal and dispatcher.** A run ends with a `Proposal`: target, snapshot, actions, evidence
-and reason. A dispatcher in `core` routes each action by policy: a shadow or T0 agent's actions go
+**Proposal and dispatcher.** A run ends with a `Proposal`: target, actions, evidence (short
+constrained refs such as `#12`, never prose) and reason. It carries no snapshot: the dispatcher
+attaches the one code built from this run's read of the target. A dispatcher in `core` routes each action by policy: a shadow or T0 agent's actions go
 to the digest, an action that needs approval goes to an approval bundle (#143), and a HOTL action
 goes to `act()`. The model may raise an action to HITL (`needsHuman`), never lower one. An action
 passes the dispatcher only if:
 
-1. its target was read by a tool in this run, and the snapshot comes from that read;
-2. the evidence its action kind requires is re-verified by code through the broker (for example,
+1. its target was read by a tool in this run, and it is attached the snapshot from that read;
+2. the broker's own policy rules allow it (`actionDenial`, shared with the broker: repositories,
+   actions, the label allow-list, retired actions);
+3. the evidence its action kind requires is re-verified by code through the broker (for example,
    `issue.close` needs a merged pull request that references the issue in its timeline);
-3. the run has made fewer than 10 HOTL writes. Every later action is raised to HITL;
-4. a label action names only labels in the agent's allow-list.
+4. the run tree has made fewer than 10 HOTL writes, counted on the root run in the run store.
+   Every later action is raised to HITL.
+
+A shadow run passes the same checks before its actions reach the digest, so the shadow digest
+shows what a live run would do (ADR 0021's agreement threshold). The dispatcher calls the run guard
+before it routes and again before each direct write, so a killed tree never acts.
 
 Every rule that guards a write is enforced in the dispatcher or the broker, even when the same
 rule is also written in a `context` file for the model.
@@ -80,8 +87,11 @@ rule is also written in a `context` file for the model.
 **Rounds and caps.** A round is one model call (request and response, including the tool calls it
 asks for). Starting caps, set in `agent.md` and tuned after the first shadow run: 20 rounds per
 child run, 40 per orchestrator run, $0.15 per child run, $3 per day for a whole agent tree. Before
-every round, the runtime checks the round, token and cost budgets. It also checks for repeated
-identical tool calls, undeclared tools and arguments outside the agent's scope.
+every round, the runtime checks the round cap and the cost budgets (USD, computed from each
+response's token usage, including a refused or cut-off answer). It also stops on repeated
+identical tool calls within one run, undeclared tools, arguments outside the agent's scope, and more
+than 8 tool calls in one response. It clips every tool result to 40,000 characters before the model
+sees it, because every later round resends it.
 
 **Run tree.** An agent may be an orchestrator: a model agent that sees full issue and pull
 request content (through `untrusted()`), decides what to do and proposes actions. It never writes
@@ -91,9 +101,10 @@ The tool takes a role and a structured target only: code builds the child's task
 proposal goes from the host straight to the dispatcher, and the parent gets back only action
 types, evidence and `needsHuman`, never the child's text.
 Children are roles inside the same agent identity: one Worker, key and policy entry (ADR 0018),
-listed in the orchestrator's `agents`. Children cannot delegate (depth 1). At most 3 children run
-at once (the loop runs tool calls one at a time, so this binds only a host that runs children in
-parallel) and at most 60 per orchestrator run. Other deployed agents (cheatsheet-review, pr-gate)
+listed in the orchestrator's `agents`. Children cannot delegate (depth 1). Children run one at a
+time (the loop runs tool calls in order), at most 60 per orchestrator run. The target's repository
+must be one of the identity's read-policy repositories, and an item delegated again (for example
+after a restart) returns its earlier result instead of starting a second child. Other deployed agents (cheatsheet-review, pr-gate)
 are described in `context` and reached only through broker actions, never by RPC.
 
 **Restart.** When a run hits its round cap, the runtime ends it and starts a fresh run. The fresh
@@ -200,3 +211,12 @@ uses.
 The model price table that turns tokens into dollars lives in `packages/llm/src/prices.ts`, not
 in `models.ts`: changing `models.ts` starts every paid eval suite. A model with no price refuses
 to run instead of counting as free.
+
+## Update, 2026-11-25 (reviews of slices 1-2)
+
+The security and lean reviews of the branch changed: the HOTL-write cap counts per run tree, on the
+root run; tool results are clipped and tool calls per response capped; the daily budget and the
+event channel are required inputs of the loop; a run's repeat detection counts only its own calls;
+the dispatcher shares the broker's policy check and calls the run guard; the `Proposal` carries no
+snapshot; the operator and supervisor reach the run store through Durable Object RPC methods (slice
+3), with no separate host wrapper.
