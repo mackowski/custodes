@@ -142,11 +142,18 @@ export function readTools(
         updated_at?: unknown;
         merged_at?: unknown;
         submitted_at?: unknown;
+        author_association?: unknown;
         body?: unknown;
       }
     | null
     | undefined;
   const login = (u: unknown) => (u as { login?: unknown } | null | undefined)?.login ?? null;
+  /** One long body must not push the rest of the thread past the 40k clip. */
+  const BODY_MAX = 4_000;
+  const body = (b: unknown) =>
+    typeof b === 'string' && b.length > BODY_MAX
+      ? `${b.slice(0, BODY_MAX)} [... ${String(b.length - BODY_MAX)} characters cut]`
+      : (b ?? null);
   const labelNames = (l: unknown) =>
     Array.isArray(l)
       ? l.map((x) => (typeof x === 'string' ? x : ((x as { name?: unknown } | null)?.name ?? null)))
@@ -159,23 +166,30 @@ export function readTools(
       state: x?.state ?? null,
       labels: labelNames(x?.labels),
       author: login(x?.user),
+      author_association: x?.author_association ?? null,
       created_at: x?.created_at ?? null,
       updated_at: x?.updated_at ?? null,
       ...(x?.merged_at !== undefined ? { merged_at: x.merged_at } : {}),
-      body: x?.body ?? null,
+      body: body(x?.body),
     };
   };
   const comment = (d: unknown) => {
     const x = d as Raw;
-    return { author: login(x?.user), created_at: x?.created_at ?? null, body: x?.body ?? null };
+    return {
+      author: login(x?.user),
+      author_association: x?.author_association ?? null,
+      created_at: x?.created_at ?? null,
+      body: body(x?.body),
+    };
   };
   const review = (d: unknown) => {
     const x = d as Raw;
     return {
       author: login(x?.user),
+      author_association: x?.author_association ?? null,
       state: x?.state ?? null,
       submitted_at: x?.submitted_at ?? null,
-      body: x?.body ?? null,
+      body: body(x?.body),
     };
   };
   const failed = (reason: string) => ({ content: `read failed: ${reason}` });
@@ -324,7 +338,7 @@ export function brokerEvidence(
     );
     if (!timeline.ok) return { ok: false, reason: 'evidence unreadable' };
     for (const n of refs) {
-      const referenced = timeline.items.some((e) => {
+      const refs_ = timeline.items.filter((e) => {
         const ev = e as {
           event?: unknown;
           source?: {
@@ -347,14 +361,23 @@ export function brokerEvidence(
           sameRepo
         );
       });
-      if (!referenced) continue;
+      if (refs_.length === 0) continue;
       const pull = await read({ repo: action.repo, resource: 'pull', number: n, query: {} });
       if (!pull.ok) return { ok: false, reason: 'evidence unreadable' };
       const pr = pull.data as { merged_at?: unknown; title?: unknown; body?: unknown } | null;
       const merged = pr?.merged_at;
       if (typeof merged !== 'string' || merged.length === 0) continue;
       const own = `${typeof pr?.title === 'string' ? pr.title : ''}\n${typeof pr?.body === 'string' ? pr.body : ''}`;
-      if (namesIssue(own, action.repo, action.issue)) return { ok: true };
+      if (!namesIssue(own, action.repo, action.issue)) continue;
+      // The reference must predate the merge: naming the issue by editing a merged PR's body
+      // afterwards does not count. A missing or unparseable time fails closed.
+      const mergedAt = Date.parse(merged);
+      const before = refs_.some((e) => {
+        const at = (e as { created_at?: unknown }).created_at;
+        const t = typeof at === 'string' ? Date.parse(at) : NaN;
+        return Number.isFinite(t) && Number.isFinite(mergedAt) && t <= mergedAt;
+      });
+      if (before) return { ok: true };
     }
     return { ok: false, reason: 'no merged pull request references the issue' };
   };
@@ -366,7 +389,7 @@ export function namesIssue(text: string, repo: string, issue: number): boolean {
   const escaped = repo.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   return (
     new RegExp(`(^|[^\\w/])#${n}(?!\\d)`).test(text) ||
-    new RegExp(`(^|\\W)${escaped}#${n}(?!\\d)`, 'i').test(text)
+    new RegExp(`(^|[^\\w/.-])${escaped}#${n}(?!\\d)`, 'i').test(text)
   );
 }
 
@@ -512,17 +535,31 @@ export async function runAgentTree(
     // Direct writes in bundle order (the closing one last). Only the first carries the snapshot:
     // the first write changes the target, so the later ones would always look stale. They still
     // pass the broker's people and comment rules (ADR 0023; reviews of #166 slice 3, L1).
+    // The first write that is not ok stops the rest, like the broker's runBundle: a later write
+    // without its snapshot must never follow a refused or stale one (security review round 2).
+    let stopped = false;
     for (const [i, r] of acts.entries()) {
+      if (stopped) {
+        record(r, 'not run');
+        continue;
+      }
       if (!(await stillAllowed())) {
         record(r, 'halted');
+        stopped = true;
         continue;
       }
       const res = await attempt(() =>
         i === 0 ? port.act(r.action, runId, r.snapshot) : port.act(r.action, runId),
       );
       record(r, res === undefined ? 'error' : res.ok ? 'ok' : res.code);
+      if (!res?.ok) stopped = true;
     }
     if (approvals.length === 0) return;
+    // Approvals on a target this proposal already wrote to would carry a stale snapshot.
+    if (acts.length > 0) {
+      for (const r of approvals) record(r, 'not requested');
+      return;
+    }
     if (!(await stillAllowed())) {
       for (const r of approvals) record(r, 'halted');
       return;

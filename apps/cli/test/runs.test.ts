@@ -23,7 +23,18 @@ describe('runs events', () => {
     expect(inert('x'.repeat(200))).toHaveLength(161);
   });
   it('neutralises bidi and zero-width controls that could reorder or hide text', () => {
-    for (const c of ['\u200b', '\u200f', '\u202a', '\u202e', '\u2066', '\u2069'])
+    for (const c of [
+      '\u061c',
+      '\u200b',
+      '\u200f',
+      '\u202a',
+      '\u202e',
+      '\u2060',
+      '\u2064',
+      '\u2066',
+      '\u2069',
+      '\ufeff',
+    ])
       expect(inert(`a${c}b`)).toBe('a?b');
   });
 });

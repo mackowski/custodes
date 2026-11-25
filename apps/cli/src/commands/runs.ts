@@ -24,7 +24,7 @@ export function inert(text: string, max = 160): string {
     // eslint-disable-next-line no-control-regex
     .replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g, '?')
     // Bidi and zero-width controls could reorder or hide text in the table.
-    .replace(/[\u200b-\u200f\u202a-\u202e\u2066-\u2069]/g, '?')
+    .replace(/[\u061c\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/g, '?')
     .replace(/\n/g, ' ');
   return clean.length > max ? `${clean.slice(0, max)}…` : clean;
 }
@@ -41,7 +41,7 @@ export function eventsTable(list: readonly RunEventRow[]): string {
         inert(e.at.slice(0, 19).replace('T', ' ')),
         e.runId.slice(0, 8),
         String(e.round),
-        e.tool ?? '-',
+        inert(e.tool ?? '-'),
         inert(e.args, 60),
         inert(e.modelText),
       ]),

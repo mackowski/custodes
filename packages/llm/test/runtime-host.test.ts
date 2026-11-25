@@ -10,6 +10,7 @@ import {
   Policy,
   type BrokerAction,
   type BrokerReadRequest,
+  type BrokerResponse,
   type Proposal,
 } from '@custodes/schema';
 import type { MessagesResponse } from '../src/gateway.js';
@@ -55,6 +56,8 @@ function fakeRead(
     prBody?: string;
     /** The cross-reference's repository; `null` leaves it out. */
     refRepo?: string | null;
+    /** When the cross-reference was made; `null` leaves it out. Default: before the merge. */
+    refAt?: string | null;
   } = {},
 ) {
   const calls: (ReadReq & { runId: string })[] = [];
@@ -72,6 +75,9 @@ function fakeRead(
               : [
                   {
                     event: 'cross-referenced',
+                    ...(opts.refAt === null
+                      ? {}
+                      : { created_at: opts.refAt ?? '2026-11-23T10:00:00Z' }),
                     source: {
                       issue: {
                         number: 12,
@@ -153,7 +159,9 @@ describe('readTools', () => {
       author: 'author',
       body: 'Body text',
     });
-    expect(parsed.comments).toEqual([{ author: 'carol', created_at: null, body: 'latest' }]);
+    expect(parsed.comments).toEqual([
+      { author: 'carol', author_association: null, created_at: null, body: 'latest' },
+    ]);
     // The snapshot is still built from the raw data.
     const thread = await issueThreadFrom(raw, COMMENTS);
     if (!thread.ok) throw new Error('fixture');
@@ -220,6 +228,17 @@ describe('brokerEvidence (never ok by default for issue.close)', () => {
     expect((await check({ prBody: 'Fixes other/repo#7.' }, merged)).ok).toBe(false);
     expect((await check({ prBody: `Fixes ${REPO}#7.` }, merged)).ok).toBe(true);
   });
+  it('needs the reference to predate the merge: a later edit of a merged PR does not count', async () => {
+    expect((await check({ refAt: '2026-11-25T10:00:00Z' }, merged)).ok).toBe(false);
+    expect((await check({ refAt: null }, merged)).ok).toBe(false);
+    expect((await check({ refAt: 'not a date' }, merged)).ok).toBe(false);
+    expect((await check({ refAt: '2026-11-24T10:00:00Z' }, merged)).ok).toBe(true);
+  });
+  it('does not take a longer owner name as this repository (owner boundary)', async () => {
+    expect((await check({ prBody: `Fixes evil-${REPO}#7.` }, merged)).ok).toBe(false);
+    expect((await check({ prBody: `Fixes a.${REPO}#7.` }, merged)).ok).toBe(false);
+  });
+
   it('fails closed when the cross-reference names no repository, or another one (M2)', async () => {
     expect((await check({ refRepo: null }, merged)).ok).toBe(false);
     expect((await check({ refRepo: 'other/repo' }, merged)).ok).toBe(false);
@@ -289,12 +308,13 @@ const proposalOn7 = {
 function port(
   mode: 'hotl' | 'hitl',
   script: MessagesResponse[],
-  opts: { actThrows?: boolean } = {},
+  opts: { actThrows?: boolean; actResults?: BrokerResponse[] } = {},
 ) {
   const store = new RunStore(memorySql());
   const { read } = fakeRead();
   const acts: { action: BrokerAction; runId: string; snapshot: unknown }[] = [];
   const bundles: { runId: string; actions: string[] }[] = [];
+  const approvalsAsked: { action: BrokerAction; runId: string; snapshot: unknown }[] = [];
   let i = 0;
   const p: HostPort = {
     agentId: 'backlog-review',
@@ -313,15 +333,19 @@ function port(
     act: (action, runId, snapshot) => {
       if (opts.actThrows) return Promise.reject(new Error('broker down: secret-ish detail'));
       acts.push({ action, runId, snapshot });
-      return Promise.resolve({ ok: true, attestationId: crypto.randomUUID() });
+      const scripted = opts.actResults?.[acts.length - 1];
+      return Promise.resolve(scripted ?? { ok: true, attestationId: crypto.randomUUID() });
     },
     requestBundle: (bundle, _r, runId) => {
       bundles.push({ runId, actions: bundle.actions.map((a) => a.type) });
       return Promise.resolve({ ok: true });
     },
-    requestApproval: () => Promise.resolve({ ok: true }),
+    requestApproval: (action, _r, runId, snapshot) => {
+      approvalsAsked.push({ action, runId, snapshot });
+      return Promise.resolve({ ok: true });
+    },
   };
-  return { p, store, acts, bundles };
+  return { p, store, acts, bundles, approvalsAsked };
 }
 
 const agent = (def = definition()): BundledAgent => ({ definition: def, prompt: 'Review.' });
@@ -469,5 +493,92 @@ describe('runAgentTree', () => {
     };
     const r = await runAgentTree(p, root, { 'item-review': child }, 'Review.', { shadow: false });
     expect(r.status).toBe('done');
+  });
+
+  it('stops at the first direct write that is not ok: later ones are never called', async () => {
+    const label: BrokerAction = {
+      type: 'issue.label.add',
+      repo: REPO,
+      issue: 7,
+      labels: ['question'],
+    };
+    const two = { ...proposalOn7, actions: [commentOn7, label] };
+    const { p, acts } = port(
+      'hotl',
+      [
+        toolUse('issue', { repo: REPO, number: 7 }, 0),
+        answer(JSON.stringify({ proposals: [two] }), 1),
+      ],
+      { actResults: [{ ok: false, code: 'policy_denied', reason: 'x' }] },
+    );
+    const r = await runAgentTree(p, agent(), {}, 'Review.', { shadow: false });
+    expect(acts).toHaveLength(1);
+    expect(r.outcomes.map((o) => o.detail)).toEqual(['policy_denied', 'not run']);
+  });
+
+  it('asks a single approval with the route snapshot', async () => {
+    // Two approvals that cannot form a bundle (the same type twice) are asked one by one.
+    const again: BrokerAction = { ...commentOn7, body: 'Second.' };
+    const two = { ...proposalOn7, actions: [commentOn7, again] };
+    const { p, approvalsAsked, bundles } = port('hitl', [
+      toolUse('issue', { repo: REPO, number: 7 }, 0),
+      answer(JSON.stringify({ proposals: [two] }), 1),
+    ]);
+    await runAgentTree(p, agent(), {}, 'Review.', { shadow: false });
+    expect(bundles).toEqual([]);
+    expect(approvalsAsked).toHaveLength(2);
+    for (const a of approvalsAsked)
+      expect(a.snapshot).toMatchObject({ state: 'open', comments: 1 });
+  });
+
+  it('does not ask approvals on a target the same proposal already wrote to', async () => {
+    // hotl policy where issue.label.add needs an approval: the comment acts, the label would be stale.
+    const pol = Policy.parse({
+      version: 1,
+      agents: {
+        'backlog-review': {
+          tokenBinding: 'PAT_BACKLOG_REVIEW',
+          mode: 'hotl',
+          tier: 'T1',
+          repos: [REPO],
+          actions: ['issue.comment', 'issue.label.add'],
+          requiresApproval: ['issue.label.add'],
+          labels: ['question'],
+        },
+      },
+    });
+    const label: BrokerAction = {
+      type: 'issue.label.add',
+      repo: REPO,
+      issue: 7,
+      labels: ['question'],
+    };
+    const two = { ...proposalOn7, actions: [commentOn7, label] };
+    const { p, acts, approvalsAsked, bundles } = port('hotl', [
+      toolUse('issue', { repo: REPO, number: 7 }, 0),
+      answer(JSON.stringify({ proposals: [two] }), 1),
+    ]);
+    p.policy = pol;
+    const r = await runAgentTree(p, agent(), {}, 'Review.', { shadow: false });
+    expect(acts.map((a) => a.action.type)).toEqual(['issue.comment']);
+    expect(approvalsAsked).toEqual([]);
+    expect(bundles).toEqual([]);
+    expect(r.outcomes.find((o) => o.action === 'issue.label.add')?.detail).toBe('not requested');
+  });
+
+  it('caps each body in the compact read at 4000 characters and keeps author_association', async () => {
+    const raw = { ...ISSUE, title: 'T', body: 'y'.repeat(5_000), author_association: 'MEMBER' };
+    const read = (_runId: string, req: ReadReq) =>
+      Promise.resolve({ ok: true as const, data: req.resource === 'issue' ? raw : [] });
+    const [issue] = readTools({ repos: [REPO], resources: ['issue', 'comments'], read }, 'r', [
+      'issue',
+    ]);
+    const out = await issue!.run({ repo: REPO, number: 7 });
+    const parsed = JSON.parse(out.content) as {
+      issue: { body: string; author_association: string };
+    };
+    expect(parsed.issue.author_association).toBe('MEMBER');
+    expect(parsed.issue.body.startsWith('y'.repeat(4_000))).toBe(true);
+    expect(parsed.issue.body).toContain('1000 characters cut');
   });
 });
