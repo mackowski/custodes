@@ -853,6 +853,89 @@ describe('bundle approval page (ADR 0019)', () => {
   });
 });
 
+describe('bundle approval page for a pull request (ADR 0024)', () => {
+  const repo = 'mackowski/custodes-sandbox';
+  const sha = '0123456789abcdef0123456789abcdef01234567';
+  const approval: ApprovalRequest = {
+    id: '9d7c1e9e-2b1a-4b6e-9a2e-1f7d1c2b3a44',
+    agentId: 'backlog-review',
+    runId: '9d7c1e9e-2b1a-4b6e-9a2e-1f7d1c2b3a45',
+    action: { type: 'issue.label.add', repo, issue: 7, labels: ['docker'] },
+    rationale: 'stale pull request',
+    createdAt: '2026-11-25T10:00:00.000Z',
+    expiresAt: '2026-12-02T10:00:00.000Z',
+    status: 'pending',
+    bundle: {
+      actions: [
+        { type: 'issue.label.add', repo, issue: 7, labels: ['docker'] },
+        { type: 'pr.close', repo, pull: 7, body: 'Closing <script>alert(1)</script> &amp; thanks' },
+      ],
+      snapshot: {
+        state: 'open',
+        labels: [],
+        assignees: [],
+        comments: 2,
+        updatedAt: '2026-11-24T10:00:00Z',
+        commentsDigest: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        headSha: sha,
+        reviewsDigest: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+      },
+    },
+  };
+
+  it('names the pull request, its head commit and the comment-then-close step', () => {
+    const html = approvalPage(approval);
+    expect(html).toContain('<dt>Pull request</dt><dd>#7</dd>');
+    expect(html).not.toContain('<dt>Issue</dt>');
+    expect(html).toContain(`head commit <code>${sha}</code>`);
+    expect(html).toContain('Proposed for the pull request as it was');
+    expect(html).toContain('or a commit was pushed');
+    expect(html).toContain('2. Comment, then close the pull request');
+    expect(html.indexOf('1. Add labels')).toBeLessThan(
+      html.indexOf('Comment, then close the pull request'),
+    );
+    expect(html).toContain('<form method="post">');
+  });
+  it('escapes the closing comment', () => {
+    const html = approvalPage(approval);
+    expect(html).toContain('&lt;script&gt;alert(1)&lt;/script&gt;');
+    expect(html).not.toContain('<script>');
+  });
+  it('escapes a hostile head commit in the snapshot', () => {
+    const b = approval.bundle!;
+    const html = approvalPage({
+      ...approval,
+      bundle: { ...b, snapshot: { ...b.snapshot, headSha: '<b>x</b>' } as typeof b.snapshot },
+    });
+    expect(html).not.toContain('<b>x</b>');
+    expect(html).toContain('&lt;b&gt;x&lt;/b&gt;');
+  });
+  it('shows an issue close with its reason, still as an issue', () => {
+    const b = approval.bundle!;
+    const html = approvalPage({
+      ...approval,
+      bundle: {
+        actions: [
+          { type: 'issue.unassign', repo, issue: 7, assignees: ['alice'] },
+          { type: 'issue.close', repo, issue: 7, body: 'done', stateReason: 'not_planned' },
+        ],
+        snapshot: {
+          state: b.snapshot.state,
+          labels: [],
+          assignees: ['alice'],
+          comments: 0,
+          updatedAt: b.snapshot.updatedAt,
+          commentsDigest: b.snapshot.commentsDigest,
+        },
+      },
+    });
+    expect(html).toContain('<dt>Issue</dt><dd>#7</dd>');
+    expect(html).toContain('1. Unassign</dt><dd>@alice');
+    expect(html).toContain('2. Comment, then close the issue as not planned');
+    expect(html).not.toContain('head commit');
+  });
+});
+
 describe('bundle result page', () => {
   const steps = [
     { type: 'issue.assign' as const, outcome: 'done' as const },

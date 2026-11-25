@@ -255,3 +255,143 @@ describe('broker response', () => {
     );
   });
 });
+
+describe('issue.close and issue.unassign (ADR 0024)', () => {
+  const close = {
+    type: 'issue.close',
+    repo: 'o/r',
+    issue: 3,
+    body: 'fixed in #4',
+    stateReason: 'completed',
+  };
+  const unassign = { type: 'issue.unassign', repo: 'o/r', issue: 3, assignees: ['alice'] };
+  it('issue.close needs a body and a state reason from the enum', () => {
+    expect(BrokerAction.safeParse(close).success).toBe(true);
+    expect(BrokerAction.safeParse({ ...close, stateReason: 'not_planned' }).success).toBe(true);
+    expect(BrokerAction.safeParse({ ...close, stateReason: 'duplicate' }).success).toBe(false);
+    expect(BrokerAction.safeParse({ ...close, stateReason: 'reopened' }).success).toBe(false);
+    const { stateReason: _s, ...noReason } = close;
+    expect(BrokerAction.safeParse(noReason).success).toBe(false);
+    const { body: _b, ...noBody } = close;
+    expect(BrokerAction.safeParse(noBody).success).toBe(false);
+    expect(BrokerAction.safeParse({ ...close, body: '' }).success).toBe(false);
+  });
+  it('issue.unassign takes exactly one valid login', () => {
+    expect(BrokerAction.safeParse(unassign).success).toBe(true);
+    expect(BrokerAction.safeParse({ ...unassign, assignees: [] }).success).toBe(false);
+    expect(BrokerAction.safeParse({ ...unassign, assignees: ['a', 'b'] }).success).toBe(false);
+    expect(BrokerAction.safeParse({ ...unassign, assignees: ['-bad'] }).success).toBe(false);
+  });
+});
+
+describe('policy trigger-label grants, maintainers and critical actions (ADR 0024)', () => {
+  const approvedReview = {
+    tokenBinding: 'PAT_CHEATSHEET_REVIEW',
+    tier: 'T2',
+    mode: 'hotl',
+    repos: ['OWASP/CheatSheetSeries'],
+    actions: ['pr.review.inline', 'issue.label.remove'],
+    requiresApprovalOn: { 'OWASP/CheatSheetSeries': ['pr.review.inline'] },
+    labels: ['custodes_cheatsheet_review'],
+  };
+  const labeller = (labels: string[]) => ({
+    tokenBinding: 'PAT_X',
+    tier: 'T1',
+    mode: 'hitl',
+    repos: ['a/b'],
+    actions: ['issue.label.add'],
+    labels,
+  });
+  const policy = (agents: Record<string, unknown>, extra: Record<string, unknown> = {}) =>
+    Policy.safeParse({ version: 1, agents, ...extra });
+
+  it.each(['custodes_cheatsheet_review', 'jules', 'Custodes_CheatSheet_Review', 'JULES'])(
+    'refuses a label-adding agent that is not granted the trigger label %s',
+    (label) => {
+      expect(policy({ 'some-agent': labeller([label]) }).success).toBe(false);
+      expect(
+        policy({ 'cheatsheet-review': approvedReview, 'some-agent': labeller([label]) }).success,
+      ).toBe(false);
+    },
+  );
+  it('accepts a non-trigger label for any agent', () => {
+    expect(policy({ 'some-agent': labeller(['docker']) }).success).toBe(true);
+  });
+  it('accepts the granted agent, case-insensitively, when OWASP approval for reviews stays', () => {
+    const agents = { 'cheatsheet-review': approvedReview };
+    for (const label of ['custodes_cheatsheet_review', 'Custodes_Cheatsheet_Review'])
+      expect(policy({ ...agents, 'backlog-review': labeller([label]) }).success, label).toBe(true);
+  });
+  it('never grants jules, even to the granted agent', () => {
+    const agents = { 'cheatsheet-review': approvedReview };
+    expect(policy({ ...agents, 'backlog-review': labeller(['jules']) }).success).toBe(false);
+  });
+  it('refuses a grant when cheatsheet-review has no OWASP approval for pr.review.inline', () => {
+    const granted = { 'backlog-review': labeller(['custodes_cheatsheet_review']) };
+    expect(policy(granted).success).toBe(false);
+    const sandboxOnly = { ...approvedReview, requiresApprovalOn: {} };
+    expect(policy({ 'cheatsheet-review': sandboxOnly, ...granted }).success).toBe(false);
+    const wrongRepo = {
+      ...approvedReview,
+      repos: ['a/b'],
+      requiresApprovalOn: { 'a/b': ['pr.review.inline'] },
+    };
+    expect(policy({ 'cheatsheet-review': wrongRepo, ...granted }).success).toBe(false);
+    expect(policy({ 'cheatsheet-review': approvedReview, ...granted }).success).toBe(true);
+  });
+  it('lets an agent that only removes the trigger label list it (cheatsheet-review style)', () => {
+    expect(policy({ 'cheatsheet-review': approvedReview }).success).toBe(true);
+    expect(
+      policy({
+        'other-agent': {
+          ...labeller(['jules']),
+          actions: ['issue.label.remove'],
+        },
+      }).success,
+    ).toBe(true);
+  });
+
+  it('accepts maintainers per repository and refuses bad logins or repositories', () => {
+    const agents = { 'some-agent': labeller(['docker']) };
+    const p = policy(agents, { maintainers: { 'o/r': ['alice', 'Bob-1'] } });
+    expect(p.success).toBe(true);
+    if (p.success) expect(p.data.maintainers['o/r']).toEqual(['alice', 'Bob-1']);
+    expect(policy(agents).success && Policy.parse({ version: 1, agents }).maintainers).toEqual({});
+    expect(policy(agents, { maintainers: { 'o/r': ['-bad'] } }).success).toBe(false);
+    expect(policy(agents, { maintainers: { 'o/r': ['@alice'] } }).success).toBe(false);
+    expect(policy(agents, { maintainers: { 'o/r': ['a b'] } }).success).toBe(false);
+    expect(policy(agents, { maintainers: { 'not a repo': ['alice'] } }).success).toBe(false);
+    expect(policy(agents, { maintainers: { 'o/r': 'alice' } }).success).toBe(false);
+  });
+
+  describe('a critical action needs an approval unless the agent is hitl', () => {
+    // pr.review is retired but stays in the registry as critical: a usable fixture.
+    const critical = (over: Record<string, unknown>) =>
+      Policy.safeParse({
+        version: 1,
+        agents: {
+          'x-agent': {
+            tokenBinding: 'PAT_X',
+            tier: 'T1',
+            repos: ['a/b'],
+            actions: ['pr.review'],
+            ...over,
+          },
+        },
+      });
+    it('refuses a hotl agent granted a critical action without requiresApproval', () => {
+      expect(critical({ mode: 'hotl' }).success).toBe(false);
+      expect(critical({ mode: 'hotl', requiresApproval: [] }).success).toBe(false);
+      // An approval on one repository only is not "every repository".
+      expect(critical({ mode: 'hotl', requiresApprovalOn: { 'a/b': ['pr.review'] } }).success).toBe(
+        false,
+      );
+    });
+    it('accepts a hotl agent when requiresApproval names the critical action', () => {
+      expect(critical({ mode: 'hotl', requiresApproval: ['pr.review'] }).success).toBe(true);
+    });
+    it('accepts a hitl agent, which already needs an approval for everything', () => {
+      expect(critical({ mode: 'hitl' }).success).toBe(true);
+    });
+  });
+});

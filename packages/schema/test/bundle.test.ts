@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { AgentPolicy, ApprovalBundle, BrokerAction, GitHubLogin } from '../src/index.js';
+import {
+  AgentPolicy,
+  ApprovalBundle,
+  BUNDLE_ORDER,
+  BrokerAction,
+  GitHubLogin,
+  IssueSnapshot,
+  PullSnapshot,
+  isPullBundle,
+} from '../src/index.js';
 
 const repo = 'o/r';
 const snapshot = {
@@ -134,5 +143,106 @@ describe('policy: a hidden trailer only behind a bundle approval (Claude review 
         .success,
     ).toBe(false);
     expect(AgentPolicy.safeParse(agent).success).toBe(true);
+  });
+});
+
+describe('ApprovalBundle for pull requests and closing actions (ADR 0024)', () => {
+  const sha = '0123456789abcdef0123456789abcdef01234567';
+  const pullSnapshot = {
+    ...snapshot,
+    headSha: sha,
+    reviewsDigest: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+  };
+  const unassign = { type: 'issue.unassign' as const, repo, issue: 5, assignees: ['alice'] };
+  const issueClose = {
+    type: 'issue.close' as const,
+    repo,
+    issue: 5,
+    body: 'done',
+    stateReason: 'completed' as const,
+  };
+  const prClose = { type: 'pr.close' as const, repo, pull: 5, body: 'closing' };
+  const pullBundle = (actions: unknown[], snap: unknown = pullSnapshot) =>
+    ApprovalBundle.safeParse({ actions, snapshot: snap });
+
+  it('accepts a pull bundle with labels and a comment before the closing pr.close', () => {
+    const r = pullBundle([add, remove, comment, prClose]);
+    expect(r.success).toBe(true);
+    if (r.success) expect(isPullBundle(r.data)).toBe(true);
+  });
+  it('does not treat an issue bundle as a pull bundle', () => {
+    const r = bundle([add, comment]);
+    expect(r.success).toBe(true);
+    if (r.success) expect(isPullBundle(r.data)).toBe(false);
+  });
+  it('refuses issue.close in a pull bundle and pr.close in an issue bundle', () => {
+    expect(pullBundle([comment, issueClose]).success).toBe(false);
+    expect(bundle([comment, prClose]).success).toBe(false);
+    // The pair that matches each kind is accepted.
+    expect(bundle([comment, issueClose]).success).toBe(true);
+    expect(pullBundle([comment, prClose]).success).toBe(true);
+  });
+  it('lists unassign after assign and close last in BUNDLE_ORDER', () => {
+    expect(BUNDLE_ORDER.indexOf('issue.assign')).toBeLessThan(
+      BUNDLE_ORDER.indexOf('issue.unassign'),
+    );
+    expect(BUNDLE_ORDER.indexOf('issue.unassign')).toBeLessThan(
+      BUNDLE_ORDER.indexOf('issue.label.add'),
+    );
+    expect(BUNDLE_ORDER.indexOf('issue.comment')).toBeLessThan(BUNDLE_ORDER.indexOf('issue.close'));
+    expect(BUNDLE_ORDER.slice(-2)).toEqual(['issue.close', 'pr.close']);
+  });
+  it('accepts issue.unassign and issue.close in order and refuses them out of order', () => {
+    expect(bundle([assign, unassign, add, remove, comment, issueClose]).success).toBe(true);
+    expect(bundle([unassign, assign]).success).toBe(false);
+    expect(bundle([add, unassign]).success).toBe(false);
+    // A close must be last: nothing may follow it.
+    expect(bundle([issueClose, comment]).success).toBe(false);
+    expect(bundle([issueClose, add]).success).toBe(false);
+    expect(pullBundle([prClose, comment]).success).toBe(false);
+    expect(pullBundle([prClose, add]).success).toBe(false);
+  });
+  it('refuses issue.close and pr.close together', () => {
+    expect(pullBundle([issueClose, prClose]).success).toBe(false);
+    expect(bundle([issueClose, prClose]).success).toBe(false);
+  });
+  it('holds every action in the registry order, at most once, up to seven', () => {
+    expect(BUNDLE_ORDER).toHaveLength(7);
+    expect(bundle([assign, unassign, add, remove, comment, issueClose, issueClose]).success).toBe(
+      false,
+    );
+  });
+  it('requires one target: issue and pull numbers are compared, and so is the repository', () => {
+    expect(pullBundle([add, prClose]).success).toBe(true);
+    expect(pullBundle([add, { ...prClose, pull: 6 }]).success).toBe(false);
+    expect(pullBundle([add, { ...prClose, repo: 'o/other' }]).success).toBe(false);
+    expect(bundle([comment, { ...issueClose, issue: 6 }]).success).toBe(false);
+  });
+  it('does not parse an issue snapshot with extra keys such as headSha', () => {
+    expect(IssueSnapshot.safeParse(snapshot).success).toBe(true);
+    expect(IssueSnapshot.safeParse({ ...snapshot, headSha: sha }).success).toBe(false);
+    expect(IssueSnapshot.safeParse(pullSnapshot).success).toBe(false);
+    expect(PullSnapshot.safeParse(pullSnapshot).success).toBe(true);
+  });
+  it('fails a pull snapshot without reviewsDigest or with a malformed head sha', () => {
+    const { reviewsDigest: _drop, ...noDigest } = pullSnapshot;
+    expect(PullSnapshot.safeParse(noDigest).success).toBe(false);
+    expect(pullBundle([add, prClose], noDigest).success).toBe(false);
+    expect(pullBundle([add, prClose], { ...pullSnapshot, headSha: 'abc123' }).success).toBe(false);
+    expect(
+      pullBundle([add, prClose], { ...pullSnapshot, headSha: sha.toUpperCase() }).success,
+    ).toBe(false);
+  });
+  it('still parses an ADR 0019 record: four issue actions with an IssueSnapshot, unchanged', () => {
+    const stored = {
+      actions: [assign, add, remove, comment],
+      snapshot,
+    };
+    const r = ApprovalBundle.safeParse(JSON.parse(JSON.stringify(stored)));
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data).toEqual(stored);
+      expect(isPullBundle(r.data)).toBe(false);
+    }
   });
 });
