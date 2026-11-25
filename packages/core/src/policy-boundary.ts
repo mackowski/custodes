@@ -72,5 +72,12 @@ export function boundaryViolations(boundary: Policy, policy: Policy): string[] {
     for (const r of p.resources)
       if (!b.resources.includes(r)) out.push(`reads.${id}: resource ${r} not in the boundary`);
   }
+  // Who agents may ping besides the thread (ADR 0024).
+  for (const [repo, logins] of Object.entries(policy.maintainers)) {
+    const allowed = (own(boundary.maintainers, repo) ?? []).map((l) => l.toLowerCase());
+    for (const l of logins)
+      if (!allowed.includes(l.toLowerCase()))
+        out.push(`maintainers.${repo}: ${l} not in the boundary`);
+  }
   return out;
 }

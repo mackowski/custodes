@@ -172,12 +172,13 @@ export async function act(
   // ADR 0024: the comment rules on every path. The mention rule below reads `@` only, so a
   // character reference (`&#64;x` renders as `@x`) or a hidden comment would slip past it; links
   // and other-repository references put model text in someone else's timeline under the
-  // operator's name. pr.close keeps links: pr-gate's code-built close comment links
+  // operator's name. pr-gate's pr.close keeps links: its code-built close comment links
   // CONTRIBUTING.md (operator decision, 2026-11-25).
   const body = commentBody(req.action);
   if (body !== null) {
     const problem = commentProblem(body, req.action.repo);
-    const linksAllowed = req.action.type === 'pr.close';
+    // pr-gate only: any other agent's close text may come from a model (CI review of #165).
+    const linksAllowed = req.action.type === 'pr.close' && req.agentId === 'pr-gate';
     if (
       problem !== null &&
       !(linksAllowed && (problem === 'link' || problem === 'other_repository'))

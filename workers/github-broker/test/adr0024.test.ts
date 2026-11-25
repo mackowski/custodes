@@ -45,6 +45,7 @@ beforeAll(() => {
     ...env,
     PAT_BACKLOG_REVIEW: { get: () => Promise.resolve('backlog-token') },
     PAT_TRIAGE_APPLY: { get: () => Promise.resolve('apply-token') },
+    PAT_PR_GATE: { get: () => Promise.resolve('gate-token') },
     PAT_READONLY: { get: () => Promise.resolve('read-token') },
     // PAT_BACKLOG_REVIEW is not a binding of wrangler.jsonc yet (#132 v2): a test-only secret.
   } as BrokerEnv;
@@ -754,6 +755,11 @@ describe('security-review fixes (ADR 0024)', () => {
       expect(gh.writes).toEqual([]);
     });
 
+    const prClose = (body: string, agentId: string) =>
+      request({ type: 'pr.close', repo: REPO, pull: 7, body }, agentId);
+    const CONTRIBUTING =
+      'See https://github.com/OWASP/CheatSheetSeries/blob/master/CONTRIBUTING.md';
+
     it.each([
       [
         'a link plus a character reference',
@@ -766,56 +772,43 @@ describe('security-review fixes (ADR 0024)', () => {
         'comment marker',
       ],
     ])(
-      'still refuses %s in pr.close: the link exemption covers links only',
+      "still refuses %s in pr-gate's pr.close: the exemption covers links only",
       async (_n, body, problem) => {
-        const agent = policy.agents['backlog-plain'];
-        if (!agent) throw new Error('fixture');
-        const saved = agent.actions;
-        agent.actions = [...saved, 'pr.close'];
-        try {
-          const gh = fakeGithub();
-          const r = await act(
-            testEnv,
-            request({ type: 'pr.close', repo: REPO, pull: 7, body }, 'backlog-plain'),
-            nextNow(),
-          );
-          expect(r).toMatchObject({
-            ok: false,
-            code: 'policy_denied',
-            reason: `comment refused: ${problem}`,
-          });
-          expect(gh.writes).toEqual([]);
-        } finally {
-          agent.actions = saved;
-        }
+        const gh = fakeGithub();
+        const r = await act(testEnv, prClose(body, 'pr-gate'), nextNow());
+        expect(r).toMatchObject({
+          ok: false,
+          code: 'policy_denied',
+          reason: `comment refused: ${problem}`,
+        });
+        expect(gh.writes).toEqual([]);
       },
     );
 
-    it("keeps links for pr.close: pr-gate's close comment links CONTRIBUTING.md", async () => {
+    it("keeps links for pr-gate's pr.close: its close comment links CONTRIBUTING.md", async () => {
+      const gh = fakeGithub();
+      const r = await act(testEnv, prClose(CONTRIBUTING, 'pr-gate'), nextNow());
+      expect(r).toMatchObject({ ok: true });
+      expect(gh.writes.map((w) => `${w.method} ${w.path}`)).toEqual([
+        'POST /issues/7/comments',
+        'PATCH /pulls/7',
+      ]);
+    });
+
+    it("refuses links in any other agent's pr.close (CI review of #165)", async () => {
       const agent = policy.agents['backlog-plain'];
       if (!agent) throw new Error('fixture');
       const saved = agent.actions;
       agent.actions = [...saved, 'pr.close'];
       try {
         const gh = fakeGithub();
-        const r = await act(
-          testEnv,
-          request(
-            {
-              type: 'pr.close',
-              repo: REPO,
-              pull: 7,
-              body: 'See https://github.com/OWASP/CheatSheetSeries/blob/master/CONTRIBUTING.md',
-            },
-            'backlog-plain',
-          ),
-          nextNow(),
-        );
-        expect(r).toMatchObject({ ok: true });
-        expect(gh.writes.map((w) => `${w.method} ${w.path}`)).toEqual([
-          'POST /issues/7/comments',
-          'PATCH /pulls/7',
-        ]);
+        const r = await act(testEnv, prClose(CONTRIBUTING, 'backlog-plain'), nextNow());
+        expect(r).toMatchObject({
+          ok: false,
+          code: 'policy_denied',
+          reason: 'comment refused: link',
+        });
+        expect(gh.writes).toEqual([]);
       } finally {
         agent.actions = saved;
       }

@@ -37,6 +37,17 @@ describe('GitHubRest', () => {
   });
 });
 
+describe('GitHubReadClient redirects', () => {
+  it('never follows a redirect: a 301 is a failed read', async () => {
+    const fetchMock = vi.fn(() => Promise.resolve(new Response(null, { status: 301 })));
+    const client = new GitHubReadClient(id, fetchMock);
+    const r = await client.get('/repos/x/y/issues/1');
+    expect(r.ok).toBe(false);
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(init.redirect).toBe('manual');
+  });
+});
+
 describe('GitHubRest redirects', () => {
   it('never follows a redirect: a 301 for a transferred issue throws before anything is written', async () => {
     const fetchMock = vi.fn(() =>
