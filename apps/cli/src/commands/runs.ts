@@ -1,5 +1,5 @@
 import { Command, InvalidArgumentError } from 'commander';
-import type { RunEvent} from '@custodes/schema';
+import type { RunEvent } from '@custodes/schema';
 import { RunEventsResponse, RunKilledResponse } from '@custodes/schema';
 import { z } from 'zod';
 import { ApiClient } from '../client.js';
