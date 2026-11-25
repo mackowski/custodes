@@ -72,6 +72,8 @@ titled "unchanged".
   signed, which crosses a trust boundary (TB1–TB7 from data-flow.md), where untrusted text enters.
 - Add another diagram when it says more: a `sequenceDiagram` for a new request or approval flow, a
   `stateDiagram-v2` for a new lifecycle, a deploy-order diagram for a CI change.
+- In a `sequenceDiagram`, never put `;` in a message: it ends the statement (GitHub fails to
+  render).
 - Check each node and edge against the code once more. A wrong diagram is worse than none.
 
 ## 4. Write the section into the PR body
