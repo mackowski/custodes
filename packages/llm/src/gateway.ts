@@ -106,6 +106,8 @@ export class ModelOutputError extends Error {
     readonly reason: 'refusal' | 'max_tokens',
     /** The paid usage of the unusable answer, so a budget still counts it (ADR 0023). */
     readonly usage?: MessagesResponse['usage'],
+    /** The model that gave it, when not the one asked for (a fallback): priced as itself. */
+    readonly model?: string,
   ) {
     super(`model output unusable: ${reason}`);
     this.name = 'ModelOutputError';

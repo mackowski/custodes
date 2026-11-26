@@ -18,6 +18,7 @@ import {
   costOf,
   defineTool,
   GatewayError,
+  OpenRouterMessages,
   parseStructured,
   runLoop,
 } from '@custodes/llm';
@@ -69,6 +70,62 @@ const gateway = new AnthropicGateway({
   gatewayId: env['AI_GATEWAY_ID'] ?? 'custodes',
   gatewayToken: token,
 });
+
+// backlog-review's fallback (#132): the runtime request shape on GPT-6.2 Sol through OpenRouter
+// (tools, reasoning effort, data_collection deny). First, so it runs even when Anthropic's credit
+// balance is out, which is when the fallback is needed.
+try {
+  const sol = new OpenRouterMessages({
+    accountId: env['AI_GATEWAY_ACCOUNT_ID'] ?? '5f62912564df344533c9563904c77662',
+    gatewayId: env['AI_GATEWAY_ID'] ?? 'custodes',
+    gatewayToken: token,
+  });
+  const readIssue = defineTool({
+    name: 'issue',
+    description: 'Read one issue with all its comments.',
+    args: z.strictObject({ repo: z.literal('OWASP/CheatSheetSeries'), number: z.number().int() }),
+    run: () => Promise.resolve({ content: JSON.stringify({ issue, comments: [] }) }),
+  });
+  let spent = 0;
+  const loop = await runLoop(
+    {
+      model: 'openai/gpt-6.2-sol',
+      system:
+        'You review one OWASP Cheat Sheet Series issue. Read it with the issue tool, then answer with JSON {"proposals": []}.',
+      task: 'Read issue OWASP/CheatSheetSeries#1, then answer {"proposals": []}.',
+      tools: [readIssue],
+      output: ProposalList,
+      caps: { rounds: 3, usd: 0.05 },
+      maxTokens: 2_000,
+      metadata: { agentId: 'smoke', runId: crypto.randomUUID() },
+    },
+    {
+      send: (req) => sol.messages(req),
+      guard: () => Promise.resolve(),
+      costOf: (u) => costOf('openai/gpt-6.2-sol', u),
+      daily: {
+        ledger: {
+          spentToday: () => Promise.resolve(spent),
+          add: (usd) => {
+            spent += usd;
+            return Promise.resolve();
+          },
+        },
+        usd: 0.05,
+      },
+      record: () => undefined,
+    },
+  );
+  if (!loop.ok) throw new Error(`fallback runtime loop stopped: ${loop.stop}`);
+  console.log(
+    `model smoke OK (runtime fallback, gpt-6.2-sol): rounds=${String(loop.rounds)} tools=${String(loop.progress.calls.length)}`,
+  );
+} catch (err) {
+  // A warning, not a failure: the fallback being down must not block every Worker's deploy.
+  console.log(
+    `::warning::model smoke (runtime fallback, gpt-6.2-sol) FAILED: ${describeError(err)}`,
+  );
+}
 
 try {
   const user = buildUserMessage(issue, {

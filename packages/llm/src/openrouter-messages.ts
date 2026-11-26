@@ -98,6 +98,7 @@ export function fromChatCompletion(raw: unknown, model: string): MessagesRespons
       finish_reason?: unknown;
       message?: {
         content?: unknown;
+        refusal?: unknown;
         tool_calls?: { id?: unknown; function?: { name?: unknown; arguments?: unknown } }[];
       };
     }[];
@@ -109,8 +110,9 @@ export function fromChatCompletion(raw: unknown, model: string): MessagesRespons
     output_tokens: Number(r.usage?.completion_tokens),
   };
   const finish = typeof choice?.finish_reason === 'string' ? choice.finish_reason : null;
-  if (finish === 'length') throw new ModelOutputError('max_tokens', usage);
-  if (finish === 'content_filter') throw new ModelOutputError('refusal', usage);
+  if (finish === 'length') throw new ModelOutputError('max_tokens', usage, model);
+  if (finish === 'content_filter' || typeof choice?.message?.refusal === 'string')
+    throw new ModelOutputError('refusal', usage, model);
   const content: MessagesResponse['content'] = [];
   const text = choice?.message?.content;
   if (typeof text === 'string' && text !== '') content.push({ type: 'text', text });
@@ -200,9 +202,22 @@ export function withFallback(
       const res = await primary(req);
       return { ...res, model: req.model };
     } catch (err) {
-      if (err instanceof ModelOutputError) throw err;
+      if (!isProviderOutage(err)) throw err;
       onFallback?.(err);
       return fallback({ ...req, model: fallbackModel });
     }
   };
+}
+
+/**
+ * Whether a primary failure is the provider's, not the request's: a timeout or network error,
+ * 429, 5xx (529 overloaded), or a 400 for the credit balance. A request the provider refuses for
+ * itself (another 4xx, e.g. a prompt too long) does not fall back, so issue text cannot pick the
+ * model (security review of the fallback, #168 M1).
+ */
+export function isProviderOutage(err: unknown): boolean {
+  if (err instanceof ModelOutputError) return false;
+  if (!(err instanceof GatewayError)) return true;
+  if (err.status === 429 || err.status >= 500) return true;
+  return err.status === 400 && /credit balance/i.test(err.message);
 }

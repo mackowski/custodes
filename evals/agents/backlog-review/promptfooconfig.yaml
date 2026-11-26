@@ -9,6 +9,12 @@ description: backlog-review item-review (#132 v1) on the agent runtime - golden 
 providers:
   - id: file://../../providers/backlog-runtime.mjs
     label: sonnet-runtime
+  # The agent's fallback when Anthropic fails (#132). Report only (summarize.ts: `shadow:` labels
+  # never fail the run) until it passes this suite; that is a precondition for leaving shadow.
+  - id: file://../../providers/backlog-runtime.mjs
+    label: 'shadow:sol-runtime'
+    config:
+      model: openai/gpt-6.2-sol
 
 prompts:
   - 'item-review'

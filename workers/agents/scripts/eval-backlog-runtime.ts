@@ -9,6 +9,7 @@ import {
   brokerEvidence,
   childTask,
   costOf,
+  OpenRouterMessages,
   proposalOf,
   readTools,
   runWithRestarts,
@@ -77,6 +78,8 @@ function fixtureRead(f: Fixture): ReadFn {
 export async function runItemReview(
   fixture: Fixture,
   env: Record<string, string | undefined>,
+  /** `openai/...`: run the role on that model through OpenRouter (the agent's fallback). */
+  opts: { model?: string } = {},
 ): Promise<RunOutput> {
   const { roles } = backlogAgents(fixture.repo);
   const role = roles['item-review'];
@@ -85,16 +88,20 @@ export async function runItemReview(
   if (!reads) throw new Error('no backlog-review read policy');
   const read = fixtureRead(fixture);
   const runId = crypto.randomUUID();
-  const gateway = new AnthropicGateway({
+  const cfg = {
     accountId: env['AI_GATEWAY_ACCOUNT_ID'] ?? '',
     gatewayId: env['AI_GATEWAY_ID'] ?? '',
     gatewayToken: env['AI_GATEWAY_TOKEN'] ?? '',
-  });
+  };
+  const gateway =
+    opts.model?.startsWith('openai/') === true
+      ? new OpenRouterMessages(cfg)
+      : new AnthropicGateway(cfg);
   const port = { repos: [fixture.repo] as [string], resources: reads.resources, read };
   const tools = readTools(port, runId, role.definition.tools);
   const toolNames: string[] = [];
   let spent = 0;
-  const d = role.definition;
+  const d = { ...role.definition, ...(opts.model ? { model: opts.model } : {}) };
   const result = await runWithRestarts(
     {
       model: d.model,

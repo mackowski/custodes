@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { GatewayError, ModelOutputError, type MessagesRequest } from '../src/gateway.js';
 import {
   fromChatCompletion,
+  isProviderOutage,
   OpenRouterMessages,
   toChatCompletions,
   withFallback,
@@ -116,6 +117,18 @@ describe('fromChatCompletion', () => {
     }
   });
 
+  it('names the answering model on an unusable answer, so it is priced as itself, and reads refusals', () => {
+    try {
+      fromChatCompletion(
+        { usage, choices: [{ finish_reason: 'stop', message: { refusal: 'No.' } }] },
+        'openai/gpt-6.2-sol',
+      );
+      expect.unreachable();
+    } catch (e) {
+      expect(e).toMatchObject({ reason: 'refusal', model: 'openai/gpt-6.2-sol' });
+    }
+  });
+
   it('answers end_turn with the text when there is no tool call', () => {
     const r = fromChatCompletion(
       { usage, choices: [{ finish_reason: 'stop', message: { content: '{"proposals":[]}' } }] },
@@ -206,6 +219,20 @@ describe('withFallback', () => {
     expect((await send(req)).model).toBe('openai/gpt-6.2-sol');
     expect(seen).toEqual(['openai/gpt-6.2-sol']);
     expect(onFallback).toHaveBeenCalledOnce();
+  });
+
+  it('falls back only on a provider outage, never on a request the provider refuses', () => {
+    expect(isProviderOutage(new GatewayError(529, 'overloaded'))).toBe(true);
+    expect(isProviderOutage(new GatewayError(503, 'x'))).toBe(true);
+    expect(isProviderOutage(new GatewayError(429, 'x'))).toBe(true);
+    expect(isProviderOutage(new GatewayError(400, 'Your credit balance is too low'))).toBe(true);
+    expect(isProviderOutage(new Error('network'))).toBe(true);
+    // Issue text can make a prompt too long: that must not pick the model.
+    expect(
+      isProviderOutage(new GatewayError(400, 'prompt is too long', 'invalid_request_error')),
+    ).toBe(false);
+    expect(isProviderOutage(new GatewayError(401, 'x'))).toBe(false);
+    expect(isProviderOutage(new ModelOutputError('refusal'))).toBe(false);
   });
 
   it('does not fall back on an unusable answer (the model answered)', async () => {

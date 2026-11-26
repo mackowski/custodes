@@ -1,3 +1,4 @@
+import { errorType } from '@custodes/core';
 import { CustodesAgent } from '@custodes/core/agent';
 import {
   AnthropicGateway,
@@ -30,6 +31,8 @@ export { BACKLOG_REVIEW_MANIFEST };
 /**
  * #132 v1 is shadow: every routed action goes to the D1 digest, nothing reaches GitHub. Leaving
  * shadow is a reviewed code change (decisions on #132, 2026-11-26); a test pins it.
+ * Before leaving shadow, the fallback model (FALLBACK_MODEL) must pass the same eval suite as the
+ * primary, injection cases included (security review of the fallback, #168 M1).
  * shortcut: rows keep the issue's `updated_at` from before any action. Once live, the agent's own
  * comment or label bumps it and the issue is reviewed again next hour: v2 must store the
  * post-action `updated_at` or ignore its own events (lean review of #168, 10).
@@ -139,6 +142,7 @@ export class BacklogReviewAgent extends CustodesAgent<AgentsEnv> {
         gatewayToken: this.env.AI_GATEWAY_TOKEN,
         ...(this.modelFetch ? { fetchImpl: this.modelFetch } : {}),
       });
+      let fallbacks = 0;
       const fallback = new OpenRouterMessages({
         accountId: this.env.AI_GATEWAY_ACCOUNT_ID,
         gatewayId: this.env.AI_GATEWAY_ID,
@@ -157,14 +161,19 @@ export class BacklogReviewAgent extends CustodesAgent<AgentsEnv> {
         fallbackModel: FALLBACK_MODEL,
         send: withFallback(
           (req) => gateway.messages(req),
-          (req) => fallback.messages(req),
+          // The kill switch again: the primary may have hung until its timeout (review N1).
+          async (req) => {
+            await this.guard();
+            return fallback.messages(req);
+          },
           FALLBACK_MODEL,
           (err) => {
-            // Ids and the error class only, never its text.
+            fallbacks++;
+            // The error class, HTTP status and provider error type only, never its text.
             console.warn(
               JSON.stringify({
                 event: 'backlog-review.model_fallback',
-                what: err instanceof Error ? err.name : 'error',
+                what: errorType(err),
                 model: FALLBACK_MODEL,
               }),
             );
@@ -231,6 +240,8 @@ export class BacklogReviewAgent extends CustodesAgent<AgentsEnv> {
           stop: result.stop ?? null,
           selected: due.length,
           ...counts,
+          // Model calls answered by the fallback, which has not passed the golden suite as primary.
+          fallbacks,
         }),
       );
       return {

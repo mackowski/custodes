@@ -160,7 +160,7 @@ export async function runLoop<S extends z.ZodType>(
       if (err instanceof ModelOutputError) {
         // A refused or cut-off answer is still paid for: count it before stopping.
         if (err.usage) {
-          const cost = deps.costOf(err.usage);
+          const cost = deps.costOf(err.usage, err.model);
           state.usd += cost;
           await deps.daily.ledger.add(cost);
         }

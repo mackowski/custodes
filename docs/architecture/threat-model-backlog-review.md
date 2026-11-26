@@ -161,6 +161,12 @@ issue`.
    `checkAgentDefinitions`, and its walk tests assert the expected ids (L2).
 8. The eval cases in §4, and an end-to-end run on the sandbox before the first OWASP run.
 
+**Model fallback (operator decision 2026-11-26).** When Anthropic is down, the role runs on
+GPT-6.2 Sol through OpenRouter (`data_collection: deny`). OpenRouter and its upstream host become
+processors of public issue text. Fallback is only for provider outages, so issue text cannot pick the
+model. The run log counts fallbacks, and the fallback is evaluated report-only until it passes the
+suite, which is required before leaving shadow.
+
 **Accepted risks** (owner: operator)
 
 - The session's Cloudflare token can write D1 if it has that scope. MCP is read-only by rule

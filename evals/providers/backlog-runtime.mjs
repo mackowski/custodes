@@ -7,7 +7,7 @@
 /**
  * @typedef {{ issue: { body?: string | null, comments?: number }, comments?: unknown[], timeline?: unknown[], pulls?: Record<string, unknown>, search?: unknown }} Fixture
  * @typedef {{ body?: unknown, comments?: unknown, timeline?: unknown, pulls?: unknown, search?: unknown }} Inject
- * @typedef {{ runItemReview: (f: Fixture, env: Record<string, string | undefined>) => Promise<{ usd: number }> }} Runtime
+ * @typedef {{ runItemReview: (f: Fixture, env: Record<string, string | undefined>, opts: { model?: string }) => Promise<{ usd: number }> }} Runtime
  */
 
 /**
@@ -22,9 +22,10 @@ function parse(v) {
 }
 
 export default class BacklogRuntimeProvider {
-  /** @param {{ id?: string }} options */
+  /** @param {{ id?: string, config?: { model?: string } }} options */
   constructor(options) {
     this.providerId = options.id ?? 'backlog-runtime';
+    this.model = options.config?.model;
   }
 
   id() {
@@ -64,7 +65,11 @@ export default class BacklogRuntimeProvider {
       };
     if (inject.search !== undefined) fixture.search = inject.search;
     try {
-      const out = await runtime.runItemReview(fixture, process.env);
+      const out = await runtime.runItemReview(
+        fixture,
+        process.env,
+        this.model ? { model: this.model } : {},
+      );
       return { output: JSON.stringify(out), cost: out.usd };
     } catch (err) {
       return { error: err instanceof Error ? err.name : 'error' };
