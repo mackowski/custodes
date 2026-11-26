@@ -92,6 +92,15 @@ describe('bindings that carry approval authority', () => {
     }
   });
 
+  it('let only custodes-backlog-review bind the digest D1 custodes-backlog (#132; review of #167, I2)', () => {
+    for (const w of workers) {
+      const binds = (readWrangler(w).d1_databases ?? []).filter(
+        (d) => (d as { database_name?: string }).database_name === 'custodes-backlog',
+      );
+      expect(binds.length, w).toBe(w === 'backlog-review' ? 1 : 0);
+    }
+  });
+
   it('let only the broker bind the kill switch (a KV binding can also write; #104)', () => {
     expect(killSwitch?.id).toMatch(/^[0-9a-f]{32}$/);
     // The gateway halts and resumes through BrokerAdmin, which checks the operator's own token.
