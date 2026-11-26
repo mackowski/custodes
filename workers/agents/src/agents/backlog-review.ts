@@ -161,6 +161,9 @@ export class BacklogReviewAgent extends CustodesAgent<AgentsEnv> {
         onResult: async (r) => {
           // A child stopped before its first model call (kill switch, daily budget) or by an
           // error did no review: no row, so the issue stays due (security review r2 of #168, L1).
+          // shortcut: an issue whose child keeps erroring after paid rounds is retried first every
+          // hour; the tree's usdPerDay bounds it, and a non-zero `unrecorded` across consecutive
+          // `backlog-review.run` logs is the signal (security review r3 of #168, L1).
           if (!r.ok && (r.rounds === 0 || r.stop === 'halted' || r.stop === 'error')) {
             counts.unrecorded++;
             return;

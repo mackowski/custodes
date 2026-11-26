@@ -127,7 +127,7 @@ export interface ChildHook<T extends Proposal> {
   onResult?(
     r: { rootRunId: string; runId: string; target: ProposalTarget } & (
       | { ok: true; output: T; outcomes: Outcome[] }
-      /** `rounds`: model calls the child made; 0 when a guard or a cap stopped it before the first. */
+      /** `rounds`: model calls in the child's last attempt (restarts reset it; 0 when it threw). */
       | { ok: false; stop: string; rounds: number }
     ),
   ): void | Promise<void>;

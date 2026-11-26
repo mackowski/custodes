@@ -45,14 +45,15 @@ acts by hand and teaches the agent. Threat model: `docs/architecture/threat-mode
    ORDER BY verdict_id, position;
    ```
    Keep only the newest verdict per issue.
-3. **Check** every action with `route = 'digest'`. Write one line per action to a scratch file
-   with the Write tool: `{"row": {"repo": ..., "issue": ...}, "route": ..., "action": <action JSON>}`,
+3. **Check** every action with `route = 'digest'`. Write one line per action to a new file in this session's scratchpad directory (never in the
+   repository or a shared `/tmp`), with the Write tool: `{"row": {"repo": ..., "issue": ...}, "route": ..., "action": <action JSON>}`,
    where `row` is the verdict row's repository and issue and `route` the action's route. Then run
    `scripts/check-digest-action.sh <file>`. It also refuses an action about an item other than its
    row.
    - `ok: false`: the action is refused; show the reason.
-   - `mentions`: logins that are not policy maintainers. The operator must confirm each one is a
-     person in that thread.
+   - `mentions`, and the logins in `action.assignees` of an `issue.assign`: the operator must
+     confirm each one is a person in that thread (the broker checks assignees; this check does
+     not).
 4. **Show** a table per state, in this order: `close`, `waiting_maintainer`, `waiting_author`,
    `needs_fix_by_us`, `unknown`, then the rest collapsed. Each row has:
    - the issue as `OWASP/CheatSheetSeries#N` with its link;

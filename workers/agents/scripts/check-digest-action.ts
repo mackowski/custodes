@@ -95,7 +95,8 @@ async function main(): Promise<void> {
     let bodyFile: string | undefined;
     if (typeof body === 'string' && body !== '') {
       bodyFile = `${path}.${String(n)}.body.md`;
-      writeFileSync(bodyFile, body);
+      // `wx`: never follow a planted link or overwrite a file (security review r3 of #168).
+      writeFileSync(bodyFile, body, { flag: 'wx' });
     }
     console.log(JSON.stringify({ ...r, action: rest, ...(bodyFile ? { bodyFile } : {}) }));
   }

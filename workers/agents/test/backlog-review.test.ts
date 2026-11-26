@@ -68,10 +68,12 @@ function fakeBroker(open: unknown[], calls: Calls) {
 /** A scripted model behind the AI Gateway URL; counts calls. */
 function fakeModel(script: unknown[]) {
   const state = { calls: 0 };
-  const fetchImpl = ((_u: unknown, _i?: unknown) => {
-    const next = script[state.calls++];
-    if (next === undefined) return Promise.resolve(new Response('script ran out', { status: 500 }));
-    return Promise.resolve(Response.json(next));
+  const fetchImpl = (async (_u: unknown, _i?: unknown) => {
+    let next = script[state.calls++];
+    // A step may be a function: it runs (e.g. halts the agent) and returns the response.
+    if (typeof next === 'function') next = await (next as () => Promise<unknown>)();
+    if (next === undefined) return new Response('script ran out', { status: 500 });
+    return Response.json(next);
   }) as typeof fetch;
   return { fetchImpl, state };
 }
@@ -298,6 +300,23 @@ describe('backlog-review (#132 v1)', () => {
     expect(POLICY.reads['backlog-review']?.resources).toEqual(
       expect.arrayContaining(['timeline', 'pull']),
     );
+  });
+
+  it('writes no row for a child halted mid-run, so the issue stays due (security review r2 of #168, L1)', async () => {
+    const script = [
+      toolUse(0, 'delegate', {
+        role: 'item-review',
+        target: { repo: REPO, kind: 'issue', number: 7 },
+      }),
+      // The child's first round, then the operator halts the agent before its next round.
+      async () => {
+        await testKillSwitch().halt('backlog-review', 'test', 'tester');
+        return toolUse(1, 'issue', { repo: REPO, number: 7 });
+      },
+      answer(2, verdict),
+    ];
+    await inAgent([issue], script, (agent) => agent.review({ kind: 'manual' }, NOW));
+    expect(await rows()).toEqual([]);
   });
 
   it('raises to a human below high confidence, on any doubt, or for an unknown state', () => {
