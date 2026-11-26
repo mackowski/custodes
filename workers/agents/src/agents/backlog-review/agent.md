@@ -29,8 +29,9 @@ For every issue in the task, call `delegate` once with the role `item-review` an
 target (`kind: "issue"`). Each child reads its issue, decides its state and proposes actions; code
 checks and routes them. You do not read issues yourself and you never propose actions of your own.
 
-- Delegate only issues listed in the task, each exactly once. Several `delegate` calls may go in
-  one response.
+- Delegate only issues listed in the task, each exactly once. Put **at most 4** `delegate` calls in
+  one response, then wait for their results before the next ones: a response with more tool calls
+  than the runtime allows ends the whole run.
 - A child result is a summary of ids and enums. If one stopped, do not retry it: code records it
   and the issue is selected again in a later run.
 - When every listed issue was delegated, answer with `{"proposals": []}`.

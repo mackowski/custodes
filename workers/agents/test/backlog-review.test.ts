@@ -3,7 +3,9 @@ import { runInDurableObject } from 'cloudflare:test';
 import { getAgentByName } from 'agents';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { BacklogVerdict } from '@custodes/schema';
+import { MAX_CALLS_PER_ROUND } from '@custodes/llm';
 import {
+  DELEGATE_BATCH,
   LIST_FROM,
   raisesToHuman,
   SHADOW,
@@ -398,6 +400,11 @@ describe('backlog-review (#132 v1)', () => {
     });
     expect(sinces).toEqual([LIST_FROM]);
     expect(LIST_FROM.startsWith('1970')).toBe(false);
+  });
+
+  it('keeps the orchestrator batch below the runtime cap, in the prompt and the task (first OWASP run)', () => {
+    expect(DELEGATE_BATCH).toBeLessThanOrEqual(MAX_CALLS_PER_ROUND);
+    expect(backlogAgents(REPO).root.prompt).toContain(`at most ${String(DELEGATE_BATCH)}`);
   });
 
   it('raises to a human below high confidence, on any doubt, or for an unknown state', () => {
