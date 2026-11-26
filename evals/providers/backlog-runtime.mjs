@@ -36,7 +36,10 @@ export default class BacklogRuntimeProvider {
    * @param {{ vars: Record<string, unknown> }} context
    */
   async callApi(_prompt, context) {
-    const runtime = /** @type {Runtime} */ (await import('../output/backlog-runtime.mjs'));
+    // Built by evals/build-runtime.sh (absent until then, so its type is unknown here).
+    /** @type {unknown} */
+    const mod = await import('../output/backlog-runtime.mjs');
+    const runtime = /** @type {Runtime} */ (mod);
     /** @type {Fixture} */
     const fixture = parse(context.vars['fixture']);
     /** @type {Inject} */
