@@ -93,9 +93,16 @@ describe('bindings that carry approval authority', () => {
   });
 
   it('let only custodes-backlog-review bind the digest D1 custodes-backlog (#132; review of #167, I2)', () => {
+    // Wrangler binds by id; the name is a label. Match either (final security pass of #168).
+    const backlogId = readWrangler('backlog-review').d1_databases?.find(
+      (d) => d.binding === 'BACKLOG',
+    )?.database_id;
+    expect(backlogId).toMatch(/^[0-9a-f-]{36}$/);
     for (const w of workers) {
       const binds = (readWrangler(w).d1_databases ?? []).filter(
-        (d) => (d as { database_name?: string }).database_name === 'custodes-backlog',
+        (d) =>
+          d.database_id === backlogId ||
+          (d as { database_name?: string }).database_name === 'custodes-backlog',
       );
       expect(binds.length, w).toBe(w === 'backlog-review' ? 1 : 0);
     }

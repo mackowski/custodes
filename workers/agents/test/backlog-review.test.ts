@@ -315,7 +315,11 @@ describe('backlog-review (#132 v1)', () => {
       },
       answer(2, verdict),
     ];
-    await inAgent([issue], script, (agent) => agent.review({ kind: 'manual' }, NOW));
+    await inAgent([issue], script, async (agent, _calls, model) => {
+      await agent.review({ kind: 'manual' }, NOW);
+      // The halt step ran: the child made its first model call and was stopped before the next.
+      expect(model.calls).toBe(2);
+    });
     expect(await rows()).toEqual([]);
   });
 
