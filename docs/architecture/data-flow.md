@@ -6,7 +6,13 @@ of this diagram it touches, before and after, and updates this file when the flo
 (`docs/sdlc.md`, `.github/workflows/pr-architecture.yml`). Derived from the Workers' `wrangler.jsonc` files, the broker policy and the
 gateway routes, not from memory; when they disagree, the code is right and this file is stale.
 
-Last checked against the code: 2026-11-25 (#140a slice 3, ADR 0023: the agent runtime is library
+Last checked against the code: 2026-11-26 (#132 v1 / #140b: new Worker `custodes-backlog-review`,
+the first agent on the runtime, in shadow. Hourly cron; its own broker entrypoint
+(`BacklogReviewBroker`) for reads only. The broker limits `cheatsheet_search` with `SEARCH_LIMIT`.
+It calls AI Gateway with `AI_GATEWAY_TOKEN`. Its D1 digest `custodes-backlog` is read by the
+operator's Claude Code session through the Cloudflare API: a new boundary, TB8. No GitHub write: the
+policy grants issue actions in hitl so the shadow digest shows what live would do, and
+`PAT_BACKLOG_REVIEW` has no secret). Before that, 2026-11-25 (#140a slice 3, ADR 0023: the agent runtime is library
 code on `CustodesAgent` and `@custodes/llm`, used by no deployed agent yet; when one runs it, its
 run state and event channel live in that agent's Durable Object SQLite, the operator kills a run
 or lists its events through the existing Access-protected `/agents/*` route, and a runtime write
@@ -54,7 +60,11 @@ flowchart LR
     TAP["custodes-triage-apply<br/>no model, no secret"]
     PRG["custodes-pr-gate<br/>crons and queue<br/>secrets: AI_GATEWAY_TOKEN, OPENROUTER_API_KEY"]:::secret
     CSR["custodes-cheatsheet-review<br/>queue; secret: AI_GATEWAY_TOKEN<br/>Workers AI toMarkdown for PDF sources"]:::secret
+    BLR["custodes-backlog-review<br/>runtime agent (ADR 0023), shadow<br/>hourly cron; secret: AI_GATEWAY_TOKEN"]:::secret
   end
+
+  BLD[("D1: custodes-backlog<br/>verdicts, routed actions (90 days)")]:::store
+  SESS["Operator's Claude Code session<br/>/backlog-digest; acts on GitHub as the operator"]
 
   REG["custodes-agents<br/>GET /registry only<br/>no binding, no secret"]:::noauth
 
@@ -83,6 +93,12 @@ flowchart LR
   GW -- "/agents/:class after Access" --> TRI
   GW -- "/agents/:class after Access" --> PRG
   GW -- "/agents/:class after Access" --> CSR
+  GW -- "/agents/:class after Access: run, run kill, events" --> BLR
+  BLR -- "signed, BacklogReviewBroker: reads (cheatsheet_search limited)" --> BR
+  BLR -- "untrusted text inside untrusted()" --> AIG
+  BLR -- "verdicts and shadow routes" --> BLD
+  BLD -- "Cloudflare API, SELECT only: untrusted data" --> SESS
+  SESS -- "gh as the operator, one consent per checked action" --> GH
   GW -- "KeyAdmin: public keys, Rotate" --> AGENTS
   GW -- "GET /registry" --> REG
   GW -- "BrokerAdmin + operator's Access token:<br/>decide, rotate, halt, resume; audit" --> BR
@@ -127,6 +143,7 @@ answer goes through `parseStructured()` (CLAUDE.md invariant 2).
 | TB5 | GitHub text → model            | issue, PR and comment text; public web pages cheatsheet-review fetched (PR links, claim sources, sources its security reviewer asks for, ADR 0020) | `untrusted()` envelopes, `parseStructured()` with zod, injection evals; fetches: `fetchable` on every hop (https, public DNS, not `custodes.work`, `api.github.com` or `*.workers.dev`), no credentials; pass 2 can only add findings                                                                                                                                                                                                 |
 | TB6 | agent Worker → e-mail          | digests, summaries, approval links                                                                                                                 | `send_email` `allowed_destination_addresses` = the gateway's `APPROVER_EMAILS` (`bindings.test.ts`)                                                                                                                                                                                                                                                                                                                                   |
 | TB7 | operator click → broker action | approval decision                                                                                                                                  | link token bound to the action hash, single use; decided only on `BrokerAdmin` (gateway only), which verifies the approver's own Access token itself (#104); the broker re-checks the snapshot (issue, or pull request with head SHA and reviews, ADR 0024)                                                                                                                                                                           |
+| TB8 | D1 digest → operator session   | backlog-review's verdicts, proposed actions and model text (#132 v1)                                                                               | untrusted data in the session (invariant 2, ADR 0016, `untrusted-mcp` hook); `/backlog-digest` builds commands only from parsed `BrokerAction` fields checked by `scripts/check-digest-action.sh` (policy, comment rules, mentions), one consent per action; MCP read-only (invariant 6)                                                                                                                                              |
 
 ## Where each credential lives
 
@@ -135,7 +152,7 @@ answer goes through `parseStructured()` (CLAUDE.md invariant 2).
 | GitHub PATs (`PAT_*`, Secrets Store)       | custodes-github-broker only                                                       | every GitHub read and write         |
 | Broker Keyring (Ed25519, approval HMAC)    | custodes-github-broker (Durable Object)                                           | countersigning audit records, links |
 | Agent keys (Ed25519, Keyholder)            | each agent Worker, its own                                                        | signing its broker calls            |
-| `AI_GATEWAY_TOKEN`                         | custodes-triage, -pr-gate, -cheatsheet-review                                     | calling AI Gateway                  |
+| `AI_GATEWAY_TOKEN`                         | custodes-triage, -pr-gate, -cheatsheet-review, -backlog-review                    | calling AI Gateway                  |
 | `OPENROUTER_API_KEY`                       | custodes-pr-gate only                                                             | Jev, direct (ADR 0011)              |
 | Provider keys (BYOK)                       | AI Gateway                                                                        | Anthropic, OpenRouter               |
 | `GITHUB_WEBHOOK_SECRET`                    | custodes-gateway                                                                  | verifying webhooks                  |

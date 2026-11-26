@@ -321,3 +321,36 @@ describe('backlog-review (#132 v1)', () => {
     });
   });
 });
+
+describe('check-digest-action (the /backlog-digest gate, threat model E1)', () => {
+  const R = 'OWASP/CheatSheetSeries';
+  it('passes a policy-allowed comment and lists mentions that are not maintainers', async () => {
+    const { checkAction } = await import('../scripts/check-digest-action.js');
+    expect(
+      checkAction({
+        type: 'issue.comment',
+        repo: R,
+        issue: 7,
+        body: 'Any news, @volunteer? cc @jmanico',
+      }),
+    ).toEqual({ ok: true, type: 'issue.comment', mentions: ['volunteer'] });
+  });
+  it('refuses what the broker would refuse', async () => {
+    const { checkAction } = await import('../scripts/check-digest-action.js');
+    expect(checkAction({ type: 'pr.merge', repo: R, pull: 7 })).toMatchObject({ ok: false });
+    expect(
+      checkAction({ type: 'issue.comment', repo: R, issue: 7, body: 'see https://evil.example' }),
+    ).toMatchObject({ ok: false, problem: 'link' });
+    expect(
+      checkAction({
+        type: 'issue.label.add',
+        repo: R,
+        issue: 7,
+        labels: ['custodes_cheatsheet_review'],
+      }),
+    ).toMatchObject({ ok: false });
+    expect(
+      checkAction({ type: 'issue.comment', repo: 'evil/repo', issue: 7, body: 'hi' }),
+    ).toMatchObject({ ok: false, denial: 'repo evil/repo not allowed' });
+  });
+});
