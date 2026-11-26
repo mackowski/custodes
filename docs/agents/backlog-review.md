@@ -89,6 +89,14 @@ All of these reach the model inside `untrusted()`. The task and today's date are
 | A model call fails after it was billed               | that spend is not recorded (accepted risk, threat model of the runtime)                                                                                                                                                                                                                                                      |
 | Comment spam bumps many issues                       | at most 20 issues per run, oldest verdict first                                                                                                                                                                                                                                                                              |
 
+## How to run it
+
+`gh workflow run backlog-review-run.yml -f instance=custodes-sandbox` (or `owasp-cheatsheetseries`).
+This uses the **Backlog review run** workflow, which calls `/agents/backlog-review-agent/<instance>/run`
+through the gateway with the `sandbox-e2e` Access service token. A service token may only trigger
+`run`, `digest` or `summary`. The run's ids and counts go to the job summary. From a machine with
+working Access login, `custodes agents run backlog-review --instance <instance>` does the same.
+
 ## How to halt
 
 `custodes agents halt backlog-review --reason "..."`. To kill one run and its tree, use
