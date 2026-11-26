@@ -98,6 +98,8 @@ export interface Outcome {
   route: Route['route'];
   /** Drop reason, or the broker's answer for act and approval. */
   detail: string;
+  /** Shadow digest only: where the action would go live (`Route.live`). */
+  live?: 'approval' | 'act';
 }
 
 export interface TreeResult {
@@ -110,6 +112,33 @@ export interface TreeResult {
 }
 
 const MAX_OUTPUT_TOKENS = 8_000;
+
+/**
+ * How an agent reads its roles' answers (#132: `BacklogVerdict`). The schema extends `Proposal`;
+ * the dispatcher gets only the `Proposal` fields. `raiseNeedsHuman` is code: it can raise
+ * `needsHuman`, never lower it. `onResult` gets every child's validated answer, or why it stopped,
+ * with the outcomes of its routed actions.
+ */
+export interface ChildHook<T extends Proposal> {
+  schema: z.ZodType<T>;
+  raiseNeedsHuman?(out: T): boolean;
+  onResult?(
+    r:
+      | { ok: true; runId: string; target: ProposalTarget; output: T; outcomes: Outcome[] }
+      | { ok: false; runId: string; target: ProposalTarget; stop: string },
+  ): void | Promise<void>;
+}
+
+/** The `Proposal` fields of an extended answer, for the dispatcher. */
+function proposalOf(out: Proposal, raise: boolean): Proposal {
+  return {
+    target: out.target,
+    actions: out.actions,
+    evidence: out.evidence,
+    reason: out.reason,
+    needsHuman: out.needsHuman || raise,
+  };
+}
 
 /**
  * The read tools of one run, one per resource the agent's read policy grants and its agent.md
@@ -403,7 +432,7 @@ export async function runAgentTree(
   root: BundledAgent,
   roles: Readonly<Record<string, BundledAgent>>,
   task: string,
-  opts: { shadow: boolean },
+  opts: { shadow: boolean; child?: ChildHook<Proposal> },
 ): Promise<TreeResult> {
   // A model without a price is refused before the first paid call, not after it.
   for (const a of [root, ...Object.values(roles)])
@@ -483,6 +512,7 @@ export async function runAgentTree(
         action: r.action.type,
         route: r.route,
         detail,
+        ...(r.route !== 'drop' && r.live !== undefined ? { live: r.live } : {}),
       });
     /** The run guard, right before a write or a request: a kill since routing stops it. */
     const stillAllowed = async () => {
@@ -608,16 +638,29 @@ export async function runAgentTree(
             const childId = store.start(agentId, rootRunId);
             // The child's task is built by code from the role and the target: no parent text.
             const childTask = `Assess ${target.kind} #${String(target.number)} in ${target.repo} as ${role}. Read it first, then answer with one proposal.`;
+            const hook = opts.child;
             const r = await run(
               childId,
               child,
               childTask,
               childTools(readTools(port, childId, child.definition.tools)),
-              Proposal,
+              hook?.schema ?? Proposal,
             );
-            if (!r.ok) return { ok: false, stop: r.stop };
-            const proposal = r.output as Proposal;
+            if (!r.ok) {
+              await hook?.onResult?.({ ok: false, runId: childId, target, stop: r.stop });
+              return { ok: false, stop: r.stop };
+            }
+            const output = r.output as Proposal;
+            const proposal = proposalOf(output, hook?.raiseNeedsHuman?.(output) ?? false);
+            const before = outcomes.length;
             await dispatch(childId, proposal, r.reads);
+            await hook?.onResult?.({
+              ok: true,
+              runId: childId,
+              target,
+              output,
+              outcomes: outcomes.slice(before),
+            });
             return { ok: true, proposal };
           },
         }),

@@ -84,6 +84,46 @@ export const Proposal = z.strictObject({
 });
 export type Proposal = z.infer<typeof Proposal>;
 
+/**
+ * backlog-review's item states (#132, golden case 001), plus `unknown`: an item that maps to no
+ * known state goes to a human. Scored against the golden case; never decides a write.
+ */
+export const BacklogState = z.enum([
+  'close',
+  'needs_full_review',
+  'needs_rereview',
+  'waiting_author',
+  'waiting_maintainer',
+  'ready_to_merge',
+  'needs_fix_by_us',
+  'untriaged_leave_to_triage',
+  'no_action',
+  'unknown',
+]);
+export type BacklogState = z.infer<typeof BacklogState>;
+
+/** Why a verdict is not certain (#132 update 2): a fixed enum, never free text. */
+export const UncertainBecause = z.enum([
+  'conflicting_reviews',
+  'scope_judgment',
+  'author_disagrees',
+  'security_tradeoff',
+  'unclear_ownership',
+  'possible_injection',
+]);
+
+/**
+ * backlog-review's `item-review` answer (#132 v1): a `Proposal` plus the item's state and the
+ * model's confidence. The dispatcher sees only the `Proposal` fields; anything below `high`
+ * confidence, any `uncertainBecause` or `unknown` raises `needsHuman` in code, never lowers it.
+ */
+export const BacklogVerdict = Proposal.extend({
+  state: BacklogState,
+  confidence: z.enum(['high', 'medium', 'low']),
+  uncertainBecause: z.array(UncertainBecause).max(6),
+});
+export type BacklogVerdict = z.infer<typeof BacklogVerdict>;
+
 /** An orchestrator's answer: several proposals, one per target (ADR 0023). A child answers one. */
 export const ProposalList = z.strictObject({ proposals: z.array(Proposal).max(10) });
 export type ProposalList = z.infer<typeof ProposalList>;

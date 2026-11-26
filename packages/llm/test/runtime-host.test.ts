@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { issueThreadFrom, MAX_HOTL_WRITES_PER_TREE, RunStore, type SqlLike } from '@custodes/core';
 import {
   AgentDefinition,
+  BacklogVerdict,
   Policy,
   type BrokerAction,
   type BrokerReadRequest,
@@ -422,6 +423,71 @@ describe('runAgentTree', () => {
     expect(acts).toHaveLength(1);
     const childRun = store.get(acts[0]!.runId);
     expect(childRun?.parentRunId).toBe(r.rootRunId);
+  });
+
+  it('reads a role answer through the child hook: Proposal fields to the dispatcher, the verdict to onResult (#132)', async () => {
+    const child = agent(definition({ id: 'item-review', outputSchema: 'BacklogVerdict' }));
+    const root = agent(definition({ tools: ['issue', 'delegate'], agents: ['item-review'] }));
+    const verdict = {
+      ...proposalOn7,
+      state: 'waiting_author',
+      confidence: 'medium',
+      uncertainBecause: [],
+    };
+    const { p, acts, approvalsAsked } = port('hotl', [
+      toolUse('delegate', { role: 'item-review', target: { repo: REPO, kind: 'issue', number: 7 } }, 0),
+      toolUse('issue', { repo: REPO, number: 7 }, 1),
+      answer(JSON.stringify(verdict), 2),
+      answer(JSON.stringify({ proposals: [] }), 3),
+    ]);
+    const results: unknown[] = [];
+    const r = await runAgentTree(p, root, { 'item-review': child }, 'Review.', {
+      shadow: true,
+      child: {
+        schema: BacklogVerdict,
+        raiseNeedsHuman: (v) => (v as BacklogVerdict).confidence !== 'high',
+        onResult: (x) => {
+          results.push(x);
+        },
+      },
+    });
+    expect(r.status).toBe('done');
+    expect(acts).toEqual([]);
+    expect(approvalsAsked).toEqual([]);
+    // hotl policy, but medium confidence raised needsHuman: live it would be an approval.
+    expect(r.outcomes).toEqual([
+      expect.objectContaining({ route: 'digest', detail: 'digest', live: 'approval' }),
+    ]);
+    expect(results).toEqual([
+      expect.objectContaining({
+        ok: true,
+        output: expect.objectContaining({ state: 'waiting_author', confidence: 'medium' }),
+        outcomes: [expect.objectContaining({ live: 'approval' })],
+      }),
+    ]);
+  });
+
+  it('reports a child whose answer fails the hook schema as stopped, and routes nothing (#132)', async () => {
+    const child = agent(definition({ id: 'item-review', outputSchema: 'BacklogVerdict' }));
+    const root = agent(definition({ tools: ['issue', 'delegate'], agents: ['item-review'] }));
+    // A plain Proposal has no state: it fails BacklogVerdict on every attempt.
+    const bad = (i: number) => answer(JSON.stringify(proposalOn7), i);
+    const { p, acts } = port('hotl', [
+      toolUse('delegate', { role: 'item-review', target: { repo: REPO, kind: 'issue', number: 7 } }, 0),
+      toolUse('issue', { repo: REPO, number: 7 }, 1),
+      bad(2),
+      bad(3),
+      bad(4),
+      answer(JSON.stringify({ proposals: [] }), 5),
+    ]);
+    const results: { ok: boolean }[] = [];
+    const r = await runAgentTree(p, root, { 'item-review': child }, 'Review.', {
+      shadow: false,
+      child: { schema: BacklogVerdict, onResult: (x) => void results.push(x) },
+    });
+    expect(acts).toEqual([]);
+    expect(r.outcomes).toEqual([]);
+    expect(results).toEqual([expect.objectContaining({ ok: false })]);
   });
 
   it('takes each HOTL slot on its own run with the tree-wide cap (re-review of #166)', async () => {
