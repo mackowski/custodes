@@ -47,6 +47,7 @@ const owner: Record<string, string> = {
   CheatsheetReviewBroker: 'custodes-cheatsheet-review',
   TriageBroker: 'custodes-triage',
   TriageApplyBroker: 'custodes-triage-apply',
+  BacklogReviewBroker: 'custodes-backlog-review',
 };
 const workers = readdirSync(WORKERS, { withFileTypes: true })
   .filter((d) => d.isDirectory())

@@ -63,6 +63,46 @@
       "trailer": "hidden",
       "$comment_labels": "The OWASP labels from #108 except the automation triggers (AUTOMATION_TRIGGER_LABELS in packages/schema): custodes_cheatsheet_review starts a cheatsheet-review run and jules starts Google Jules, which pushes a branch and opens a PR as the operator. This PAT is the operator's account, so its label would count as the operator's trigger (ADR 0019; security review of #113).",
       "bundleOnly": true
+    },
+    "backlog-review": {
+      "$comment": "#132 v1 (ADR 0023, decisions on #132 2026-11-26, threat model backlog-review): the first agent on the runtime. Shadow in code (SHADOW in workers/agents/src/agents/backlog-review.ts): the dispatcher routes every action to its D1 digest, after the same policy and evidence checks as live. The actions are granted so that shadow shows what live would do (dispatcher rule 2 drops an ungranted action). hitl: should shadow be turned off, every action still waits for the operator's approval link. PAT_BACKLOG_REVIEW has no secret yet (#132 v2), so the broker cannot run anything for it.",
+      "tokenBinding": "PAT_BACKLOG_REVIEW",
+      "mode": "hitl",
+      "tier": "T1",
+      "repos": ["mackowski/custodes-sandbox", "OWASP/CheatSheetSeries"],
+      "actions": [
+        "issue.comment",
+        "issue.label.add",
+        "issue.label.remove",
+        "issue.assign",
+        "issue.unassign",
+        "issue.close"
+      ],
+      "requiresApproval": [],
+      "requiresApprovalOn": {},
+      "rateLimitPerHour": 30,
+      "labels": [
+        "ACK_OBTAINED",
+        "ACK_WAITING",
+        "bug_bash_cincy",
+        "dependencies",
+        "docker",
+        "github_actions",
+        "HacktoberFest",
+        "HELP_WANTED",
+        "INTERNAL",
+        "javascript",
+        "MIGRATION",
+        "NEW_CS",
+        "python",
+        "REQUEST_ASVS",
+        "REQUEST_OPC",
+        "UPDATE_CS",
+        "WAITING_UPDATE",
+        "WEBSITE"
+      ],
+      "approvalTtlHours": 168,
+      "maxPendingApprovals": 50
     }
   },
   "$comment_maintainers": "ADR 0024: logins an agent's comment may @-mention besides the thread's people (never assign). OWASP/CheatSheetSeries: the project leaders in its README and CODEOWNERS (operator decision, 2026-11-25).",
@@ -119,6 +159,12 @@
       "tokenBinding": "PAT_READONLY",
       "repos": ["mackowski/custodes-sandbox", "OWASP/CheatSheetSeries"],
       "resources": ["issue", "comments"]
+    },
+    "backlog-review": {
+      "$comment": "#132 v1: `issues` for the code-only selector; `issue` (with `comments`) and `timeline` for item-review; `cheatsheet` and `cheatsheet_search` to check whether an issue's ask is already in the cheat sheets (broker search limit SEARCH_LIMIT, 5/min per agent).",
+      "tokenBinding": "PAT_READONLY",
+      "repos": ["mackowski/custodes-sandbox", "OWASP/CheatSheetSeries"],
+      "resources": ["issues", "issue", "comments", "timeline", "cheatsheet", "cheatsheet_search"]
     }
   }
 }

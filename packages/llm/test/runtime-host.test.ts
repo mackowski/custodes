@@ -435,7 +435,11 @@ describe('runAgentTree', () => {
       uncertainBecause: [],
     };
     const { p, acts, approvalsAsked } = port('hotl', [
-      toolUse('delegate', { role: 'item-review', target: { repo: REPO, kind: 'issue', number: 7 } }, 0),
+      toolUse(
+        'delegate',
+        { role: 'item-review', target: { repo: REPO, kind: 'issue', number: 7 } },
+        0,
+      ),
       toolUse('issue', { repo: REPO, number: 7 }, 1),
       answer(JSON.stringify(verdict), 2),
       answer(JSON.stringify({ proposals: [] }), 3),
@@ -461,7 +465,10 @@ describe('runAgentTree', () => {
     expect(results).toEqual([
       expect.objectContaining({
         ok: true,
-        output: expect.objectContaining({ state: 'waiting_author', confidence: 'medium' }),
+        output: expect.objectContaining({
+          state: 'waiting_author',
+          confidence: 'medium',
+        }) as unknown,
         outcomes: [expect.objectContaining({ live: 'approval' })],
       }),
     ]);
@@ -473,7 +480,11 @@ describe('runAgentTree', () => {
     // A plain Proposal has no state: it fails BacklogVerdict on every attempt.
     const bad = (i: number) => answer(JSON.stringify(proposalOn7), i);
     const { p, acts } = port('hotl', [
-      toolUse('delegate', { role: 'item-review', target: { repo: REPO, kind: 'issue', number: 7 } }, 0),
+      toolUse(
+        'delegate',
+        { role: 'item-review', target: { repo: REPO, kind: 'issue', number: 7 } },
+        0,
+      ),
       toolUse('issue', { repo: REPO, number: 7 }, 1),
       bad(2),
       bad(3),

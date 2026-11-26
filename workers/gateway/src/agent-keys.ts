@@ -20,6 +20,7 @@ export const KEY_ADMIN_BINDINGS: Readonly<Record<CallerName, string>> = {
   'custodes-cheatsheet-review': 'KEYS_CHEATSHEET_REVIEW',
   'custodes-triage': 'KEYS_TRIAGE',
   'custodes-triage-apply': 'KEYS_TRIAGE_APPLY',
+  'custodes-backlog-review': 'KEYS_BACKLOG_REVIEW',
 };
 
 export type PinState = 'pinned' | 'retired' | 'not pinned' | 'pinned, different key';

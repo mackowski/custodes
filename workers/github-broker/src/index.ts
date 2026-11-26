@@ -265,6 +265,7 @@ const callerApps = {
   'custodes-cheatsheet-review': callerApp('custodes-cheatsheet-review'),
   'custodes-triage': callerApp('custodes-triage'),
   'custodes-triage-apply': callerApp('custodes-triage-apply'),
+  'custodes-backlog-review': callerApp('custodes-backlog-review'),
 } satisfies Record<CallerName, App>;
 
 /** Bound only by `custodes-pr-gate` (checked by packages/core/test/bindings.test.ts). */
@@ -290,6 +291,13 @@ export class TriageBroker extends WorkerEntrypoint {
 export class TriageApplyBroker extends WorkerEntrypoint {
   override fetch(request: Request): Response | Promise<Response> {
     return callerApps[CALLER_ENTRYPOINTS.TriageApplyBroker].fetch(request, this.env, this.ctx);
+  }
+}
+
+/** Bound only by `custodes-backlog-review` (#132 v1). */
+export class BacklogReviewBroker extends WorkerEntrypoint {
+  override fetch(request: Request): Response | Promise<Response> {
+    return callerApps[CALLER_ENTRYPOINTS.BacklogReviewBroker].fetch(request, this.env, this.ctx);
   }
 }
 

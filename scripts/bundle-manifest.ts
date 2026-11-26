@@ -34,6 +34,11 @@ const WORKERS: readonly { name: string; cwd: string; config: string }[] = [
     cwd: 'workers/agents',
     config: '../cheatsheet-review/wrangler.jsonc',
   },
+  {
+    name: 'custodes-backlog-review',
+    cwd: 'workers/agents',
+    config: '../backlog-review/wrangler.jsonc',
+  },
 ];
 
 /** `name@version` for a pnpm store path (`.pnpm/@scope+name@1.2.3_peer…/node_modules/…`). */

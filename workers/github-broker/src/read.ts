@@ -22,6 +22,15 @@ export async function read(
     return { ok: false, code: 'policy_denied', reason: `resource ${req.resource} not allowed` };
   const halt = await new KillSwitch(env.KILL_SWITCH).state(req.agentId);
   if (halt.halted) return { ok: false, code: 'halted', reason: halt.reason ?? 'halted' };
+  // GitHub code search allows 10 requests a minute per account, shared with the operator: each
+  // agent gets at most SEARCH_LIMIT's share, and without the binding there is no search at all
+  // (threat model agent-runtime D2, backlog-review D2).
+  if (req.resource === 'cheatsheet_search') {
+    const limiter = (env as { SEARCH_LIMIT?: RateLimit }).SEARCH_LIMIT;
+    const limited = limiter ? !(await limiter.limit({ key: req.agentId })).success : true;
+    if (limited)
+      return { ok: false, code: 'policy_denied', reason: 'search rate limit', rateLimited: true };
+  }
 
   const path = buildReadPath(req);
   const client = new GitHubReadClient(

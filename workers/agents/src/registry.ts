@@ -1,5 +1,6 @@
 import type { AgentManifest } from '@custodes/schema';
 import {
+  BACKLOG_REVIEW_MANIFEST,
   CHEATSHEET_REVIEW_MANIFEST,
   IMPLEMENTATION_CHECK_MANIFEST,
   PR_GATE_MANIFEST,
@@ -17,4 +18,5 @@ export const REGISTRY: readonly AgentManifest[] = [
   PROPOSAL_REVIEW_MANIFEST,
   PR_GATE_MANIFEST,
   CHEATSHEET_REVIEW_MANIFEST,
+  BACKLOG_REVIEW_MANIFEST,
 ];

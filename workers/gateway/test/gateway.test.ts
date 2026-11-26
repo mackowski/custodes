@@ -324,7 +324,13 @@ describe('agentWorker: which Worker serves /agents/<class>/... (ADR 0018, cutove
   const TRIAGE = { which: 'triage' } as unknown as Fetcher;
   const PR_GATE = { which: 'pr-gate' } as unknown as Fetcher;
   const CHEATSHEET_REVIEW = { which: 'cheatsheet-review' } as unknown as Fetcher;
-  const to = (path: string) => agentWorker({ TRIAGE, PR_GATE, CHEATSHEET_REVIEW }, path);
+  const BACKLOG_REVIEW = { which: 'backlog-review' } as unknown as Fetcher;
+  const to = (path: string) =>
+    agentWorker({ TRIAGE, PR_GATE, CHEATSHEET_REVIEW, BACKLOG_REVIEW }, path);
+
+  it('sends backlog-review to custodes-backlog-review (#132)', () => {
+    expect(to('/agents/backlog-review-agent/owasp-cheatsheetseries/run')).toBe(BACKLOG_REVIEW);
+  });
 
   it('sends triage and its two specialists to custodes-triage', () => {
     for (const cls of ['triage-agent', 'implementation-check-agent', 'proposal-review-agent'])

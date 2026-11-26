@@ -10,6 +10,7 @@ export { ProposalReviewAgent } from '../src/agents/proposal-review.js';
 export { PrGateAgent } from '../src/agents/pr-gate.js';
 export { CheatsheetReviewAgent } from '../src/agents/cheatsheet-review.js';
 export { TriageApplyAgent } from '../src/agents/triage-apply.js';
+export { BacklogReviewAgent } from '../src/agents/backlog-review.js';
 export { KeyAdmin, Keyholder } from '@custodes/core/keyholder';
 
 export default {

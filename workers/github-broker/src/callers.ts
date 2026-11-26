@@ -18,6 +18,7 @@ export const CALLER_ENTRYPOINTS = {
   CheatsheetReviewBroker: 'custodes-cheatsheet-review',
   TriageBroker: 'custodes-triage',
   TriageApplyBroker: 'custodes-triage-apply',
+  BacklogReviewBroker: 'custodes-backlog-review',
 } as const satisfies Record<string, CallerName>;
 
 /** What a verified request carries forward into the audit record. */

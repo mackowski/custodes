@@ -83,6 +83,7 @@ export const AGENT_CLASSES: ReadonlySet<string> = new Set([
   'proposal-review-agent',
   'pr-gate-agent',
   'cheatsheet-review-agent',
+  'backlog-review-agent',
 ]);
 
 /**

@@ -275,3 +275,34 @@ describe('broker read() for cheatsheet-review', () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 });
+
+describe('broker read() limits cheatsheet_search (ADR 0023, #132)', () => {
+  const search = req({
+    agentId: 'backlog-review',
+    resource: 'cheatsheet_search',
+    search: 'refresh token',
+  });
+  const withLimit = (success: boolean | null) => {
+    const limiter = success === null ? undefined : { limit: () => Promise.resolve({ success }) };
+    return { ...testEnv, SEARCH_LIMIT: limiter } as unknown as typeof testEnv;
+  };
+
+  it('searches while the agent is under the limit', async () => {
+    const fetchImpl = vi.fn(() => Promise.resolve(Response.json({ items: [] })));
+    expect(await read(withLimit(true), search, fetchImpl)).toMatchObject({ ok: true });
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+
+  it('refuses over the limit, and without the binding, before any GitHub call', async () => {
+    for (const env_ of [withLimit(false), withLimit(null)]) {
+      const fetchImpl = vi.fn();
+      expect(await read(env_, search, fetchImpl)).toEqual({
+        ok: false,
+        code: 'policy_denied',
+        reason: 'search rate limit',
+        rateLimited: true,
+      });
+      expect(fetchImpl).not.toHaveBeenCalled();
+    }
+  });
+});

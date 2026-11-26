@@ -25,6 +25,8 @@
 /scripts/policy-diff.ts                     @mackowski
 # An agent.md declares an agent's tools, roles and budget (ADR 0023): the operator reviews it.
 **/agent.md                                 @mackowski
+# Trusted context bundled into an agent's prompt (operator preferences, rules): reviewed the same way.
+/workers/agents/src/agents/backlog-review/context/ @mackowski
 /.github/CODEOWNERS                         @mackowski
 /.github/workflows/ci.yml                   @mackowski
 /.github/workflows/deploy-workers.yml       @mackowski

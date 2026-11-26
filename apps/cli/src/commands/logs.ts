@@ -7,6 +7,7 @@ export const WORKERS: Readonly<Record<string, string>> = {
   broker: 'custodes-github-broker',
   triage: 'custodes-triage',
   'triage-apply': 'custodes-triage-apply',
+  'backlog-review': 'custodes-backlog-review',
   'pr-gate': 'custodes-pr-gate',
   'cheatsheet-review': 'custodes-cheatsheet-review',
 };

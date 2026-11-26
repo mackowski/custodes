@@ -95,6 +95,8 @@ export interface Outcome {
   runId: string;
   target: ProposalTarget;
   action: BrokerAction['type'];
+  /** The routed action itself (ids and, for a comment, its body): for an agent's own digest. */
+  brokerAction: BrokerAction;
   route: Route['route'];
   /** Drop reason, or the broker's answer for act and approval. */
   detail: string;
@@ -510,6 +512,7 @@ export async function runAgentTree(
         runId,
         target: proposal.target,
         action: r.action.type,
+        brokerAction: r.action,
         route: r.route,
         detail,
         ...(r.route !== 'drop' && r.live !== undefined ? { live: r.live } : {}),

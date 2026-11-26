@@ -48,8 +48,12 @@ const child: AgentDefinition = {
   agents: [],
   budget: { roundsPerRun: 20, usdPerRun: 0.15, usdPerDay: 3 },
 };
+// The fixtures stand for an agent without a write policy (T0): the live backlog-review entry is
+// left out, so these cases do not change when its policy does.
+const { 'backlog-review': _live, ...liveAgents } = live.agents;
 const policy = {
   ...live,
+  agents: liveAgents,
   reads: {
     ...live.reads,
     'backlog-review': {
@@ -143,6 +147,8 @@ describe('every agent.md in the repository', () => {
         throw new Error(`${relative(ROOT, f)}: ${(err as Error).message}`, { cause: err });
       }
     });
+    // Not vacuous: the walk finds the agent.md files that exist (security review of #166, L2).
+    expect(defs.map((d) => d.id).sort()).toEqual(['backlog-review', 'item-review']);
     expect(checkAgentDefinitions(defs, live, schema as Record<string, unknown>)).toEqual([]);
   });
 });

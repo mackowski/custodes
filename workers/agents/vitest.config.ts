@@ -37,6 +37,8 @@ export default defineConfig({
         // Test-only: no agent Worker binds the kill switch (#103, threat T1). Tests write halt
         // flags here and the stub broker above reads the same namespace.
         kvNamespaces: { KILL_SWITCH: 'kill-switch' },
+        // Test-only: backlog-review's digest (custodes-backlog binds it in production).
+        d1Databases: { BACKLOG: 'backlog-test' },
         // Test-only: every agent class, bound side by side (production binds each in its own Worker).
         durableObjects: {
           TriageAgent: { className: 'TriageAgent', useSQLite: true },
@@ -45,6 +47,7 @@ export default defineConfig({
           PrGateAgent: { className: 'PrGateAgent', useSQLite: true },
           CheatsheetReviewAgent: { className: 'CheatsheetReviewAgent', useSQLite: true },
           TriageApplyAgent: { className: 'TriageApplyAgent', useSQLite: true },
+          BacklogReviewAgent: { className: 'BacklogReviewAgent', useSQLite: true },
           // As in every agent Worker: broker calls are signed by the Worker's Keyholder (ADR 0018).
           KEYHOLDER: { className: 'Keyholder', useSQLite: true },
         },

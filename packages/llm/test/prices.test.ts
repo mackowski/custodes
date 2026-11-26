@@ -47,7 +47,10 @@ describe('costOf', () => {
     }
   });
   it('has a price for the model of every agent.md in the repository', () => {
-    for (const f of agentFiles(ROOT)) {
+    const files = agentFiles(ROOT);
+    // Not vacuous (security review of #166, L2): backlog-review and its item-review role.
+    expect(files).toHaveLength(2);
+    for (const f of files) {
       const { definition } = parseAgentMd(readFileSync(f, 'utf8'));
       expect(
         Object.hasOwn(PRICES_USD_PER_MTOK, definition.model),
