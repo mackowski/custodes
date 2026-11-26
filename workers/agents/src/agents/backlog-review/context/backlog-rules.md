@@ -10,7 +10,7 @@ A state says whose move it is **and** whether that move is due now. Pick the fir
 1. `close`: the work the issue asks for is done. Every part of it maps to a pull request of this
    repository that is **merged** (the timeline's cross-reference shows `merged_at`), or to what the
    cheat sheet on the default branch says now. Propose `issue.close` with `stateReason:
-   "completed"` and a short thank-you comment that names the PR, and give each merged PR as
+"completed"` and a short thank-you comment that names the PR, and give each merged PR as
    `merged_pr` evidence (`ref` `"#<n>"`).
    - This is the most common reason a finished issue is still open: GitHub closes an issue only
      when the merged PR says "Fixes #N", "Closes #N" or "Resolves #N". A PR that says "Part of #N",
