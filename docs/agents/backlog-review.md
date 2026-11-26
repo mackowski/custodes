@@ -1,7 +1,7 @@
 # backlog-review
 
 - Tier: **T1** (ADR 0021) · Version: 0.1.0 · Mode: **hitl** in the policy, **shadow** in code (`SHADOW`)
-- Repositories: OWASP/CheatSheetSeries (hourly cron); mackowski/custodes-sandbox (on demand only)
+- Repositories: OWASP/CheatSheetSeries and mackowski/custodes-sandbox, on demand (cron off until the evals pass)
 - Worker: `custodes-backlog-review` (`workers/backlog-review/wrangler.jsonc`, entry `workers/agents/src/backlog-review-worker.ts`)
 - Class: `workers/agents/src/agents/backlog-review.ts` · Policy: `workers/github-broker/policy/policy.json#agents.backlog-review`
 - Runtime (ADR 0023): `agent.md` for the orchestrator and the `item-review` role in
@@ -24,7 +24,7 @@ GitHub from the agent.
 
 ## How a run works
 
-1. **Selector** (hourly cron `41 * * * *`, code only, no model). It lists open issues and drops
+1. **Selector** (code only, no model). It runs on demand for now; the hourly cron `41 * * * *` is switched on by a later PR, after the sandbox end-to-end run, a manual OWASP run and >= 95% on golden case 001 with the primary model. It lists open issues and drops
    pull requests and triage's new issues (`isNewIssue`). It keeps an issue if it changed since its
    last verdict, or if that verdict is at least 72 hours old. Never-reviewed issues come first, then
    the oldest verdict, at most 20 per run. When nothing is due, no model is called.

@@ -35,8 +35,11 @@
     "BacklogReviewAgent": { "type": "durable-object", "storage": "sqlite" },
     "Keyholder": { "type": "durable-object", "storage": "sqlite" },
   },
-  // Hourly; the run calls a model only when an issue is due (src/crons.ts CRON_BACKLOG_REVIEW).
-  "triggers": { "crons": ["41 * * * *"] },
+  // No cron yet (decisions on #132: sandbox e2e, then a manual OWASP run, then the cron, and only
+  // after the primary model passes golden case 001 at >= 95%). Runs on demand through the gateway
+  // until a reviewed PR sets ["41 * * * *"] (src/crons.ts CRON_BACKLOG_REVIEW). Empty, not absent,
+  // so a deploy clears any cron.
+  "triggers": { "crons": [] },
   // The digest: created by Terraform (infra/terraform/modules/data-stores), written only by this
   // Worker, read by the operator through the Cloudflare API (threat model backlog-review).
   "d1_databases": [

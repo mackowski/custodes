@@ -7,7 +7,7 @@ of this diagram it touches, before and after, and updates this file when the flo
 gateway routes, not from memory; when they disagree, the code is right and this file is stale.
 
 Last checked against the code: 2026-11-26 (#132 v1 / #140b: new Worker `custodes-backlog-review`,
-the first agent on the runtime, in shadow. Hourly cron; its own broker entrypoint
+the first agent on the runtime, in shadow. On demand only, cron off until its evals pass; its own broker entrypoint
 (`BacklogReviewBroker`) for reads only. The broker limits `cheatsheet_search` with `SEARCH_LIMIT`.
 It calls AI Gateway with `AI_GATEWAY_TOKEN`. Its D1 digest `custodes-backlog` is read by the
 operator's Claude Code session through the Cloudflare API: a new boundary, TB8. No GitHub write: the
@@ -61,7 +61,7 @@ flowchart LR
     TAP["custodes-triage-apply<br/>no model, no secret"]
     PRG["custodes-pr-gate<br/>crons and queue<br/>secrets: AI_GATEWAY_TOKEN, OPENROUTER_API_KEY"]:::secret
     CSR["custodes-cheatsheet-review<br/>queue; secret: AI_GATEWAY_TOKEN<br/>Workers AI toMarkdown for PDF sources"]:::secret
-    BLR["custodes-backlog-review<br/>runtime agent (ADR 0023), shadow<br/>hourly cron; secret: AI_GATEWAY_TOKEN"]:::secret
+    BLR["custodes-backlog-review<br/>runtime agent (ADR 0023), shadow<br/>on demand (cron off until evals pass); secret: AI_GATEWAY_TOKEN"]:::secret
   end
 
   BLD[("D1: custodes-backlog<br/>verdicts, routed actions (90 days)")]:::store
