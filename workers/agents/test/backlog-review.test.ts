@@ -3,7 +3,12 @@ import { runInDurableObject } from 'cloudflare:test';
 import { getAgentByName } from 'agents';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { BacklogVerdict } from '@custodes/schema';
-import { raisesToHuman, SHADOW, type BacklogReviewAgent } from '../src/agents/backlog-review.js';
+import {
+  LIST_FROM,
+  raisesToHuman,
+  SHADOW,
+  type BacklogReviewAgent,
+} from '../src/agents/backlog-review.js';
 import { backlogAgents, bundle, POLICY } from '../src/agents/backlog-review/bundle.js';
 import type { AgentsEnv } from '../src/env.js';
 import { SANDBOX_INSTANCE } from '../src/instances.js';
@@ -366,6 +371,33 @@ describe('backlog-review (#132 v1)', () => {
     expect(urls.filter((u) => u.includes('/openrouter/v1/chat/completions'))).toHaveLength(4);
     const [v] = await rows();
     expect(v).toMatchObject({ issue: 7, status: 'ok', state: 'waiting_author' });
+  });
+
+  it('lists open issues from 2000, not the epoch: GitHub returns nothing for since=1970 (first OWASP run)', async () => {
+    const sinces: string[] = [];
+    const broker = withHaltState({
+      fetch: (url: string, init: RequestInit) => {
+        const req = JSON.parse(init.body as string) as {
+          resource: string;
+          query?: { since?: string };
+        };
+        if (req.resource === 'issues') sinces.push(req.query?.since ?? '');
+        return Response.json({ ok: true, data: [] });
+      },
+    });
+    const stub = await getAgentByName(testEnv.BacklogReviewAgent!, SANDBOX_INSTANCE);
+    await runInDurableObject(stub, async (agent: BacklogReviewAgent) => {
+      const i = agent as unknown as Internals;
+      const original = i.env;
+      i.env = Object.create(original, { BROKER: { value: broker } }) as AgentsEnv;
+      try {
+        await agent.review({ kind: 'manual' }, NOW);
+      } finally {
+        i.env = original;
+      }
+    });
+    expect(sinces).toEqual([LIST_FROM]);
+    expect(LIST_FROM.startsWith('1970')).toBe(false);
   });
 
   it('raises to a human below high confidence, on any doubt, or for an unknown state', () => {

@@ -45,6 +45,9 @@ export const SHADOW = true;
  */
 export const FALLBACK_MODEL = 'openai/gpt-6.2-sol';
 
+/** Lists every open item: earlier than any issue on GitHub, but not the epoch (see openIssues). */
+export const LIST_FROM = '2000-01-01T00:00:00Z';
+
 /** Pages of 100 open issues and PRs listed per run; OWASP has about 40 open items in all. */
 const MAX_LIST_PAGES = 5;
 
@@ -105,7 +108,9 @@ export class BacklogReviewAgent extends CustodesAgent<AgentsEnv> {
   private async openIssues(runId: string): Promise<PublicIssue[]> {
     const reader = new BrokerGitHubReader(this.broker, this.manifest.id, runId);
     const out: PublicIssue[] = [];
-    let since = '1970-01-01T00:00:00Z';
+    // Not the epoch: GitHub answers `since=1970-01-01T00:00:00Z` with an empty list (seen on the
+    // first OWASP run, 2026-11-26), while any later date returns every open item.
+    let since = LIST_FROM;
     for (let page = 0; page < MAX_LIST_PAGES; page++) {
       const { issues, resumeAt } = await reader.listUpdatedIssues(this.repo, since);
       for (const i of issues) if (!out.some((o) => o.number === i.number)) out.push(i);
