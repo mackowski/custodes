@@ -1,0 +1,47 @@
+name: Backlog review run
+# One on-demand run of backlog-review (#132 v1, shadow) on one instance, through the
+# Access-protected gateway with the sandbox-e2e service token. The gateway lets a service token
+# only trigger run, digest or summary on /agents/* (TB1). Shadow: the run writes verdicts to the
+# D1 digest and nothing to GitHub. Read the digest with /backlog-digest in Claude Code.
+#   gh workflow run backlog-review-run.yml -f instance=custodes-sandbox
+on:
+  workflow_dispatch:
+    inputs:
+      instance:
+        description: 'Instance (repository) to review'
+        type: choice
+        options: [custodes-sandbox, owasp-cheatsheetseries]
+        default: custodes-sandbox
+permissions: {}
+concurrency:
+  group: backlog-review-run
+  cancel-in-progress: false
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    # A run reviews at most 20 issues, one model call chain at a time: minutes, not hours.
+    timeout-minutes: 20
+    # The Access service token lives in this environment (main only).
+    environment: sandbox-e2e
+    permissions: {}
+    steps:
+      - name: Run backlog-review
+        env:
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          INSTANCE: ${{ inputs.instance }}
+        run: |
+          for v in CF_ACCESS_CLIENT_ID CF_ACCESS_CLIENT_SECRET; do
+            if [ -z "${!v}" ]; then echo "::error::$v is not set in the sandbox-e2e environment"; exit 1; fi
+          done
+          case "$INSTANCE" in custodes-sandbox|owasp-cheatsheetseries) ;; *) echo "::error::unknown instance"; exit 1 ;; esac
+          # The answer is ids, counts and enums only (BacklogRunResult). --max-redirs 0: Access
+          # answers a refused token with a redirect to its login page.
+          code=$(curl --silent --show-error --max-redirs 0 --max-time 1080 -X POST \
+            -o "$RUNNER_TEMP/result.json" -w '%{http_code}' \
+            -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
+            -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
+            "https://custodes.work/agents/backlog-review-agent/$INSTANCE/run")
+          echo "HTTP $code"
+          jq -c '{ok, detail, selected, rootRunId}' "$RUNNER_TEMP/result.json" | tee -a "$GITHUB_STEP_SUMMARY"
+          [ "$code" = 200 ] && jq -e '.ok == true' "$RUNNER_TEMP/result.json" >/dev/null
