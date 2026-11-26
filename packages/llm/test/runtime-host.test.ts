@@ -4,7 +4,7 @@
  */
 import { DatabaseSync } from 'node:sqlite';
 import { describe, expect, it, vi } from 'vitest';
-import { issueThreadFrom, RunStore, type SqlLike } from '@custodes/core';
+import { issueThreadFrom, MAX_HOTL_WRITES_PER_TREE, RunStore, type SqlLike } from '@custodes/core';
 import {
   AgentDefinition,
   Policy,
@@ -14,6 +14,7 @@ import {
   type Proposal,
 } from '@custodes/schema';
 import type { MessagesResponse } from '../src/gateway.js';
+import { PRICES_USD_PER_MTOK } from '../src/prices.js';
 import {
   brokerEvidence,
   readTools,
@@ -329,7 +330,6 @@ function port(
       if (!next) throw new Error('script ran out');
       return Promise.resolve(next);
     },
-    costOf: () => 0.001,
     act: (action, runId, snapshot) => {
       if (opts.actThrows) return Promise.reject(new Error('broker down: secret-ish detail'));
       acts.push({ action, runId, snapshot });
@@ -422,6 +422,70 @@ describe('runAgentTree', () => {
     expect(acts).toHaveLength(1);
     const childRun = store.get(acts[0]!.runId);
     expect(childRun?.parentRunId).toBe(r.rootRunId);
+  });
+
+  it('takes each HOTL slot on its own run with the tree-wide cap (re-review of #166)', async () => {
+    const { p, store } = port('hotl', [
+      toolUse('issue', { repo: REPO, number: 7 }, 0),
+      answer(JSON.stringify({ proposals: [proposalOn7] }), 1),
+    ]);
+    const slot = vi.spyOn(store, 'takeHotlSlot');
+    const r = await runAgentTree(p, agent(), {}, 'Review.', { shadow: false });
+    expect(slot).toHaveBeenCalledWith(r.rootRunId, MAX_HOTL_WRITES_PER_TREE);
+  });
+
+  it('a store that already spent the daily budget stops the tree before any model call', async () => {
+    const { p, store } = port('hotl', []);
+    const send = vi.fn();
+    p.send = send;
+    store.addSpend(store.start('backlog-review'), 3);
+    const r = await runAgentTree(p, agent(), {}, 'Review.', { shadow: false });
+    expect(send).not.toHaveBeenCalled();
+    expect(r).toMatchObject({ status: 'stopped', stop: 'budget' });
+  });
+
+  it('prices a child role at its own model, not the root model (security review M1)', async () => {
+    const prices = PRICES_USD_PER_MTOK as Record<string, { input: number; output: number }>;
+    prices['test-pricey'] = { input: 1000, output: 1000 };
+    try {
+      const child = agent(
+        definition({ id: 'item-review', model: 'test-pricey', outputSchema: 'Proposal' }),
+      );
+      const root = agent(definition({ tools: ['issue', 'delegate'], agents: ['item-review'] }));
+      const { p, acts, store } = port('hotl', [
+        toolUse(
+          'delegate',
+          { role: 'item-review', target: { repo: REPO, kind: 'issue', number: 7 } },
+          0,
+        ),
+        toolUse('issue', { repo: REPO, number: 7 }, 1),
+        answer(JSON.stringify(proposalOn7), 2),
+        answer(JSON.stringify({ proposals: [] }), 3),
+      ]);
+      const r = await runAgentTree(p, root, { 'item-review': child }, 'Review.', {
+        shadow: false,
+      });
+      // Two child rounds of 10 + 10 tokens at $1000/MTok; two root rounds at Sonnet rates.
+      expect(store.get(acts[0]!.runId)?.spentUsd).toBeCloseTo(0.04, 10);
+      expect(store.get(r.rootRunId)?.spentUsd).toBeCloseTo(2 * 120e-6, 10);
+    } finally {
+      delete prices['test-pricey'];
+    }
+  });
+
+  it('refuses a tree with an unpriced model before any model call (security review M1)', async () => {
+    const send = vi.fn();
+    const { p, store } = port('hotl', []);
+    p.send = send;
+    const child = agent(
+      definition({ id: 'item-review', model: 'claude-unpriced', outputSchema: 'Proposal' }),
+    );
+    const root = agent(definition({ tools: ['issue', 'delegate'], agents: ['item-review'] }));
+    await expect(
+      runAgentTree(p, root, { 'item-review': child }, 'Review.', { shadow: false }),
+    ).rejects.toThrow(/no price for model claude-unpriced/);
+    expect(send).not.toHaveBeenCalled();
+    expect(store.spentSince('backlog-review', '1970-01-01T00:00:00Z')).toBe(0);
   });
 
   it('writes a two-action hotl proposal in bundle order, the snapshot on the first only (L1)', async () => {

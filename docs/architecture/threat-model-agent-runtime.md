@@ -181,8 +181,20 @@ read policy (`issue`, `comments`, `timeline`, `pull`, `pull_reviews`), a class i
 `agentWorker` and the agent Worker's `allowedAgentPath`, its `agent.md` files (CODEOWNERS:
 `**/agent.md`), and it must call `handleRunRequest` from its `onRequest`. The dispatcher routes
 with the policy bundled into that Worker; the broker still decides on its own copy.
+The run store lives in one Durable Object's SQLite, so the daily budget and the HOTL-write cap are
+per instance: #140b runs each agent on one fixed instance name and refuses others (security review
+of #166, L1). CI must run `checkAgentDefinitions` on every `agent.md` (L2). The tests that walk
+every `agent.md` (`agent-md.test.ts`, the price check in `prices.test.ts`) pass on zero files
+today: #140b makes them assert the expected ids. Meanwhile the host refuses a tree with an unpriced
+model before its first model call (M1).
 
 **Accepted risks**
+
+- Billed failures: a model call that throws after the provider did the work (timeout, gateway
+  error, a response without a valid `usage`) ends that run before its spend reaches the ledger,
+  and the root may still delegate up to `MAX_CHILDREN_PER_RUN` children. During a provider fault the
+  daily cap can be passed by that many untracked calls. AI Gateway's own spend logs show it;
+  revisit in #140b shadow if it is seen (re-review of #166).
 
 - `issue.close` evidence: GitHub keeps one cross-reference per source thread, so a mention of the
   issue in a comment on a PR before its merge, followed by the PR author editing the merged PR's

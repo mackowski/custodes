@@ -38,6 +38,7 @@ import {
 import { z } from 'zod';
 import { childTools, delegateTool, type ChildOutcome } from './delegate.js';
 import type { MessagesRequest, MessagesResponse } from './gateway.js';
+import { costOf, PRICES_USD_PER_MTOK } from './prices.js';
 import { defineTool, runWithRestarts, type LoopResult, type RuntimeTool } from './runtime.js';
 
 /** A read through the broker's `/v1/read` for one run: its data, or why it failed (no error text). */
@@ -64,7 +65,6 @@ export interface HostPort {
   brokerGuard(): Promise<void>;
   read: ReadFn;
   send(req: MessagesRequest): Promise<MessagesResponse>;
-  costOf(usage: MessagesResponse['usage']): number;
   /**
    * `CustodesAgent.act()`. The first write on a target carries the route's snapshot; later writes
    * of the same proposal do not, because the first one changed the target (ADR 0023).
@@ -405,6 +405,10 @@ export async function runAgentTree(
   task: string,
   opts: { shadow: boolean },
 ): Promise<TreeResult> {
+  // A model without a price is refused before the first paid call, not after it.
+  for (const a of [root, ...Object.values(roles)])
+    if (!Object.hasOwn(PRICES_USD_PER_MTOK, a.definition.model))
+      throw new Error(`no price for model ${a.definition.model}`);
   const { store, agentId } = port;
   const now = port.now ?? (() => new Date());
   const rootRunId = store.start(agentId);
@@ -447,7 +451,8 @@ export async function runAgentTree(
         {
           send: (req) => port.send(req),
           guard: runGuard(store, runId, () => port.brokerGuard()),
-          costOf: (u) => port.costOf(u),
+          // Each run is priced at its own model's rates, not the root's (security review of #166, M1).
+          costOf: (u) => costOf(d.model, u),
           daily: { ledger: storeLedger(store, agentId, runId, now), usd: d.budget.usdPerDay },
           record: (e) => {
             store.recordEvent({ runId, ...e });

@@ -14,6 +14,9 @@
 /workers/github-broker/policy/boundary.json @mackowski
 /packages/schema/src/policy.ts              @mackowski
 /packages/schema/src/tiers.ts               @mackowski
+/packages/schema/src/runtime.ts             @mackowski
+/packages/schema/src/agent-md.ts            @mackowski
+/packages/llm/src/prices.ts                 @mackowski
 /packages/core/src/policy-eval.ts           @mackowski
 /packages/core/src/policy-boundary.ts       @mackowski
 /packages/core/test/policy-boundary.test.ts @mackowski

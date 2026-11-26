@@ -161,4 +161,7 @@ cut.
 
 Traces are no longer the only store of model payloads: the agent runtime's event channel keeps
 model text and tool arguments (never tool results, tokens or error text) in the agent's Durable
-Object, capped at 8,000 characters and kept 14 days. See ADR 0023.
+Object, capped at 8,000 characters and kept 14 days. See ADR 0023. Runtime traces now also
+record `/v1/read` responses: `gen_ai.input.messages` keeps the newest two messages of a round, which
+include the `tool_result` blocks (clipped to `MAX_TOOL_RESULT_CHARS` before the model sees them,
+then to the attribute's cap). They are untrusted data like every other payload.
