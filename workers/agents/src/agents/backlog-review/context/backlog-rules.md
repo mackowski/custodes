@@ -16,6 +16,8 @@ A state says whose move it is **and** whether that move is due now. Pick the fir
      when the merged PR says "Fixes #N", "Closes #N" or "Resolves #N". A PR that says "Part of #N",
      "as agreed in #N" or just "#N" leaves the issue open. So an open issue whose one requested
      change was merged is `close`, even if nobody said so in the thread.
+   - Check what the merged PR changed by reading it with `pull` (its description, against the
+     issue's ask); you need not read the cheat sheet when the PR clearly did the one thing asked.
    - Not evidence: a PR title alone, an open PR, or a PR closed without merging. If one part of a
      multi-part issue is still open, the issue is not `close`.
 2. `no_action` because a pull request carries the work: a linked PR of this repository is **open**.

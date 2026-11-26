@@ -30,7 +30,7 @@ GitHub from the agent.
    the oldest verdict, at most 20 per run. When nothing is due, no model is called.
 2. **Orchestrator** (`agent.md`, tool `delegate`). It delegates each selected issue once to
    `item-review`.
-3. **item-review** (`item-review/agent.md`) reads the issue, its comments and timeline, and when it
+3. **item-review** (`item-review/agent.md`) reads the issue, its comments and timeline, linked pull requests (`pull`), and when it
    needs to, the cheat sheets (`cheatsheet`, `cheatsheet_search`). It answers with a
    `BacklogVerdict`: state, actions, evidence, reason, confidence and `uncertainBecause`.
 4. **Code** raises `needsHuman` below high confidence, on any doubt, and for `unknown`. It never

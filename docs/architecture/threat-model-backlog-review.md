@@ -146,7 +146,7 @@ issue`.
    version, and model text capped and redacted as events are. Delete rows after 90 days. Canary test.
 3. Policy entry with a link to ADR 0023 and #132:
    - actions on issues in `hitl`;
-   - reads `issues`, `issue`, `comments`, `timeline`, `pull` (the dispatcher's evidence check only), `cheatsheet`, `cheatsheet_search`;
+   - reads `issues`, `issue`, `comments`, `timeline`, `pull` (item-review reads linked PRs; the dispatcher checks `issue.close` evidence), `cheatsheet`, `cheatsheet_search`;
    - `boundary.json`;
    - the broker's shared (one key for all agents) `cheatsheet_search` rate limit;
    - no `PAT_BACKLOG_REVIEW` secret yet.
