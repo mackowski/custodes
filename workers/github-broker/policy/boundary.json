@@ -160,6 +160,7 @@
         "comments",
         "timeline",
         "pull",
+        "pull_reviews",
         "cheatsheet",
         "cheatsheet_search"
       ]

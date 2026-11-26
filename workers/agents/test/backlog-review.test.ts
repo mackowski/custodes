@@ -300,6 +300,10 @@ describe('backlog-review (#132 v1)', () => {
     expect(POLICY.reads['backlog-review']?.resources).toEqual(
       expect.arrayContaining(['timeline', 'pull']),
     );
+    // The `pull` tool also reads the PR's comments and reviews: without them every PR read fails.
+    expect(POLICY.reads['backlog-review']?.resources).toEqual(
+      expect.arrayContaining(['comments', 'pull_reviews']),
+    );
   });
 
   it('writes no row for a child halted mid-run, so the issue stays due (security review r2 of #168, L1)', async () => {

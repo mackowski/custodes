@@ -161,7 +161,7 @@
       "resources": ["issue", "comments"]
     },
     "backlog-review": {
-      "$comment": "#132 v1: `issues` for the code-only selector; `issue` (with `comments`) and `timeline` for item-review; `pull` for item-review to see what a linked PR changed and for the dispatcher's evidence check of `issue.close`; `cheatsheet` and `cheatsheet_search` to check whether an issue's ask is already in the cheat sheets (broker search limit SEARCH_LIMIT, 5/min for all agents together).",
+      "$comment": "#132 v1: `issues` for the code-only selector; `issue` (with `comments`) and `timeline` for item-review; `pull` (with its `comments` and `pull_reviews`, which the `pull` tool reads too) for item-review to see what a linked PR changed and for the dispatcher's evidence check of `issue.close`; `cheatsheet` and `cheatsheet_search` to check whether an issue's ask is already in the cheat sheets (broker search limit SEARCH_LIMIT, 5/min for all agents together).",
       "tokenBinding": "PAT_READONLY",
       "repos": ["mackowski/custodes-sandbox", "OWASP/CheatSheetSeries"],
       "resources": [
@@ -170,6 +170,7 @@
         "comments",
         "timeline",
         "pull",
+        "pull_reviews",
         "cheatsheet",
         "cheatsheet_search"
       ]

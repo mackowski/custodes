@@ -55,6 +55,7 @@ function fixtureRead(f: Fixture): ReadFn {
         ? Promise.resolve({ ok: true, data: f.issue })
         : Promise.resolve({ ok: false, reason: 'github_error' });
     if (r === 'comments') return paged(req.number === f.number ? f.comments : []);
+    if (r === 'pull_reviews') return paged([]);
     if (r === 'timeline') return paged(req.number === f.number ? f.timeline : []);
     if (r === 'pull') {
       const pr = f.pulls?.[String(req.number)];
