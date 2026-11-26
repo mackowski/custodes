@@ -60,3 +60,12 @@ export const TRIAGE_APPLY_MANIFEST: AgentManifest = {
   mode: 'hitl',
   repos: ['mackowski/custodes-sandbox', 'OWASP/CheatSheetSeries'],
 };
+
+export const BACKLOG_REVIEW_MANIFEST: AgentManifest = {
+  id: 'backlog-review',
+  version: '0.1.0',
+  description:
+    'Reviews the open issues past triage on the agent runtime (ADR 0023, #132 v1): whose move it is and the move. Shadow: every proposal goes to its D1 digest, read by the operator in Claude Code.',
+  mode: 'hitl',
+  repos: ['mackowski/custodes-sandbox', 'OWASP/CheatSheetSeries'],
+};

@@ -1,0 +1,537 @@
+import { env } from 'cloudflare:workers';
+import { runInDurableObject } from 'cloudflare:test';
+import { getAgentByName } from 'agents';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import type { BacklogVerdict } from '@custodes/schema';
+import { raisesToHuman, SHADOW, type BacklogReviewAgent } from '../src/agents/backlog-review.js';
+import { backlogAgents, bundle, POLICY } from '../src/agents/backlog-review/bundle.js';
+import type { AgentsEnv } from '../src/env.js';
+import { SANDBOX_INSTANCE } from '../src/instances.js';
+import { testKillSwitch, withHaltState } from './helpers/halt-state.js';
+
+const testEnv = env as AgentsEnv;
+const REPO = 'mackowski/custodes-sandbox';
+const NOW = new Date('2026-11-26T12:00:00Z');
+const DB = () => {
+  if (!testEnv.BACKLOG) throw new Error('BACKLOG not bound');
+  return testEnv.BACKLOG;
+};
+
+/** An accepted, assigned issue: backlog-review's, not triage's. */
+const issue = {
+  number: 7,
+  title: 'Add a note on refresh tokens',
+  body: 'Please add it.',
+  html_url: `https://github.com/${REPO}/issues/7`,
+  state: 'open',
+  user: { login: 'reporter' },
+  author_association: 'NONE',
+  labels: [{ name: 'ACK_OBTAINED' }],
+  assignees: [{ login: 'volunteer' }],
+  created_at: '2026-10-01T10:00:00Z',
+  updated_at: '2026-10-05T10:00:00Z',
+  comments: 0,
+};
+
+interface Calls {
+  reads: string[];
+  writes: string[];
+}
+
+/** A broker that lists `open`, reads issue 7 and refuses everything else; records every call. */
+/** Reads a test adds on top of the defaults (reset before each test). */
+let extraReads: Record<string, unknown> = {};
+
+function fakeBroker(open: unknown[], calls: Calls) {
+  return withHaltState({
+    fetch: (url: string, init: RequestInit) => {
+      if (url !== 'https://broker.internal/v1/read') {
+        calls.writes.push(url);
+        return Response.json({ ok: false, code: 'policy_denied', reason: 'test' });
+      }
+      const req = JSON.parse(init.body as string) as { resource: string; number?: number };
+      calls.reads.push(req.resource);
+      const data: Record<string, unknown> = {
+        issues: open,
+        issue,
+        comments: [],
+        timeline: [],
+        ...extraReads,
+      };
+      return Object.hasOwn(data, req.resource)
+        ? Response.json({ ok: true, data: data[req.resource] })
+        : Response.json({ ok: false, code: 'policy_denied', reason: 'test' });
+    },
+  });
+}
+
+/** A scripted model behind the AI Gateway URL; counts calls. */
+function fakeModel(script: unknown[]) {
+  const state = { calls: 0 };
+  const fetchImpl = (async (_u: unknown, _i?: unknown) => {
+    let next = script[state.calls++];
+    // A step may be a function: it runs (e.g. halts the agent) and returns the response.
+    if (typeof next === 'function') next = await (next as () => Promise<unknown>)();
+    if (next === undefined) return new Response('script ran out', { status: 500 });
+    return Response.json(next);
+  }) as typeof fetch;
+  return { fetchImpl, state };
+}
+
+const msg = (i: number, content: unknown[], stop = 'tool_use') => ({
+  id: `m${String(i)}`,
+  type: 'message',
+  role: 'assistant',
+  model: 'claude-sonnet-5-5',
+  stop_reason: stop,
+  content,
+  usage: { input_tokens: 100, output_tokens: 50 },
+});
+const toolUse = (i: number, name: string, input: unknown) =>
+  msg(i, [{ type: 'tool_use', id: `t${String(i)}`, name, input }]);
+const answer = (i: number, value: unknown) =>
+  msg(i, [{ type: 'text', text: JSON.stringify(value) }], 'end_turn');
+
+const verdict: BacklogVerdict = {
+  target: { repo: REPO, kind: 'issue', number: 7 },
+  actions: [{ type: 'issue.comment', repo: REPO, issue: 7, body: 'Any news on this?' }],
+  evidence: [{ type: 'last_activity', ref: '7', at: '2026-10-05T10:00:00Z' }],
+  reason: 'Assigned eight weeks ago, no PR and no comment since.',
+  needsHuman: false,
+  state: 'waiting_author',
+  confidence: 'high',
+  uncertainBecause: [],
+};
+
+interface Internals {
+  env: AgentsEnv;
+  modelFetch: typeof fetch | undefined;
+}
+
+async function inAgent<T>(
+  open: unknown[],
+  script: unknown[],
+  fn: (agent: BacklogReviewAgent, calls: Calls, model: { calls: number }) => Promise<T>,
+): Promise<T> {
+  const stub = await getAgentByName(testEnv.BacklogReviewAgent!, SANDBOX_INSTANCE);
+  return runInDurableObject(stub, async (agent: BacklogReviewAgent) => {
+    const i = agent as unknown as Internals;
+    const calls: Calls = { reads: [], writes: [] };
+    const model = fakeModel(script);
+    const original = i.env;
+    i.env = Object.create(original, {
+      BROKER: { value: fakeBroker(open, calls) },
+    }) as AgentsEnv;
+    i.modelFetch = model.fetchImpl;
+    try {
+      return await fn(agent, calls, model.state);
+    } finally {
+      i.env = original;
+      i.modelFetch = undefined;
+    }
+  });
+}
+
+const rows = async () => (await DB().prepare('SELECT * FROM verdicts ORDER BY id').all()).results;
+const actionRows = async () =>
+  (await DB().prepare('SELECT * FROM verdict_actions ORDER BY verdict_id, position').all()).results;
+
+beforeEach(async () => {
+  extraReads = {};
+  const sql = await import('../../backlog-review/migrations/0001_verdicts.sql?raw');
+  await DB().exec('DROP TABLE IF EXISTS verdict_actions; DROP TABLE IF EXISTS verdicts;');
+  for (const stmt of sql.default
+    .replace(/--.*$/gm, '')
+    .split(';')
+    .map((s) => s.replace(/\s+/g, ' ').trim())
+    .filter(Boolean))
+    await DB().exec(stmt);
+});
+
+afterEach(async () => {
+  await testKillSwitch().resume('backlog-review');
+});
+
+describe('backlog-review (#132 v1)', () => {
+  it('is in shadow', () => {
+    expect(SHADOW).toBe(true);
+  });
+
+  it('bundles the context files and the policy maintainers into the role prompt only', () => {
+    const { root, roles } = backlogAgents('OWASP/CheatSheetSeries');
+    expect(root.prompt).not.toContain('# Maintainers');
+    const item = roles['item-review'];
+    expect(item?.prompt).toContain('# Backlog rules for issues');
+    expect(item?.prompt).toContain('# Operator preferences');
+    for (const m of POLICY.maintainers['OWASP/CheatSheetSeries'] ?? [])
+      expect(item?.prompt).toContain(`- ${m}`);
+    expect(() =>
+      bundle(
+        '---\n{"id":"xyz-test","tier":"T0","triggers":["manual"],"model":"claude-sonnet-5-5","tools":["issue"],"context":["context/missing.md"],"outputSchema":"Proposal","budget":{"roundsPerRun":1,"usdPerRun":0.1,"usdPerDay":1}}\n---\nPrompt.',
+        REPO,
+      ),
+    ).toThrow(/no bundled context\/missing.md/);
+  });
+
+  it('does nothing while halted', async () => {
+    await testKillSwitch().halt('backlog-review', 'test', 'tester');
+    await inAgent([issue], [], async (agent, calls, model) => {
+      const r = await agent.review({ kind: 'manual' }, NOW);
+      expect(r.ok).toBe(false);
+      expect(calls.reads).toEqual([]);
+      expect(model.calls).toBe(0);
+    });
+  });
+
+  it('calls no model when nothing is due', async () => {
+    const triageOwned = { ...issue, number: 8, labels: [{ name: 'ACK_WAITING' }], assignees: [] };
+    await inAgent([triageOwned], [], async (agent, _calls, model) => {
+      const r = await agent.review({ kind: 'manual' }, NOW);
+      expect(r).toMatchObject({ ok: true, detail: 'nothing due', selected: 0 });
+      expect(model.calls).toBe(0);
+    });
+    expect(await rows()).toEqual([]);
+  });
+
+  it('records a verdict and its digest route in D1, and writes nothing to GitHub', async () => {
+    const script = [
+      toolUse(0, 'delegate', {
+        role: 'item-review',
+        target: { repo: REPO, kind: 'issue', number: 7 },
+      }),
+      toolUse(1, 'issue', { repo: REPO, number: 7 }),
+      answer(2, verdict),
+      answer(3, { proposals: [] }),
+    ];
+    await inAgent([issue], script, async (agent, calls, model) => {
+      const r = await agent.review({ kind: 'manual' }, NOW);
+      expect(r).toMatchObject({ ok: true, selected: 1 });
+      expect(model.calls).toBe(4);
+      expect(calls.writes).toEqual([]);
+    });
+    const [v] = await rows();
+    expect(v).toMatchObject({
+      repo: REPO,
+      issue: 7,
+      issue_updated_at: issue.updated_at,
+      status: 'ok',
+      state: 'waiting_author',
+      confidence: 'high',
+      needs_human: 0,
+    });
+    const [a] = await actionRows();
+    // Shadow: the digest, with where it would go live (hitl policy: an approval).
+    expect(a).toMatchObject({ route: 'digest', live: 'approval', detail: 'digest' });
+    expect(JSON.parse(a?.['action'] as string)).toMatchObject({ type: 'issue.comment', issue: 7 });
+  });
+
+  it('raises a verdict short of high confidence to a human in code', async () => {
+    const unsure = { ...verdict, confidence: 'medium', uncertainBecause: ['scope_judgment'] };
+    const script = [
+      toolUse(0, 'delegate', {
+        role: 'item-review',
+        target: { repo: REPO, kind: 'issue', number: 7 },
+      }),
+      toolUse(1, 'issue', { repo: REPO, number: 7 }),
+      answer(2, unsure),
+      answer(3, { proposals: [] }),
+    ];
+    await inAgent([issue], script, (agent) => agent.review({ kind: 'manual' }, NOW));
+    const [v] = await rows();
+    // Stored as routed: the model said false, code raised it.
+    expect(v).toMatchObject({ confidence: 'medium', needs_human: 1 });
+    const [a] = await actionRows();
+    expect(a).toMatchObject({ route: 'digest', live: 'approval' });
+  });
+
+  it('keeps a close backed by a merged PR that names the issue (pull is readable for evidence)', async () => {
+    extraReads = {
+      timeline: [
+        {
+          event: 'cross-referenced',
+          created_at: '2026-11-01T09:00:00Z',
+          source: {
+            issue: {
+              number: 12,
+              pull_request: {},
+              repository: { full_name: REPO },
+            },
+          },
+        },
+      ],
+      pull: {
+        number: 12,
+        title: 'Add the refresh token note',
+        body: 'Fixes #7',
+        merged_at: '2026-11-02T09:00:00Z',
+      },
+    };
+    const close = {
+      ...verdict,
+      state: 'close',
+      actions: [
+        {
+          type: 'issue.close',
+          repo: REPO,
+          issue: 7,
+          body: 'Done in #12, thanks!',
+          stateReason: 'completed',
+        },
+      ],
+      evidence: [{ type: 'merged_pr', ref: '#12' }],
+    };
+    const script = [
+      toolUse(0, 'delegate', {
+        role: 'item-review',
+        target: { repo: REPO, kind: 'issue', number: 7 },
+      }),
+      toolUse(1, 'issue', { repo: REPO, number: 7 }),
+      answer(2, close),
+      answer(3, { proposals: [] }),
+    ];
+    await inAgent([issue], script, (agent) => agent.review({ kind: 'manual' }, NOW));
+    const [a] = await actionRows();
+    expect(a).toMatchObject({ route: 'digest', live: 'approval' });
+  });
+
+  it('may read what the dispatcher evidence check reads for issue.close (timeline and pull)', () => {
+    // brokerEvidence reads the timeline and each cross-referenced pull request through the broker:
+    // without both in the read policy every close would be dropped as unreadable.
+    expect(POLICY.reads['backlog-review']?.resources).toEqual(
+      expect.arrayContaining(['timeline', 'pull']),
+    );
+    // The `pull` tool also reads the PR's comments and reviews: without them every PR read fails.
+    expect(POLICY.reads['backlog-review']?.resources).toEqual(
+      expect.arrayContaining(['comments', 'pull_reviews']),
+    );
+  });
+
+  it('writes no row for a child halted mid-run, so the issue stays due (security review r2 of #168, L1)', async () => {
+    const script = [
+      toolUse(0, 'delegate', {
+        role: 'item-review',
+        target: { repo: REPO, kind: 'issue', number: 7 },
+      }),
+      // The child's first round, then the operator halts the agent before its next round.
+      async () => {
+        await testKillSwitch().halt('backlog-review', 'test', 'tester');
+        return toolUse(1, 'issue', { repo: REPO, number: 7 });
+      },
+      answer(2, verdict),
+    ];
+    await inAgent([issue], script, async (agent, _calls, model) => {
+      await agent.review({ kind: 'manual' }, NOW);
+      // The halt step ran: the child made its first model call and was stopped before the next.
+      expect(model.calls).toBe(2);
+    });
+    expect(await rows()).toEqual([]);
+  });
+
+  it('falls back to Sol through OpenRouter when Anthropic fails, and records the verdict (#132)', async () => {
+    const cc = (i: number, message: unknown, finish = 'tool_calls') => ({
+      id: `c${String(i)}`,
+      usage: { prompt_tokens: 100, completion_tokens: 50 },
+      choices: [{ finish_reason: finish, message }],
+    });
+    const call = (i: number, name: string, args: unknown) =>
+      cc(i, {
+        content: null,
+        tool_calls: [{ id: `t${String(i)}`, function: { name, arguments: JSON.stringify(args) } }],
+      });
+    const say = (i: number, v: unknown) => cc(i, { content: JSON.stringify(v) }, 'stop');
+    const sol = [
+      call(0, 'delegate', {
+        role: 'item-review',
+        target: { repo: REPO, kind: 'issue', number: 7 },
+      }),
+      call(1, 'issue', { repo: REPO, number: 7 }),
+      say(2, verdict),
+      say(3, { proposals: [] }),
+    ];
+    const urls: string[] = [];
+    let n = 0;
+    const fetchImpl = ((u: unknown) => {
+      const url = String(u);
+      urls.push(url);
+      if (url.includes('/anthropic/'))
+        return Promise.resolve(
+          new Response('{"type":"error","error":{"type":"overloaded_error"}}', { status: 529 }),
+        );
+      return Promise.resolve(Response.json(sol[n++]));
+    }) as typeof fetch;
+    await inAgent([issue], [], async (agent) => {
+      (agent as unknown as { modelFetch: typeof fetch }).modelFetch = fetchImpl;
+      expect(await agent.review({ kind: 'manual' }, NOW)).toMatchObject({ ok: true, selected: 1 });
+    });
+    expect(urls.filter((u) => u.includes('/openrouter/v1/chat/completions'))).toHaveLength(4);
+    const [v] = await rows();
+    expect(v).toMatchObject({ issue: 7, status: 'ok', state: 'waiting_author' });
+  });
+
+  it('raises to a human below high confidence, on any doubt, or for an unknown state', () => {
+    expect(raisesToHuman(verdict)).toBe(false);
+    expect(raisesToHuman({ ...verdict, confidence: 'medium' })).toBe(true);
+    expect(raisesToHuman({ ...verdict, uncertainBecause: ['possible_injection'] })).toBe(true);
+    expect(raisesToHuman({ ...verdict, state: 'unknown' })).toBe(true);
+  });
+
+  it('skips an issue whose last verdict is recent and unchanged', async () => {
+    await DB()
+      .prepare(
+        `INSERT INTO verdicts (repo, issue, issue_updated_at, at, status, root_run_id, run_id, agent_version)
+         VALUES (?, 7, ?, ?, 'ok', 'r', 'r', '0.1.0')`,
+      )
+      .bind(REPO, issue.updated_at, new Date(NOW.getTime() - 3_600_000).toISOString())
+      .run();
+    await inAgent([issue], [], async (agent, _calls, model) => {
+      expect(await agent.review({ kind: 'manual' }, NOW)).toMatchObject({ selected: 0 });
+      expect(model.calls).toBe(0);
+    });
+  });
+});
+
+describe('check-digest-action (the /backlog-digest gate, threat model E1)', () => {
+  const R = 'OWASP/CheatSheetSeries';
+  const ROW = { repo: R, issue: 7 };
+  const check = async (action: unknown, row = ROW) =>
+    (await import('../scripts/check-digest-action.js')).checkAction(action, row);
+
+  it('passes a policy-allowed comment and lists mentions that are not maintainers', async () => {
+    expect(
+      await check({
+        type: 'issue.comment',
+        repo: R,
+        issue: 7,
+        body: 'Any news, @volunteer? cc @jmanico',
+      }),
+    ).toMatchObject({
+      ok: true,
+      type: 'issue.comment',
+      mentions: ['volunteer'],
+      action: { type: 'issue.comment', issue: 7 },
+    });
+  });
+
+  it('refuses what the broker would refuse', async () => {
+    expect(await check({ type: 'pr.merge', repo: R, pull: 7 })).toMatchObject({ ok: false });
+    expect(
+      await check({ type: 'issue.comment', repo: R, issue: 7, body: 'see https://evil.example' }),
+    ).toMatchObject({ ok: false, problem: 'link' });
+    expect(
+      await check({
+        type: 'issue.label.add',
+        repo: R,
+        issue: 7,
+        labels: ['custodes_cheatsheet_review'],
+      }),
+    ).toMatchObject({ ok: false });
+    expect(
+      await check(
+        { type: 'issue.comment', repo: 'evil/repo', issue: 7, body: 'hi' },
+        { repo: 'evil/repo', issue: 7 },
+      ),
+    ).toMatchObject({ ok: false, denial: 'repo evil/repo not allowed' });
+  });
+
+  it('refuses an action about another item than its row (security review of #168, M2)', async () => {
+    expect(
+      await check({
+        type: 'issue.close',
+        repo: R,
+        issue: 9,
+        body: 'Done.',
+        stateReason: 'completed',
+      }),
+    ).toMatchObject({ ok: false, denial: 'action is about another item than its row' });
+  });
+});
+
+describe('VerdictStore (D1)', () => {
+  const store = async () =>
+    new (await import('../src/agents/backlog-review/store.js')).VerdictStore(DB());
+  const h = (hours: number) => new Date(NOW.getTime() - hours * 3_600_000);
+  const base = { rootRunId: 'root', target: { repo: REPO, kind: 'issue' as const, number: 7 } };
+
+  it('takes the newest row per issue, a stopped one included, for the selector', async () => {
+    const s = await store();
+    await s.record(
+      { ...base, runId: 'a', ok: true, output: verdict, outcomes: [] },
+      { issueUpdatedAt: 'old', agentVersion: '0.1.0', now: h(100) },
+    );
+    await s.record(
+      { ...base, runId: 'b', ok: false, stop: 'budget', rounds: 3 },
+      { issueUpdatedAt: issue.updated_at, agentVersion: '0.1.0', now: h(1) },
+    );
+    expect((await s.lastVerdicts(REPO)).get(7)).toEqual({
+      issueUpdatedAt: issue.updated_at,
+      at: h(1).toISOString(),
+    });
+    // The stopped run counts: the unchanged issue is not due again for 72 hours.
+    await inAgent([issue], [], async (agent, _c, model) => {
+      expect(await agent.review({ kind: 'manual' }, NOW)).toMatchObject({ selected: 0 });
+      expect(model.calls).toBe(0);
+    });
+  });
+
+  it('deletes rows older than 90 days with their actions, and keeps the rest', async () => {
+    const s = await store();
+    const outcome = {
+      runId: 'old',
+      target: base.target,
+      action: 'issue.comment' as const,
+      brokerAction: verdict.actions[0]!,
+      route: 'digest' as const,
+      detail: 'digest',
+    };
+    await s.record(
+      { ...base, runId: 'old', ok: true, output: verdict, outcomes: [outcome] },
+      { issueUpdatedAt: 'x', agentVersion: '0.1.0', now: h(91 * 24) },
+    );
+    await s.record(
+      {
+        ...base,
+        runId: 'new',
+        ok: true,
+        output: verdict,
+        outcomes: [{ ...outcome, runId: 'new' }],
+      },
+      { issueUpdatedAt: 'x', agentVersion: '0.1.0', now: h(1) },
+    );
+    await s.prune(NOW);
+    expect((await rows()).map((r) => r['run_id'])).toEqual(['new']);
+    expect(await actionRows()).toHaveLength(1);
+  });
+
+  it('keeps token-shaped text out of D1 (canary)', async () => {
+    const s = await store();
+    const token = `ghp_${'a'.repeat(36)}`;
+    const leaky = {
+      ...verdict,
+      reason: `The thread pasted ${token} by mistake.`,
+      actions: [
+        { type: 'issue.comment' as const, repo: REPO, issue: 7, body: `Please revoke ${token}.` },
+      ],
+    };
+    await s.record(
+      {
+        ...base,
+        runId: 'canary',
+        ok: true,
+        output: leaky,
+        outcomes: [
+          {
+            runId: 'canary',
+            target: base.target,
+            action: 'issue.comment',
+            brokerAction: leaky.actions[0]!,
+            route: 'digest',
+            detail: 'digest',
+          },
+        ],
+      },
+      { issueUpdatedAt: 'x', agentVersion: '0.1.0', now: NOW },
+    );
+    expect(JSON.stringify(await rows())).not.toContain(token);
+    expect(JSON.stringify(await actionRows())).not.toContain(token);
+  });
+});

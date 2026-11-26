@@ -16,6 +16,9 @@
   // Empty, not absent: with no `triggers` key a deploy leaves the Worker's existing crons in place
   // (review of #122, M1), and this Worker has no `scheduled` handler any more.
   "triggers": { "crons": [] },
+  // agent.md and context files are bundled as text (ADR 0023). Only backlog-review imports them;
+  // here for the tests, which run with this file.
+  "rules": [{ "type": "Text", "globs": ["**/*.md"], "fallthrough": true }],
   "observability": {
     "enabled": true,
     "head_sampling_rate": 1,

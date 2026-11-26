@@ -6,6 +6,7 @@ import type { ProposalReviewAgent } from './agents/proposal-review.js';
 import type { PrGateAgent } from './agents/pr-gate.js';
 import type { CheatsheetReviewAgent } from './agents/cheatsheet-review.js';
 import type { TriageApplyIntake } from './triage-apply-worker.js';
+import type { BacklogReviewAgent } from './agents/backlog-review.js';
 
 /**
  * What the agent code may read from `env`, declared here by hand (ADR 0018). Every agent runs in
@@ -53,6 +54,10 @@ export interface AgentsEnv extends CustodesEnv {
   PrGateAgent: DurableObjectNamespace<PrGateAgent>;
   CheatsheetReviewAgent: DurableObjectNamespace<CheatsheetReviewAgent>;
   TriageApplyAgent?: DurableObjectNamespace<TriageApplyAgent>;
+  /** backlog-review (#132 v1), bound in custodes-backlog-review only. */
+  BacklogReviewAgent?: DurableObjectNamespace<BacklogReviewAgent>;
+  /** backlog-review's digest (D1 `custodes-backlog`); bound in custodes-backlog-review only. */
+  BACKLOG?: D1Database;
   /** triage's RPC to triage-apply (ADR 0019); bound in custodes-triage only. */
   TRIAGE_APPLY?: Service<TriageApplyIntake>;
 }

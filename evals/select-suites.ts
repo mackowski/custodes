@@ -22,6 +22,21 @@ const CLAIMS = `${AGENTS}cheatsheet-review/claims.ts`;
 
 /** Paths that can change what one suite's agent does. Its own `evals/agents/<suite>/` is implied. */
 export const SUITE_PATHS: Record<string, readonly string[]> = {
+  // #132 v1: the role's agent.md and context, the runtime, the dispatcher and the eval provider.
+  'backlog-review': [
+    `${AGENTS}backlog-review/`,
+    'packages/llm/src/runtime.ts',
+    'packages/llm/src/runtime-host.ts',
+    'packages/core/src/runtime/dispatcher.ts',
+    'packages/llm/src/delegate.ts',
+    'packages/schema/src/runtime.ts',
+    // The maintainers in the role's prompt come from the policy.
+    'workers/github-broker/policy/policy.json',
+    'workers/agents/scripts/eval-backlog-runtime.ts',
+    'evals/build-runtime.sh',
+    'evals/providers/backlog-runtime.mjs',
+    'evals/fixtures/backlog-review/',
+  ],
   triage: [`${AGENTS}triage/prompt.ts`, `${AGENTS}triage/model.ts`, `${AGENTS}triage/assess.ts`],
   'implementation-check': [
     `${AGENTS}specialists/implementation.ts`,

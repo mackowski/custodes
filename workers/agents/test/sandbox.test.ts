@@ -161,6 +161,7 @@ describe('on-demand routes', () => {
       import('../src/pr-gate-worker.js'),
       import('../src/triage-worker.js'),
       import('../src/cheatsheet-review-worker.js'),
+      import('../src/backlog-review-worker.js'),
     ]);
     const exported = entries.flatMap((m) => Object.keys(m)).filter((k) => k.endsWith('Agent'));
     const kebab = (s: string) => s.replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase();

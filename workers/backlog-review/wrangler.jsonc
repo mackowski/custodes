@@ -1,0 +1,60 @@
+// custodes-backlog-review (#132 v1, ADR 0023): backlog-review alone, in its own Worker from the
+// start (ADR 0018). Shadow: its proposals go to the D1 digest only (SHADOW in the agent code).
+// Deployed by deploy-workers.yml; the broker refuses it until its key is pinned (agent-key-pin.yml).
+{
+  "$schema": "../agents/node_modules/wrangler/config-schema.json",
+  "name": "custodes-backlog-review",
+  "main": "../agents/src/backlog-review-worker.ts",
+  "compatibility_date": "2026-08-15",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "preview_urls": false,
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1,
+    "traces": { "enabled": true, "head_sampling_rate": 1 },
+  },
+  // agent.md and its context files are bundled as text (ADR 0023).
+  "rules": [{ "type": "Text", "globs": ["**/*.md"], "fallthrough": true }],
+  "vars": {
+    "ENVIRONMENT": "prod",
+    "CALLER_NAME": "custodes-backlog-review",
+    "AI_GATEWAY_ACCOUNT_ID": "5f62912564df344533c9563904c77662",
+    "AI_GATEWAY_ID": "custodes",
+    "TRACE_PAYLOADS": "true",
+  },
+  // Secrets (set by deploy-workers with `wrangler secret put -c`): AI_GATEWAY_TOKEN
+  "durable_objects": {
+    "bindings": [
+      { "name": "BacklogReviewAgent", "class_name": "BacklogReviewAgent" },
+      { "name": "KEYHOLDER", "class_name": "Keyholder" },
+    ],
+  },
+  // A new Worker: classes are declared with `exports` from the first deploy (no migrations).
+  "exports": {
+    "BacklogReviewAgent": { "type": "durable-object", "storage": "sqlite" },
+    "Keyholder": { "type": "durable-object", "storage": "sqlite" },
+  },
+  // No cron yet (decisions on #132: sandbox e2e, then a manual OWASP run, then the cron, and only
+  // after the primary model passes golden case 001 at >= 95%). Runs on demand through the gateway
+  // until a reviewed PR sets ["41 * * * *"] (src/crons.ts CRON_BACKLOG_REVIEW). Empty, not absent,
+  // so a deploy clears any cron.
+  "triggers": { "crons": [] },
+  // The digest: created by Terraform (infra/terraform/modules/data-stores), written only by this
+  // Worker, read by the operator through the Cloudflare API (threat model backlog-review).
+  "d1_databases": [
+    {
+      "binding": "BACKLOG",
+      "database_name": "custodes-backlog",
+      "database_id": "ca54ce4b-a3bf-4f83-9247-c204bb815e35",
+      "migrations_dir": "migrations",
+    },
+  ],
+  "services": [
+    {
+      "binding": "BROKER",
+      "service": "custodes-github-broker",
+      "entrypoint": "BacklogReviewBroker",
+    },
+  ],
+}

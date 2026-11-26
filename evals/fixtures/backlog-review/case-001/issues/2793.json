@@ -1,0 +1,227 @@
+{
+  "repo": "OWASP/CheatSheetSeries",
+  "number": 2793,
+  "issue": {
+    "number": 2793,
+    "title": "Update: Secrets_Management_Cheat_Sheet",
+    "body": "## What is missing or needs to be updated?\n\nThe Secrets Management Cheat Sheet is about 9,200 words, roughly four times the size of a typical sheet in the series. It's the largest one we have.\n\n- Section 4, Cloud Providers (about 1,600 words), walks through AWS, GCP and Azure services one by one, including HSM and confidential computing products. That belongs in vendor docs.\n- Section 10, Multi-Cloud, repeats the multi-cloud advice already in 4.1.4.\n- Section 3, CI/CD (about 1,700 words), overlaps the Secrets Management section of the [CI/CD Security](https://cheatsheetseries.owasp.org/cheatsheets/CI_CD_Security_Cheat_Sheet.html) cheat sheet, and this sheet never links it.\n- Section 2 is about 2,700 words, including two full architecture walkthroughs for automated rotation.\n\n## How should this be resolved?\n\n- Cut the per-vendor rundown down to how to choose a secrets store and what to require from it. Link vendor docs instead of describing each product.\n- Merge section 10 into section 4.\n- Decide which sheet owns CI/CD secrets guidance, keep it there, and cross-link from the other.\n- Trim section 2 to the principles, and keep the rotation examples to a few sentences each.\n- If the sheet is still too big after that, split the CI/CD and cloud guidance into their own short sheets.\n\nSmall PRs, one section at a time, please. They are much easier to review than one big rewrite :)\n",
+    "state": "open",
+    "user": {
+      "login": "jmanico"
+    },
+    "author_association": "MEMBER",
+    "labels": [
+      {
+        "name": "ACK_OBTAINED"
+      },
+      {
+        "name": "UPDATE_CS"
+      }
+    ],
+    "assignees": [
+      {
+        "login": "V-2007-P"
+      }
+    ],
+    "created_at": "2026-10-16T09:01:56Z",
+    "updated_at": "2026-11-10T20:00:11Z",
+    "comments": 2
+  },
+  "comments": [
+    {
+      "user": {
+        "login": "V-2007-P"
+      },
+      "author_association": "NONE",
+      "created_at": "2026-10-18T19:33:40Z",
+      "body": "Hi @jmanico @mackowski  ,\n\nI'd like to help with this issue by starting with a small PR focused on the multi-cloud section.\nAfter reviewing the proposed cleanup, I think Section 10 could be consolidated into Section 4.1.4 (\u201cOther clouds, Multi-cloud, and Cloud agnostic\u201d). The goal would be to preserve any useful multi-cloud-specific guidance, remove repeated recommendations already covered elsewhere in the sheet, and keep the existing links to relevant secrets-management solutions.\n\nI'd keep this first PR limited to that single file and leave the cloud-provider rundown, CI/CD overlap, and automated-rotation examples for separate changes, as suggested in the issue.\nDoes this scope align with what you had in mind for the first contribution?\nThanks!"
+    },
+    {
+      "user": {
+        "login": "mackowski"
+      },
+      "author_association": "MEMBER",
+      "created_at": "2026-10-19T08:20:35Z",
+      "body": "Cool @V-2007-P lets do this! "
+    }
+  ],
+  "timeline": [
+    {
+      "event": "labeled",
+      "created_at": "2026-10-16T09:01:57Z",
+      "actor": {
+        "login": "jmanico"
+      },
+      "label": {
+        "name": "ACK_OBTAINED"
+      }
+    },
+    {
+      "event": "labeled",
+      "created_at": "2026-10-16T09:01:57Z",
+      "actor": {
+        "login": "jmanico"
+      },
+      "label": {
+        "name": "UPDATE_CS"
+      }
+    },
+    {
+      "event": "labeled",
+      "created_at": "2026-10-16T09:01:57Z",
+      "actor": {
+        "login": "jmanico"
+      },
+      "label": {
+        "name": "HELP_WANTED"
+      }
+    },
+    {
+      "event": "unlabeled",
+      "created_at": "2026-10-19T08:20:40Z",
+      "actor": {
+        "login": "mackowski"
+      },
+      "label": {
+        "name": "HELP_WANTED"
+      }
+    },
+    {
+      "event": "assigned",
+      "created_at": "2026-10-19T08:20:45Z",
+      "actor": {
+        "login": "mackowski"
+      },
+      "assignee": {
+        "login": "V-2007-P"
+      }
+    },
+    {
+      "event": "cross-referenced",
+      "created_at": "2026-10-19T11:14:28Z",
+      "actor": {
+        "login": "V-2007-P"
+      },
+      "source": {
+        "type": "issue",
+        "issue": {
+          "number": 2827,
+          "repository": {
+            "full_name": "OWASP/CheatSheetSeries"
+          },
+          "title": "docs: consolidate multi-cloud secrets guidance (#2793)",
+          "state": "closed",
+          "pull_request": {
+            "merged_at": "2026-10-25T05:34:41Z"
+          }
+        }
+      }
+    },
+    {
+      "event": "cross-referenced",
+      "created_at": "2026-10-25T12:23:09Z",
+      "actor": {
+        "login": "V-2007-P"
+      },
+      "source": {
+        "type": "issue",
+        "issue": {
+          "number": 2869,
+          "repository": {
+            "full_name": "OWASP/CheatSheetSeries"
+          },
+          "title": "docs: simplify cloud secrets management guidance",
+          "state": "closed",
+          "pull_request": {
+            "merged_at": "2026-11-01T14:42:58Z"
+          }
+        }
+      }
+    },
+    {
+      "event": "cross-referenced",
+      "created_at": "2026-11-04T15:08:32Z",
+      "actor": {
+        "login": "V-2007-P"
+      },
+      "source": {
+        "type": "issue",
+        "issue": {
+          "number": 2900,
+          "repository": {
+            "full_name": "OWASP/CheatSheetSeries"
+          },
+          "title": "docs: streamline CI/CD secrets management guidance",
+          "state": "closed",
+          "pull_request": {
+            "merged_at": "2026-11-08T22:13:40Z"
+          }
+        }
+      }
+    },
+    {
+      "event": "cross-referenced",
+      "created_at": "2026-11-10T20:00:11Z",
+      "actor": {
+        "login": "V-2007-P"
+      },
+      "source": {
+        "type": "issue",
+        "issue": {
+          "number": 2941,
+          "repository": {
+            "full_name": "OWASP/CheatSheetSeries"
+          },
+          "title": "docs: reduce Secrets Management cheat sheet section 2",
+          "state": "open",
+          "pull_request": {
+            "merged_at": null
+          }
+        }
+      }
+    }
+  ],
+  "pulls": {
+    "2827": {
+      "number": 2827,
+      "title": "docs: consolidate multi-cloud secrets guidance (#2793)",
+      "body": "### Description\n\nThis PR consolidates Section 10 (\"Secrets Management in a Multi-Cloud Environment\") into Section 4.1.4 (\"Other clouds, Multi-cloud, and Cloud agnostic\") of the Secrets Management Cheat Sheet, as requested in issue #2793.\n\n- **Consolidation**: Section 10 duplicated the multi-cloud guidance from Section 4.1.4 and general controls from Section 2. The distinct operational challenges (disparate APIs, varying access control models, inconsistent rotation mechanisms, and fragmented audit logging) and key defensive controls (standardizing policies, automating rotation, and centralizing audit trails using a cloud-agnostic solution) have been cleanly incorporated into Section 4.1.4.\n- **Cleanup**: Deleted the redundant Section 10 (including the mid-document `### 10.4 References` list). Renumbered `## 11 Related Cheat Sheets & further reading` to `## 10 Related Cheat Sheets & further reading` to maintain sequential numbering.\n- **Scope**: Modifies a single file (`cheatsheets/Secrets_Management_Cheat_Sheet.md`). Sections 2, 3, and all other sections remain untouched.\n\n### Validation\n\n- [x] Markdown lint passed (`npm run lint-markdown`).\n- [x] `git diff --check` passed.\n- [ ] The CI build of this PR passes.\n\n### Scope and sourcing (required)\n\n- [x] This PR is focused: it modifies a single cheat sheet, and the scope is described in the PR body.\n- [x] No new external technical claims or recommendations are introduced; existing multi-cloud guidance was consolidated and deduplicated.\n- [x] All retained tool references (CyberArk Conjur, HashiCorp Vault, Pulumi ESC) and cloud provider docs are existing verified links.\n\nPart of issue #2793.\n\n### AI Tool Usage Disclosure (required for all PRs)\n\n- [ ] I have NOT used any AI tool to generate the contents of this PR.\n- [x] I have used AI tools to generate the contents of this PR. I have verified the contents and I affirm the results.\n\n**LLMs/tools used:** Google Antigravity (Gemini 3.8 Flash).\n\n**Prompts/instructions used:** Investigate issue #2793 and the Secrets Management Cheat Sheet; identify duplicate multi-cloud content between Section 10 and Section 4.1.4; propose a minimal consolidation preserving all distinct security guidance; renumber subsequent sections; validate Markdown formatting and review the final diff.\n\nI independently reviewed the resulting diff and verified that all meaningful multi-cloud security guidance was preserved without introducing new claims.\n",
+      "state": "closed",
+      "merged_at": "2026-10-25T05:34:41Z",
+      "user": {
+        "login": "V-2007-P"
+      }
+    },
+    "2869": {
+      "number": 2869,
+      "title": "docs: simplify cloud secrets management guidance",
+      "body": "### Description\n\nThis PR simplifies Section 4 (\"Cloud Providers\") of the Secrets Management Cheat Sheet, as requested in [[issue #2793](https://github.com/OWASP/CheatSheetSeries/issues/2793)](https://github.com/OWASP/CheatSheetSeries/issues/2793).\n\n- **Cloud provider guidance:** Shortened the descriptions of AWS, Google Cloud, and Azure services and kept links to their official documentation for more details.\n- **Service selection:** Added basic criteria for choosing a secrets management service, including access control, rotation, encryption, audit logging, and versioning.\n- **HSM and confidential computing:** Shortened these sections while keeping the relevant documentation links.\n- **Scope:** Changes are limited to `cheatsheets/Secrets_Management_Cheat_Sheet.md`. Sections 2 and 3 remain unchanged for separate PRs. The multi-cloud guidance was already consolidated in [[PR #2827](https://github.com/OWASP/CheatSheetSeries/pull/2827)](https://github.com/OWASP/CheatSheetSeries/pull/2827) and is unchanged here.\n\n### Validation\n\n- [x] Markdown lint passed (`npm run lint-markdown`).\n- [x] Terminology lint passed (`npm run lint-terminology`).\n- [x] `git diff --check` passed.\n- [x] GitHub Actions lint and website build workflows passed.\n\n### Scope and sourcing (required)\n\n- [x] This PR focuses on a single cheat sheet section, and the scope is described above.\n- [x] The changes shorten existing guidance and retain links to official provider documentation.\n- [x] The existing multi-cloud guidance in Section 4.1.4 remains unchanged.\n\nPart of issue [[#2793](https://github.com/OWASP/CheatSheetSeries/issues/2793)](https://github.com/OWASP/CheatSheetSeries/issues/2793).\n\n### AI Tool Usage Disclosure (required for all PRs)\n\n- [ ] I have NOT used any AI tool to generate the contents of this PR.\n- [x] I have used AI tools to generate the contents of this PR. I have verified the contents and I affirm the results.\n\n**LLMs/tools used:** Google Antigravity (Gemini 3.8 Flash), ChatGPT.\n\n**Prompts/instructions used:** Reviewed issue #2793 and Section 4 of the Secrets Management Cheat Sheet. Simplified the cloud-provider descriptions, added service-selection criteria, shortened the HSM and confidential-computing guidance, and checked the final diff.\n\nI reviewed the changes to make sure the PR stays focused on Section 4 and keeps the relevant documentation links.",
+      "state": "closed",
+      "merged_at": "2026-11-01T14:42:58Z",
+      "user": {
+        "login": "V-2007-P"
+      }
+    },
+    "2900": {
+      "number": 2900,
+      "title": "docs: streamline CI/CD secrets management guidance",
+      "body": "## Description\n\nThis PR reduces Section 3 (\"Continuous Integration (CI) and Continuous Deployment (CD)\") of the Secrets Management Cheat Sheet, as requested in [[issue #2793](https://github.com/OWASP/CheatSheetSeries/issues/2793)](https://github.com/OWASP/CheatSheetSeries/issues/2793).\n\n- **CI/CD guidance:** Removed generic pipeline hardening and security recommendations that overlap with the CI/CD Security Cheat Sheet. Added cross-references to the relevant sections.\n- **Secret delivery models:** Shortened the guidance on CI/CD-stored secrets, external secrets managers, and runtime secret retrieval while preserving the key security considerations.\n- **Authentication and authorization:** Retained least-privilege access, OIDC workload identity, short-lived credentials, and caller attribution.\n- **Monitoring and rotation:** Focused the guidance on detecting unauthorized secret access and exfiltration, and preserving dynamic credential expiry and revocation.\n- **GitOps:** Kept the guidance on encrypted secrets, environment-specific keys, and secure secret generation.\n- **Scope:** Changes are limited to `cheatsheets/Secrets_Management_Cheat_Sheet.md`. Section 3 was reduced from approximately 1,719 to 726 words. Section 10 now includes a reference to the CI/CD Security Cheat Sheet.\n\n## Validation\n\n- [x] File-level Markdown lint passed.\n- [x] Repository Markdown lint passed (`npm run lint-markdown`).\n- [x] Terminology lint passed (`npx textlint`).\n- [x] `git diff --check` passed.\n- [x] Local link checker passed.\n- [x] Full link checker passed.\n- [ ] GitHub Actions CI checks passed. *(Pending PR checks.)*\n\n## Scope and sourcing (required)\n\n- [x] This PR focuses on a single cheat sheet, and the scope is described above.\n- [x] The changes retain and consolidate existing secrets-management guidance and link to the relevant CI/CD Security Cheat Sheet sections.\n- [ ] I have independently reviewed every cited primary source and verified that it supports the corresponding technical guidance.\n\nPart of issue [[#2793](https://github.com/OWASP/CheatSheetSeries/issues/2793)](https://github.com/OWASP/CheatSheetSeries/issues/2793).\n\n## AI Tool Usage Disclosure (required for all PRs)\n\n- [ ] I have NOT used any AI tool to generate the contents of this PR.\n- [x] I have used AI tools to generate and refine the contents of this PR. I have reviewed the changes and verified the results.\n\n**LLMs/tools used:** Google Antigravity (Gemini 3.8 Flash), OpenAI ChatGPT (GPT-6).\n\n**Prompts/instructions used:** Reviewed issue #2793 and the existing CI/CD section of the Secrets Management Cheat Sheet. Reduced duplicated generic CI/CD security guidance, preserved secrets-management-specific recommendations, and added cross-references to the CI/CD Security Cheat Sheet.\n\nI reviewed the final diff, checked the referenced files and anchors, and ran the relevant Markdown, terminology, and link validations.",
+      "state": "closed",
+      "merged_at": "2026-11-08T22:13:40Z",
+      "user": {
+        "login": "V-2007-P"
+      }
+    },
+    "2941": {
+      "number": 2941,
+      "title": "docs: reduce Secrets Management cheat sheet section 2",
+      "body": "## Description\n\nThis PR reduces Section 2 (\"General Secrets Management\") of the Secrets Management Cheat Sheet, as requested in [issue #2793](https://github.com/OWASP/CheatSheetSeries/issues/2793).\n\n- **General guidance:** Removed conversational filler and consolidated the guidance on high availability, centralization, least-privilege access, automation, auditing, resilience, policies, and metadata.\n- **Automated rotation:** Removed the lengthy Kubernetes YAML example and vendor-specific implementation details. Retained two architectural patterns: dual-credential phased rotation (with cryptographic key retention) and orchestrated multi-step rotation (with safe handling of single-active credential invalidation, idempotency, and testing).\n- **Secret delivery:** Clarified the distinction between secret delivery and actual credential rotation at the backing service. Sidecars are described as delivery and refresh mechanisms requiring application reload or restart, with a cross-reference to Section 5.2.\n- **Memory protection:** Removed lengthy hardware side-channel discussions while preserving practical memory protection guidance, including memory dumps, swap, secure zeroing, runtime-neutral managed runtime limitations, process separation, and core dump protection.\n- **Secret lifecycle:** Consolidated guidance across creation, distribution, rotation, revocation, and expiration. Categorized memorized passwords (per NIST SP 800-63 FAQ #q-b05), TOTP shared secrets, and WebAuthn credentials separately. Removed outdated password delivery recommendations involving SMS and email.\n- **Transport security:** Recommended TLS 1.2 or TLS 1.3 with forward secrecy and strict certificate validation, and framed mutual TLS (mTLS) for zero-trust transport-layer client identity verification.\n- **Scope:** Changes are limited to `cheatsheets/Secrets_Management_Cheat_Sheet.md`. Section 2 was reduced from approximately 2,728 to 1,836 words (a 32.7% reduction). This PR handles Section 2 separately from the Section 3 changes in PR #2900.\n\n## Validation\n\n- [x] File-level Markdown lint passed.\n- [x] Repository Markdown lint passed (`npm run lint-markdown`).\n- [x] Terminology lint passed (`npm run lint-terminology`).\n- [x] `git diff --check` passed.\n- [x] Local link checker passed.\n- [x] Full link checker passed.\n- [ ] GitHub Actions CI checks passed. (Pending PR checks.)\n\n## Scope and sourcing (required)\n\n- [x] This PR is focused: it modifies a single cheat sheet, or a small coordinated set, and the scope is described in the PR body.\n- [x] Every technical claim, recommendation, or threat assertion added in this PR is supported by a primary source (RFC, NIST, OWASP standard, vendor documentation, peer-reviewed research) linked inline as `[text](URL)`.\n- [x] I have read each source I cite and confirm it actually supports the claim. I have not relied on summaries, hearsay, or model-generated citations.\n\nPart of issue [#2793](https://github.com/OWASP/CheatSheetSeries/issues/2793).\n\n## AI Tool Usage Disclosure (required for all PRs)\n\n- [ ] I have NOT used any AI tool to generate the contents of this PR.\n- [x] I have used AI tools to generate the contents of this PR. I have verified the contents and I affirm the results. The LLM used is Gemini 3.8 Flash (via Google DeepMind's Antigravity assistant) and the prompt used is to audit Section 2 of Secrets_Management_Cheat_Sheet.md against issue #2793, trim Section 2 to concise security principles without code-heavy architecture walkthroughs, address reviewer and maintainer feedback on PR #2941, verify all citations against authoritative sources (including NIST SP 800-57 Part 1, NIST SP 800-90A Rev. 1, and NIST SP 800-63), and ensure all CI linters and link checkers pass. I have independently verified every citation and technical claim against the cited source.\n",
+      "state": "open",
+      "merged_at": null,
+      "user": {
+        "login": "V-2007-P"
+      }
+    }
+  },
+  "now": "2026-11-17T07:30:00Z"
+}

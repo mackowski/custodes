@@ -1,0 +1,114 @@
+{
+  "repo": "OWASP/CheatSheetSeries",
+  "number": 2973,
+  "issue": {
+    "number": 2973,
+    "title": "New CS proposal: HTTP Request Smuggling Prevention",
+    "body": "## What is the proposed Cheat Sheet about?\n\nAn HTTP Request Smuggling Prevention cheat sheet. Nothing in the series covers it right now, not even in passing, even though most apps sit behind a CDN, load balancer or reverse proxy where front end and back end can disagree about where a request ends. The Web Cache Security sheet is the closest neighbor but it's about cache keys, not message framing.\n\n## What security issues are commonly encountered related to this area?\n\n- CL.TE, TE.CL and TE.TE desync when front end and back end parse `Content-Length` and `Transfer-Encoding` differently, or one ignores an obfuscated `Transfer-Encoding`\n- HTTP/2 downgrade smuggling (H2.CL, H2.TE, CRLF in h2 header values) when the proxy rewrites HTTP/2 to HTTP/1.1 for the back end\n- Back end connections shared across users, so a smuggled prefix gets attached to someone else's request (session theft, response queue poisoning)\n- Bypassing front end access controls, WAF rules and auth headers added by the proxy\n- Cache poisoning and stored XSS delivered through smuggled requests\n- Client-side desync, where the browser itself is used to poison its own connection\n\n## What is the objective of the Cheat Sheet?\n\nExplain the root cause in plain terms and give concrete defenses: use HTTP/2 end to end where possible, have the front end normalize or reject ambiguous requests as RFC 9112 requires, don't reuse back end connections after a parsing error, keep proxy and server versions patched and on the same parsing rules, and know which settings matter in common proxies (nginx, HAProxy, Envoy, cloud load balancers). Plus a short section on how to test for it and links to the Web Cache Security and HTTP Headers sheets.\n\n## What other resources exist in this area?\n\n- WSTG-INPV-15 Testing for HTTP Splitting Smuggling covers testing\n- RFC 9112 section 6.3 (message body length) and RFC 9113 section 8.2.2 (h2 field validity)\n- CWE-444 Inconsistent Interpretation of HTTP Requests\n- PortSwigger's request smuggling research and Web Security Academy material\n",
+    "state": "open",
+    "user": {
+      "login": "cvas22"
+    },
+    "author_association": "NONE",
+    "labels": [
+      {
+        "name": "ACK_OBTAINED"
+      },
+      {
+        "name": "NEW_CS"
+      }
+    ],
+    "assignees": [
+      {
+        "login": "cvas22"
+      }
+    ],
+    "created_at": "2026-11-15T01:44:54Z",
+    "updated_at": "2026-11-17T03:33:29Z",
+    "comments": 2
+  },
+  "comments": [
+    {
+      "user": {
+        "login": "cvas22"
+      },
+      "author_association": "NONE",
+      "created_at": "2026-11-15T01:44:59Z",
+      "body": "Happy to write this one if it gets the ack."
+    },
+    {
+      "user": {
+        "login": "mackowski"
+      },
+      "author_association": "MEMBER",
+      "created_at": "2026-11-15T13:13:18Z",
+      "body": "Thanks @cvas22, this looks like a useful addition: request smuggling isn't covered by the existing cheat sheets, and the Web Cache Security sheet only deals with cache keys. Since you offered to write it, please go ahead. Keep the focus on defensive guidance (root cause, normalizing or rejecting ambiguous framing, connection handling, HTTP/2 downgrade risks). Cross-link the Web Cache Security and HTTP Headers sheets rather than repeating their content. Proxy-specific settings should stay neutral and be backed by each project's own documentation.\n\n<!--\nCustodes-Agent: triage-apply@0.1.0\nCustodes-Attestation: b5cf2772-a672-429e-bad5-86ba94cd8f83\n-->"
+    }
+  ],
+  "timeline": [
+    {
+      "event": "assigned",
+      "created_at": "2026-11-15T13:13:15Z",
+      "actor": {
+        "login": "mackowski"
+      },
+      "assignee": {
+        "login": "cvas22"
+      }
+    },
+    {
+      "event": "labeled",
+      "created_at": "2026-11-15T13:13:16Z",
+      "actor": {
+        "login": "mackowski"
+      },
+      "label": {
+        "name": "ACK_OBTAINED"
+      }
+    },
+    {
+      "event": "labeled",
+      "created_at": "2026-11-15T13:13:16Z",
+      "actor": {
+        "login": "mackowski"
+      },
+      "label": {
+        "name": "NEW_CS"
+      }
+    },
+    {
+      "event": "cross-referenced",
+      "created_at": "2026-11-16T01:32:24Z",
+      "actor": {
+        "login": "cvas22"
+      },
+      "source": {
+        "type": "issue",
+        "issue": {
+          "number": 2976,
+          "repository": {
+            "full_name": "OWASP/CheatSheetSeries"
+          },
+          "title": "New CS: HTTP Request Smuggling Prevention Cheat Sheet",
+          "state": "open",
+          "pull_request": {
+            "merged_at": null
+          }
+        }
+      }
+    }
+  ],
+  "pulls": {
+    "2976": {
+      "number": 2976,
+      "title": "New CS: HTTP Request Smuggling Prevention Cheat Sheet",
+      "body": "Adds a new HTTP Request Smuggling Prevention Cheat Sheet, as agreed in the issue. It explains the root cause in a few lines (CL.TE, TE.CL and TE.TE, HTTP/2 downgrades, and servers that ignore a body they didn't expect, including the client-side case), then sticks to defenses: HTTP/2 end-to-end, the RFC 9112 framing rules with the strict option, validating downgraded requests against RFC 9113, and connection handling. It also says what these controls don't cover and gives a short testing note. As you asked, there are no product-specific proxy settings, it points readers to each product's own docs, and it links the Web Cache Security and HTTP Headers sheets instead of repeating them. Web Cache Security gets a one-line link back, and Index.md is regenerated.\r\n\r\n- [x] In case of a new Cheat Sheet, you have used the [Cheat Sheet template](../templates/New_CheatSheet.md).\r\n- [x] All the markdown files do not raise any validation policy violation, see the [policy](https://github.com/OWASP/CheatSheetSeries/actions?query=workflow%3A%22Markdown+Link+Check%22).\r\n- [x] All the markdown files follow these [format rules](../CONTRIBUTING.md#markdown).\r\n- [ ] All your assets are stored in the **assets** folder.\r\n- [ ] All the images used are in the **PNG** format.\r\n- [x] Any references to websites have been formatted as `[TEXT](URL)`\r\n- [x] You verified/tested the effectiveness of your contribution (e.g., the defensive code proposed is really an effective remediation? Please verify it works!).\r\n- [ ] The CI build of your PR pass, see the build status [here](https://github.com/OWASP/CheatSheetSeries/actions).\r\n\r\n## Scope and sourcing (required)\r\n\r\n- [x] This PR is focused: it modifies a single cheat sheet, or a small coordinated set, and the scope is described in the PR body.\r\n- [x] Every technical claim, recommendation, or threat assertion added in this PR is supported by a primary source (RFC, NIST, OWASP standard, vendor documentation, peer-reviewed research) linked inline as `[text](URL)`.\r\n- [x] I have read each source I cite and confirm it actually supports the claim. I have not relied on summaries, hearsay, or model-generated citations.\r\n\r\nThis PR fixes issue #2973.\r\n\r\n## AI Tool Usage Disclosure (required for all PRs)\r\n\r\nPlease select exactly one of the following options. PRs that leave this section blank will be closed.\r\n\r\n- [ ] I have NOT used any AI tool to generate the contents of this PR.\r\n- [x] I have used AI tools to generate the contents of this PR. I have verified\r\n    the contents and I affirm the results. The LLM used is `Claude Code Opus 5.5`\r\n    and the prompt used is below. I have independently verified every citation and technical claim against the cited source. [Feel free to add more details if needed]\r\n\r\n```text\r\nI'm contributing to OWASP CheatSheetSeries and working on issue #2973 (https://github.com/OWASP/CheatSheetSeries/issues/2973), a new HTTP Request Smuggling Prevention Cheat Sheet. The maintainer acked it and assigned it to me, and asked to keep the focus on defensive guidance (root cause, normalizing or rejecting ambiguous framing, connection handling, HTTP/2 downgrade risks), to cross-link the Web Cache Security and HTTP Headers sheets rather than repeating their content, and to keep proxy-specific settings neutral and backed by each project's own documentation.\r\n\r\nFollow AGENTS.md and templates/New_CheatSheet.md. Structure: a short Introduction (front end and back end disagreeing on where a request ends, and what an attacker gets from it), a \"How Desync Happens\" section covering CL.TE/TE.CL/TE.TE, HTTP/2 downgrades, and servers ignoring a body they didn't expect including client-side desync, a Prevention section with subsections for HTTP/2 end-to-end, rejecting ambiguous HTTP/1.1 framing per RFC 9112 Sections 6.1 and 6.3 (prefer the strict option where the RFC allows a choice), validating downgraded requests per RFC 9113 Sections 8.1.1, 8.2.1 and 8.2.2, and handling connections defensively, then a short \"What These Controls Do Not Cover\" section with links to the Web Cache Security and HTTP Headers sheets, a short Testing section, and a References section with 2-3 primary sources (RFC 9112, RFC 9113, CWE-444).\r\n\r\nDon't include configuration for specific proxies, just tell readers to check each product's documentation. Every H2 needs an inline https citation. Cite only primary or authoritative sources: RFC 9112, RFC 9113, CWE-444, the OWASP WSTG HTTP Splitting/Smuggling test (wstg.owasp.org/v4.2 URL), and PortSwigger's request smuggling pages and research. Fetch each page and confirm it supports the exact sentence it's on, including section anchors, and reword or drop anything a source doesn't back up. Use US English and the repo's terminology rules, run markdownlint and textlint, regenerate Index.md with scripts/Update_CheatSheets_Index.py (keep LF line endings), and add a one-line link to the new sheet from the Web Cache Security sheet. Keep it concise and conceptual.\r\n```\r\n",
+      "state": "open",
+      "merged_at": null,
+      "user": {
+        "login": "cvas22"
+      }
+    }
+  },
+  "now": "2026-11-17T07:30:00Z"
+}

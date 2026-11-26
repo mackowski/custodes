@@ -422,13 +422,14 @@ const TRIAGE_CLASSES = new Set([
 
 /** The Worker that runs the class in `/agents/<class>/...`, or null for a class that has none. */
 export function agentWorker(
-  env: { TRIAGE: Fetcher; PR_GATE: Fetcher; CHEATSHEET_REVIEW: Fetcher },
+  env: { TRIAGE: Fetcher; PR_GATE: Fetcher; CHEATSHEET_REVIEW: Fetcher; BACKLOG_REVIEW: Fetcher },
   path: string,
 ): Fetcher | null {
   const cls = path.split('/').filter(Boolean)[1] ?? '';
   if (TRIAGE_CLASSES.has(cls)) return env.TRIAGE;
   if (cls === 'pr-gate-agent') return env.PR_GATE;
   if (cls === 'cheatsheet-review-agent') return env.CHEATSHEET_REVIEW;
+  if (cls === 'backlog-review-agent') return env.BACKLOG_REVIEW;
   return null;
 }
 

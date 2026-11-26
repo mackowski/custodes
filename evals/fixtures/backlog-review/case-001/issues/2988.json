@@ -1,0 +1,93 @@
+{
+  "repo": "OWASP/CheatSheetSeries",
+  "number": 2988,
+  "issue": {
+    "number": 2988,
+    "title": "Update: Docker_Security_Cheat_Sheet / actually recommend to upgrade the container images",
+    "body": "## What is missing or needs to be updated?\n\nThe Docker Chet Sheet asks to:\n\n* upgrade the host;\n* maintain provenance/SBOM info for the container images, etc.\n\nbut there is no explicit mention of actually managing the upgrades of the container images.\n\n## How should this be resolved?\n\n* Explicitly state that some upgrade process must be in place for the container images?\n* Mention (timely) detection of vulns in container images?\n\ni.e. generating a SBOM is not super useful if it is not exploited.",
+    "state": "open",
+    "user": {
+      "login": "randomstuff"
+    },
+    "author_association": "MEMBER",
+    "labels": [
+      {
+        "name": "UPDATE_CS"
+      },
+      {
+        "name": "HELP_WANTED"
+      },
+      {
+        "name": "ACK_OBTAINED"
+      }
+    ],
+    "assignees": [],
+    "created_at": "2026-11-16T23:30:14Z",
+    "updated_at": "2026-11-17T07:08:34Z",
+    "comments": 1
+  },
+  "comments": [
+    {
+      "user": {
+        "login": "mackowski"
+      },
+      "author_association": "MEMBER",
+      "created_at": "2026-11-17T07:08:32Z",
+      "body": "Thanks for raising this, @randomstuff. The cheat sheet covers host and engine updates, CI/CD image scanning and SBOM generation, but it does not explicitly require a process for rebuilding and updating container images or for keeping deployed images monitored for newly disclosed vulnerabilities. Adding that guidance would be a useful update. Would you like to work on a pull request for this?\n\n<!--\nCustodes-Agent: triage-apply@0.1.0\nCustodes-Attestation: 0de36953-53fa-458d-8ac7-ef265d507b0f\n-->"
+    }
+  ],
+  "timeline": [
+    {
+      "event": "labeled",
+      "created_at": "2026-11-16T23:30:16Z",
+      "actor": {
+        "login": "randomstuff"
+      },
+      "label": {
+        "name": "ACK_WAITING"
+      }
+    },
+    {
+      "event": "labeled",
+      "created_at": "2026-11-16T23:30:16Z",
+      "actor": {
+        "login": "randomstuff"
+      },
+      "label": {
+        "name": "UPDATE_CS"
+      }
+    },
+    {
+      "event": "labeled",
+      "created_at": "2026-11-16T23:30:16Z",
+      "actor": {
+        "login": "randomstuff"
+      },
+      "label": {
+        "name": "HELP_WANTED"
+      }
+    },
+    {
+      "event": "labeled",
+      "created_at": "2026-11-17T07:08:29Z",
+      "actor": {
+        "login": "mackowski"
+      },
+      "label": {
+        "name": "ACK_OBTAINED"
+      }
+    },
+    {
+      "event": "unlabeled",
+      "created_at": "2026-11-17T07:08:31Z",
+      "actor": {
+        "login": "mackowski"
+      },
+      "label": {
+        "name": "ACK_WAITING"
+      }
+    }
+  ],
+  "pulls": {},
+  "now": "2026-11-17T07:30:00Z"
+}

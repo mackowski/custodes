@@ -1,0 +1,113 @@
+{
+  "repo": "OWASP/CheatSheetSeries",
+  "number": 2992,
+  "issue": {
+    "number": 2992,
+    "title": "Update: Ruby on Rails Cheat Sheet - credentials key and Devise bcrypt cost (small update)",
+    "body": "## What is missing or needs to be updated?\n\nTwo parts of the Ruby on Rails cheat sheet are out of date. The Sensitive Files list names `/config/initializers/secret_token.rb`, a file from before Rails 4.1, and doesn't mention `config/master.key`, which is the key that decrypts `config/credentials.yml.enc` in current Rails (https://guides.rubyonrails.org/security.html#custom-credentials). Committing that key is the mistake people actually make now.\n\nThe Encryption section also says Devise uses 10 stretches in production, but the current Devise initializer template defaults to a bcrypt cost of 12 (https://github.com/heartcombo/devise/blob/main/lib/generators/templates/devise.rb).\n\n## How should this be resolved?\n\nReplace `secret_token.rb` with `config/master.key` and `config/credentials/*.key`, and add a note that the encrypted credentials file can be committed but the keys can't. Update the Devise example to 12 and point to the Password Storage cheat sheet for bcrypt cost guidance. Will update if it gets ACKed!\n",
+    "state": "open",
+    "user": {
+      "login": "cvas22"
+    },
+    "author_association": "NONE",
+    "labels": [
+      {
+        "name": "ACK_OBTAINED"
+      },
+      {
+        "name": "UPDATE_CS"
+      }
+    ],
+    "assignees": [
+      {
+        "login": "cvas22"
+      }
+    ],
+    "created_at": "2026-11-17T00:02:56Z",
+    "updated_at": "2026-11-17T07:13:16Z",
+    "comments": 1
+  },
+  "comments": [
+    {
+      "user": {
+        "login": "mackowski"
+      },
+      "author_association": "MEMBER",
+      "created_at": "2026-11-17T07:13:14Z",
+      "body": "Thanks @cvas22, this is a useful update: the Sensitive Files list and the Devise stretches example are indeed out of date. Please go ahead. Since the earlier pull request was closed, feel free to reopen it or open a new one that references this issue.\n\n<!--\nCustodes-Agent: triage-apply@0.1.0\nCustodes-Attestation: 29a94de3-8b5f-4e95-b96d-608f617efbbf\n-->"
+    }
+  ],
+  "timeline": [
+    {
+      "event": "cross-referenced",
+      "created_at": "2026-11-17T01:45:22Z",
+      "actor": {
+        "login": "cvas22"
+      },
+      "source": {
+        "type": "issue",
+        "issue": {
+          "number": 2999,
+          "repository": {
+            "full_name": "OWASP/CheatSheetSeries"
+          },
+          "title": "Update: Ruby on Rails Cheat Sheet - credentials key and Devise bcrypt cost",
+          "state": "open",
+          "pull_request": {
+            "merged_at": null
+          }
+        }
+      }
+    },
+    {
+      "event": "renamed",
+      "created_at": "2026-11-17T05:10:44Z",
+      "actor": {
+        "login": "cvas22"
+      }
+    },
+    {
+      "event": "assigned",
+      "created_at": "2026-11-17T07:13:11Z",
+      "actor": {
+        "login": "mackowski"
+      },
+      "assignee": {
+        "login": "cvas22"
+      }
+    },
+    {
+      "event": "labeled",
+      "created_at": "2026-11-17T07:13:12Z",
+      "actor": {
+        "login": "mackowski"
+      },
+      "label": {
+        "name": "ACK_OBTAINED"
+      }
+    },
+    {
+      "event": "labeled",
+      "created_at": "2026-11-17T07:13:12Z",
+      "actor": {
+        "login": "mackowski"
+      },
+      "label": {
+        "name": "UPDATE_CS"
+      }
+    }
+  ],
+  "pulls": {
+    "2999": {
+      "number": 2999,
+      "title": "Update: Ruby on Rails Cheat Sheet - credentials key and Devise bcrypt cost",
+      "body": "The Sensitive Files list named `config/initializers/secret_token.rb`, which is from before Rails 4.1. I replaced it with `config/master.key` and the per-environment key files and added a short note that the encrypted credentials can be committed but the keys cannot, citing the Rails security guide and the credentials command help. The Devise example now uses the current template default of 12 for the bcrypt cost, with a pointer to the Password Storage cheat sheet.\r\n\r\n- [ ] In case of a new Cheat Sheet, you have used the [Cheat Sheet template](../templates/New_CheatSheet.md).\r\n- [x] All the markdown files do not raise any validation policy violation, see the [policy](https://github.com/OWASP/CheatSheetSeries/actions?query=workflow%3A%22Markdown+Link+Check%22).\r\n- [x] All the markdown files follow these [format rules](../CONTRIBUTING.md#markdown).\r\n- [ ] All your assets are stored in the **assets** folder.\r\n- [ ] All the images used are in the **PNG** format.\r\n- [x] Any references to websites have been formatted as `[TEXT](URL)`\r\n- [x] You verified/tested the effectiveness of your contribution (e.g., the defensive code proposed is really an effective remediation? Please verify it works!).\r\n- [ ] The CI build of your PR pass, see the build status [here](https://github.com/OWASP/CheatSheetSeries/actions).\r\n\r\n## Scope and sourcing (required)\r\n\r\n- [x] This PR is focused: it modifies a single cheat sheet, or a small coordinated set, and the scope is described in the PR body.\r\n- [x] Every technical claim, recommendation, or threat assertion added in this PR is supported by a primary source (RFC, NIST, OWASP standard, vendor documentation, peer-reviewed research) linked inline as `[text](URL)`.\r\n- [x] I have read each source I cite and confirm it actually supports the claim. I have not relied on summaries, hearsay, or model-generated citations.\r\n\r\n## AI Tool Usage Disclosure (required for all PRs)\r\n\r\n- [ ] I have NOT used any AI tool to generate the contents of this PR.\r\n- [x] I have used AI tools to generate the contents of this PR. I have verified\r\n    the contents and I affirm the results. The LLM used is `Claude Code Opus 5.5`\r\n    and the prompt used is `Update the Ruby on Rails cheat sheet sensitive files list and Devise bcrypt example to match current Rails credentials and the current Devise initializer template, verifying each against the Rails security guide, the rails credentials USAGE file and the Devise source`. I have independently verified every citation and technical claim against the cited source.\r\n\r\nThis PR fixes issue #2992.\r\n",
+      "state": "open",
+      "merged_at": null,
+      "user": {
+        "login": "cvas22"
+      }
+    }
+  },
+  "now": "2026-11-17T07:30:00Z"
+}

@@ -39,7 +39,11 @@ describe('eval suite selection', () => {
     const known = [...SHARED_PATHS, ...Object.values(SUITE_PATHS).flat()];
     // Everything under evals/ is covered by the `evals/**` entry.
     const missing = [...new Set(known)].filter(
-      (p) => !p.startsWith('evals/') && !workflow.includes(`- '${p}'`),
+      // A directory prefix (`…/`) is a `…/**` glob in the workflow.
+      (p) =>
+        !p.startsWith('evals/') &&
+        !workflow.includes(`- '${p}'`) &&
+        !(p.endsWith('/') && workflow.includes(`- '${p}**'`)),
     );
     expect(missing).toEqual([]);
   });

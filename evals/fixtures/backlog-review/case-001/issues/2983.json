@@ -1,0 +1,74 @@
+{
+  "repo": "OWASP/CheatSheetSeries",
+  "number": 2983,
+  "issue": {
+    "number": 2983,
+    "title": "Update: Input Validation Cheat Sheet - CRLF in response header values",
+    "body": "## What is missing or needs to be updated?\n\nNothing in the series explains CRLF injection into HTTP response headers, also called response splitting (CWE-113). The pieces that exist are about other things. The Logging sheet covers CR and LF in log entries, the REST sheet has a single line saying services must defend against header injection, and the GraphQL sheet names CRLF in passing. None of them says what the attack does in a response (adding a `Set-Cookie`, rewriting a redirect `Location`, or ending the headers early to write a body), or what the developer should do about it.\n\nIt is a smaller risk than it used to be because most frameworks and servers now reject CR and LF in header values, but it still shows up where an app builds a header by hand or passes user input through to a proxy, a custom server, or an older runtime. The control is simple and worth stating once, so people don't have to guess whether their framework already handles it.\n\n## How should this be resolved?\n\nAdd a short section to the Input Validation Cheat Sheet, next to the new \"Host and Forwarded Headers\" section, with the same size and style. It would say that user input written into a response header (redirect targets, cookie values, filenames in `Content-Disposition`, custom headers) must not contain CR, LF or NUL. Reject those values, or use the framework's header API, which refuses them, instead of building header lines by string concatenation. It would also say not to rely on encoding alone, and to check what a given framework does with such a value before assuming it is safe, and it would point to the Logging sheet for the log injection variant.\n\nSources would be RFC 9110 section 5.5 (field values containing CR, LF or NUL are invalid and dangerous, and a recipient must reject them or replace them with a space), CWE-113, the OWASP Community CRLF Injection page, and the WSTG test for HTTP splitting and smuggling. I'd read each one again before citing it.\n\nI wasn't sure this earns a section of its own, so I'm raising it first. If you think it is too thin to add, or belongs in a different sheet such as HTTP Headers, happy to go with that. Will work on it and create a PR if this one get the ACK.\n",
+    "state": "open",
+    "user": {
+      "login": "cvas22"
+    },
+    "author_association": "NONE",
+    "labels": [
+      {
+        "name": "ACK_OBTAINED"
+      },
+      {
+        "name": "UPDATE_CS"
+      }
+    ],
+    "assignees": [
+      {
+        "login": "cvas22"
+      }
+    ],
+    "created_at": "2026-11-16T17:26:18Z",
+    "updated_at": "2026-11-17T07:07:04Z",
+    "comments": 1
+  },
+  "comments": [
+    {
+      "user": {
+        "login": "mackowski"
+      },
+      "author_association": "MEMBER",
+      "created_at": "2026-11-17T07:07:02Z",
+      "body": "Thanks @cvas22, this is a useful addition. Response header injection isn't covered today, apart from the log injection variant in the Logging sheet. A short section in the Input Validation Cheat Sheet, next to the Host and Forwarded Headers section and in the same style, sounds good. Please go ahead with the pull request when you're ready.\n\n<!--\nCustodes-Agent: triage-apply@0.1.0\nCustodes-Attestation: 80a3ecc5-8b09-4a27-9022-bb39556190d7\n-->"
+    }
+  ],
+  "timeline": [
+    {
+      "event": "assigned",
+      "created_at": "2026-11-17T07:06:59Z",
+      "actor": {
+        "login": "mackowski"
+      },
+      "assignee": {
+        "login": "cvas22"
+      }
+    },
+    {
+      "event": "labeled",
+      "created_at": "2026-11-17T07:07:00Z",
+      "actor": {
+        "login": "mackowski"
+      },
+      "label": {
+        "name": "ACK_OBTAINED"
+      }
+    },
+    {
+      "event": "labeled",
+      "created_at": "2026-11-17T07:07:00Z",
+      "actor": {
+        "login": "mackowski"
+      },
+      "label": {
+        "name": "UPDATE_CS"
+      }
+    }
+  ],
+  "pulls": {},
+  "now": "2026-11-17T07:30:00Z"
+}

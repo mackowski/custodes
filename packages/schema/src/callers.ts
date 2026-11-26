@@ -10,6 +10,7 @@ export const CallerName = z.enum([
   'custodes-cheatsheet-review',
   'custodes-triage',
   'custodes-triage-apply',
+  'custodes-backlog-review',
 ]);
 export type CallerName = z.infer<typeof CallerName>;
 
@@ -22,6 +23,7 @@ export const CALLER_AGENTS: Readonly<Record<CallerName, readonly string[]>> = {
   'custodes-cheatsheet-review': ['cheatsheet-review'],
   'custodes-triage': ['triage', 'implementation-check', 'proposal-review'],
   'custodes-triage-apply': ['triage-apply'],
+  'custodes-backlog-review': ['backlog-review'],
 };
 
 const P = (1n << 255n) - 19n;

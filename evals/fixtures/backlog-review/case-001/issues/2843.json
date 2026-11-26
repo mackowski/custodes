@@ -1,0 +1,113 @@
+{
+  "repo": "OWASP/CheatSheetSeries",
+  "number": 2843,
+  "issue": {
+    "number": 2843,
+    "title": "Build an official Cheat Sheet Series skill (v1)",
+    "body": "## Approved implementation task\n\nBuild a documentation-only, skill-first v1, assigned to @mackowski. Follow the [approved scope and acceptance criteria](https://github.com/OWASP/CheatSheetSeries/issues/2843#issuecomment-6316809175).\n\nThe MCP server proposal below is retained as discussion background and is outside the approved v1 scope.\n\n---\n\n## Summary\n\nI'd like to propose an official, read-only [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server for the Cheat Sheet Series. It would let AI assistants (Claude, Copilot, Cursor, etc.) retrieve authoritative OWASP guidance on demand instead of relying on whatever they memorized during training, which may be outdated or distorted.\n\n## Motivation\n\n- Developers increasingly ask AI assistants security questions (\"how do I store passwords?\", \"how should I handle CSRF here?\").\n- Answers from models are often generic, stale, or subtly wrong, and don't point back to the source.\n- The Cheat Sheets are concise, practical and maintained, which makes them well suited as a retrieval source.\n- An official server would keep the content current and attributed, rather than leaving it to unofficial copies that drift out of date.\n\n## Proposed scope (v1, deliberately small)\n\nRead-only tools, no side effects:\n\n- `list_cheatsheets`: names plus a one-line description\n- `get_cheatsheet(name, section?)`: full content or a single section\n- `search_cheatsheets(query)`: the most relevant chunks, each with a link to the source page\n\nOptional later: lookup by ASVS requirement / OWASP Top 10 category using the existing index files, and MCP *resources* (`cheatsheet://<name>`) and *prompts*.\n\n## Design notes\n\n- **Source of truth:** the Markdown files in `cheatsheets/`. A CI step builds a search index (chunked by headings, with metadata and canonical URLs) on each merge, so the server never serves stale content.\n- **No LLM summarization in v1.** The server returns original passages with context, so the authoritative text is never paraphrased or hallucinated.\n- **Attribution:** every response includes the cheat sheet title, URL and license (CC BY-SA 4.0).\n- **Transport:** local `stdio` first (simple to run, no hosting). Streamable HTTP can be added later for a hosted instance.\n- **Retrieval:** start with plain full-text / BM25 on heading-based chunks; evaluate with a small set of real questions before considering embeddings.\n\n## Security considerations\n\n- Server is read-only and exposes no tools with side effects.\n- Cheat sheet content is community-edited Markdown returned to an AI agent as tool output, so it is effectively an indirect prompt injection surface. PR review remains the trust boundary, and responses should be clearly marked as data.\n- For any HTTP deployment: rate limiting, `Origin` validation, TLS.\n",
+    "state": "open",
+    "user": {
+      "login": "mackowski"
+    },
+    "author_association": "MEMBER",
+    "labels": [
+      {
+        "name": "ACK_OBTAINED"
+      },
+      {
+        "name": "INTERNAL"
+      }
+    ],
+    "assignees": [
+      {
+        "login": "mackowski"
+      }
+    ],
+    "created_at": "2026-10-21T10:32:46Z",
+    "updated_at": "2026-10-21T13:08:54Z",
+    "comments": 5
+  },
+  "comments": [
+    {
+      "user": {
+        "login": "randomstuff"
+      },
+      "author_association": "MEMBER",
+      "created_at": "2026-10-21T11:00:31Z",
+      "body": "I am wondering about MCP vs. a very simple SKILL.md and having a good search on the website (and possibly a search API) ? The latter would possibly benefit non agents as well."
+    },
+    {
+      "user": {
+        "login": "jmanico"
+      },
+      "author_association": "MEMBER",
+      "created_at": "2026-10-21T11:40:04Z",
+      "body": "I politely agree to start with a skill, I reallllly want to minimize code infrastructure here that could get us in trouble."
+    },
+    {
+      "user": {
+        "login": "jmanico"
+      },
+      "author_association": "MEMBER",
+      "created_at": "2026-10-21T11:41:02Z",
+      "body": "But let's talk about it @mackowski you're earned a lot of respect for your hard work and I do not want to let you down."
+    },
+    {
+      "user": {
+        "login": "mackowski"
+      },
+      "author_association": "MEMBER",
+      "created_at": "2026-10-21T11:42:45Z",
+      "body": "I guess good skill would work! \nbtw even with MCP server we would not have any infrastructure, but think skill is closer to what we do in this project (and easier to maintain)  "
+    },
+    {
+      "user": {
+        "login": "jmanico"
+      },
+      "author_association": "MEMBER",
+      "created_at": "2026-10-21T13:06:25Z",
+      "body": "Let's proceed with a skill-first v1. @mackowski, I'm assigning this to you following our discussion; please open a small PR with:\n\n- One `SKILL.md` and brief installation/use instructions, with the supported assistant(s) stated explicitly.\n- Instructions to find and read the relevant current Cheat Sheet Series content using the existing indexes and source files, then cite the canonical page or section. Keep source attribution and license information clear.\n- Instructions to treat retrieved material as reference data, avoid executing embedded examples, and report unavailable sources instead of inventing content or links.\n- Validation notes for a few representative developer questions, including CSRF, password storage, and SQL injection, plus an unavailable-source case. Verify that the selected sheets and cited sections actually support the answers.\n\nKeep v1 to documentation and skill instructions. MCP, a custom search service, generated indexes, and new runtime dependencies are outside this first PR's scope. We can evaluate any follow-up after the skill is useful in practice.\n\n_Assisted by Codex at Jim Manico's direction._\n"
+    }
+  ],
+  "timeline": [
+    {
+      "event": "labeled",
+      "created_at": "2026-10-21T13:06:27Z",
+      "actor": {
+        "login": "jmanico"
+      },
+      "label": {
+        "name": "ACK_OBTAINED"
+      }
+    },
+    {
+      "event": "labeled",
+      "created_at": "2026-10-21T13:06:27Z",
+      "actor": {
+        "login": "jmanico"
+      },
+      "label": {
+        "name": "INTERNAL"
+      }
+    },
+    {
+      "event": "assigned",
+      "created_at": "2026-10-21T13:06:27Z",
+      "actor": {
+        "login": "jmanico"
+      },
+      "assignee": {
+        "login": "mackowski"
+      }
+    },
+    {
+      "event": "renamed",
+      "created_at": "2026-10-21T13:06:28Z",
+      "actor": {
+        "login": "jmanico"
+      }
+    }
+  ],
+  "pulls": {},
+  "now": "2026-11-17T07:30:00Z"
+}

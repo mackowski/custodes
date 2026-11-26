@@ -1,0 +1,227 @@
+{
+  "repo": "OWASP/CheatSheetSeries",
+  "number": 2931,
+  "issue": {
+    "number": 2931,
+    "title": "Update: [HTTP Security Response Headers Cheat Sheet]",
+    "body": "## What is missing or needs to be updated?\n\nThe [[HTTP Headers Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/HTTP_Headers_Cheat_Sheet.html#access-control-allow-origin)](https://cheatsheetseries.owasp.org/cheatsheets/HTTP_Headers_Cheat_Sheet.html#access-control-allow-origin) currently documents the `Access-Control-Allow-Origin` response header but does not mention the closely related `Access-Control-Allow-Credentials` header.\n\n`Access-Control-Allow-Credentials` is an important part of CORS configuration when cross-origin requests require credentials such as cookies.\n\n## How should this be resolved?\n\nAdd a small subsection about `Access-Control-Allow-Credentials` under the existing `Access-Control-Allow-Origin` section.\n\nThe subsection should cover:\n\n- Its purpose and functionality in credentialed CORS requests.\n- Its valid value (`true`) and when the header should be omitted.\n- Its relationship with `Access-Control-Allow-Origin`.\n- The restriction that wildcard origins (`*`) cannot be used with credentialed CORS responses.\n- The security implications of allowing credentials for untrusted origins.\n- A recommendation to allow credentials only for explicitly trusted origins.\n\n**References:**\n- [[MDN \u2013 Access-Control-Allow-Credentials](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Access-Control-Allow-Credentials)](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Access-Control-Allow-Credentials)\n- [[MDN \u2013 Cross-Origin Resource Sharing (CORS)](https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/CORS)](https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/CORS)\n- [[WHATWG Fetch Standard](https://fetch.spec.whatwg.org/)](https://fetch.spec.whatwg.org/)\n\n<!-- Thank you again for your contribution -->",
+    "state": "open",
+    "user": {
+      "login": "MadEyE355"
+    },
+    "author_association": "NONE",
+    "labels": [
+      {
+        "name": "UPDATE_CS"
+      },
+      {
+        "name": "ACK_OBTAINED"
+      }
+    ],
+    "assignees": [
+      {
+        "login": "jmanico"
+      },
+      {
+        "login": "MadEyE355"
+      }
+    ],
+    "created_at": "2026-11-09T18:12:32Z",
+    "updated_at": "2026-11-12T08:08:50Z",
+    "comments": 7
+  },
+  "comments": [
+    {
+      "user": {
+        "login": "arpitjain099"
+      },
+      "author_association": "NONE",
+      "created_at": "2026-11-11T05:37:47Z",
+      "body": "I would like to take this one if it is still open. Access-Control-Allow-Credentials is missing from the HTTP Headers cheat sheet, which currently only documents Access-Control-Allow-Origin.\n\nThe ACAO section lives in HTTP_Headers_Cheat_Sheet.md, so I would add the new subsection there, right after the existing Access-Control-Allow-Origin block. Please let me know if you would prefer it elsewhere.\n\nMy plan is a short subsection: Access-Control-Allow-Credentials must be the literal value true, it cannot be combined with Access-Control-Allow-Origin: * (browsers reject that pair), and setting it to true alongside a reflected or overly broad origin lets an attacker page read authenticated cross-origin responses. I would source it to the WHATWG Fetch Standard and the MDN page.\n\nCould you please assign it to me? Thank you."
+    },
+    {
+      "user": {
+        "login": "MadEyE355"
+      },
+      "author_association": "NONE",
+      "created_at": "2026-11-11T09:10:24Z",
+      "body": "the game gets more fun the less it matters, and the less it matters the better you perform :-)"
+    },
+    {
+      "user": {
+        "login": "MadEyE355"
+      },
+      "author_association": "NONE",
+      "created_at": "2026-11-11T13:30:46Z",
+      "body": "any reason you did not give it to me? @jmanico "
+    },
+    {
+      "user": {
+        "login": "jmanico"
+      },
+      "author_association": "MEMBER",
+      "created_at": "2026-11-11T13:34:13Z",
+      "body": "Ah, I reassigned it to you @MadEyE355 "
+    },
+    {
+      "user": {
+        "login": "MadEyE355"
+      },
+      "author_association": "NONE",
+      "created_at": "2026-11-11T13:37:06Z",
+      "body": "Thank you very much , just asking as i am new to the contribution stuff why did you not assign it to me first like do you have to do anything other than opening the issue? genuinely asking as i dont know how this works"
+    },
+    {
+      "user": {
+        "login": "jmanico"
+      },
+      "author_association": "MEMBER",
+      "created_at": "2026-11-11T13:42:54Z",
+      "body": "It was a mistake :) It should go to you."
+    },
+    {
+      "user": {
+        "login": "MadEyE355"
+      },
+      "author_association": "NONE",
+      "created_at": "2026-11-12T08:08:48Z",
+      "body": "@mackowski thanks for changing the ack_waiting i have also submitted the pr , please check it "
+    }
+  ],
+  "timeline": [
+    {
+      "event": "labeled",
+      "created_at": "2026-11-09T18:12:33Z",
+      "actor": {
+        "login": "MadEyE355"
+      },
+      "label": {
+        "name": "ACK_WAITING"
+      }
+    },
+    {
+      "event": "labeled",
+      "created_at": "2026-11-09T18:12:34Z",
+      "actor": {
+        "login": "MadEyE355"
+      },
+      "label": {
+        "name": "UPDATE_CS"
+      }
+    },
+    {
+      "event": "labeled",
+      "created_at": "2026-11-09T18:12:34Z",
+      "actor": {
+        "login": "MadEyE355"
+      },
+      "label": {
+        "name": "HELP_WANTED"
+      }
+    },
+    {
+      "event": "assigned",
+      "created_at": "2026-11-11T13:28:51Z",
+      "actor": {
+        "login": "jmanico"
+      },
+      "assignee": {
+        "login": "jmanico"
+      }
+    },
+    {
+      "event": "assigned",
+      "created_at": "2026-11-11T13:28:52Z",
+      "actor": {
+        "login": "jmanico"
+      },
+      "assignee": {
+        "login": "arpitjain099"
+      }
+    },
+    {
+      "event": "unassigned",
+      "created_at": "2026-11-11T13:33:53Z",
+      "actor": {
+        "login": "jmanico"
+      },
+      "assignee": {
+        "login": "arpitjain099"
+      }
+    },
+    {
+      "event": "assigned",
+      "created_at": "2026-11-11T13:33:53Z",
+      "actor": {
+        "login": "jmanico"
+      },
+      "assignee": {
+        "login": "MadEyE355"
+      }
+    },
+    {
+      "event": "cross-referenced",
+      "created_at": "2026-11-11T17:06:41Z",
+      "actor": {
+        "login": "MadEyE355"
+      },
+      "source": {
+        "type": "issue",
+        "issue": {
+          "number": 2946,
+          "repository": {
+            "full_name": "OWASP/CheatSheetSeries"
+          },
+          "title": "Add Access-Control-Allow-Credentials to HTTP Headers Cheat Sheet",
+          "state": "open",
+          "pull_request": {
+            "merged_at": null
+          }
+        }
+      }
+    },
+    {
+      "event": "unlabeled",
+      "created_at": "2026-11-12T08:02:14Z",
+      "actor": {
+        "login": "mackowski"
+      },
+      "label": {
+        "name": "ACK_WAITING"
+      }
+    },
+    {
+      "event": "unlabeled",
+      "created_at": "2026-11-12T08:02:14Z",
+      "actor": {
+        "login": "mackowski"
+      },
+      "label": {
+        "name": "HELP_WANTED"
+      }
+    },
+    {
+      "event": "labeled",
+      "created_at": "2026-11-12T08:02:14Z",
+      "actor": {
+        "login": "mackowski"
+      },
+      "label": {
+        "name": "ACK_OBTAINED"
+      }
+    }
+  ],
+  "pulls": {
+    "2946": {
+      "number": 2946,
+      "title": "Add Access-Control-Allow-Credentials to HTTP Headers Cheat Sheet",
+      "body": "## Description\r\n\r\nAdds documentation for the `Access-Control-Allow-Credentials` HTTP response header to the HTTP Headers Cheat Sheet.\r\n\r\nThe new subsection covers:\r\n- The purpose and valid value of the header.\r\n- Its relationship with `Access-Control-Allow-Origin` and the wildcard restriction.\r\n- Security recommendations for trusted-origin validation.\r\n- Cookie security considerations and CSRF protection.\r\n- Credentialed CORS preflight behaviour.\r\n\r\n## Checklist\r\n\r\n- [ ] In case of a new Cheat Sheet, you have used the Cheat Sheet template.\r\n- [ ] All the markdown files do not raise any validation policy violation.\r\n- [x] All the markdown files follow the format rules.\r\n- [x] All your assets are stored in the assets folder. (No new assets added.)\r\n- [x] All the images used are in PNG format. (No new images added.)\r\n- [x] Any references to websites have been formatted as `[TEXT](URL)`.\r\n- [ ] You verified/tested the effectiveness of your contribution.\r\n- [ ] The CI build of your PR passes.\r\n\r\n## Scope and sourcing\r\n\r\n- [x] This PR modifies a single cheat sheet.\r\n- [ ] Every technical claim, recommendation, or threat assertion is supported by a primary source linked inline.\r\n- [x] I have read each source I cite and independently verified its claims.\r\n\r\n## AI Tool Usage Disclosure\r\n\r\n- [ ] I have NOT used any AI tool to generate the contents of this PR.\r\n- [x] I have used AI tools to generate the contents of this PR. I have verified the contents and I affirm the results. The LLM used is `OpenAI ChatGPT GPT-6`. The prompt used was `Assist with researching, drafting, and reviewing an Access-Control-Allow-Credentials subsection for the OWASP HTTP Headers Cheat Sheet, including technical correctness, security recommendations, and Markdown formatting.` I have independently verified every citation and technical claim against the cited source.\r\n\r\nThis PR fixes issue #2931.",
+      "state": "open",
+      "merged_at": null,
+      "user": {
+        "login": "MadEyE355"
+      }
+    }
+  },
+  "now": "2026-11-17T07:30:00Z"
+}

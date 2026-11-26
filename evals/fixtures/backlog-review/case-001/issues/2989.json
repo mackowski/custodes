@@ -1,0 +1,106 @@
+{
+  "repo": "OWASP/CheatSheetSeries",
+  "number": 2989,
+  "issue": {
+    "number": 2989,
+    "title": "Update: PHP Configuration Cheat Sheet - session settings deprecated in PHP 8.4",
+    "body": "## What is missing or needs to be updated?\n\nThe session block in the PHP Configuration cheat sheet sets `session.sid_length = 256` and `session.sid_bits_per_character = 6`, and the \"paranoid checks\" block sets `session.referer_check`. PHP 8.4 deprecated changing all three of these INI settings, so following the sheet on a current PHP version produces deprecation warnings and the settings are going away. See the Session section of https://www.php.net/manual/en/migration84.deprecated.php, which says to keep the default 32 character hex session IDs and stop changing `sid_length` and `sid_bits_per_character`.\n\nA few other lines in the same file look stale too, like `mime_magic.magicfile` and some removed functions (`filepro*`, `dbase_open`) in the `disable_functions` list.\n\n## How should this be resolved?\n\nDrop the `sid_length`, `sid_bits_per_character` and `referer_check` lines and add a short note that the defaults are the supported setting from PHP 8.4 on, since the default ID already has enough entropy. While in there, clean up the settings and function names that no longer exist in supported PHP versions. I'm happy to open the PR.\n",
+    "state": "open",
+    "user": {
+      "login": "cvas22"
+    },
+    "author_association": "NONE",
+    "labels": [
+      {
+        "name": "ACK_OBTAINED"
+      },
+      {
+        "name": "UPDATE_CS"
+      }
+    ],
+    "assignees": [
+      {
+        "login": "cvas22"
+      }
+    ],
+    "created_at": "2026-11-17T00:02:52Z",
+    "updated_at": "2026-11-17T07:09:48Z",
+    "comments": 1
+  },
+  "comments": [
+    {
+      "user": {
+        "login": "mackowski"
+      },
+      "author_association": "MEMBER",
+      "created_at": "2026-11-17T07:09:45Z",
+      "body": "Thanks for the detailed report, @cvas22. You're right that the session block and the paranoid-checks block still recommend settings that PHP 8.4 deprecated, and that some directives and function names in the file no longer exist in supported PHP versions. This update makes sense, and we'd welcome your PR. The linked pull request was closed, so please open a new one (or reopen it) when you're ready, and we'll review it.\n\n<!--\nCustodes-Agent: triage-apply@0.1.0\nCustodes-Attestation: ee5e9404-935e-4680-ad93-8b046219cb1c\n-->"
+    }
+  ],
+  "timeline": [
+    {
+      "event": "cross-referenced",
+      "created_at": "2026-11-17T01:42:22Z",
+      "actor": {
+        "login": "cvas22"
+      },
+      "source": {
+        "type": "issue",
+        "issue": {
+          "number": 2996,
+          "repository": {
+            "full_name": "OWASP/CheatSheetSeries"
+          },
+          "title": "Update: PHP Configuration Cheat Sheet - session settings deprecated in PHP 8.4",
+          "state": "open",
+          "pull_request": {
+            "merged_at": null
+          }
+        }
+      }
+    },
+    {
+      "event": "assigned",
+      "created_at": "2026-11-17T07:09:43Z",
+      "actor": {
+        "login": "mackowski"
+      },
+      "assignee": {
+        "login": "cvas22"
+      }
+    },
+    {
+      "event": "labeled",
+      "created_at": "2026-11-17T07:09:44Z",
+      "actor": {
+        "login": "mackowski"
+      },
+      "label": {
+        "name": "ACK_OBTAINED"
+      }
+    },
+    {
+      "event": "labeled",
+      "created_at": "2026-11-17T07:09:44Z",
+      "actor": {
+        "login": "mackowski"
+      },
+      "label": {
+        "name": "UPDATE_CS"
+      }
+    }
+  ],
+  "pulls": {
+    "2996": {
+      "number": 2996,
+      "title": "Update: PHP Configuration Cheat Sheet - session settings deprecated in PHP 8.4",
+      "body": "The session block set `session.sid_length`, `session.sid_bits_per_character` and `session.referer_check`, and PHP 8.4 deprecated changing all three. I removed them and added a short note to leave the session ID settings at their defaults, citing the PHP 8.4 migration notes. I also dropped `mime_magic.magicfile` and `allow_webdav_methods`, which aren't in PHP's INI list any more, and the `filepro*`, `dbmopen` and `fopen_with_path` entries from `disable_functions`, since those functions don't exist in current PHP.\r\n\r\n- [ ] In case of a new Cheat Sheet, you have used the [Cheat Sheet template](../templates/New_CheatSheet.md).\r\n- [x] All the markdown files do not raise any validation policy violation, see the [policy](https://github.com/OWASP/CheatSheetSeries/actions?query=workflow%3A%22Markdown+Link+Check%22).\r\n- [x] All the markdown files follow these [format rules](../CONTRIBUTING.md#markdown).\r\n- [ ] All your assets are stored in the **assets** folder.\r\n- [ ] All the images used are in the **PNG** format.\r\n- [x] Any references to websites have been formatted as `[TEXT](URL)`\r\n- [x] You verified/tested the effectiveness of your contribution (e.g., the defensive code proposed is really an effective remediation? Please verify it works!).\r\n- [ ] The CI build of your PR pass, see the build status [here](https://github.com/OWASP/CheatSheetSeries/actions).\r\n\r\n## Scope and sourcing (required)\r\n\r\n- [x] This PR is focused: it modifies a single cheat sheet, or a small coordinated set, and the scope is described in the PR body.\r\n- [x] Every technical claim, recommendation, or threat assertion added in this PR is supported by a primary source (RFC, NIST, OWASP standard, vendor documentation, peer-reviewed research) linked inline as `[text](URL)`.\r\n- [x] I have read each source I cite and confirm it actually supports the claim. I have not relied on summaries, hearsay, or model-generated citations.\r\n\r\n## AI Tool Usage Disclosure (required for all PRs)\r\n\r\n- [ ] I have NOT used any AI tool to generate the contents of this PR.\r\n- [x] I have used AI tools to generate the contents of this PR. I have verified\r\n    the contents and I affirm the results. The LLM used is `Claude Code Opus 5.5`\r\n    and the prompt used is `Check the PHP Configuration cheat sheet against the PHP 8.4 deprecations and the current php.ini directive list and function reference, remove settings and disable_functions entries that are deprecated or no longer exist, and add a short cited note about the session ID defaults`. I have independently verified every citation and technical claim against the cited source.\r\n\r\nThis PR fixes issue #2989.\r\n",
+      "state": "open",
+      "merged_at": null,
+      "user": {
+        "login": "cvas22"
+      }
+    }
+  },
+  "now": "2026-11-17T07:30:00Z"
+}

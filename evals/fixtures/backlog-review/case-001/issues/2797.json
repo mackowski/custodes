@@ -1,0 +1,179 @@
+{
+  "repo": "OWASP/CheatSheetSeries",
+  "number": 2797,
+  "issue": {
+    "number": 2797,
+    "title": "Update: Nodejs_Security_Cheat_Sheet",
+    "body": "## What is missing or needs to be updated?\n\nThe Node.js Security Cheat Sheet is about 5,500 words with 271 lines of code, and nearly all of it sits under one \"Recommendations\" heading.\n\n- \"Use flat Promise chains\" is about 115 lines, 94 of them code. That is code-quality advice, not a security control.\n- Many topics restate other cheat sheets (CSRF, logging, security headers) instead of linking them.\n- The brute-force section is already being reworked in #2775.\n\n## How should this be resolved?\n\n- Break \"Recommendations\" into a few real sections so the sheet is easy to scan.\n- Drop or cut down advice that isn't a security control, starting with the Promise chains section.\n- Cut code to the smallest example that shows the point, and link to package and Node.js docs for the rest.\n- Where a topic has its own cheat sheet (CSRF, Logging, HTTP Headers), keep only what is Node-specific and link out.\n- Coordinate with #2775 so the brute-force rework and this cleanup don't collide.\n\nSmall PRs, one section at a time, please. They are much easier to review than one big rewrite :)\n",
+    "state": "open",
+    "user": {
+      "login": "jmanico"
+    },
+    "author_association": "MEMBER",
+    "labels": [
+      {
+        "name": "ACK_OBTAINED"
+      },
+      {
+        "name": "UPDATE_CS"
+      },
+      {
+        "name": "HELP_WANTED"
+      }
+    ],
+    "assignees": [
+      {
+        "login": "jmanico"
+      },
+      {
+        "login": "V-2007-P"
+      }
+    ],
+    "created_at": "2026-10-16T09:02:05Z",
+    "updated_at": "2026-11-05T16:36:34Z",
+    "comments": 3
+  },
+  "comments": [
+    {
+      "user": {
+        "login": "V-2007-P"
+      },
+      "author_association": "NONE",
+      "created_at": "2026-10-17T11:04:24Z",
+      "body": "Hi @jmanico , I'd like to help with this cleanup.\n\nI've reviewed the Node.js Security Cheat Sheet and the ongoing work in #2775. To keep the changes small and avoid conflicts, I'd like to start by removing the \u201cUse flat Promise chains\u201d section, since it contains general JavaScript code-quality guidance rather than security-specific recommendations.\n\nI'll leave the brute-force section untouched to avoid overlapping with the work already assigned under #2775.\nWould you be happy for me to take this first step, and could you assign the issue to me if appropriate? Thanks!"
+    },
+    {
+      "user": {
+        "login": "jmanico"
+      },
+      "author_association": "MEMBER",
+      "created_at": "2026-10-18T14:59:51Z",
+      "body": "Go for it!"
+    },
+    {
+      "user": {
+        "login": "mackowski"
+      },
+      "author_association": "MEMBER",
+      "created_at": "2026-10-19T07:29:17Z",
+      "body": "Thanks @V-2007-P we are waiting for next PRs :-) "
+    }
+  ],
+  "timeline": [
+    {
+      "event": "labeled",
+      "created_at": "2026-10-16T09:02:06Z",
+      "actor": {
+        "login": "jmanico"
+      },
+      "label": {
+        "name": "ACK_OBTAINED"
+      }
+    },
+    {
+      "event": "labeled",
+      "created_at": "2026-10-16T09:02:06Z",
+      "actor": {
+        "login": "jmanico"
+      },
+      "label": {
+        "name": "UPDATE_CS"
+      }
+    },
+    {
+      "event": "labeled",
+      "created_at": "2026-10-16T09:02:07Z",
+      "actor": {
+        "login": "jmanico"
+      },
+      "label": {
+        "name": "HELP_WANTED"
+      }
+    },
+    {
+      "event": "assigned",
+      "created_at": "2026-10-18T15:00:01Z",
+      "actor": {
+        "login": "jmanico"
+      },
+      "assignee": {
+        "login": "jmanico"
+      }
+    },
+    {
+      "event": "assigned",
+      "created_at": "2026-10-18T15:00:01Z",
+      "actor": {
+        "login": "jmanico"
+      },
+      "assignee": {
+        "login": "V-2007-P"
+      }
+    },
+    {
+      "event": "cross-referenced",
+      "created_at": "2026-10-18T18:52:12Z",
+      "actor": {
+        "login": "V-2007-P"
+      },
+      "source": {
+        "type": "issue",
+        "issue": {
+          "number": 2809,
+          "repository": {
+            "full_name": "OWASP/CheatSheetSeries"
+          },
+          "title": "docs: remove flat Promise chains section (#2797)",
+          "state": "closed",
+          "pull_request": {
+            "merged_at": "2026-10-19T07:28:50Z"
+          }
+        }
+      }
+    },
+    {
+      "event": "cross-referenced",
+      "created_at": "2026-11-01T15:03:43Z",
+      "actor": {
+        "login": "V-2007-P"
+      },
+      "source": {
+        "type": "issue",
+        "issue": {
+          "number": 2890,
+          "repository": {
+            "full_name": "OWASP/CheatSheetSeries"
+          },
+          "title": "docs: update Node.js CSRF protection guidance (#2797)",
+          "state": "closed",
+          "pull_request": {
+            "merged_at": "2026-11-05T16:36:32Z"
+          }
+        }
+      }
+    }
+  ],
+  "pulls": {
+    "2809": {
+      "number": 2809,
+      "title": "docs: remove flat Promise chains section (#2797)",
+      "body": "### Description\r\n\r\nRemoves the `Use flat Promise chains` section from the Node.js Security Cheat Sheet as a focused cleanup of general JavaScript asynchronous programming guidance.\r\n\r\nThe change is limited to this section. All surrounding guidance remains unchanged, including the brute-force section being handled separately under issue [[#2775](https://github.com/OWASP/CheatSheetSeries/issues/2775)]\r\n\r\n### Validation\r\n\r\n- [x] Markdown lint passed (`npm run lint-markdown`).\r\n- [x] `git diff --check` passed.\r\n- [ ] The CI build of this PR passes.\r\n\r\n### Scope and sourcing (required)\r\n\r\n- [x] This PR is focused: it modifies a single cheat sheet, and the scope is described above.\r\n- [x] No new technical claims, recommendations, or threat assertions are introduced by this deletion.\r\n- [x] No new citations were added, and no existing technical claims were added or rewritten.\r\n\r\n### AI Tool Usage Disclosure (required for all PRs)\r\n\r\n- [ ] I have NOT used any AI tool to generate the contents of this PR.\r\n- [x] I have used AI tools to generate the contents of this PR. I have verified the contents and I affirm the results.\r\n\r\n**LLMs/tools used:** ChatGPT (GPT-6) and Google Antigravity (Gemini 3.8 Flash).\r\n\r\n**Prompts/instructions used:** Investigate issue [[#2797](https://github.com/OWASP/CheatSheetSeries/issues/2797)]\r\n and the Node.js Security Cheat Sheet; assess the scope of removing the \u201cUse flat Promise chains\u201d section; keep the change minimal and leave the brute-force guidance untouched; validate the Markdown and review the final diff.\r\n\r\nI reviewed the resulting diff and verified that it contains only the intended deletion. No new technical recommendations or citations were introduced.\r\n\r\nThis PR fixes issue [[#2797](https://github.com/OWASP/CheatSheetSeries/issues/2797)]",
+      "state": "closed",
+      "merged_at": "2026-10-19T07:28:50Z",
+      "user": {
+        "login": "V-2007-P"
+      }
+    },
+    "2890": {
+      "number": 2890,
+      "title": "docs: update Node.js CSRF protection guidance (#2797)",
+      "body": "### Description\r\n\r\nUpdates the `Use Anti-CSRF tokens` subsection in the Node.js Security Cheat Sheet with focused, Node.js-specific CSRF protection guidance.\r\n\r\nThe change recommends using framework-provided CSRF protection where available, clarifies token validation for state-changing requests, and explains that `SameSite` cookies provide defense-in-depth rather than standalone protection. It also removes outdated guidance around the deprecated `csurf` package and links to the dedicated OWASP CSRF Prevention Cheat Sheet.\r\n\r\nThe change is limited to this subsection. All surrounding guidance remains unchanged, including the brute-force section being handled separately under issue [[#2775](https://github.com/OWASP/CheatSheetSeries/issues/2775)](https://github.com/OWASP/CheatSheetSeries/issues/2775).\r\n\r\n### Validation\r\n\r\n- [x] Markdown lint passed (`npm run lint-markdown`).\r\n- [x] `git diff --check` passed.\r\n- [x] Local Markdown link check passed.\r\n- [x] External Markdown link check passed.\r\n- [x] Fork Build Website and Markdown Lint workflows passed.\r\n- [ ] The upstream CI workflows are awaiting maintainer approval.\r\n\r\n### Scope and sourcing (required)\r\n\r\n- [x] This PR is focused: it modifies a single subsection in the Node.js Security Cheat Sheet, and the scope is described above.\r\n- [x] The CSRF recommendations are based on the dedicated OWASP CSRF Prevention Cheat Sheet.\r\n- [x] The deprecated status of `csurf` was verified against its upstream repository.\r\n- [x] No unrelated sections, headings, or code examples were modified.\r\n\r\n### AI Tool Usage Disclosure (required for all PRs)\r\n\r\n- [ ] I have NOT used any AI tool to generate the contents of this PR.\r\n- [x] I have used AI tools to generate the contents of this PR. I have verified the contents and I affirm the results.\r\n\r\n**LLMs/tools used:** ChatGPT (GPT-6) and Google Antigravity (Gemini 3.8 Flash).\r\n\r\n**Prompts/instructions used:** Investigate issue [[#2797](https://github.com/OWASP/CheatSheetSeries/issues/2797)](https://github.com/OWASP/CheatSheetSeries/issues/2797) and the Node.js Security Cheat Sheet; review the existing CSRF guidance; keep the change limited to the CSRF subsection; retain Node.js-specific recommendations; avoid deprecated `csurf` guidance; link to the dedicated OWASP CSRF Prevention Cheat Sheet; validate the Markdown and review the final diff.\r\n\r\nI reviewed the resulting diff and verified that it contains only the intended CSRF subsection changes. I also reviewed the technical recommendations and references against the relevant sources.\r\n\r\nThis PR contributes to issue [[#2797](https://github.com/OWASP/CheatSheetSeries/issues/2797)](https://github.com/OWASP/CheatSheetSeries/issues/2797).",
+      "state": "closed",
+      "merged_at": "2026-11-05T16:36:32Z",
+      "user": {
+        "login": "V-2007-P"
+      }
+    }
+  },
+  "now": "2026-11-17T07:30:00Z"
+}

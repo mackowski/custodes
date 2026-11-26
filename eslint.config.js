@@ -13,6 +13,8 @@ export default defineConfig(
       '**/node_modules/**',
       '**/coverage/**',
       '**/worker-configuration.d.ts',
+      // Built by evals/build-runtime.sh (git-ignored).
+      'evals/output/**',
     ],
   },
   js.configs.recommended,

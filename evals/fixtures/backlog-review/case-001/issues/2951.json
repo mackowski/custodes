@@ -1,0 +1,146 @@
+{
+  "repo": "OWASP/CheatSheetSeries",
+  "number": 2951,
+  "issue": {
+    "number": 2951,
+    "title": "Update: Docker Security Cheat Sheet (Swarm ports and unencrypted overlay VXLAN)",
+    "body": "## What is missing or needs to be updated?\n\nThe Docker Security Cheat Sheet (rule #1 covers the TCP daemon socket) says nothing about the ports Docker Swarm opens on every node: 2377/tcp (cluster management), 7946/tcp+udp (gossip) and 4789/udp (VXLAN data plane of overlay networks). They listen on all interfaces regardless of `--advertise-addr`, Docker gives no warning about it, and the host firewall INPUT chain is the only thing in front of them.\n\nMoby's own advisories say that unencrypted overlay traffic on UDP 4789 accepts packets from anyone who can reach the port, so a host on the same network can inject packets into container overlay networks, and recommend closing 4789 to untrusted traffic ([GHSA-vwm3-crmr-xfxw](https://github.com/moby/moby/security/advisories/GHSA-vwm3-crmr-xfxw)). Overlay networks are unencrypted unless created with `--opt encrypted`, and the encrypted mode has its own caveats ([CVE-2023-28840 / GHSA-232p-vwff-86mp](https://github.com/advisories/GHSA-232p-vwff-86mp), [CVE-2023-28842 / GHSA-6wrf-mxfj-pf5p](https://github.com/advisories/GHSA-6wrf-mxfj-pf5p)). It can be checked on any Swarm node with `ss -tulnp`.\n\n## How should this be resolved?\n\nA short rule in the cheat sheet:\n\n- allow 2377/tcp, 7946/tcp+udp and 4789/udp only from the other Swarm nodes (or only on the interface used for `--advertise-addr`), and drop them from every other source;\n- use `--opt encrypted` for overlay networks that carry sensitive traffic when nodes are not on a trusted or already encrypted link, keeping in mind the advisories above;\n- link the Docker docs on [Swarm networking](https://docs.docker.com/engine/swarm/networking/) and the moby advisories.\n\nSingle file, a few added lines. We are happy to be assigned and to open the pull request referencing this issue.\n\nAI disclosure: this issue was written and submitted by an AI agent (Claude Opus 5.5) on behalf of Unitizy, with the owner's permission. A second agent checked every claim against the moby advisories and the Docker documentation linked above.",
+    "state": "open",
+    "user": {
+      "login": "SkillDMonkey"
+    },
+    "author_association": "NONE",
+    "labels": [
+      {
+        "name": "UPDATE_CS"
+      },
+      {
+        "name": "ACK_OBTAINED"
+      }
+    ],
+    "assignees": [
+      {
+        "login": "SkillDMonkey"
+      }
+    ],
+    "created_at": "2026-11-12T07:32:20Z",
+    "updated_at": "2026-11-12T11:19:30Z",
+    "comments": 1
+  },
+  "comments": [
+    {
+      "user": {
+        "login": "mackowski"
+      },
+      "author_association": "MEMBER",
+      "created_at": "2026-11-12T11:08:52Z",
+      "body": "Thanks @SkillDMonkey, approved. Since #2936 touches the same area (Swarm networking next to Rule #5a), please don't open two parallel PRs against the same section. Either cover both issues in one PR referencing #2936 and #2951, or open this one after the #2936 PR is merged. Keep it to a short note: restrict 2377/tcp, 7946/tcp+udp and 4789/udp to the other Swarm nodes, and use `--opt encrypted` on untrusted links with the caveats from the advisories. No firewall rule sets or scripts; link the Docker Swarm networking docs instead."
+    }
+  ],
+  "timeline": [
+    {
+      "event": "labeled",
+      "created_at": "2026-11-12T07:32:21Z",
+      "actor": {
+        "login": "SkillDMonkey"
+      },
+      "label": {
+        "name": "ACK_WAITING"
+      }
+    },
+    {
+      "event": "labeled",
+      "created_at": "2026-11-12T07:32:21Z",
+      "actor": {
+        "login": "SkillDMonkey"
+      },
+      "label": {
+        "name": "UPDATE_CS"
+      }
+    },
+    {
+      "event": "labeled",
+      "created_at": "2026-11-12T07:32:21Z",
+      "actor": {
+        "login": "SkillDMonkey"
+      },
+      "label": {
+        "name": "HELP_WANTED"
+      }
+    },
+    {
+      "event": "unlabeled",
+      "created_at": "2026-11-12T11:08:54Z",
+      "actor": {
+        "login": "mackowski"
+      },
+      "label": {
+        "name": "ACK_WAITING"
+      }
+    },
+    {
+      "event": "labeled",
+      "created_at": "2026-11-12T11:08:54Z",
+      "actor": {
+        "login": "mackowski"
+      },
+      "label": {
+        "name": "ACK_OBTAINED"
+      }
+    },
+    {
+      "event": "assigned",
+      "created_at": "2026-11-12T11:09:12Z",
+      "actor": {
+        "login": "mackowski"
+      },
+      "assignee": {
+        "login": "SkillDMonkey"
+      }
+    },
+    {
+      "event": "unlabeled",
+      "created_at": "2026-11-12T11:11:30Z",
+      "actor": {
+        "login": "mackowski"
+      },
+      "label": {
+        "name": "HELP_WANTED"
+      }
+    },
+    {
+      "event": "cross-referenced",
+      "created_at": "2026-11-12T11:19:30Z",
+      "actor": {
+        "login": "SkillDMonkey"
+      },
+      "source": {
+        "type": "issue",
+        "issue": {
+          "number": 2955,
+          "repository": {
+            "full_name": "OWASP/CheatSheetSeries"
+          },
+          "title": "Docker Security Cheat Sheet: Swarm note under Rule #5a (#2936, #2951)",
+          "state": "open",
+          "pull_request": {
+            "merged_at": null
+          }
+        }
+      }
+    }
+  ],
+  "pulls": {
+    "2955": {
+      "number": 2955,
+      "title": "Docker Security Cheat Sheet: Swarm note under Rule #5a (#2936, #2951)",
+      "body": "Adds a short \"Docker Swarm\" subsection at the end of Rule #5a, covering both #2936 and #2951 in one PR as requested by the maintainer.\n\n- #2936: Option 1 (binding to `127.0.0.1`) does not apply to Swarm services. A published service port cannot be bound to a host IP ([moby/moby#26696](https://github.com/moby/moby/issues/26696)); with the routing mesh it listens on every IP of every node, and `mode=host` still opens it on all interfaces of the node running the task. Services that only talk to other services should use an overlay network instead of being published; otherwise the remaining control on the node is the `DOCKER-USER` chain.\n- #2951: the Swarm ports (7946/tcp+udp and 4789/udp on every node, 2377/tcp on managers) should be allowed only from the other Swarm nodes; overlay traffic is unencrypted by default and VXLAN is unauthenticated ([GHSA-vwm3-crmr-xfxw](https://github.com/moby/moby/security/advisories/GHSA-vwm3-crmr-xfxw)); `--opt encrypted` on untrusted links, with the caveats of CVE-2023-28840 and CVE-2023-28842.\n\nAs asked in #2951, there are no firewall rule sets or scripts, only links to the Docker documentation and the moby advisories.\n\nHow it was checked:\n\n- Every sentence was checked against the linked source by a second agent, starting from the text only.\n- On our own Swarm nodes (Docker Engine 29.1.3), read-only:\n  - a `mode=host` published port shows `docker-proxy` on `0.0.0.0` and `[::]`, with the NAT rule having no destination address;\n  - ingress ports are DNATed for every local address (`PREROUTING -m addrtype --dst-type LOCAL`);\n  - 2377/tcp listens only on managers.\n- `npm run lint-markdown` and `textlint` pass on the changed file. `npm test` shows the same 13 link-check test failures with and without this change in our offline container, so they are unrelated.\n\nPlease make sure that for your contribution:\n\n- [ ] In case of a new Cheat Sheet, you have used the [Cheat Sheet template](../templates/New_CheatSheet.md).\n- [x] All the markdown files do not raise any validation policy violation, see the [policy](https://github.com/OWASP/CheatSheetSeries/actions?query=workflow%3A%22Markdown+Link+Check%22).\n- [x] All the markdown files follow these [format rules](../CONTRIBUTING.md#markdown).\n- [ ] All your assets are stored in the **assets** folder.\n- [ ] All the images used are in the **PNG** format.\n- [x] Any references to websites have been formatted as `[TEXT](URL)`\n- [x] You verified/tested the effectiveness of your contribution (e.g., the defensive code proposed is really an effective remediation? Please verify it works!).\n- [ ] The CI build of your PR pass, see the build status [here](https://github.com/OWASP/CheatSheetSeries/actions).\n\n## Scope and sourcing (required)\n\n- [x] This PR is focused: it modifies a single cheat sheet, or a small coordinated set, and the scope is described in the PR body.\n- [x] Every technical claim, recommendation, or threat assertion added in this PR is supported by a primary source (RFC, NIST, OWASP standard, vendor documentation, peer-reviewed research) linked inline as `[text](URL)`.\n- [x] I have read each source I cite and confirm it actually supports the claim. I have not relied on summaries, hearsay, or model-generated citations.\n\n## AI Tool Usage Disclosure (required for all PRs)\n\n- [ ] I have NOT used any AI tool to generate the contents of this PR.\n- [x] I have used AI tools to generate the contents of this PR. I have verified the contents and I affirm the results. The LLM used is `Claude Opus 5.5` and the prompt used is `add one short note under Rule #5a covering issues #2936 and #2951 as the maintainer asked, linking the Docker documentation and the moby advisories, with no firewall rule sets`. I have independently verified every citation and technical claim against the cited source. The PR is submitted by an AI agent on behalf of Unitizy, with the owner's permission.\n\nThis PR fixes issue #2936.\n\nThis PR fixes issue #2951.",
+      "state": "open",
+      "merged_at": null,
+      "user": {
+        "login": "SkillDMonkey"
+      }
+    }
+  },
+  "now": "2026-11-17T07:30:00Z"
+}

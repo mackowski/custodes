@@ -48,6 +48,14 @@
       "service": "custodes-triage-apply",
       "entrypoint": "KeyAdmin",
     },
+    // backlog-review (#132 v1), a new Worker deployed before the gateway: /agents/backlog-review-agent/*
+    // (manual runs, run kill and events behind Access) and its keys.
+    { "binding": "BACKLOG_REVIEW", "service": "custodes-backlog-review" },
+    {
+      "binding": "KEYS_BACKLOG_REVIEW",
+      "service": "custodes-backlog-review",
+      "entrypoint": "KeyAdmin",
+    },
   ],
   // Pull request events go to each agent's own queue: custodes-inbound-pr-gate and
   // custodes-inbound-cheatsheet-review (its trigger label). Each consumer ignores what is not for it.

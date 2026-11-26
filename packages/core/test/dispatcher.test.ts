@@ -221,6 +221,18 @@ describe('routeProposal', () => {
     expect((await run({ agentId: 'unknown' }))[0]?.route).toBe('digest');
   });
 
+  it('records on a shadow digest route where the action would go live (#132)', async () => {
+    expect((await run({ shadow: true }))[0]).toMatchObject({ route: 'digest', live: 'act' });
+    expect(
+      (await run({ shadow: true, policy: policyWith(agent({ mode: 'hitl' })) }))[0],
+    ).toMatchObject({ route: 'digest', live: 'approval' });
+    expect(
+      (await run({ shadow: true, proposal: proposal({ needsHuman: true }) }))[0],
+    ).toMatchObject({ route: 'digest', live: 'approval' });
+    // Not live at all: no live route to record.
+    expect((await run({ agentId: 'unknown', shadow: true }))[0]).not.toHaveProperty('live');
+  });
+
   it('applies the policy, label and evidence checks in shadow too, so the digest is what live would do', async () => {
     expect((await run({ shadow: true, reads: [] }))[0]?.route).toBe('drop');
     const trigger: BrokerAction = { ...label, labels: ['custodes_cheatsheet_review'] };

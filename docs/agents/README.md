@@ -10,6 +10,7 @@ One page per agent. Create pages with `/new-agent`; the template is below.
 | [pr-gate](pr-gate.md)                           | T1   | hotl     | OWASP/CheatSheetSeries          | pr.close                                                                               | active |
 | [cheatsheet-review](cheatsheet-review.md)       | T2   | hotl     | OWASP/CheatSheetSeries, sandbox | pr.review.inline, issue.label.remove (trigger label)                                   | active |
 | [triage-apply](triage-apply.md)                 | T1   | hitl     | OWASP/CheatSheetSeries, sandbox | issue.assign, issue.label.add/remove, issue.comment (one approval per issue, ADR 0019) | active |
+| [backlog-review](backlog-review.md)             | T1   | hitl     | OWASP/CheatSheetSeries, sandbox | issue actions, digest only (shadow, #132 v1)                                           | shadow |
 
 ## Template
 

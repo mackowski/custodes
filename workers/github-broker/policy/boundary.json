@@ -57,6 +57,45 @@
       "maxPendingApprovals": 50,
       "trailer": "hidden",
       "bundleOnly": true
+    },
+    "backlog-review": {
+      "tokenBinding": "PAT_BACKLOG_REVIEW",
+      "mode": "hitl",
+      "tier": "T1",
+      "repos": ["mackowski/custodes-sandbox", "OWASP/CheatSheetSeries"],
+      "actions": [
+        "issue.comment",
+        "issue.label.add",
+        "issue.label.remove",
+        "issue.assign",
+        "issue.unassign",
+        "issue.close"
+      ],
+      "requiresApproval": [],
+      "requiresApprovalOn": {},
+      "rateLimitPerHour": 30,
+      "labels": [
+        "ACK_OBTAINED",
+        "ACK_WAITING",
+        "bug_bash_cincy",
+        "dependencies",
+        "docker",
+        "github_actions",
+        "HacktoberFest",
+        "HELP_WANTED",
+        "INTERNAL",
+        "javascript",
+        "MIGRATION",
+        "NEW_CS",
+        "python",
+        "REQUEST_ASVS",
+        "REQUEST_OPC",
+        "UPDATE_CS",
+        "WAITING_UPDATE",
+        "WEBSITE"
+      ],
+      "approvalTtlHours": 168,
+      "maxPendingApprovals": 50
     }
   },
   "$comment_maintainers": "ADR 0024: logins agents may @-mention besides the thread's people; policy.json may list only these.",
@@ -111,6 +150,20 @@
       "tokenBinding": "PAT_READONLY",
       "repos": ["mackowski/custodes-sandbox", "OWASP/CheatSheetSeries"],
       "resources": ["issue", "comments"]
+    },
+    "backlog-review": {
+      "tokenBinding": "PAT_READONLY",
+      "repos": ["mackowski/custodes-sandbox", "OWASP/CheatSheetSeries"],
+      "resources": [
+        "issues",
+        "issue",
+        "comments",
+        "timeline",
+        "pull",
+        "pull_reviews",
+        "cheatsheet",
+        "cheatsheet_search"
+      ]
     }
   }
 }

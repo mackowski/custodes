@@ -368,7 +368,8 @@ describe('evaluatePolicy for cheatsheet-review (real broker policy)', () => {
     expect(AUTOMATION_TRIGGER_LABELS).toEqual(['custodes_cheatsheet_review', 'jules']);
     for (const [id, a] of Object.entries(real.agents)) {
       if (!a.actions.includes('issue.label.add')) continue;
-      expect(id).toBe('triage-apply');
+      // triage-apply (ADR 0019) and backlog-review (#132); neither may add a trigger label here.
+      expect(['triage-apply', 'backlog-review']).toContain(id);
       // GitHub label names are case-insensitive.
       const allowed = (a.labels ?? []).map((l) => l.toLowerCase());
       for (const trigger of AUTOMATION_TRIGGER_LABELS) {

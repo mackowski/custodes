@@ -7,11 +7,12 @@ import { describe, expect, it, vi } from 'vitest';
 import { issueThreadFrom, MAX_HOTL_WRITES_PER_TREE, RunStore, type SqlLike } from '@custodes/core';
 import {
   AgentDefinition,
+  BacklogVerdict,
   Policy,
   type BrokerAction,
   type BrokerReadRequest,
   type BrokerResponse,
-  type Proposal,
+  Proposal,
 } from '@custodes/schema';
 import type { MessagesResponse } from '../src/gateway.js';
 import { PRICES_USD_PER_MTOK } from '../src/prices.js';
@@ -424,6 +425,139 @@ describe('runAgentTree', () => {
     expect(childRun?.parentRunId).toBe(r.rootRunId);
   });
 
+  it('reads a role answer through the child hook: Proposal fields to the dispatcher, the verdict to onResult (#132)', async () => {
+    const child = agent(definition({ id: 'item-review', outputSchema: 'BacklogVerdict' }));
+    const root = agent(definition({ tools: ['issue', 'delegate'], agents: ['item-review'] }));
+    const verdict = {
+      ...proposalOn7,
+      state: 'waiting_author',
+      confidence: 'medium',
+      uncertainBecause: [],
+    };
+    const { p, acts, approvalsAsked } = port('hotl', [
+      toolUse(
+        'delegate',
+        { role: 'item-review', target: { repo: REPO, kind: 'issue', number: 7 } },
+        0,
+      ),
+      toolUse('issue', { repo: REPO, number: 7 }, 1),
+      answer(JSON.stringify(verdict), 2),
+      answer(JSON.stringify({ proposals: [] }), 3),
+    ]);
+    const results: unknown[] = [];
+    const r = await runAgentTree(p, root, { 'item-review': child }, 'Review.', {
+      shadow: true,
+      child: {
+        schema: BacklogVerdict,
+        raiseNeedsHuman: (v) => (v as BacklogVerdict).confidence !== 'high',
+        onResult: (x) => {
+          results.push(x);
+        },
+      },
+    });
+    expect(r.status).toBe('done');
+    expect(acts).toEqual([]);
+    expect(approvalsAsked).toEqual([]);
+    // hotl policy, but medium confidence raised needsHuman: live it would be an approval.
+    expect(r.outcomes).toEqual([
+      expect.objectContaining({ route: 'digest', detail: 'digest', live: 'approval' }),
+    ]);
+    expect(results).toEqual([
+      expect.objectContaining({
+        ok: true,
+        output: expect.objectContaining({
+          state: 'waiting_author',
+          confidence: 'medium',
+        }) as unknown,
+        outcomes: [expect.objectContaining({ live: 'approval' })],
+      }),
+    ]);
+  });
+
+  it('refuses a child answer about another item than it was given (reviews of #168)', async () => {
+    const child = agent(definition({ id: 'item-review', outputSchema: 'Proposal' }));
+    const root = agent(definition({ tools: ['issue', 'delegate'], agents: ['item-review'] }));
+    const on9: BrokerAction = { ...commentOn7, issue: 9 };
+    const about9 = {
+      ...proposalOn7,
+      target: { repo: REPO, kind: 'issue', number: 9 },
+      actions: [on9],
+    };
+    const { p, acts } = port('hotl', [
+      toolUse(
+        'delegate',
+        { role: 'item-review', target: { repo: REPO, kind: 'issue', number: 7 } },
+        0,
+      ),
+      toolUse('issue', { repo: REPO, number: 7 }, 1),
+      toolUse('issue', { repo: REPO, number: 9 }, 2),
+      answer(JSON.stringify(about9), 3),
+      answer(JSON.stringify({ proposals: [] }), 4),
+    ]);
+    const results: unknown[] = [];
+    const r = await runAgentTree(p, root, { 'item-review': child }, 'Review.', {
+      shadow: false,
+      child: { schema: Proposal, onResult: (x) => void results.push(x) },
+    });
+    expect(acts).toEqual([]);
+    expect(r.outcomes).toEqual([]);
+    expect(results).toEqual([
+      expect.objectContaining({
+        ok: false,
+        stop: 'invalid_output',
+        target: expect.objectContaining({ number: 7 }) as unknown,
+      }),
+    ]);
+  });
+
+  it('starts no child for a target the agent did not allow (security review of #168, L1)', async () => {
+    const child = agent(definition({ id: 'item-review', outputSchema: 'Proposal' }));
+    const root = agent(definition({ tools: ['issue', 'delegate'], agents: ['item-review'] }));
+    const { p, store } = port('hotl', [
+      toolUse(
+        'delegate',
+        { role: 'item-review', target: { repo: REPO, kind: 'issue', number: 9 } },
+        0,
+      ),
+      answer(JSON.stringify({ proposals: [] }), 1),
+    ]);
+    const r = await runAgentTree(p, root, { 'item-review': child }, 'Review.', {
+      shadow: false,
+      allowTarget: (t) => t.number === 7,
+    });
+    expect(r.status).toBe('done');
+    // Only the root run exists: no child was started for #9.
+    expect(store.spentSince('backlog-review', '1970-01-01T00:00:00Z')).toBeGreaterThan(0);
+    expect(store.listEvents(r.rootRunId).every((e) => e.parentRunId === null)).toBe(true);
+  });
+
+  it('reports a child whose answer fails the hook schema as stopped, and routes nothing (#132)', async () => {
+    const child = agent(definition({ id: 'item-review', outputSchema: 'BacklogVerdict' }));
+    const root = agent(definition({ tools: ['issue', 'delegate'], agents: ['item-review'] }));
+    // A plain Proposal has no state: it fails BacklogVerdict on every attempt.
+    const bad = (i: number) => answer(JSON.stringify(proposalOn7), i);
+    const { p, acts } = port('hotl', [
+      toolUse(
+        'delegate',
+        { role: 'item-review', target: { repo: REPO, kind: 'issue', number: 7 } },
+        0,
+      ),
+      toolUse('issue', { repo: REPO, number: 7 }, 1),
+      bad(2),
+      bad(3),
+      bad(4),
+      answer(JSON.stringify({ proposals: [] }), 5),
+    ]);
+    const results: { ok: boolean }[] = [];
+    const r = await runAgentTree(p, root, { 'item-review': child }, 'Review.', {
+      shadow: false,
+      child: { schema: BacklogVerdict, onResult: (x) => void results.push(x) },
+    });
+    expect(acts).toEqual([]);
+    expect(r.outcomes).toEqual([]);
+    expect(results).toEqual([expect.objectContaining({ ok: false })]);
+  });
+
   it('takes each HOTL slot on its own run with the tree-wide cap (re-review of #166)', async () => {
     const { p, store } = port('hotl', [
       toolUse('issue', { repo: REPO, number: 7 }, 0),
@@ -471,6 +605,36 @@ describe('runAgentTree', () => {
     } finally {
       delete prices['test-pricey'];
     }
+  });
+
+  it("prices an answer from the declared fallback at its own rate, any other named model at the agent's (#132)", async () => {
+    const prices = PRICES_USD_PER_MTOK as Record<string, { input: number; output: number }>;
+    prices['test-fallback'] = { input: 1000, output: 1000 };
+    try {
+      const fromFallback = {
+        ...answer(JSON.stringify({ proposals: [] }), 0),
+        model: 'test-fallback',
+      };
+      const { p, store } = port('hotl', [fromFallback]);
+      p.fallbackModel = 'test-fallback';
+      const r = await runAgentTree(p, agent(), {}, 'Review.', { shadow: false });
+      expect(store.get(r.rootRunId)?.spentUsd).toBeCloseTo(0.02, 10);
+      // A response that names some other priced model is still priced as the agent's model.
+      const other = { ...answer(JSON.stringify({ proposals: [] }), 0), model: 'test-fallback' };
+      const q = port('hotl', [other]);
+      const r2 = await runAgentTree(q.p, agent(), {}, 'Review.', { shadow: false });
+      expect(q.store.get(r2.rootRunId)?.spentUsd).toBeCloseTo(120e-6, 10);
+    } finally {
+      delete prices['test-fallback'];
+    }
+  });
+
+  it('refuses a tree whose fallback model has no price', async () => {
+    const { p } = port('hotl', []);
+    p.fallbackModel = 'openai/unpriced';
+    await expect(runAgentTree(p, agent(), {}, 'Review.', { shadow: false })).rejects.toThrow(
+      /no price for model openai\/unpriced/,
+    );
   });
 
   it('refuses a tree with an unpriced model before any model call (security review M1)', async () => {

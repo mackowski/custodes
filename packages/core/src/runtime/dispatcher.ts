@@ -18,6 +18,11 @@ export type Route =
       action: BrokerAction;
       route: 'digest' | 'approval' | 'act';
       snapshot: IssueSnapshot | PullSnapshot;
+      /**
+       * On a shadow digest route: where the action would go live, by policy and `needsHuman`
+       * (#132: agreement per action class before HOTL). The tree's HOTL cap is not counted.
+       */
+      live?: 'approval' | 'act';
     }
   | { action: BrokerAction; route: 'drop'; reason: string };
 
@@ -110,7 +115,19 @@ export async function routeProposal(input: DispatchInput): Promise<Route[]> {
       continue;
     }
     if (input.shadow || !live) {
-      routes.push({ action, route: 'digest', snapshot });
+      routes.push(
+        input.shadow && live
+          ? {
+              action,
+              route: 'digest',
+              snapshot,
+              live:
+                proposal.needsHuman || needsApproval(agent, action.repo, action.type)
+                  ? 'approval'
+                  : 'act',
+            }
+          : { action, route: 'digest', snapshot },
+      );
       continue;
     }
     // 4. Mode from policy; needsHuman only raises; at most MAX_HOTL_WRITES_PER_TREE direct writes.

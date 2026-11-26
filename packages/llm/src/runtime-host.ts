@@ -65,6 +65,8 @@ export interface HostPort {
   brokerGuard(): Promise<void>;
   read: ReadFn;
   send(req: MessagesRequest): Promise<MessagesResponse>;
+  /** The model `send` falls back to (`withFallback`); priced as itself when it answers. */
+  fallbackModel?: string;
   /**
    * `CustodesAgent.act()`. The first write on a target carries the route's snapshot; later writes
    * of the same proposal do not, because the first one changed the target (ADR 0023).
@@ -95,9 +97,13 @@ export interface Outcome {
   runId: string;
   target: ProposalTarget;
   action: BrokerAction['type'];
+  /** The routed action itself (ids and, for a comment, its body): for an agent's own digest. */
+  brokerAction: BrokerAction;
   route: Route['route'];
   /** Drop reason, or the broker's answer for act and approval. */
   detail: string;
+  /** Shadow digest only: where the action would go live (`Route.live`). */
+  live?: 'approval' | 'act';
 }
 
 export interface TreeResult {
@@ -110,6 +116,46 @@ export interface TreeResult {
 }
 
 const MAX_OUTPUT_TOKENS = 8_000;
+
+/**
+ * How an agent reads its roles' answers (#132: `BacklogVerdict`). The schema extends `Proposal`;
+ * the dispatcher gets only the `Proposal` fields. `raiseNeedsHuman` is code: it can raise
+ * `needsHuman`, never lower it. `onResult` gets every child's validated answer, or why it stopped,
+ * with the outcomes of its routed actions.
+ */
+export interface ChildHook<T extends Proposal> {
+  schema: z.ZodType<T>;
+  raiseNeedsHuman?(out: T): boolean;
+  onResult?(
+    r: { rootRunId: string; runId: string; target: ProposalTarget } & (
+      | { ok: true; output: T; outcomes: Outcome[] }
+      /** `rounds`: model calls in the child's last attempt (restarts reset it; 0 when it threw). */
+      | { ok: false; stop: string; rounds: number }
+    ),
+  ): void | Promise<void>;
+}
+
+/** The trusted task of a child run: built by code from the role, the target and today's date. */
+export function childTask(role: string, target: ProposalTarget, today: Date): string {
+  // Today's date: rules such as "7 days without activity" need it (#132).
+  return `Today is ${today.toISOString().slice(0, 10)}. Assess ${target.kind} #${String(target.number)} in ${target.repo} as ${role}. Read it first, then answer with one proposal.`;
+}
+
+/** Whether an answer is about the item the child was given (lean review of #168, 2). */
+function sameTarget(a: ProposalTarget, b: ProposalTarget): boolean {
+  return a.repo === b.repo && a.kind === b.kind && a.number === b.number;
+}
+
+/** The `Proposal` fields of an extended answer, for the dispatcher. */
+export function proposalOf(out: Proposal, raise: boolean): Proposal {
+  return {
+    target: out.target,
+    actions: out.actions,
+    evidence: out.evidence,
+    reason: out.reason,
+    needsHuman: out.needsHuman || raise,
+  };
+}
 
 /**
  * The read tools of one run, one per resource the agent's read policy grants and its agent.md
@@ -403,12 +449,22 @@ export async function runAgentTree(
   root: BundledAgent,
   roles: Readonly<Record<string, BundledAgent>>,
   task: string,
-  opts: { shadow: boolean },
+  opts: {
+    shadow: boolean;
+    child?: ChildHook<Proposal>;
+    /**
+     * Which items a child may be given (backlog-review: the issues code selected). Absent: any
+     * item of the agent's repositories. A refused target starts no child (security review of #168, L1).
+     */
+    allowTarget?: (t: ProposalTarget) => boolean;
+  },
 ): Promise<TreeResult> {
   // A model without a price is refused before the first paid call, not after it.
-  for (const a of [root, ...Object.values(roles)])
-    if (!Object.hasOwn(PRICES_USD_PER_MTOK, a.definition.model))
-      throw new Error(`no price for model ${a.definition.model}`);
+  for (const m of [
+    ...[root, ...Object.values(roles)].map((a) => a.definition.model),
+    ...(port.fallbackModel !== undefined ? [port.fallbackModel] : []),
+  ])
+    if (!Object.hasOwn(PRICES_USD_PER_MTOK, m)) throw new Error(`no price for model ${m}`);
   const { store, agentId } = port;
   const now = port.now ?? (() => new Date());
   const rootRunId = store.start(agentId);
@@ -452,7 +508,9 @@ export async function runAgentTree(
           send: (req) => port.send(req),
           guard: runGuard(store, runId, () => port.brokerGuard()),
           // Each run is priced at its own model's rates, not the root's (security review of #166, M1).
-          costOf: (u) => costOf(d.model, u),
+          // The agent's own model, or its declared fallback when that answered (withFallback names
+          // it); never another model a response names (security review of #166, M1).
+          costOf: (u, m) => costOf(m !== undefined && m === port.fallbackModel ? m : d.model, u),
           daily: { ledger: storeLedger(store, agentId, runId, now), usd: d.budget.usdPerDay },
           record: (e) => {
             store.recordEvent({ runId, ...e });
@@ -481,8 +539,10 @@ export async function runAgentTree(
         runId,
         target: proposal.target,
         action: r.action.type,
+        brokerAction: r.action,
         route: r.route,
         detail,
+        ...(r.route !== 'drop' && r.live !== undefined ? { live: r.live } : {}),
       });
     /** The run guard, right before a write or a request: a kill since routing stops it. */
     const stillAllowed = async () => {
@@ -605,19 +665,41 @@ export async function runAgentTree(
           async runChild(role, target): Promise<ChildOutcome> {
             const child = roles[role];
             if (!child) return { ok: false, stop: 'undeclared_tool' };
+            if (opts.allowTarget && !opts.allowTarget(target))
+              return { ok: false, stop: 'invalid_args' };
             const childId = store.start(agentId, rootRunId);
             // The child's task is built by code from the role and the target: no parent text.
-            const childTask = `Assess ${target.kind} #${String(target.number)} in ${target.repo} as ${role}. Read it first, then answer with one proposal.`;
+            const hook = opts.child;
+            const ids = { rootRunId, runId: childId, target };
             const r = await run(
               childId,
               child,
-              childTask,
+              childTask(role, target, now()),
               childTools(readTools(port, childId, child.definition.tools)),
-              Proposal,
+              hook?.schema ?? Proposal,
             );
-            if (!r.ok) return { ok: false, stop: r.stop };
-            const proposal = r.output as Proposal;
+            // An answer about another item (the child read it too) is refused: a child speaks only
+            // for what it was given, or an injected "close #9" would be filed under #7.
+            const stop = !r.ok
+              ? r.stop
+              : sameTarget((r.output as Proposal).target, target)
+                ? null
+                : 'invalid_output';
+            if (stop !== null) {
+              await hook?.onResult?.({ ...ids, ok: false, stop, rounds: r.rounds });
+              return { ok: false, stop: stop };
+            }
+            const output = (r as { output: Proposal }).output;
+            const proposal = proposalOf(output, hook?.raiseNeedsHuman?.(output) ?? false);
+            const before = outcomes.length;
             await dispatch(childId, proposal, r.reads);
+            // The hook sees needsHuman as routed (raised by code), so no caller applies it again.
+            await hook?.onResult?.({
+              ...ids,
+              ok: true,
+              output: { ...output, needsHuman: proposal.needsHuman },
+              outcomes: outcomes.slice(before),
+            });
             return { ok: true, proposal };
           },
         }),

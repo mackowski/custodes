@@ -1,0 +1,114 @@
+{
+  "repo": "OWASP/CheatSheetSeries",
+  "number": 2935,
+  "issue": {
+    "number": 2935,
+    "title": "Update: User Privacy Protection Cheat Sheet",
+    "body": "## What is missing or needs to be updated?\n\nThe [Digital Certificate Pinning](https://cheatsheetseries.owasp.org/cheatsheets/User_Privacy_Protection_Cheat_Sheet.html#digital-certificate-pinning) section has not been substantively updated since it was migrated from the OWASP wiki in 2019, and it now conflicts with both the [Pinning Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Pinning_Cheat_Sheet.html#when-do-you-perform-pinning) (revised in #1443) and current browser support.\n\n- The section presents pinning in a \"web browser, mobile app or browser plugin\" and lists only its advantages. The Pinning Cheat Sheet says there is \"almost no situation\" where pinning should be considered, since the risk of outages almost always outweighs the security risk it addresses, and: \"If it is not a native mobile application, do not pin.\"\n- The section cites [RFC 7469](https://www.rfc-editor.org/rfc/rfc7469), which defines HTTP Public Key Pinning (HPKP), the header websites used to have browsers pin their keys. The RFC has not been obsoleted, but browsers removed support for it ([Chrome 72](https://developer.chrome.com/blog/chrome-72-deps-rems), [Firefox 72](https://bugzilla.mozilla.org/show_bug.cgi?id=1412438)), so web developers, this cheat sheet's audience, can no longer pin in browsers.\n\n## How should this be resolved?\n\n- Align the section with the Pinning Cheat Sheet: pinning is rarely appropriate, is limited to native mobile applications, and risks outages when certificates or keys change.\n- Note that websites can no longer have browsers pin their keys (browsers apply only the pins their vendors build in), and remove the RFC 7469 reference or mark it as historical.\n\nI may be missing context on why the section is scoped this way. I would be happy to submit a PR if helpful.",
+    "state": "open",
+    "user": {
+      "login": "thomas-bartlett"
+    },
+    "author_association": "NONE",
+    "labels": [
+      {
+        "name": "UPDATE_CS"
+      },
+      {
+        "name": "ACK_OBTAINED"
+      }
+    ],
+    "assignees": [
+      {
+        "login": "thomas-bartlett"
+      }
+    ],
+    "created_at": "2026-11-10T05:47:44Z",
+    "updated_at": "2026-11-12T10:48:34Z",
+    "comments": 1
+  },
+  "comments": [
+    {
+      "user": {
+        "login": "mackowski"
+      },
+      "author_association": "MEMBER",
+      "created_at": "2026-11-12T10:48:26Z",
+      "body": "@thomas-bartlett good issue, yes please create PR with a fix! Thanks!"
+    }
+  ],
+  "timeline": [
+    {
+      "event": "labeled",
+      "created_at": "2026-11-10T05:47:46Z",
+      "actor": {
+        "login": "thomas-bartlett"
+      },
+      "label": {
+        "name": "ACK_WAITING"
+      }
+    },
+    {
+      "event": "labeled",
+      "created_at": "2026-11-10T05:47:46Z",
+      "actor": {
+        "login": "thomas-bartlett"
+      },
+      "label": {
+        "name": "UPDATE_CS"
+      }
+    },
+    {
+      "event": "labeled",
+      "created_at": "2026-11-10T05:47:46Z",
+      "actor": {
+        "login": "thomas-bartlett"
+      },
+      "label": {
+        "name": "HELP_WANTED"
+      }
+    },
+    {
+      "event": "assigned",
+      "created_at": "2026-11-12T10:48:30Z",
+      "actor": {
+        "login": "mackowski"
+      },
+      "assignee": {
+        "login": "thomas-bartlett"
+      }
+    },
+    {
+      "event": "unlabeled",
+      "created_at": "2026-11-12T10:48:34Z",
+      "actor": {
+        "login": "mackowski"
+      },
+      "label": {
+        "name": "ACK_WAITING"
+      }
+    },
+    {
+      "event": "unlabeled",
+      "created_at": "2026-11-12T10:48:34Z",
+      "actor": {
+        "login": "mackowski"
+      },
+      "label": {
+        "name": "HELP_WANTED"
+      }
+    },
+    {
+      "event": "labeled",
+      "created_at": "2026-11-12T10:48:34Z",
+      "actor": {
+        "login": "mackowski"
+      },
+      "label": {
+        "name": "ACK_OBTAINED"
+      }
+    }
+  ],
+  "pulls": {},
+  "now": "2026-11-17T07:30:00Z"
+}
