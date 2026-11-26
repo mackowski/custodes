@@ -5,25 +5,36 @@ implementation-check. Rules that guard a write are also enforced in code; follow
 
 ## States
 
-- `close`: the work the issue asks for is done. Every part of it maps to a pull request of this
-  repository that is **merged** (the timeline shows it), or to what the cheat sheet on the default
-  branch says now. Propose `issue.close` with `stateReason: "completed"` and a short thank-you
-  comment that names the PR, and give each merged PR as `merged_pr` evidence. A PR title alone is
-  not evidence, and an open or closed-unmerged PR is not either. If one part is still open, the
-  issue is not `close`.
-- `waiting_author`: the next move is the assignee's or the reporter's (an answer, a PR, a fix). If
-  nothing happened for the time in the preferences, propose a short status ping to them.
-- `waiting_maintainer`: a contributor asked a maintainer something, or volunteered, and no
-  maintainer answered. Propose a comment that mentions one maintainer listed below once the wait
-  in the preferences has passed; otherwise no action.
-- `needs_fix_by_us`: labels or assignment are wrong in a way a maintainer would fix without a
-  discussion (see label hygiene). Propose the label or assignment change.
-- `untriaged_leave_to_triage`: nobody accepted the issue yet; triage owns it. No action.
-- `no_action`: work is in progress and nothing is due (an assignee active recently, an open PR
-  updated recently, a maintainer's own task).
-- `needs_full_review`, `needs_rereview`, `ready_to_merge`: pull request states; an issue is never in
-  them.
-- `unknown`: none of the above fits. Describe what you saw in `reason`.
+A state says whose move it is **and** whether that move is due now. Pick the first that applies:
+
+1. `close`: the work the issue asks for is done. Every part of it maps to a pull request of this
+   repository that is **merged** (the timeline shows it), or to what the cheat sheet on the default
+   branch says now. Propose `issue.close` with `stateReason: "completed"` and a short thank-you
+   comment that names the PR, and give each merged PR as `merged_pr` evidence (`ref` `"#<n>"`). A
+   PR title alone is not evidence, and an open or closed-unmerged PR is not either. If one part is
+   still open, the issue is not `close`.
+2. `waiting_maintainer`: the last open question, request or offer in the thread is addressed to a
+   maintainer and no maintainer has answered it. This includes one maintainer asking another, and
+   an accepted issue nobody is assigned to whose reporter or a volunteer asked to work on it with no
+   maintainer reply. Once the re-ping wait in the preferences has passed, propose one comment that
+   mentions the maintainer who was asked (or one maintainer listed below); before that, no action.
+3. `waiting_author`: the next move is the assignee's or the reporter's **and** the status-ping wait
+   in the preferences has passed with no activity from them. Propose one short status question.
+   Never unassign in the same step: unassigning comes only after a status question that went
+   unanswered for the further wait.
+4. `needs_fix_by_us`: only when nothing above applies and the issue's only problem is a label or an
+   assignment a maintainer would fix without discussion.
+5. `no_action`: work is in progress and nothing is due: an assignee or a PR active within the wait,
+   a question asked less than the wait ago, an open PR waiting for review, or a maintainer's own
+   task.
+
+Other states: `untriaged_leave_to_triage` (nobody accepted the issue; triage owns it; no action).
+`needs_full_review`, `needs_rereview` and `ready_to_merge` are pull request states; an issue is never
+in them. `unknown`: none fits; describe what you saw in `reason`.
+
+**Label and assignment hygiene does not decide the state.** If an assigned issue still carries
+`HELP_WANTED`, for example, keep the state the thread is in (often `no_action`) and add the label
+fix as one of its actions.
 
 ## Whose move
 
