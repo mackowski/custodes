@@ -323,6 +323,47 @@ describe('backlog-review (#132 v1)', () => {
     expect(await rows()).toEqual([]);
   });
 
+  it('falls back to Sol through OpenRouter when Anthropic fails, and records the verdict (#132)', async () => {
+    const cc = (i: number, message: unknown, finish = 'tool_calls') => ({
+      id: `c${String(i)}`,
+      usage: { prompt_tokens: 100, completion_tokens: 50 },
+      choices: [{ finish_reason: finish, message }],
+    });
+    const call = (i: number, name: string, args: unknown) =>
+      cc(i, {
+        content: null,
+        tool_calls: [{ id: `t${String(i)}`, function: { name, arguments: JSON.stringify(args) } }],
+      });
+    const say = (i: number, v: unknown) => cc(i, { content: JSON.stringify(v) }, 'stop');
+    const sol = [
+      call(0, 'delegate', {
+        role: 'item-review',
+        target: { repo: REPO, kind: 'issue', number: 7 },
+      }),
+      call(1, 'issue', { repo: REPO, number: 7 }),
+      say(2, verdict),
+      say(3, { proposals: [] }),
+    ];
+    const urls: string[] = [];
+    let n = 0;
+    const fetchImpl = ((u: unknown) => {
+      const url = String(u);
+      urls.push(url);
+      if (url.includes('/anthropic/'))
+        return Promise.resolve(
+          new Response('{"type":"error","error":{"type":"overloaded_error"}}', { status: 529 }),
+        );
+      return Promise.resolve(Response.json(sol[n++]));
+    }) as typeof fetch;
+    await inAgent([issue], [], async (agent) => {
+      (agent as unknown as { modelFetch: typeof fetch }).modelFetch = fetchImpl;
+      expect(await agent.review({ kind: 'manual' }, NOW)).toMatchObject({ ok: true, selected: 1 });
+    });
+    expect(urls.filter((u) => u.includes('/openrouter/v1/chat/completions'))).toHaveLength(4);
+    const [v] = await rows();
+    expect(v).toMatchObject({ issue: 7, status: 'ok', state: 'waiting_author' });
+  });
+
   it('raises to a human below high confidence, on any doubt, or for an unknown state', () => {
     expect(raisesToHuman(verdict)).toBe(false);
     expect(raisesToHuman({ ...verdict, confidence: 'medium' })).toBe(true);

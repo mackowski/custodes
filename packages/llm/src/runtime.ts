@@ -66,7 +66,8 @@ export interface LoopDeps {
   /** Throws when the agent, the fleet or this run is halted (`CustodesAgent.guard()`). */
   guard(): Promise<void>;
   /** USD for one response's usage. */
-  costOf(usage: MessagesResponse['usage']): number;
+  /** `model`: the model that answered (a fallback may differ from the one asked for). */
+  costOf(usage: MessagesResponse['usage'], model?: string): number;
   /**
    * The agent tree's daily spend (ADR 0023: $3/day per tree). Children share their parent's
    * ledger, so one budget covers the whole tree. Required, so a host cannot run without it.
@@ -167,7 +168,7 @@ export async function runLoop<S extends z.ZodType>(
       }
       throw err;
     }
-    const cost = deps.costOf(res.usage);
+    const cost = deps.costOf(res.usage, res.model);
     state.usd += cost;
     await deps.daily.ledger.add(cost);
 

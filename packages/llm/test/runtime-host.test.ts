@@ -607,6 +607,36 @@ describe('runAgentTree', () => {
     }
   });
 
+  it("prices an answer from the declared fallback at its own rate, any other named model at the agent's (#132)", async () => {
+    const prices = PRICES_USD_PER_MTOK as Record<string, { input: number; output: number }>;
+    prices['test-fallback'] = { input: 1000, output: 1000 };
+    try {
+      const fromFallback = {
+        ...answer(JSON.stringify({ proposals: [] }), 0),
+        model: 'test-fallback',
+      };
+      const { p, store } = port('hotl', [fromFallback]);
+      p.fallbackModel = 'test-fallback';
+      const r = await runAgentTree(p, agent(), {}, 'Review.', { shadow: false });
+      expect(store.get(r.rootRunId)?.spentUsd).toBeCloseTo(0.02, 10);
+      // A response that names some other priced model is still priced as the agent's model.
+      const other = { ...answer(JSON.stringify({ proposals: [] }), 0), model: 'test-fallback' };
+      const q = port('hotl', [other]);
+      const r2 = await runAgentTree(q.p, agent(), {}, 'Review.', { shadow: false });
+      expect(q.store.get(r2.rootRunId)?.spentUsd).toBeCloseTo(120e-6, 10);
+    } finally {
+      delete prices['test-fallback'];
+    }
+  });
+
+  it('refuses a tree whose fallback model has no price', async () => {
+    const { p } = port('hotl', []);
+    p.fallbackModel = 'openai/unpriced';
+    await expect(runAgentTree(p, agent(), {}, 'Review.', { shadow: false })).rejects.toThrow(
+      /no price for model openai\/unpriced/,
+    );
+  });
+
   it('refuses a tree with an unpriced model before any model call (security review M1)', async () => {
     const send = vi.fn();
     const { p, store } = port('hotl', []);

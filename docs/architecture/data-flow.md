@@ -96,7 +96,7 @@ flowchart LR
   GW -- "/agents/:class after Access" --> CSR
   GW -- "/agents/:class after Access: run, run kill, events" --> BLR
   BLR -- "signed, BacklogReviewBroker: reads (cheatsheet_search limited)" --> BR
-  BLR -- "untrusted text inside untrusted()" --> AIG
+  BLR -- "untrusted text inside untrusted();<br/>Anthropic, OpenRouter (GPT-6.2 Sol) as fallback" --> AIG
   BLR -- "verdicts and shadow routes" --> BLD
   BLD -- "Cloudflare API, SELECT only: untrusted data" --> SESS
   SESS -- "gh as the operator, one consent per checked action" --> GH

@@ -65,6 +65,8 @@ export interface HostPort {
   brokerGuard(): Promise<void>;
   read: ReadFn;
   send(req: MessagesRequest): Promise<MessagesResponse>;
+  /** The model `send` falls back to (`withFallback`); priced as itself when it answers. */
+  fallbackModel?: string;
   /**
    * `CustodesAgent.act()`. The first write on a target carries the route's snapshot; later writes
    * of the same proposal do not, because the first one changed the target (ADR 0023).
@@ -458,9 +460,11 @@ export async function runAgentTree(
   },
 ): Promise<TreeResult> {
   // A model without a price is refused before the first paid call, not after it.
-  for (const a of [root, ...Object.values(roles)])
-    if (!Object.hasOwn(PRICES_USD_PER_MTOK, a.definition.model))
-      throw new Error(`no price for model ${a.definition.model}`);
+  for (const m of [
+    ...[root, ...Object.values(roles)].map((a) => a.definition.model),
+    ...(port.fallbackModel !== undefined ? [port.fallbackModel] : []),
+  ])
+    if (!Object.hasOwn(PRICES_USD_PER_MTOK, m)) throw new Error(`no price for model ${m}`);
   const { store, agentId } = port;
   const now = port.now ?? (() => new Date());
   const rootRunId = store.start(agentId);
@@ -504,7 +508,9 @@ export async function runAgentTree(
           send: (req) => port.send(req),
           guard: runGuard(store, runId, () => port.brokerGuard()),
           // Each run is priced at its own model's rates, not the root's (security review of #166, M1).
-          costOf: (u) => costOf(d.model, u),
+          // The agent's own model, or its declared fallback when that answered (withFallback names
+          // it); never another model a response names (security review of #166, M1).
+          costOf: (u, m) => costOf(m !== undefined && m === port.fallbackModel ? m : d.model, u),
           daily: { ledger: storeLedger(store, agentId, runId, now), usd: d.budget.usdPerDay },
           record: (e) => {
             store.recordEvent({ runId, ...e });

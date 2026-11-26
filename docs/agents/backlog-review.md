@@ -75,7 +75,7 @@ All of these reach the model inside `untrusted()`. The task and today's date are
 - `item-review`: 20 rounds, $0.15 per child.
 - Shared by all runs: $3 per day, per instance. There is one instance per repository; any other
   instance name is refused.
-- Model: `claude-sonnet-5-5` via AI Gateway (BYOK).
+- Model: `claude-sonnet-5-5` via AI Gateway (BYOK). Fallback: `openai/gpt-6.2-sol` through OpenRouter on the same gateway when an Anthropic call fails (transport, API or credit balance; never on an unusable answer). Same list price; the run prices each answer at the model that gave it, and logs `backlog-review.model_fallback` (operator decision on #132, 2026-11-26, without a grill).
 
 ## Failure modes and what happens
 

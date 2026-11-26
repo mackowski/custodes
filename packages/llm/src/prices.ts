@@ -9,6 +9,8 @@ import type { MessagesResponse } from './gateway.js';
  */
 export const PRICES_USD_PER_MTOK: Readonly<Record<string, { input: number; output: number }>> = {
   'claude-sonnet-5-5': { input: 2, output: 10 },
+  // backlog-review's fallback through OpenRouter (#132; OpenRouter list price, checked 2026-11-26).
+  'openai/gpt-6.2-sol': { input: 2, output: 10 },
 };
 
 /** USD for one response of `model`. Throws for a model without a price. */

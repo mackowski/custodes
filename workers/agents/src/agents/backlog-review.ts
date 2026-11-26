@@ -1,6 +1,8 @@
 import { CustodesAgent } from '@custodes/core/agent';
 import {
   AnthropicGateway,
+  OpenRouterMessages,
+  withFallback,
   runAgentTree,
   type ChildHook,
   type HostPort,
@@ -33,6 +35,12 @@ export { BACKLOG_REVIEW_MANIFEST };
  * post-action `updated_at` or ignore its own events (lean review of #168, 10).
  */
 export const SHADOW = true;
+
+/**
+ * When Anthropic fails (transport, API, credit balance), the same request goes to this model
+ * through OpenRouter (operator decision on #132, 2026-11-26). Same list price as Sonnet 5.5.
+ */
+export const FALLBACK_MODEL = 'openai/gpt-6.2-sol';
 
 /** Pages of 100 open issues and PRs listed per run; OWASP has about 40 open items in all. */
 const MAX_LIST_PAGES = 5;
@@ -131,6 +139,12 @@ export class BacklogReviewAgent extends CustodesAgent<AgentsEnv> {
         gatewayToken: this.env.AI_GATEWAY_TOKEN,
         ...(this.modelFetch ? { fetchImpl: this.modelFetch } : {}),
       });
+      const fallback = new OpenRouterMessages({
+        accountId: this.env.AI_GATEWAY_ACCOUNT_ID,
+        gatewayId: this.env.AI_GATEWAY_ID,
+        gatewayToken: this.env.AI_GATEWAY_TOKEN,
+        ...(this.modelFetch ? { fetchImpl: this.modelFetch } : {}),
+      });
       const runStore = await this.runStore();
       const port: HostPort = {
         agentId: this.manifest.id,
@@ -140,7 +154,22 @@ export class BacklogReviewAgent extends CustodesAgent<AgentsEnv> {
         store: runStore,
         brokerGuard: () => this.guard(),
         read: this.readFn(),
-        send: (req) => gateway.messages(req),
+        fallbackModel: FALLBACK_MODEL,
+        send: withFallback(
+          (req) => gateway.messages(req),
+          (req) => fallback.messages(req),
+          FALLBACK_MODEL,
+          (err) => {
+            // Ids and the error class only, never its text.
+            console.warn(
+              JSON.stringify({
+                event: 'backlog-review.model_fallback',
+                what: err instanceof Error ? err.name : 'error',
+                model: FALLBACK_MODEL,
+              }),
+            );
+          },
+        ),
         act: (action, runId, snapshot) =>
           this.act(action, runId, triggeredBy, snapshot ? { snapshot } : {}),
         requestBundle: async (bundle, rationale, runId) => ({
