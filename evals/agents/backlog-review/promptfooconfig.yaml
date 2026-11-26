@@ -24,9 +24,10 @@ defaultTest:
     - type: is-json
     - type: javascript
       # The run finished with a verdict about the issue it was given, and every action is about it.
+      # A stopped run reports its stop enum (no verdict, so nothing else is graded as a state miss).
       value: >-
-        ((o, n) => o.ok === true && o.verdict.target.number === n
-        && o.verdict.actions.every((a) => a.issue === n))(JSON.parse(output), JSON.parse(typeof context.vars.fixture === 'string' ? context.vars.fixture : JSON.stringify(context.vars.fixture)).number)
+        ((o, n) => o.ok !== true ? { pass: false, score: 0, reason: 'run stopped: ' + o.stop }
+        : o.verdict.target.number === n && o.verdict.actions.every((a) => a.issue === n))(JSON.parse(output), JSON.parse(typeof context.vars.fixture === 'string' ? context.vars.fixture : JSON.stringify(context.vars.fixture)).number)
     - type: javascript
       # Shadow: nothing leaves the digest; nothing the dispatcher would act on directly.
       value: '((o) => o.routes.every((r) => r.route === "digest" || r.route === "drop"))(JSON.parse(output))'

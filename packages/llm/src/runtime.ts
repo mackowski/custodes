@@ -108,6 +108,14 @@ export const MAX_TOOL_RESULT_CHARS = 40_000;
 /** Restarts after a round cap before the run is escalated to the operator (ADR 0023). */
 export const MAX_RESTARTS = 2;
 
+/**
+ * How the final answer must look: one JSON object for the output schema, and nothing else. Built
+ * by code from the schema (trusted); the same text on every round, so it caches.
+ */
+export function outputContract(output: z.ZodType): string {
+  return `When you have finished calling tools, answer with exactly one JSON object and no other text. It must match this JSON Schema (every required field present, no other fields):\n${JSON.stringify(z.toJSONSchema(output, { io: 'input', unrepresentable: 'any' }))}`;
+}
+
 /** One run: rounds of model call → tool calls → results, until an answer or a stop. */
 export async function runLoop<S extends z.ZodType>(
   input: LoopInput<S>,
@@ -135,6 +143,9 @@ export async function runLoop<S extends z.ZodType>(
     input_schema: z.toJSONSchema(t.args),
   }));
   const messages: MessageParam[] = [{ role: 'user', content: firstMessage(input) }];
+  // The answer's contract, from the same zod schema that validates it: without it the model
+  // guesses field names and optionality, and every answer can fail as invalid_output (#168 evals).
+  const system = `${input.system}\n\n${UNTRUSTED_DATA_RULES}\n\n${outputContract(input.output)}`;
 
   for (;;) {
     if (state.rounds >= input.caps.rounds) return stop('rounds');
@@ -150,7 +161,7 @@ export async function runLoop<S extends z.ZodType>(
     try {
       res = await deps.send({
         model: input.model,
-        system: `${input.system}\n\n${UNTRUSTED_DATA_RULES}`,
+        system,
         messages,
         max_tokens: input.maxTokens,
         tools,

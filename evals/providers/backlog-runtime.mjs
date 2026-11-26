@@ -72,7 +72,14 @@ export default class BacklogRuntimeProvider {
       );
       return { output: JSON.stringify(out), cost: out.usd };
     } catch (err) {
-      return { error: err instanceof Error ? err.name : 'error' };
+      // Class, HTTP status and provider error type only (never the provider's text).
+      const e = /** @type {{ name?: unknown, status?: unknown, errorType?: unknown }} */ (
+        err ?? {}
+      );
+      const parts = [e.name, e.status, e.errorType].filter(
+        (p) => typeof p === 'string' || typeof p === 'number',
+      );
+      return { error: parts.length > 0 ? parts.join(' ') : 'error' };
     }
   }
 }
