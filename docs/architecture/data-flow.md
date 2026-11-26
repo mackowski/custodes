@@ -12,7 +12,8 @@ the first agent on the runtime, in shadow. Hourly cron; its own broker entrypoin
 It calls AI Gateway with `AI_GATEWAY_TOKEN`. Its D1 digest `custodes-backlog` is read by the
 operator's Claude Code session through the Cloudflare API: a new boundary, TB8. No GitHub write: the
 policy grants issue actions in hitl so the shadow digest shows what live would do, and
-`PAT_BACKLOG_REVIEW` has no secret). Before that, 2026-11-25 (#140a slice 3, ADR 0023: the agent runtime is library
+`PAT_BACKLOG_REVIEW` has no secret). Before that, 2026-11-26 (#167: Terraform creates the empty
+D1 database `custodes-backlog`). Before that, 2026-11-25 (#140a slice 3, ADR 0023: the agent runtime is library
 code on `CustodesAgent` and `@custodes/llm`, used by no deployed agent yet; when one runs it, its
 run state and event channel live in that agent's Durable Object SQLite, the operator kills a run
 or lists its events through the existing Access-protected `/agents/*` route, and a runtime write

@@ -43,7 +43,7 @@
     {
       "binding": "BACKLOG",
       "database_name": "custodes-backlog",
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "ca54ce4b-a3bf-4f83-9247-c204bb815e35",
       "migrations_dir": "migrations",
     },
   ],
