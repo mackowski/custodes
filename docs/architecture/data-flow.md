@@ -6,7 +6,9 @@ of this diagram it touches, before and after, and updates this file when the flo
 (`docs/sdlc.md`, `.github/workflows/pr-architecture.yml`). Derived from the Workers' `wrangler.jsonc` files, the broker policy and the
 gateway routes, not from memory; when they disagree, the code is right and this file is stale.
 
-Last checked against the code: 2026-11-25 (#140a slice 3, ADR 0023: the agent runtime is library
+Last checked against the code: 2026-11-26 (#132 v1 preparation: Terraform creates the empty D1
+database `custodes-backlog`; nothing binds, writes or reads it yet, so no edge changes). Before
+that, 2026-11-25 (#140a slice 3, ADR 0023: the agent runtime is library
 code on `CustodesAgent` and `@custodes/llm`, used by no deployed agent yet; when one runs it, its
 run state and event channel live in that agent's Durable Object SQLite, the operator kills a run
 or lists its events through the existing Access-protected `/agents/*` route, and a runtime write

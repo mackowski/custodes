@@ -9,6 +9,14 @@ resource "cloudflare_workers_kv_namespace" "kill_switch" {
   title      = "custodes-kill-switch"
 }
 
+# backlog-review's digest (#132 v1): written only by custodes-backlog-review, read by the operator
+# through the Cloudflare API. Its id goes into workers/backlog-review/wrangler.jsonc.
+resource "cloudflare_d1_database" "backlog" {
+  account_id       = var.account_id
+  name             = "custodes-backlog"
+  read_replication = { mode = "disabled" }
+}
+
 resource "cloudflare_d1_database" "audit" {
   account_id = var.account_id
   name       = "custodes-audit"
