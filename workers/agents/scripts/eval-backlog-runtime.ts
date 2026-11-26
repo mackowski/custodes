@@ -7,7 +7,9 @@ import { routeProposal } from '@custodes/core';
 import {
   AnthropicGateway,
   brokerEvidence,
+  childTask,
   costOf,
+  proposalOf,
   readTools,
   runWithRestarts,
   type ReadFn,
@@ -98,7 +100,11 @@ export async function runItemReview(
       model: d.model,
       system: role.prompt,
       // The same code-built task the host gives a child.
-      task: `Today is ${(fixture.now ?? new Date().toISOString()).slice(0, 10)}. Assess issue #${String(fixture.number)} in ${fixture.repo} as item-review. Read it first, then answer with one proposal.`,
+      task: childTask(
+        'item-review',
+        { repo: fixture.repo, kind: 'issue', number: fixture.number },
+        new Date(fixture.now ?? Date.now()),
+      ),
       tools,
       output: BacklogVerdict,
       caps: { rounds: d.budget.roundsPerRun, usd: d.budget.usdPerRun },
@@ -127,17 +133,11 @@ export async function runItemReview(
   if (!result.ok)
     return { ok: false, stop: result.stop, routes: [], tools: toolNames, usd: result.usd };
   const verdict = result.output;
-  const needsHuman = verdict.needsHuman || raisesToHuman(verdict);
+  const needsHuman = proposalOf(verdict, raisesToHuman(verdict)).needsHuman;
   const routes = await routeProposal({
     policy: POLICY,
     agentId: 'backlog-review',
-    proposal: {
-      target: verdict.target,
-      actions: verdict.actions,
-      evidence: verdict.evidence,
-      reason: verdict.reason,
-      needsHuman,
-    },
+    proposal: proposalOf(verdict, raisesToHuman(verdict)),
     reads: result.reads,
     shadow: true,
     checkEvidence: brokerEvidence((req) => read(runId, req)),

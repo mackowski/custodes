@@ -27,6 +27,11 @@
 **/agent.md                                 @mackowski
 # Trusted context bundled into an agent's prompt (operator preferences, rules): reviewed the same way.
 /workers/agents/src/agents/backlog-review/context/ @mackowski
+/workers/agents/src/agents/backlog-review/bundle.ts @mackowski
+# The gate between the D1 digest and the operator's GitHub account (threat model backlog-review E1).
+/.claude/skills/backlog-digest/              @mackowski
+/scripts/check-digest-action.sh             @mackowski
+/workers/agents/scripts/check-digest-action.ts @mackowski
 /.github/CODEOWNERS                         @mackowski
 /.github/workflows/ci.yml                   @mackowski
 /.github/workflows/deploy-workers.yml       @mackowski

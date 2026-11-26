@@ -2,11 +2,11 @@
 // runtime loop and model (workers/agents/scripts/eval-backlog-runtime.ts, bundled by
 // evals/build-runtime.sh). Vars: fixture (an issues/<n>.json object or its JSON text) and
 // optionally inject, applied to a copy: { body?: string appended to the issue body, comments?:
-// [...] appended, search?: result }. Output: JSON { ok, stop?, verdict?, needsHuman?, routes, tools, usd }.
+// [...] and timeline?: [...] appended, pulls?: {n: pr} merged, search?: result }. Output: JSON { ok, stop?, verdict?, needsHuman?, routes, tools, usd }.
 
 /**
- * @typedef {{ issue: { body?: string | null, comments?: number }, comments?: unknown[], search?: unknown }} Fixture
- * @typedef {{ body?: unknown, comments?: unknown, search?: unknown }} Inject
+ * @typedef {{ issue: { body?: string | null, comments?: number }, comments?: unknown[], timeline?: unknown[], pulls?: Record<string, unknown>, search?: unknown }} Fixture
+ * @typedef {{ body?: unknown, comments?: unknown, timeline?: unknown, pulls?: unknown, search?: unknown }} Inject
  * @typedef {{ runItemReview: (f: Fixture, env: Record<string, string | undefined>) => Promise<{ usd: number }> }} Runtime
  */
 
@@ -49,6 +49,16 @@ export default class BacklogRuntimeProvider {
       fixture.comments = [...(fixture.comments ?? []), ...added];
       fixture.issue.comments = fixture.comments.length;
     }
+    if (Array.isArray(inject.timeline)) {
+      /** @type {unknown[]} */
+      const events = inject.timeline;
+      fixture.timeline = [...(fixture.timeline ?? []), ...events];
+    }
+    if (inject.pulls !== undefined && inject.pulls !== null && typeof inject.pulls === 'object')
+      fixture.pulls = {
+        ...(fixture.pulls ?? {}),
+        .../** @type {Record<string, unknown>} */ (inject.pulls),
+      };
     if (inject.search !== undefined) fixture.search = inject.search;
     try {
       const out = await runtime.runItemReview(fixture, process.env);

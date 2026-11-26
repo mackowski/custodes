@@ -28,7 +28,12 @@ export const SUITE_PATHS: Record<string, readonly string[]> = {
     'packages/llm/src/runtime.ts',
     'packages/llm/src/runtime-host.ts',
     'packages/core/src/runtime/dispatcher.ts',
+    'packages/llm/src/delegate.ts',
+    'packages/schema/src/runtime.ts',
+    // The maintainers in the role's prompt come from the policy.
+    'workers/github-broker/policy/policy.json',
     'workers/agents/scripts/eval-backlog-runtime.ts',
+    'evals/build-runtime.sh',
     'evals/providers/backlog-runtime.mjs',
     'evals/fixtures/backlog-review/',
   ],

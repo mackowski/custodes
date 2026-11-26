@@ -125,14 +125,25 @@ export interface ChildHook<T extends Proposal> {
   schema: z.ZodType<T>;
   raiseNeedsHuman?(out: T): boolean;
   onResult?(
-    r:
-      | { ok: true; runId: string; target: ProposalTarget; output: T; outcomes: Outcome[] }
-      | { ok: false; runId: string; target: ProposalTarget; stop: string },
+    r: { rootRunId: string; runId: string; target: ProposalTarget } & (
+      { ok: true; output: T; outcomes: Outcome[] } | { ok: false; stop: string }
+    ),
   ): void | Promise<void>;
 }
 
+/** The trusted task of a child run: built by code from the role, the target and today's date. */
+export function childTask(role: string, target: ProposalTarget, today: Date): string {
+  // Today's date: rules such as "7 days without activity" need it (#132).
+  return `Today is ${today.toISOString().slice(0, 10)}. Assess ${target.kind} #${String(target.number)} in ${target.repo} as ${role}. Read it first, then answer with one proposal.`;
+}
+
+/** Whether an answer is about the item the child was given (lean review of #168, 2). */
+function sameTarget(a: ProposalTarget, b: ProposalTarget): boolean {
+  return a.repo === b.repo && a.kind === b.kind && a.number === b.number;
+}
+
 /** The `Proposal` fields of an extended answer, for the dispatcher. */
-function proposalOf(out: Proposal, raise: boolean): Proposal {
+export function proposalOf(out: Proposal, raise: boolean): Proposal {
   return {
     target: out.target,
     actions: out.actions,
@@ -434,7 +445,15 @@ export async function runAgentTree(
   root: BundledAgent,
   roles: Readonly<Record<string, BundledAgent>>,
   task: string,
-  opts: { shadow: boolean; child?: ChildHook<Proposal> },
+  opts: {
+    shadow: boolean;
+    child?: ChildHook<Proposal>;
+    /**
+     * Which items a child may be given (backlog-review: the issues code selected). Absent: any
+     * item of the agent's repositories. A refused target starts no child (security review of #168, L1).
+     */
+    allowTarget?: (t: ProposalTarget) => boolean;
+  },
 ): Promise<TreeResult> {
   // A model without a price is refused before the first paid call, not after it.
   for (const a of [root, ...Object.values(roles)])
@@ -638,31 +657,39 @@ export async function runAgentTree(
           async runChild(role, target): Promise<ChildOutcome> {
             const child = roles[role];
             if (!child) return { ok: false, stop: 'undeclared_tool' };
+            if (opts.allowTarget && !opts.allowTarget(target))
+              return { ok: false, stop: 'invalid_args' };
             const childId = store.start(agentId, rootRunId);
             // The child's task is built by code from the role and the target: no parent text.
-            // Today's date too: rules such as "7 days without activity" need it (#132).
-            const childTask = `Today is ${now().toISOString().slice(0, 10)}. Assess ${target.kind} #${String(target.number)} in ${target.repo} as ${role}. Read it first, then answer with one proposal.`;
             const hook = opts.child;
+            const ids = { rootRunId, runId: childId, target };
             const r = await run(
               childId,
               child,
-              childTask,
+              childTask(role, target, now()),
               childTools(readTools(port, childId, child.definition.tools)),
               hook?.schema ?? Proposal,
             );
-            if (!r.ok) {
-              await hook?.onResult?.({ ok: false, runId: childId, target, stop: r.stop });
-              return { ok: false, stop: r.stop };
+            // An answer about another item (the child read it too) is refused: a child speaks only
+            // for what it was given, or an injected "close #9" would be filed under #7.
+            const stop = !r.ok
+              ? r.stop
+              : sameTarget((r.output as Proposal).target, target)
+                ? null
+                : 'invalid_output';
+            if (stop !== null) {
+              await hook?.onResult?.({ ...ids, ok: false, stop });
+              return { ok: false, stop: stop };
             }
-            const output = r.output as Proposal;
+            const output = (r as { output: Proposal }).output;
             const proposal = proposalOf(output, hook?.raiseNeedsHuman?.(output) ?? false);
             const before = outcomes.length;
             await dispatch(childId, proposal, r.reads);
+            // The hook sees needsHuman as routed (raised by code), so no caller applies it again.
             await hook?.onResult?.({
+              ...ids,
               ok: true,
-              runId: childId,
-              target,
-              output,
+              output: { ...output, needsHuman: proposal.needsHuman },
               outcomes: outcomes.slice(before),
             });
             return { ok: true, proposal };

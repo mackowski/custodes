@@ -20,7 +20,7 @@ import { raisesToHuman } from './backlog-review/raise.js';
 import { selectIssues } from './backlog-review/selector.js';
 
 export { raisesToHuman };
-import { VerdictStore, type ChildResult } from './backlog-review/store.js';
+import { VerdictStore } from './backlog-review/store.js';
 import { BrokerGitHubReader, type PublicIssue } from './triage/github.js';
 
 export { BACKLOG_REVIEW_MANIFEST };
@@ -28,6 +28,9 @@ export { BACKLOG_REVIEW_MANIFEST };
 /**
  * #132 v1 is shadow: every routed action goes to the D1 digest, nothing reaches GitHub. Leaving
  * shadow is a reviewed code change (decisions on #132, 2026-11-26); a test pins it.
+ * shortcut: rows keep the issue's `updated_at` from before any action. Once live, the agent's own
+ * comment or label bumps it and the issue is reviewed again next hour: v2 must store the
+ * post-action `updated_at` or ignore its own events (lean review of #168, 10).
  */
 export const SHADOW = true;
 
@@ -149,24 +152,27 @@ export class BacklogReviewAgent extends CustodesAgent<AgentsEnv> {
         now: () => now,
       };
 
-      let rootRunId = '';
-      const pending: ChildResult[] = [];
+      const counts = { verdicts: 0, stopped: 0, unrecorded: 0 };
       const hook: ChildHook<BacklogVerdict> = {
         schema: BacklogVerdict,
         // Code raises: anything short of certain, or a state no rule covers, goes to a human.
         raiseNeedsHuman: raisesToHuman,
-        onResult: (r) => {
-          pending.push(
-            r.ok
-              ? {
-                  ...r,
-                  output: {
-                    ...r.output,
-                    needsHuman: r.output.needsHuman || raisesToHuman(r.output),
-                  },
-                }
-              : r,
-          );
+        // Each verdict is written as its child finishes, so a run cut short keeps what it paid for.
+        onResult: async (r) => {
+          try {
+            await store.record(r, {
+              issueUpdatedAt: updatedAt.get(r.target.number) ?? '',
+              agentVersion: this.manifest.version,
+              now,
+            });
+            counts[r.ok ? 'verdicts' : 'stopped']++;
+          } catch (err) {
+            counts.unrecorded++;
+            const what = err instanceof Error ? err.name : 'error';
+            console.error(
+              JSON.stringify({ event: 'backlog-review.record_failed', what, runId: r.runId }),
+            );
+          }
         },
       };
       // The task is code-built: issue numbers of this repository only, no text from GitHub.
@@ -174,15 +180,10 @@ export class BacklogReviewAgent extends CustodesAgent<AgentsEnv> {
       const result = await runAgentTree(port, root, roles, task, {
         shadow: SHADOW,
         child: hook,
+        // Only the issues code selected: the 20-per-run cap and triage's stream hold in code.
+        allowTarget: (t) => t.repo === repo && t.kind === 'issue' && due.includes(t.number),
       });
-      rootRunId = result.rootRunId;
-      for (const r of pending)
-        await store.record(r, {
-          rootRunId,
-          issueUpdatedAt: updatedAt.get(r.target.number) ?? '',
-          agentVersion: this.manifest.version,
-          now,
-        });
+      const { rootRunId } = result;
       console.log(
         JSON.stringify({
           event: 'backlog-review.run',
@@ -191,8 +192,7 @@ export class BacklogReviewAgent extends CustodesAgent<AgentsEnv> {
           status: result.status,
           stop: result.stop ?? null,
           selected: due.length,
-          verdicts: pending.filter((p) => p.ok).length,
-          stopped: pending.filter((p) => !p.ok).length,
+          ...counts,
         }),
       );
       return {

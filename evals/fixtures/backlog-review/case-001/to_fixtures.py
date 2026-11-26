@@ -22,7 +22,8 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 REPO = "OWASP/CheatSheetSeries"
 # Who counts as a maintainer comes from the policy (maintainers), as in the agent's prompt.
-MAINTAINERS = {"mackowski", "jmanico", "randomstuff"}
+POLICY = HERE.parents[3] / "workers" / "github-broker" / "policy" / "policy.json"
+MAINTAINERS = set(json.loads(POLICY.read_text())["maintainers"].get(REPO, []))
 
 
 def fetch_prs(numbers):

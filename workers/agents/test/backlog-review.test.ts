@@ -324,10 +324,13 @@ describe('backlog-review (#132 v1)', () => {
 
 describe('check-digest-action (the /backlog-digest gate, threat model E1)', () => {
   const R = 'OWASP/CheatSheetSeries';
+  const ROW = { repo: R, issue: 7 };
+  const check = async (action: unknown, row = ROW) =>
+    (await import('../scripts/check-digest-action.js')).checkAction(action, row);
+
   it('passes a policy-allowed comment and lists mentions that are not maintainers', async () => {
-    const { checkAction } = await import('../scripts/check-digest-action.js');
     expect(
-      checkAction({
+      await check({
         type: 'issue.comment',
         repo: R,
         issue: 7,
@@ -335,14 +338,14 @@ describe('check-digest-action (the /backlog-digest gate, threat model E1)', () =
       }),
     ).toEqual({ ok: true, type: 'issue.comment', mentions: ['volunteer'] });
   });
+
   it('refuses what the broker would refuse', async () => {
-    const { checkAction } = await import('../scripts/check-digest-action.js');
-    expect(checkAction({ type: 'pr.merge', repo: R, pull: 7 })).toMatchObject({ ok: false });
+    expect(await check({ type: 'pr.merge', repo: R, pull: 7 })).toMatchObject({ ok: false });
     expect(
-      checkAction({ type: 'issue.comment', repo: R, issue: 7, body: 'see https://evil.example' }),
+      await check({ type: 'issue.comment', repo: R, issue: 7, body: 'see https://evil.example' }),
     ).toMatchObject({ ok: false, problem: 'link' });
     expect(
-      checkAction({
+      await check({
         type: 'issue.label.add',
         repo: R,
         issue: 7,
@@ -350,7 +353,112 @@ describe('check-digest-action (the /backlog-digest gate, threat model E1)', () =
       }),
     ).toMatchObject({ ok: false });
     expect(
-      checkAction({ type: 'issue.comment', repo: 'evil/repo', issue: 7, body: 'hi' }),
+      await check(
+        { type: 'issue.comment', repo: 'evil/repo', issue: 7, body: 'hi' },
+        { repo: 'evil/repo', issue: 7 },
+      ),
     ).toMatchObject({ ok: false, denial: 'repo evil/repo not allowed' });
+  });
+
+  it('refuses an action about another item than its row (security review of #168, M2)', async () => {
+    expect(
+      await check({
+        type: 'issue.close',
+        repo: R,
+        issue: 9,
+        body: 'Done.',
+        stateReason: 'completed',
+      }),
+    ).toMatchObject({ ok: false, denial: 'action is about another item than its row' });
+  });
+});
+
+describe('VerdictStore (D1)', () => {
+  const store = async () =>
+    new (await import('../src/agents/backlog-review/store.js')).VerdictStore(DB());
+  const h = (hours: number) => new Date(NOW.getTime() - hours * 3_600_000);
+  const base = { rootRunId: 'root', target: { repo: REPO, kind: 'issue' as const, number: 7 } };
+
+  it('takes the newest row per issue, a stopped one included, for the selector', async () => {
+    const s = await store();
+    await s.record(
+      { ...base, runId: 'a', ok: true, output: verdict, outcomes: [] },
+      { issueUpdatedAt: 'old', agentVersion: '0.1.0', now: h(100) },
+    );
+    await s.record(
+      { ...base, runId: 'b', ok: false, stop: 'budget' },
+      { issueUpdatedAt: issue.updated_at, agentVersion: '0.1.0', now: h(1) },
+    );
+    expect((await s.lastVerdicts(REPO)).get(7)).toEqual({
+      issueUpdatedAt: issue.updated_at,
+      at: h(1).toISOString(),
+    });
+    // The stopped run counts: the unchanged issue is not due again for 72 hours.
+    await inAgent([issue], [], async (agent, _c, model) => {
+      expect(await agent.review({ kind: 'manual' }, NOW)).toMatchObject({ selected: 0 });
+      expect(model.calls).toBe(0);
+    });
+  });
+
+  it('deletes rows older than 90 days with their actions, and keeps the rest', async () => {
+    const s = await store();
+    const outcome = {
+      runId: 'old',
+      target: base.target,
+      action: 'issue.comment' as const,
+      brokerAction: verdict.actions[0]!,
+      route: 'digest' as const,
+      detail: 'digest',
+    };
+    await s.record(
+      { ...base, runId: 'old', ok: true, output: verdict, outcomes: [outcome] },
+      { issueUpdatedAt: 'x', agentVersion: '0.1.0', now: h(91 * 24) },
+    );
+    await s.record(
+      {
+        ...base,
+        runId: 'new',
+        ok: true,
+        output: verdict,
+        outcomes: [{ ...outcome, runId: 'new' }],
+      },
+      { issueUpdatedAt: 'x', agentVersion: '0.1.0', now: h(1) },
+    );
+    await s.prune(NOW);
+    expect((await rows()).map((r) => r['run_id'])).toEqual(['new']);
+    expect(await actionRows()).toHaveLength(1);
+  });
+
+  it('keeps token-shaped text out of D1 (canary)', async () => {
+    const s = await store();
+    const token = `ghp_${'a'.repeat(36)}`;
+    const leaky = {
+      ...verdict,
+      reason: `The thread pasted ${token} by mistake.`,
+      actions: [
+        { type: 'issue.comment' as const, repo: REPO, issue: 7, body: `Please revoke ${token}.` },
+      ],
+    };
+    await s.record(
+      {
+        ...base,
+        runId: 'canary',
+        ok: true,
+        output: leaky,
+        outcomes: [
+          {
+            runId: 'canary',
+            target: base.target,
+            action: 'issue.comment',
+            brokerAction: leaky.actions[0]!,
+            route: 'digest',
+            detail: 'digest',
+          },
+        ],
+      },
+      { issueUpdatedAt: 'x', agentVersion: '0.1.0', now: NOW },
+    );
+    expect(JSON.stringify(await rows())).not.toContain(token);
+    expect(JSON.stringify(await actionRows())).not.toContain(token);
   });
 });

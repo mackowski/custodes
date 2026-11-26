@@ -22,7 +22,7 @@
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Keyring"] }],
   "kv_namespaces": [{ "binding": "KILL_SWITCH", "id": "841e2b0dd14d48fbac292217839957a4" }],
   // cheatsheet_search (ADR 0023): GitHub code search allows 10 requests a minute per account, shared
-  // with the operator. Per agent (key = agent id) at most 5 a minute; read.ts refuses search without it.
+  // with the operator. All agents together (one key) at most 5 a minute; read.ts refuses search without it.
   "ratelimits": [
     { "name": "SEARCH_LIMIT", "namespace_id": "1323", "simple": { "limit": 5, "period": 60 } },
   ],

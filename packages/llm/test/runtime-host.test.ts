@@ -12,7 +12,7 @@ import {
   type BrokerAction,
   type BrokerReadRequest,
   type BrokerResponse,
-  type Proposal,
+  Proposal,
 } from '@custodes/schema';
 import type { MessagesResponse } from '../src/gateway.js';
 import { PRICES_USD_PER_MTOK } from '../src/prices.js';
@@ -472,6 +472,63 @@ describe('runAgentTree', () => {
         outcomes: [expect.objectContaining({ live: 'approval' })],
       }),
     ]);
+  });
+
+  it('refuses a child answer about another item than it was given (reviews of #168)', async () => {
+    const child = agent(definition({ id: 'item-review', outputSchema: 'Proposal' }));
+    const root = agent(definition({ tools: ['issue', 'delegate'], agents: ['item-review'] }));
+    const on9: BrokerAction = { ...commentOn7, issue: 9 };
+    const about9 = {
+      ...proposalOn7,
+      target: { repo: REPO, kind: 'issue', number: 9 },
+      actions: [on9],
+    };
+    const { p, acts } = port('hotl', [
+      toolUse(
+        'delegate',
+        { role: 'item-review', target: { repo: REPO, kind: 'issue', number: 7 } },
+        0,
+      ),
+      toolUse('issue', { repo: REPO, number: 7 }, 1),
+      toolUse('issue', { repo: REPO, number: 9 }, 2),
+      answer(JSON.stringify(about9), 3),
+      answer(JSON.stringify({ proposals: [] }), 4),
+    ]);
+    const results: unknown[] = [];
+    const r = await runAgentTree(p, root, { 'item-review': child }, 'Review.', {
+      shadow: false,
+      child: { schema: Proposal, onResult: (x) => void results.push(x) },
+    });
+    expect(acts).toEqual([]);
+    expect(r.outcomes).toEqual([]);
+    expect(results).toEqual([
+      expect.objectContaining({
+        ok: false,
+        stop: 'invalid_output',
+        target: expect.objectContaining({ number: 7 }) as unknown,
+      }),
+    ]);
+  });
+
+  it('starts no child for a target the agent did not allow (security review of #168, L1)', async () => {
+    const child = agent(definition({ id: 'item-review', outputSchema: 'Proposal' }));
+    const root = agent(definition({ tools: ['issue', 'delegate'], agents: ['item-review'] }));
+    const { p, store } = port('hotl', [
+      toolUse(
+        'delegate',
+        { role: 'item-review', target: { repo: REPO, kind: 'issue', number: 9 } },
+        0,
+      ),
+      answer(JSON.stringify({ proposals: [] }), 1),
+    ]);
+    const r = await runAgentTree(p, root, { 'item-review': child }, 'Review.', {
+      shadow: false,
+      allowTarget: (t) => t.number === 7,
+    });
+    expect(r.status).toBe('done');
+    // Only the root run exists: no child was started for #9.
+    expect(store.spentSince('backlog-review', '1970-01-01T00:00:00Z')).toBeGreaterThan(0);
+    expect(store.listEvents(r.rootRunId).every((e) => e.parentRunId === null)).toBe(true);
   });
 
   it('reports a child whose answer fails the hook schema as stopped, and routes nothing (#132)', async () => {

@@ -48,6 +48,9 @@ on:
       - 'packages/llm/src/runtime.ts'
       - 'packages/llm/src/runtime-host.ts'
       - 'packages/core/src/runtime/dispatcher.ts'
+      - 'packages/llm/src/delegate.ts'
+      - 'packages/schema/src/runtime.ts'
+      - 'workers/github-broker/policy/policy.json'
 permissions: read-all
 jobs:
   promptfoo:

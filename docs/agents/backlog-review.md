@@ -43,7 +43,7 @@ GitHub from the agent.
 
    Each action goes to the digest with the route it would take live.
 
-6. Each verdict and its routes are written to D1. Rows older than 90 days are deleted at the start
+6. Each verdict and its routes are written to D1 as its child finishes, in one batch. A child that answers about another issue than the one it was given is stopped (`invalid_output`), and the orchestrator can delegate only the selected issues. Rows older than 90 days are deleted at the start
    of every run.
 
 ## Inputs (all untrusted)

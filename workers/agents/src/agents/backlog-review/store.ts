@@ -11,9 +11,9 @@ const REASON_CAP = 2_000;
 const ACTION_CAP = 70_000;
 
 /** One child's result, as the runtime host reports it through its child hook. */
-export type ChildResult =
-  | { ok: true; runId: string; target: ProposalTarget; output: BacklogVerdict; outcomes: Outcome[] }
-  | { ok: false; runId: string; target: ProposalTarget; stop: string };
+export type ChildResult = { rootRunId: string; runId: string; target: ProposalTarget } & (
+  { ok: true; output: BacklogVerdict; outcomes: Outcome[] } | { ok: false; stop: string }
+);
 
 /**
  * backlog-review's digest in D1 (`custodes-backlog`, #132 v1). Only this Worker writes it; the
@@ -22,29 +22,34 @@ export type ChildResult =
 export class VerdictStore {
   constructor(private readonly db: D1Database) {}
 
-  /** The newest verdict per issue of `repo` that has one (stopped children do not count). */
+  /**
+   * The newest row per issue of `repo`. A stopped child counts too: the issue then waits for a
+   * change or 72 hours like a verdict, so one thread too long for the per-child budget cannot come
+   * first every hour and take the day's budget (lean review of #168, 3).
+   */
   async lastVerdicts(repo: string): Promise<Map<number, LastVerdict>> {
+    // SQLite returns the bare columns of the row that holds MAX(at).
     const { results } = await this.db
       .prepare(
         `SELECT issue, issue_updated_at, MAX(at) AS at FROM verdicts
-         WHERE repo = ? AND status = 'ok' GROUP BY issue`,
+         WHERE repo = ? GROUP BY issue`,
       )
       .bind(repo)
       .all<{ issue: number; issue_updated_at: string; at: string }>();
     return new Map(results.map((r) => [r.issue, { issueUpdatedAt: r.issue_updated_at, at: r.at }]));
   }
 
-  /** Records one child's verdict and its routed actions in one batch. */
+  /** Records one child's verdict and its routed actions in one batch (one transaction). */
   async record(
     r: ChildResult,
-    ctx: { rootRunId: string; issueUpdatedAt: string; agentVersion: string; now: Date },
+    ctx: { issueUpdatedAt: string; agentVersion: string; now: Date },
   ): Promise<void> {
     const base = [
       r.target.repo,
       r.target.number,
       ctx.issueUpdatedAt,
       ctx.now.toISOString(),
-      ctx.rootRunId,
+      r.rootRunId,
       r.runId,
       ctx.agentVersion,
     ];
@@ -59,33 +64,31 @@ export class VerdictStore {
       return;
     }
     const v = r.output;
-    const row = await this.db
-      .prepare(
-        `INSERT INTO verdicts (repo, issue, issue_updated_at, at, root_run_id, run_id, agent_version,
-           status, state, confidence, uncertain_because, needs_human, evidence, reason)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'ok', ?, ?, ?, ?, ?, ?) RETURNING id`,
-      )
-      .bind(
-        ...base,
-        v.state,
-        v.confidence,
-        JSON.stringify(v.uncertainBecause),
-        v.needsHuman ? 1 : 0,
-        JSON.stringify(v.evidence),
-        redact(v.reason).slice(0, REASON_CAP),
-      )
-      .first<{ id: number }>();
-    if (!row) throw new Error('verdict insert returned no id');
-    if (r.outcomes.length === 0) return;
-    await this.db.batch(
-      r.outcomes.map((o, position) =>
+    // A child's run id is unique: its actions find their verdict by it, inside the same batch.
+    await this.db.batch([
+      this.db
+        .prepare(
+          `INSERT INTO verdicts (repo, issue, issue_updated_at, at, root_run_id, run_id, agent_version,
+             status, state, confidence, uncertain_because, needs_human, evidence, reason)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 'ok', ?, ?, ?, ?, ?, ?)`,
+        )
+        .bind(
+          ...base,
+          v.state,
+          v.confidence,
+          JSON.stringify(v.uncertainBecause),
+          v.needsHuman ? 1 : 0,
+          JSON.stringify(v.evidence),
+          redact(v.reason).slice(0, REASON_CAP),
+        ),
+      ...r.outcomes.map((o, position) =>
         this.db
           .prepare(
             `INSERT INTO verdict_actions (verdict_id, position, action, route, live, detail)
-             VALUES (?, ?, ?, ?, ?, ?)`,
+             VALUES ((SELECT id FROM verdicts WHERE run_id = ?), ?, ?, ?, ?, ?)`,
           )
           .bind(
-            row.id,
+            r.runId,
             position,
             redact(JSON.stringify(o.brokerAction)).slice(0, ACTION_CAP),
             o.route,
@@ -93,7 +96,7 @@ export class VerdictStore {
             o.detail.slice(0, 200),
           ),
       ),
-    );
+    ]);
   }
 
   /** Deletes verdicts older than 90 days and their actions. */
