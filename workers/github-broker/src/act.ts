@@ -188,8 +188,13 @@ export async function act(
 
   // ADR 0024: an action names only thread people (or, in text, listed maintainers), hotl included.
   // issue.close always reads the issue: GitHub's issue endpoints accept a pull request number, and
-  // closing one is pr.close's grant, not issue.close's. A failed read refuses.
-  if (req.action.type === 'issue.close' || namedBy(req.action).length > 0) {
+  // closing one is pr.close's grant, not issue.close's. A runtime write carries the snapshot the
+  // agent read, and runs only if the target still matches it (ADR 0023). A failed read refuses.
+  if (
+    req.action.type === 'issue.close' ||
+    req.snapshot !== undefined ||
+    namedBy(req.action).length > 0
+  ) {
     const problem = await threadProblem(env, req);
     if (problem !== null) return deny('policy_denied', problem);
   }
@@ -254,13 +259,32 @@ export async function act(
 async function threadProblem(env: BrokerEnv, req: BrokerRequest): Promise<string | null> {
   const { repo } = req.action;
   const number = numberOf(req.action);
-  let thread =
-    req.action.type === 'pr.close'
-      ? await readPullThread(env, req.agentId, req.runId, repo, number)
-      : await readIssueThread(env, req.agentId, req.runId, repo, number);
-  if (!thread.ok && thread.reason === 'not an issue' && req.action.type !== 'issue.close')
+  // The closing actions take their kind from the action, never from a caller's snapshot: closing a
+  // pull request is pr.close's grant, not issue.close's (security review of #166, slice 3). Other
+  // actions follow the snapshot's kind (a pull request's has a head SHA).
+  const snapPull = req.snapshot !== undefined && 'headSha' in req.snapshot;
+  if (
+    req.snapshot !== undefined &&
+    ((req.action.type === 'issue.close' && snapPull) ||
+      (req.action.type === 'pr.close' && !snapPull))
+  )
+    return 'snapshot does not match the action';
+  const pull =
+    req.action.type === 'pr.close' ||
+    (req.action.type !== 'issue.close' && req.snapshot !== undefined && snapPull);
+  let thread = pull
+    ? await readPullThread(env, req.agentId, req.runId, repo, number)
+    : await readIssueThread(env, req.agentId, req.runId, repo, number);
+  if (
+    !thread.ok &&
+    thread.reason === 'not an issue' &&
+    req.action.type !== 'issue.close' &&
+    req.snapshot === undefined
+  )
     thread = await readPullThread(env, req.agentId, req.runId, repo, number);
   if (!thread.ok) return `cannot check the thread: ${thread.reason}`;
+  if (req.snapshot !== undefined && canonicalJson(thread.snapshot) !== canonicalJson(req.snapshot))
+    return 'stale: the target changed since it was read';
   return strangerProblem(req.action, thread.people);
 }
 

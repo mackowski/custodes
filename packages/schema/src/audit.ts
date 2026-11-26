@@ -3,6 +3,7 @@ import { AgentId, SemVer } from './agent.js';
 import { BrokerAction } from './actions.js';
 import { Trigger } from './broker.js';
 import { CallerName } from './callers.js';
+import { IssueSnapshot, PullSnapshot } from './snapshots.js';
 
 export const AuditDecision = z.enum(['allowed', 'denied', 'halted']);
 export type AuditDecision = z.infer<typeof AuditDecision>;
@@ -41,6 +42,8 @@ export const AuditRecord = z.object({
   decision: AuditDecision,
   reason: z.string().optional(),
   githubUrl: z.url().optional(),
+  /** The snapshot a runtime write was checked against (ADR 0023); part of what the agent signed. */
+  snapshot: z.union([PullSnapshot, IssueSnapshot]).optional(),
   /** Set when the request came from a per-agent Worker (ADR 0018); absent on the shared Worker. */
   callerSignature: CallerSignature.optional(),
 });

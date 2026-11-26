@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@custodes/core": "workspace:*",
+    "@custodes/schema": "workspace:*",
     "zod": "4.6.7"
   },
   "devDependencies": {

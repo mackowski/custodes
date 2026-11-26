@@ -443,3 +443,25 @@ describe('executeAction issue.assign', () => {
     await expect(p).rejects.toThrow(/did not assign/);
   });
 });
+
+describe('cheatsheet_search (ADR 0023)', () => {
+  it('adds the repository and path qualifiers itself and caps the page size', async () => {
+    const { buildReadPath } = await import('../src/read.js');
+    const path = buildReadPath({
+      repo: 'OWASP/CheatSheetSeries',
+      resource: 'cheatsheet_search',
+      query: { per_page: 100, page: 2 },
+      search: 'password hashing',
+    });
+    const url = new URL(`https://api.github.com${path}`);
+    expect(url.pathname).toBe('/search/code');
+    expect(url.searchParams.get('q')).toBe(
+      'password hashing repo:OWASP/CheatSheetSeries path:cheatsheets',
+    );
+    expect(url.searchParams.get('per_page')).toBe('20');
+    expect(url.searchParams.get('page')).toBe('2');
+    expect(() =>
+      buildReadPath({ repo: 'o/r', resource: 'cheatsheet_search', query: {} }),
+    ).toThrow();
+  });
+});

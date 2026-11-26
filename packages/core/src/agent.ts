@@ -8,9 +8,13 @@ import {
   KillSwitchState,
   BrokerResponse,
   type BrokerRequest,
+  type IssueSnapshot,
+  type PullSnapshot,
   type Trigger,
 } from '@custodes/schema';
 import type { Keyholder } from './keyholder.js';
+import { RunStore, type RunEvent, type SqlLike } from './runtime/run-store.js';
+import { runRoute } from './runtime/run-routes.js';
 import { type BrokerFetcher, signingBroker } from './signed-broker.js';
 import { conversationOf, executeTool, NO_TRACER, type Tracer, type Turn } from './tracing.js';
 
@@ -28,6 +32,9 @@ export interface CustodesEnv {
   KEYHOLDER?: DurableObjectNamespace<Keyholder>;
   CALLER_NAME?: string;
 }
+
+/** When the daily prune of run events runs (ADR 0023: 14 days of retention). */
+export const RUNTIME_PRUNE_CRON = '23 3 * * *';
 
 export class AgentHaltedError extends Error {
   constructor(agentId: string, reason?: string) {
@@ -179,14 +186,22 @@ export abstract class CustodesAgent<
     };
   }
 
-  /** Requests a GitHub side effect. The broker decides; this method only reports the outcome. */
+  /**
+   * Requests a GitHub side effect. The broker decides; this method only reports the outcome. A
+   * runtime write passes the snapshot it read, and the broker refuses it if the target changed
+   * (ADR 0023).
+   */
   protected async act(
     action: BrokerAction,
     runId: string,
     triggeredBy: Trigger,
-    opts: { turn?: Turn } = {},
+    opts: { turn?: Turn; snapshot?: IssueSnapshot | PullSnapshot } = {},
   ): Promise<BrokerResponse> {
-    const request: BrokerRequest = { ...(await this.sideEffect(runId, triggeredBy)), action };
+    const request: BrokerRequest = {
+      ...(await this.sideEffect(runId, triggeredBy)),
+      action,
+      ...(opts.snapshot !== undefined ? { snapshot: opts.snapshot } : {}),
+    };
     return executeTool(opts.turn, action.type, async (span) => {
       // The action is our own output (it becomes public on GitHub); approval ids are not recorded.
       span.payload('gen_ai.tool.call.arguments', action);
@@ -211,9 +226,15 @@ export abstract class CustodesAgent<
     rationale: string,
     runId: string,
     triggeredBy: Trigger,
-    opts: { turn?: Turn } = {},
+    opts: { turn?: Turn; snapshot?: IssueSnapshot | PullSnapshot } = {},
   ): Promise<{ ok: true; created: ApprovalCreated } | { ok: false; status: number }> {
-    const request: BrokerRequest = { ...(await this.sideEffect(runId, triggeredBy)), action };
+    // A runtime approval carries the snapshot it was routed with: the broker checks it at the
+    // click (ADR 0023; security review of #166 slice 3, L2).
+    const request: BrokerRequest = {
+      ...(await this.sideEffect(runId, triggeredBy)),
+      action,
+      ...(opts.snapshot !== undefined ? { snapshot: opts.snapshot } : {}),
+    };
     return executeTool(opts.turn, 'approval.request', async (span) => {
       const res = await this.broker.fetch('https://broker.internal/v1/approvals', {
         method: 'POST',
@@ -254,5 +275,57 @@ export abstract class CustodesAgent<
         : { ok: false, status: res.status };
     }
     return { ok: true, created: ApprovalCreated.parse(await res.json()) };
+  }
+
+  // ---------- Agent runtime (ADR 0023): run store, kill, events, retention ----------
+
+  private runtimeRunStore: RunStore | undefined;
+
+  /**
+   * This agent's run store in its Durable Object's SQLite. The first open schedules the daily
+   * prune (a cron schedule, idempotent across restarts), so retention holds for any agent that
+   * runs the runtime.
+   */
+  protected async runStore(): Promise<RunStore> {
+    if (this.runtimeRunStore) return this.runtimeRunStore;
+    // `SqlLike` is the subset the store uses; its row type is looser than SqlStorage's generic.
+    this.runtimeRunStore = new RunStore(this.ctx.storage.sql as unknown as SqlLike);
+    await this.schedule(RUNTIME_PRUNE_CRON, 'pruneRuntimeRuns');
+    return this.runtimeRunStore;
+  }
+
+  /** Called by the daily schedule: drops runs and events past ADR 0023's 14 days. */
+  async pruneRuntimeRuns(): Promise<void> {
+    (await this.runStore()).prune();
+  }
+
+  /**
+   * Kills a run and its whole tree (ADR 0023). Durable Object RPC, never `@callable`: only code
+   * holding this agent's namespace binding reaches it (the agent Worker, for the operator's
+   * Access-checked request). Returns how many runs it marked.
+   */
+  async killRun(runId: string): Promise<number> {
+    const n = (await this.runStore()).kill(runId);
+    console.log(JSON.stringify({ event: 'runtime.kill', agentId: this.manifest.id, runId, n }));
+    return n;
+  }
+
+  /**
+   * A run's events and its children's (ADR 0023): untrusted model text and tool arguments, capped
+   * and redacted. Durable Object RPC for the supervisor (#135), read only.
+   */
+  async listRunEvents(runId: string, limit?: number): Promise<RunEvent[]> {
+    return (await this.runStore()).listEvents(runId, limit);
+  }
+
+  /**
+   * The operator's run routes, for an agent's `onRequest` (`runRoute`): kill a run, list its
+   * events. Null when the path is not a run route.
+   */
+  protected handleRunRequest(request: Request): Promise<Response | null> {
+    return runRoute(request, {
+      kill: (runId) => this.killRun(runId),
+      events: (runId) => this.listRunEvents(runId),
+    });
   }
 }

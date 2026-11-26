@@ -41,6 +41,7 @@ export async function buildAuditRecord(input: AuditInput): Promise<AuditRecord> 
     decision: input.decision,
   };
   if (request.approvalId !== undefined) record.approvalId = request.approvalId;
+  if (request.snapshot !== undefined) record.snapshot = request.snapshot;
   if (input.reason !== undefined) record.reason = input.reason;
   if (input.githubUrl !== undefined) record.githubUrl = input.githubUrl;
   if (input.callerSignature !== undefined) record.callerSignature = input.callerSignature;
@@ -74,6 +75,7 @@ export function signedRequestOf(record: AuditRecord): BrokerRequest {
     triggeredBy: record.triggeredBy,
     ...(record.approvalId !== undefined ? { approvalId: record.approvalId } : {}),
     action: record.action,
+    ...(record.snapshot !== undefined ? { snapshot: record.snapshot } : {}),
   };
 }
 

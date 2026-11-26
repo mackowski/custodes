@@ -33,9 +33,29 @@ export interface GatewayConfig {
  */
 export const ANTHROPIC_TIMEOUT_MS = 180_000;
 
+/** A block of a multi-part message (Messages API): text, a tool call, or a tool's result. */
+export type ContentBlockParam =
+  | { type: 'text'; text: string }
+  | { type: 'tool_use'; id: string; name: string; input: unknown }
+  | { type: 'tool_result'; tool_use_id: string; content: string; is_error?: boolean };
+
 export interface MessageParam {
   role: 'user' | 'assistant';
-  content: string;
+  content: string | ContentBlockParam[];
+}
+
+/** A tool the model may call; `input_schema` is JSON Schema (from zod's `toJSONSchema`). */
+export interface ToolDefinition {
+  name: string;
+  description: string;
+  input_schema: Record<string, unknown>;
+}
+
+/** A tool call the model asked for. `input` is model output: validate it before use. */
+export interface ToolUse {
+  id: string;
+  name: string;
+  input: unknown;
 }
 
 /**
@@ -53,6 +73,8 @@ export interface MessagesRequest {
    * Short classification calls disable it so a small budget cannot be consumed by thinking.
    */
   thinking?: { type: 'disabled' } | { type: 'adaptive' };
+  /** Read tools offered to the model (agent runtime, ADR 0023). */
+  tools?: ToolDefinition[];
   metadata: { agentId: string; runId: string; [k: string]: string };
 }
 
@@ -80,7 +102,11 @@ export class GatewayError extends Error {
 
 /** The model answered but the answer is unusable for this input (refused or cut off). */
 export class ModelOutputError extends Error {
-  constructor(readonly reason: 'refusal' | 'max_tokens') {
+  constructor(
+    readonly reason: 'refusal' | 'max_tokens',
+    /** The paid usage of the unusable answer, so a budget still counts it (ADR 0023). */
+    readonly usage?: MessagesResponse['usage'],
+  ) {
     super(`model output unusable: ${reason}`);
     this.name = 'ModelOutputError';
   }
@@ -153,9 +179,9 @@ const discoveredAliases = new Map<string, string>();
 export const PAYLOAD_MAX_CHARS = 8_000;
 
 /** Cuts a payload text to PAYLOAD_MAX_CHARS and says how much was left out. */
-export function clipPayload(text: string): string {
-  if (text.length <= PAYLOAD_MAX_CHARS) return text;
-  return `${text.slice(0, PAYLOAD_MAX_CHARS)}\n[... ${String(text.length - PAYLOAD_MAX_CHARS)} characters not recorded]`;
+export function clipPayload(text: string, max = PAYLOAD_MAX_CHARS): string {
+  if (text.length <= max) return text;
+  return `${text.slice(0, max)}\n[... ${String(text.length - max)} characters not recorded]`;
 }
 
 export class AnthropicGateway {
@@ -224,11 +250,20 @@ export class AnthropicGateway {
       span.payload('gen_ai.system_instructions', [
         { type: 'text', content: clipPayload(req.system) },
       ]);
+      // A runtime loop resends the whole history every round, and a span attribute past ADR
+      // 0016's limit is dropped whole. Record only the newest two messages (the last tool-use turn
+      // and its results, or the one request), each clipped: every round traces what is new, with
+      // its own role (security review round 2 of #140). The two share one attribute's budget, so
+      // two messages get half each (round 3).
+      const asText = (m: MessageParam) =>
+        typeof m.content === 'string' ? m.content : JSON.stringify(m.content);
+      const newest = req.messages.slice(-2);
+      const partMax = PAYLOAD_MAX_CHARS / newest.length;
       span.payload(
         'gen_ai.input.messages',
-        req.messages.map((m) => ({
+        newest.map((m) => ({
           role: m.role,
-          parts: [{ type: 'text', content: clipPayload(m.content) }],
+          parts: [{ type: 'text', content: clipPayload(asText(m), partMax) }],
         })),
       );
       const out = await withTimeout(this.cfg.timeoutMs ?? ANTHROPIC_TIMEOUT_MS, (signal) =>
@@ -248,10 +283,21 @@ export class AnthropicGateway {
         },
       ]);
       // A refusal or a cut-off answer has no usable text; say so instead of failing later in parsing.
-      if (out.stop_reason === 'refusal') throw new ModelOutputError('refusal');
-      if (out.stop_reason === 'max_tokens') throw new ModelOutputError('max_tokens');
+      if (out.stop_reason === 'refusal') throw new ModelOutputError('refusal', usage);
+      if (out.stop_reason === 'max_tokens') throw new ModelOutputError('max_tokens', usage);
       return out;
     });
+  }
+
+  /** The tool calls in a response, in order. Malformed blocks are dropped, never guessed at. */
+  static toolUses(res: MessagesResponse): ToolUse[] {
+    const out: ToolUse[] = [];
+    for (const c of res.content) {
+      if (c.type !== 'tool_use') continue;
+      const { id, name, input } = c as { id?: unknown; name?: unknown; input?: unknown };
+      if (typeof id === 'string' && typeof name === 'string') out.push({ id, name, input });
+    }
+    return out;
   }
 
   /** Convenience: the concatenated text blocks of a response (thinking blocks are skipped). */

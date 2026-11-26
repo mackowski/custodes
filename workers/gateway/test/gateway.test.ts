@@ -399,6 +399,12 @@ describe('service token on the admin API', () => {
     expect(agentWriteAllowed(svc, 'GET', `${base}/comparisons`)).toBe(true);
     expect(agentWriteAllowed(human, 'POST', `${base}/verdict`)).toBe(true);
   });
+  it('never lets a service token kill a run (ADR 0023); a person may', () => {
+    const kill =
+      '/agents/pr-gate-agent/custodes-sandbox/runs/9d7c1e9e-2b1a-4b6e-9a2e-1f7d1c2b3a44/kill';
+    expect(agentWriteAllowed(svc, 'POST', kill)).toBe(false);
+    expect(agentWriteAllowed(human, 'POST', kill)).toBe(true);
+  });
 });
 
 describe('approval links (ADR 0017 amendment)', () => {

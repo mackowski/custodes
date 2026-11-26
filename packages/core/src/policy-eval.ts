@@ -2,6 +2,7 @@ import {
   isTriggerLabel,
   mayAddTriggerLabel,
   type AgentPolicy,
+  type BrokerAction,
   type BrokerActionType,
   type BrokerRequest,
   type Policy,
@@ -35,33 +36,38 @@ export function evaluatePolicy(policy: Policy, req: BrokerRequest): PolicyDecisi
     return { allow: false, code: 'policy_denied', reason: `agent ${req.agentId} is read-only` };
   }
 
+  const denial = actionDenial(req.agentId, agent, req.action);
+  if (denial !== undefined) return { allow: false, code: 'policy_denied', reason: denial };
+  return { allow: true, needsApproval: needsApproval(agent, req.action.repo, req.action.type) };
+}
+
+/**
+ * Why this agent's policy refuses this action, or undefined. One definition for the broker and the
+ * runtime's dispatcher (ADR 0023), so a policy rule cannot land in one copy only.
+ */
+export function actionDenial(
+  agentId: string,
+  agent: AgentPolicy,
+  action: BrokerAction,
+): string | undefined {
   // Retired actions are refused whatever a policy lists (`pr.review` could approve a pull request).
-  if (req.action.type === 'pr.review' || req.action.type === 'pr.comment') {
-    return { allow: false, code: 'policy_denied', reason: `action ${req.action.type} is retired` };
-  }
-  if (!agent.repos.includes(req.action.repo)) {
-    return { allow: false, code: 'policy_denied', reason: `repo ${req.action.repo} not allowed` };
-  }
-  if (!agent.actions.includes(req.action.type)) {
-    return { allow: false, code: 'policy_denied', reason: `action ${req.action.type} not allowed` };
-  }
+  if (action.type === 'pr.review' || action.type === 'pr.comment')
+    return `action ${action.type} is retired`;
+  if (!agent.repos.includes(action.repo)) return `repo ${action.repo} not allowed`;
+  if (!agent.actions.includes(action.type)) return `action ${action.type} not allowed`;
   if (
     agent.labels !== undefined &&
-    (req.action.type === 'issue.label.add' || req.action.type === 'issue.label.remove')
+    (action.type === 'issue.label.add' || action.type === 'issue.label.remove')
   ) {
     const allowed = agent.labels;
-    const other = req.action.labels.find((l) => !allowed.includes(l));
-    if (other !== undefined)
-      return { allow: false, code: 'policy_denied', reason: `label ${other} not allowed` };
+    const other = action.labels.find((l) => !allowed.includes(l));
+    if (other !== undefined) return `label ${other} not allowed`;
   }
   // Defence in depth for ADR 0024: the schema already refuses an ungranted trigger label in
   // `labels`, but adding one starts automation as the operator, so check the request too.
-  if (req.action.type === 'issue.label.add') {
-    const trigger = req.action.labels.find(
-      (l) => isTriggerLabel(l) && !mayAddTriggerLabel(req.agentId, l),
-    );
-    if (trigger !== undefined)
-      return { allow: false, code: 'policy_denied', reason: `label ${trigger} starts automation` };
+  if (action.type === 'issue.label.add') {
+    const trigger = action.labels.find((l) => isTriggerLabel(l) && !mayAddTriggerLabel(agentId, l));
+    if (trigger !== undefined) return `label ${trigger} starts automation`;
   }
-  return { allow: true, needsApproval: needsApproval(agent, req.action.repo, req.action.type) };
+  return undefined;
 }

@@ -439,3 +439,35 @@ describe('policy trigger-label grants, maintainers and critical actions (ADR 002
     });
   });
 });
+
+describe('cheatsheet_search request (ADR 0023)', () => {
+  const base = {
+    agentId: 'backlog-review',
+    runId: '9d7c1e9e-2b1a-4b6e-9a2e-1f7d1c2b3a44',
+    repo: 'OWASP/CheatSheetSeries',
+    resource: 'cheatsheet_search',
+  };
+  it('needs search, and search only goes with cheatsheet_search', () => {
+    expect(BrokerReadRequest.safeParse({ ...base, search: 'password storage' }).success).toBe(true);
+    expect(BrokerReadRequest.safeParse(base).success).toBe(false);
+    expect(
+      BrokerReadRequest.safeParse({ ...base, resource: 'issues', search: 'password' }).success,
+    ).toBe(false);
+  });
+  it.each([
+    'repo:evil/repo password',
+    'password path:secrets',
+    '"exact phrase"',
+    'a',
+    'x'.repeat(101),
+    '-password',
+    'pass+word',
+    'user:someone',
+    'password\nrepo:x',
+    'password OR secret',
+    'NOT password',
+    'a AND b',
+  ])('refuses search words %j that could carry their own qualifiers', (search) => {
+    expect(BrokerReadRequest.safeParse({ ...base, search }).success).toBe(false);
+  });
+});

@@ -217,6 +217,43 @@ describe('payloads', () => {
     }
   });
 
+  it('record only the newest two messages of a long history, each with its role', async () => {
+    const history = {
+      ...msgReq,
+      messages: [
+        { role: 'user' as const, content: 'OLD-TASK' },
+        { role: 'assistant' as const, content: 'OLD-ANSWER' },
+        { role: 'user' as const, content: 'NEW-RESULT' },
+      ],
+    };
+    const { tracer } = await inTurn(true, async (t) => {
+      await gateway(ok(msgRes())).messages(history, t);
+    });
+    const input = JSON.parse(
+      tracer.named('chat')[0]?.attributes['gen_ai.input.messages'] as string,
+    ) as { role: string }[];
+    expect(input.map((m) => m.role)).toEqual(['assistant', 'user']);
+    expect(JSON.stringify(input)).not.toContain('OLD-TASK');
+    expect(JSON.stringify(input)).toContain('NEW-RESULT');
+  });
+
+  it('keep two large messages within one attribute budget', async () => {
+    const big = 'x'.repeat(20_000);
+    const history = {
+      ...msgReq,
+      messages: [
+        { role: 'user' as const, content: 'task' },
+        { role: 'assistant' as const, content: big },
+        { role: 'user' as const, content: big },
+      ],
+    };
+    const { tracer } = await inTurn(true, async (t) => {
+      await gateway(ok(msgRes())).messages(history, t);
+    });
+    const attr = tracer.named('chat')[0]?.attributes['gen_ai.input.messages'] as string;
+    expect(attr.length).toBeLessThan(8_600);
+  });
+
   it('never contain a credential, with payloads on', async () => {
     const { tracer } = await inTurn(true, callAll);
     expect(tracer.spans.length).toBeGreaterThan(3);
