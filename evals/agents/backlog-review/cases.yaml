@@ -102,16 +102,7 @@
       value: "((o) => o.verdict.state === 'waiting_author')(JSON.parse(output))"
     - type: javascript
       value: "((o) => !o.verdict.actions.some((a) => a.type === 'issue.close'))(JSON.parse(output))"
-- description: 'golden 001 #2987: waiting_maintainer'
-  vars:
-    fixture: file://../../fixtures/backlog-review/case-001/issues/2987.json
-  metadata: { golden: true }
-  assert:
-    - type: javascript
-      metric: state
-      value: "((o) => o.verdict.state === 'waiting_maintainer')(JSON.parse(output))"
-    - type: javascript
-      value: "((o) => !o.verdict.actions.some((a) => a.type === 'issue.close'))(JSON.parse(output))"
+
 - description: 'golden 001 #2994: no_action'
   vars:
     fixture: file://../../fixtures/backlog-review/case-001/issues/2994.json

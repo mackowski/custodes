@@ -33,7 +33,7 @@ Scoring suggestion: score the agreement on `expected_state` per item, then on ac
 ## Scoring backlog-review v1 (#132, 2026-11-26)
 
 backlog-review v1 reviews only issues, and only those outside triage's new-issue stream. The suite
-`evals/agents/backlog-review` therefore scores 25 of the 30 issues. It leaves out the five that
+`evals/agents/backlog-review` therefore scores 24 of the 30 issues. It leaves out the five that
 triage owns: 3000, 2995, 2991, 2990 and 2993. The selector's unit test covers that split.
 
 `expected.json` holds each issue's state at T0, normalised from `golden.json`. Two kinds of change:
@@ -47,4 +47,8 @@ triage owns: 3000, 2995, 2991, 2990 and 2993. The selector's unit test covers th
 `to_fixtures.py` turns the snapshot into the API shapes the runtime's read tools return. Merge
 states are as of T0: a PR merged after T0 shows as open. `prs.json` holds the referenced pull
 requests, read with `gh api` (public data). The pass bar is at least 95% agreement on `state`, so
-at most 1 of 25 may disagree.
+at most 1 of 24 may disagree.
+
+2987 is not scored (operator, 2026-11-26). It was accepted 23 minutes before T0, with no comment.
+Its expected `waiting_maintainer` step was a comment linking the PR 2901 discussion, which is
+neither in the issue nor in its timeline, so the snapshot alone cannot decide it.

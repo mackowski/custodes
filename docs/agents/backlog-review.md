@@ -97,7 +97,7 @@ All of these reach the model inside `untrusted()`. The task and today's date are
 ## Evals
 
 - Suite: `evals/agents/backlog-review` (provider `evals/providers/backlog-runtime.mjs`).
-- Golden case 001: 25 issues at T0 2026-11-17; the bar is ≥ 95% state agreement.
+- Golden case 001: 24 issues at T0 2026-11-17 (2987 left out, see the case README); the bar is ≥ 95% state agreement.
 - Eight injection cases.
 - Build the provider first with `evals/build-runtime.sh`.
 

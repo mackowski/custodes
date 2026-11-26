@@ -1,5 +1,5 @@
 {
-  "$comment": "Expected item-review states at T0 (2026-11-17T07:30Z) for the issues backlog-review v1 reviews (#132). Normalised from golden.json: see README, 'Scoring backlog-review v1'. Issues in triage's new-issue stream (3000, 2995, 2991, 2990, 2993) are not here: the selector leaves them to triage (selector unit test).",
+  "$comment": "Expected item-review states at T0 (2026-11-17T07:30Z) for the issues backlog-review v1 reviews (#132). Normalised from golden.json: see README, 'Scoring backlog-review v1'. Issues in triage's new-issue stream (3000, 2995, 2991, 2990, 2993) are not here: the selector leaves them to triage (selector unit test). 2987 is left out: its expected step relied on context outside the issue (the PR 2901 discussion), so the snapshot cannot decide it (operator, 2026-11-26).",
   "states": {
     "2977": "close",
     "2796": "close",
@@ -11,7 +11,6 @@
     "2775": "no_action",
     "2792": "waiting_maintainer",
     "2797": "waiting_author",
-    "2987": "waiting_maintainer",
     "2994": "no_action",
     "2983": "no_action",
     "2980": "no_action",
@@ -27,5 +26,8 @@
     "2789": "no_action",
     "2843": "no_action"
   },
-  "closeEvidence": { "2977": [2979], "2796": [2904, 2953, 2954] }
+  "closeEvidence": {
+    "2977": [2979],
+    "2796": [2904, 2953, 2954]
+  }
 }
