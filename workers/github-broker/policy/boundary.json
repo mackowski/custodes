@@ -154,7 +154,15 @@
     "backlog-review": {
       "tokenBinding": "PAT_READONLY",
       "repos": ["mackowski/custodes-sandbox", "OWASP/CheatSheetSeries"],
-      "resources": ["issues", "issue", "comments", "timeline", "cheatsheet", "cheatsheet_search"]
+      "resources": [
+        "issues",
+        "issue",
+        "comments",
+        "timeline",
+        "pull",
+        "cheatsheet",
+        "cheatsheet_search"
+      ]
     }
   }
 }

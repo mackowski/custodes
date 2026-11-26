@@ -7,7 +7,7 @@ implementation-check. Rules that guard a write are also enforced in code; follow
 
 - `close`: the work the issue asks for is done. Every part of it maps to a pull request of this
   repository that is **merged** (the timeline shows it), or to what the cheat sheet on the default
-  branch says now. Propose `issue.close` with `state_reason: "completed"` and a short thank-you
+  branch says now. Propose `issue.close` with `stateReason: "completed"` and a short thank-you
   comment that names the PR, and give each merged PR as `merged_pr` evidence. A PR title alone is
   not evidence, and an open or closed-unmerged PR is not either. If one part is still open, the
   issue is not `close`.

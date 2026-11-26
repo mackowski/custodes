@@ -49,8 +49,9 @@ The answer:
 - `actions`: the GitHub actions that make the move, at most a few, each about this issue only
   (`issue.comment`, `issue.label.add`, `issue.label.remove`, `issue.assign`, `issue.unassign`,
   `issue.close`). Leave it empty when the move is someone else's.
-- `evidence`: machine-checkable references only: `merged_pr` with the PR number for a close,
-  `last_activity` with the time that makes a ping due. Never prose.
+- `evidence`: machine-checkable references only: for a close, one `merged_pr` per merged pull
+  request with `ref` set to `#` and its number (`"#2934"`); for a ping, `last_activity` with the
+  time that makes it due. Never prose.
 - `reason`: two or three plain sentences for the operator: whose move it is and why.
 - `confidence`: `high` only when the facts in the thread decide it; otherwise `medium` or `low`
   with `uncertainBecause` from its fixed list. Anything below `high` goes to a human.

@@ -39,6 +39,9 @@ interface Calls {
 }
 
 /** A broker that lists `open`, reads issue 7 and refuses everything else; records every call. */
+/** Reads a test adds on top of the defaults (reset before each test). */
+let extraReads: Record<string, unknown> = {};
+
 function fakeBroker(open: unknown[], calls: Calls) {
   return withHaltState({
     fetch: (url: string, init: RequestInit) => {
@@ -53,6 +56,7 @@ function fakeBroker(open: unknown[], calls: Calls) {
         issue,
         comments: [],
         timeline: [],
+        ...extraReads,
       };
       return Object.hasOwn(data, req.resource)
         ? Response.json({ ok: true, data: data[req.resource] })
@@ -131,6 +135,7 @@ const actionRows = async () =>
   (await DB().prepare('SELECT * FROM verdict_actions ORDER BY verdict_id, position').all()).results;
 
 beforeEach(async () => {
+  extraReads = {};
   const sql = await import('../../backlog-review/migrations/0001_verdicts.sql?raw');
   await DB().exec('DROP TABLE IF EXISTS verdict_actions; DROP TABLE IF EXISTS verdicts;');
   for (const stmt of sql.default
@@ -235,6 +240,64 @@ describe('backlog-review (#132 v1)', () => {
     expect(v).toMatchObject({ confidence: 'medium', needs_human: 1 });
     const [a] = await actionRows();
     expect(a).toMatchObject({ route: 'digest', live: 'approval' });
+  });
+
+  it('keeps a close backed by a merged PR that names the issue (pull is readable for evidence)', async () => {
+    extraReads = {
+      timeline: [
+        {
+          event: 'cross-referenced',
+          created_at: '2026-11-01T09:00:00Z',
+          source: {
+            issue: {
+              number: 12,
+              pull_request: {},
+              repository: { full_name: REPO },
+            },
+          },
+        },
+      ],
+      pull: {
+        number: 12,
+        title: 'Add the refresh token note',
+        body: 'Fixes #7',
+        merged_at: '2026-11-02T09:00:00Z',
+      },
+    };
+    const close = {
+      ...verdict,
+      state: 'close',
+      actions: [
+        {
+          type: 'issue.close',
+          repo: REPO,
+          issue: 7,
+          body: 'Done in #12, thanks!',
+          stateReason: 'completed',
+        },
+      ],
+      evidence: [{ type: 'merged_pr', ref: '#12' }],
+    };
+    const script = [
+      toolUse(0, 'delegate', {
+        role: 'item-review',
+        target: { repo: REPO, kind: 'issue', number: 7 },
+      }),
+      toolUse(1, 'issue', { repo: REPO, number: 7 }),
+      answer(2, close),
+      answer(3, { proposals: [] }),
+    ];
+    await inAgent([issue], script, (agent) => agent.review({ kind: 'manual' }, NOW));
+    const [a] = await actionRows();
+    expect(a).toMatchObject({ route: 'digest', live: 'approval' });
+  });
+
+  it('may read what the dispatcher evidence check reads for issue.close (timeline and pull)', () => {
+    // brokerEvidence reads the timeline and each cross-referenced pull request through the broker:
+    // without both in the read policy every close would be dropped as unreadable.
+    expect(POLICY.reads['backlog-review']?.resources).toEqual(
+      expect.arrayContaining(['timeline', 'pull']),
+    );
   });
 
   it('raises to a human below high confidence, on any doubt, or for an unknown state', () => {
