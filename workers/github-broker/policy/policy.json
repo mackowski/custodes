@@ -161,7 +161,7 @@
       "resources": ["issue", "comments"]
     },
     "backlog-review": {
-      "$comment": "#132 v1: `issues` for the code-only selector; `issue` (with `comments`) and `timeline` for item-review; `pull` only for the dispatcher's evidence check of `issue.close` (a merged PR that names the issue; not a tool of the model); `cheatsheet` and `cheatsheet_search` to check whether an issue's ask is already in the cheat sheets (broker search limit SEARCH_LIMIT, 5/min per agent).",
+      "$comment": "#132 v1: `issues` for the code-only selector; `issue` (with `comments`) and `timeline` for item-review; `pull` only for the dispatcher's evidence check of `issue.close` (a merged PR that names the issue; not a tool of the model); `cheatsheet` and `cheatsheet_search` to check whether an issue's ask is already in the cheat sheets (broker search limit SEARCH_LIMIT, 5/min for all agents together).",
       "tokenBinding": "PAT_READONLY",
       "repos": ["mackowski/custodes-sandbox", "OWASP/CheatSheetSeries"],
       "resources": [

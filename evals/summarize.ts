@@ -46,6 +46,7 @@ for (const file of readdirSync(dir).filter((f) => f.endsWith('.json'))) {
       (r) =>
         r.testCase?.metadata?.golden === true &&
         !r.error &&
+        (r.gradingResult?.componentResults ?? []).some((c) => !c.pass) &&
         (r.gradingResult?.componentResults ?? []).every(
           (c) => c.pass || c.assertion?.metric === 'state',
         ),

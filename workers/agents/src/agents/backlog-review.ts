@@ -159,6 +159,12 @@ export class BacklogReviewAgent extends CustodesAgent<AgentsEnv> {
         raiseNeedsHuman: raisesToHuman,
         // Each verdict is written as its child finishes, so a run cut short keeps what it paid for.
         onResult: async (r) => {
+          // A child stopped before its first model call (kill switch, daily budget) or by an
+          // error did no review: no row, so the issue stays due (security review r2 of #168, L1).
+          if (!r.ok && (r.rounds === 0 || r.stop === 'halted' || r.stop === 'error')) {
+            counts.unrecorded++;
+            return;
+          }
           try {
             await store.record(r, {
               issueUpdatedAt: updatedAt.get(r.target.number) ?? '',

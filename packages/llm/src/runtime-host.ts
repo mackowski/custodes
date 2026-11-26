@@ -126,7 +126,9 @@ export interface ChildHook<T extends Proposal> {
   raiseNeedsHuman?(out: T): boolean;
   onResult?(
     r: { rootRunId: string; runId: string; target: ProposalTarget } & (
-      { ok: true; output: T; outcomes: Outcome[] } | { ok: false; stop: string }
+      | { ok: true; output: T; outcomes: Outcome[] }
+      /** `rounds`: model calls the child made; 0 when a guard or a cap stopped it before the first. */
+      | { ok: false; stop: string; rounds: number }
     ),
   ): void | Promise<void>;
 }
@@ -678,7 +680,7 @@ export async function runAgentTree(
                 ? null
                 : 'invalid_output';
             if (stop !== null) {
-              await hook?.onResult?.({ ...ids, ok: false, stop });
+              await hook?.onResult?.({ ...ids, ok: false, stop, rounds: r.rounds });
               return { ok: false, stop: stop };
             }
             const output = (r as { output: Proposal }).output;

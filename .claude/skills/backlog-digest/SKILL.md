@@ -46,8 +46,8 @@ acts by hand and teaches the agent. Threat model: `docs/architecture/threat-mode
    ```
    Keep only the newest verdict per issue.
 3. **Check** every action with `route = 'digest'`. Write one line per action to a scratch file
-   with the Write tool: `{"row": {"repo": ..., "issue": ...}, "action": <action JSON>}`, where `row`
-   is the verdict row's repository and issue. Then run
+   with the Write tool: `{"row": {"repo": ..., "issue": ...}, "route": ..., "action": <action JSON>}`,
+   where `row` is the verdict row's repository and issue and `route` the action's route. Then run
    `scripts/check-digest-action.sh <file>`. It also refuses an action about an item other than its
    row.
    - `ok: false`: the action is refused; show the reason.
@@ -63,16 +63,19 @@ acts by hand and teaches the agent. Threat model: `docs/architecture/threat-mode
    The model's `reason` goes in a quoted block marked as model text. Also list the stopped
    children (`status = 'stopped'`) with their `stop` enum.
 
-5. **Act** on the actions the operator picks, one at a time:
-   - Before running anything, re-read the issue with `gh issue view`. If it changed since
-     `issue_updated_at`, say so and ask again.
-   - `issue.comment`: write the body to a file with the Write tool, then
-     `gh issue comment N -R REPO --body-file <file>`.
-   - `issue.close`: if it has a body, first post it with `gh issue comment N -R REPO --body-file <file>`,
-     then run `gh issue close N -R REPO --reason completed` (or `--reason "not planned"`), with no
-     `--comment`.
-   - Labels: `gh issue edit N -R REPO --add-label X` (or `--remove-label X`).
-   - Assignments: `gh issue edit N -R REPO --add-assignee X` (or `--remove-assignee X`).
+5. **Act** on the actions the operator picks, one at a time. Build each command **only from the
+   checker's output line** for that action (`action` and `bodyFile`), never from D1 text again,
+   so what runs is what was checked:
+   - Before running anything, check the issue did not change, reading only its timestamp:
+     `gh issue view N -R REPO --json updatedAt --jq .updatedAt`. Do not pull its text into the
+     session. If it changed since `issue_updated_at`, say so and ask again.
+   - `issue.comment`: `gh issue comment N -R REPO --body-file <bodyFile>`.
+   - `issue.close`: if it has a `bodyFile`, first `gh issue comment N -R REPO --body-file <bodyFile>`,
+     then `gh issue close N -R REPO --reason completed` (or `--reason "not planned"` for
+     `stateReason: not_planned`), with no `--comment`.
+   - Labels: `gh issue edit N -R REPO --add-label X` (or `--remove-label X`), X from `action.labels`.
+   - Assignments: `gh issue edit N -R REPO --add-assignee X` (or `--remove-assignee X`), X from
+     `action.assignees`.
 6. **Feedback.** For each verdict the operator comments on, append one JSON line to
    `evals/fixtures/backlog-review/feedback/<YYYY-MM-DD>.jsonl`:
    `{ "repo", "issue", "verdictId", "issueUpdatedAt", "agentState", "operatorState", "actionsOk": bool, "note" }`.

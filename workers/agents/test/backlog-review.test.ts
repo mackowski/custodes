@@ -336,7 +336,12 @@ describe('check-digest-action (the /backlog-digest gate, threat model E1)', () =
         issue: 7,
         body: 'Any news, @volunteer? cc @jmanico',
       }),
-    ).toEqual({ ok: true, type: 'issue.comment', mentions: ['volunteer'] });
+    ).toMatchObject({
+      ok: true,
+      type: 'issue.comment',
+      mentions: ['volunteer'],
+      action: { type: 'issue.comment', issue: 7 },
+    });
   });
 
   it('refuses what the broker would refuse', async () => {
@@ -386,7 +391,7 @@ describe('VerdictStore (D1)', () => {
       { issueUpdatedAt: 'old', agentVersion: '0.1.0', now: h(100) },
     );
     await s.record(
-      { ...base, runId: 'b', ok: false, stop: 'budget' },
+      { ...base, runId: 'b', ok: false, stop: 'budget', rounds: 3 },
       { issueUpdatedAt: issue.updated_at, agentVersion: '0.1.0', now: h(1) },
     );
     expect((await s.lastVerdicts(REPO)).get(7)).toEqual({

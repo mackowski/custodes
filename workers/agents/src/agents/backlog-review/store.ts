@@ -12,7 +12,8 @@ const ACTION_CAP = 70_000;
 
 /** One child's result, as the runtime host reports it through its child hook. */
 export type ChildResult = { rootRunId: string; runId: string; target: ProposalTarget } & (
-  { ok: true; output: BacklogVerdict; outcomes: Outcome[] } | { ok: false; stop: string }
+  | { ok: true; output: BacklogVerdict; outcomes: Outcome[] }
+  | { ok: false; stop: string; rounds: number }
 );
 
 /**

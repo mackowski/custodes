@@ -24,6 +24,8 @@ CREATE TABLE verdicts (
 );
 CREATE INDEX verdicts_issue ON verdicts (repo, issue, at);
 CREATE INDEX verdicts_at ON verdicts (at);
+-- One row per child run: the actions of a verdict find it by run_id.
+CREATE UNIQUE INDEX verdicts_run_id ON verdicts (run_id);
 
 CREATE TABLE verdict_actions (
   verdict_id INTEGER NOT NULL REFERENCES verdicts (id) ON DELETE CASCADE,
