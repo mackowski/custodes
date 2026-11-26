@@ -1,0 +1,81 @@
+{
+  "repo": "OWASP/CheatSheetSeries",
+  "number": 2994,
+  "issue": {
+    "number": 2994,
+    "title": "Update: OAuth2 Cheat Sheet - Device Authorization Grant and cross-device flows - RFC 8628 standard",
+    "body": "## What is missing or needs to be updated?\n\nThe OAuth2 cheat sheet doesn't cover the Device Authorization Grant (RFC 8628) or cross-device flows at all, and nothing else in the repo does either. Device code phishing is being used heavily in real attacks right now. The attacker starts a device flow, sends the victim the user code and the real login page, and gets tokens once the victim signs in. Microsoft's write-up on Storm-2372 is a good example (https://www.microsoft.com/en-us/security/blog/2025/02/13/storm-2372-conducts-device-code-phishing-campaign/). RFC 8628 section 5 covers user code brute forcing and remote phishing, and RFC 10027 (BCP 247, https://www.rfc-editor.org/rfc/rfc10027.html) now has best current practice for cross-device flows.\n\n## How should this be resolved?\n\nAdd a short section to the OAuth2 sheet: only allow the device grant for clients that really are input-constrained and block it elsewhere (for example with conditional access), use short-lived, single-use, rate-limited user codes, show the client and device details on the consent screen, limit the scopes these clients can get, and prefer flows that prove the two devices are near each other where possible. I'm happy to open the PR if approved.\n",
+    "state": "open",
+    "user": {
+      "login": "cvas22"
+    },
+    "author_association": "NONE",
+    "labels": [
+      {
+        "name": "ACK_OBTAINED"
+      },
+      {
+        "name": "UPDATE_CS"
+      }
+    ],
+    "assignees": [
+      {
+        "login": "cvas22"
+      }
+    ],
+    "created_at": "2026-11-17T00:06:46Z",
+    "updated_at": "2026-11-17T07:15:03Z",
+    "comments": 1
+  },
+  "comments": [
+    {
+      "user": {
+        "login": "mackowski"
+      },
+      "author_association": "MEMBER",
+      "created_at": "2026-11-17T07:15:01Z",
+      "body": "Thanks @cvas22, this is a useful addition: the OAuth2 cheat sheet does not cover the Device Authorization Grant or cross-device flows yet. Please go ahead and open a pull request with a short section on this. Base the recommendations on RFC 8628 section 5 and the cross-device best current practice, and keep the section concise and consistent with the numbered style of the existing sheet.\n\n<!--\nCustodes-Agent: triage-apply@0.1.0\nCustodes-Attestation: efa8a3e6-55c7-42cb-b285-02401a54eb36\n-->"
+    }
+  ],
+  "timeline": [
+    {
+      "event": "renamed",
+      "created_at": "2026-11-17T05:12:02Z",
+      "actor": {
+        "login": "cvas22"
+      }
+    },
+    {
+      "event": "assigned",
+      "created_at": "2026-11-17T07:14:58Z",
+      "actor": {
+        "login": "mackowski"
+      },
+      "assignee": {
+        "login": "cvas22"
+      }
+    },
+    {
+      "event": "labeled",
+      "created_at": "2026-11-17T07:14:59Z",
+      "actor": {
+        "login": "mackowski"
+      },
+      "label": {
+        "name": "ACK_OBTAINED"
+      }
+    },
+    {
+      "event": "labeled",
+      "created_at": "2026-11-17T07:14:59Z",
+      "actor": {
+        "login": "mackowski"
+      },
+      "label": {
+        "name": "UPDATE_CS"
+      }
+    }
+  ],
+  "pulls": {},
+  "now": "2026-11-17T07:30:00Z"
+}

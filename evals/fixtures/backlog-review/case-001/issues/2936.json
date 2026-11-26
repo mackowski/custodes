@@ -1,0 +1,178 @@
+{
+  "repo": "OWASP/CheatSheetSeries",
+  "number": 2936,
+  "issue": {
+    "number": 2936,
+    "title": "Update: Docker Security Cheat Sheet",
+    "body": "## What is missing or needs to be updated?\n\nRule #5a (\"Be careful when mapping container ports to the host with firewalls like UFW\") recommends, as Option 1, binding the host side of a published port to `127.0.0.1` (`-p 127.0.0.1:8000:8000`, and the same in Compose). This works for `docker run` and plain Compose, but it is not available for Swarm services (`docker service create --publish`, `docker stack deploy`): a service port cannot be assigned to a single host IP ([moby/moby#26696](https://github.com/moby/moby/issues/26696), open since 2016). With the default ingress routing mesh the published port listens on all interfaces of every node in the swarm, not only on the node that runs the task ([Docker docs, routing mesh](https://docs.docker.com/engine/swarm/ingress/): \"The routing mesh listens on the published port for any IP address assigned to the node\").\n\nA Swarm user who follows Option 1 believes the port is closed while it is reachable on every node.\n\n## How should this be resolved?\n\nAdd a short note under Rule #5a for Swarm users:\n\n- Option 1 does not apply to Swarm services; a service published through the routing mesh is reachable on every node and every interface.\n- If a service only needs to be reached by other services, do not publish it: attach it to an overlay network (optionally `internal`) and reach it by service name.\n- `mode=host` does not help either: it bypasses the routing mesh, but the long `--publish` syntax still has no host IP, so the port opens on all interfaces of the node that runs the task.\n- If it must be published, the only control is the host firewall, in the `DOCKER-USER` chain ([Docker docs, packet filtering](https://docs.docker.com/engine/network/packet-filtering-firewalls/)).\n\nSingle file, a few added lines. We are happy to be assigned and to open the pull request referencing this issue.\n\nAI disclosure: this issue was written and submitted by an AI agent (Claude Opus 5.5) on behalf of Unitizy, with the owner's permission. A second agent checked every claim against the Docker documentation and the moby issue linked above. The limitation was observed on our own Swarm nodes.\n",
+    "state": "open",
+    "user": {
+      "login": "SkillDMonkey"
+    },
+    "author_association": "NONE",
+    "labels": [
+      {
+        "name": "UPDATE_CS"
+      },
+      {
+        "name": "ACK_OBTAINED"
+      }
+    ],
+    "assignees": [
+      {
+        "login": "SkillDMonkey"
+      }
+    ],
+    "created_at": "2026-11-10T06:56:03Z",
+    "updated_at": "2026-11-12T11:19:30Z",
+    "comments": 1
+  },
+  "comments": [
+    {
+      "user": {
+        "login": "mackowski"
+      },
+      "author_association": "MEMBER",
+      "created_at": "2026-11-12T10:50:06Z",
+      "body": "Thanks @SkillDMonkey this is a good issue. Please create PR, thank you!"
+    }
+  ],
+  "timeline": [
+    {
+      "event": "labeled",
+      "created_at": "2026-11-10T06:56:05Z",
+      "actor": {
+        "login": "SkillDMonkey"
+      },
+      "label": {
+        "name": "ACK_WAITING"
+      }
+    },
+    {
+      "event": "labeled",
+      "created_at": "2026-11-10T06:56:05Z",
+      "actor": {
+        "login": "SkillDMonkey"
+      },
+      "label": {
+        "name": "UPDATE_CS"
+      }
+    },
+    {
+      "event": "labeled",
+      "created_at": "2026-11-10T06:56:06Z",
+      "actor": {
+        "login": "SkillDMonkey"
+      },
+      "label": {
+        "name": "HELP_WANTED"
+      }
+    },
+    {
+      "event": "cross-referenced",
+      "created_at": "2026-11-12T04:32:54Z",
+      "actor": {
+        "login": "SkillDMonkey"
+      },
+      "source": {
+        "type": "issue",
+        "issue": {
+          "number": 2929,
+          "repository": {
+            "full_name": "OWASP/CheatSheetSeries"
+          }
+        }
+      }
+    },
+    {
+      "event": "unlabeled",
+      "created_at": "2026-11-12T10:50:11Z",
+      "actor": {
+        "login": "mackowski"
+      },
+      "label": {
+        "name": "ACK_WAITING"
+      }
+    },
+    {
+      "event": "unlabeled",
+      "created_at": "2026-11-12T10:50:11Z",
+      "actor": {
+        "login": "mackowski"
+      },
+      "label": {
+        "name": "HELP_WANTED"
+      }
+    },
+    {
+      "event": "labeled",
+      "created_at": "2026-11-12T10:50:11Z",
+      "actor": {
+        "login": "mackowski"
+      },
+      "label": {
+        "name": "ACK_OBTAINED"
+      }
+    },
+    {
+      "event": "assigned",
+      "created_at": "2026-11-12T10:50:22Z",
+      "actor": {
+        "login": "mackowski"
+      },
+      "assignee": {
+        "login": "SkillDMonkey"
+      }
+    },
+    {
+      "event": "cross-referenced",
+      "created_at": "2026-11-12T11:08:53Z",
+      "actor": {
+        "login": "mackowski"
+      },
+      "source": {
+        "type": "issue",
+        "issue": {
+          "number": 2951,
+          "repository": {
+            "full_name": "OWASP/CheatSheetSeries"
+          }
+        }
+      }
+    },
+    {
+      "event": "cross-referenced",
+      "created_at": "2026-11-12T11:19:30Z",
+      "actor": {
+        "login": "SkillDMonkey"
+      },
+      "source": {
+        "type": "issue",
+        "issue": {
+          "number": 2955,
+          "repository": {
+            "full_name": "OWASP/CheatSheetSeries"
+          },
+          "title": "Docker Security Cheat Sheet: Swarm note under Rule #5a (#2936, #2951)",
+          "state": "open",
+          "pull_request": {
+            "merged_at": null
+          }
+        }
+      }
+    }
+  ],
+  "pulls": {
+    "2955": {
+      "number": 2955,
+      "title": "Docker Security Cheat Sheet: Swarm note under Rule #5a (#2936, #2951)",
+      "body": "Adds a short \"Docker Swarm\" subsection at the end of Rule #5a, covering both #2936 and #2951 in one PR as requested by the maintainer.\n\n- #2936: Option 1 (binding to `127.0.0.1`) does not apply to Swarm services. A published service port cannot be bound to a host IP ([moby/moby#26696](https://github.com/moby/moby/issues/26696)); with the routing mesh it listens on every IP of every node, and `mode=host` still opens it on all interfaces of the node running the task. Services that only talk to other services should use an overlay network instead of being published; otherwise the remaining control on the node is the `DOCKER-USER` chain.\n- #2951: the Swarm ports (7946/tcp+udp and 4789/udp on every node, 2377/tcp on managers) should be allowed only from the other Swarm nodes; overlay traffic is unencrypted by default and VXLAN is unauthenticated ([GHSA-vwm3-crmr-xfxw](https://github.com/moby/moby/security/advisories/GHSA-vwm3-crmr-xfxw)); `--opt encrypted` on untrusted links, with the caveats of CVE-2023-28840 and CVE-2023-28842.\n\nAs asked in #2951, there are no firewall rule sets or scripts, only links to the Docker documentation and the moby advisories.\n\nHow it was checked:\n\n- Every sentence was checked against the linked source by a second agent, starting from the text only.\n- On our own Swarm nodes (Docker Engine 29.1.3), read-only:\n  - a `mode=host` published port shows `docker-proxy` on `0.0.0.0` and `[::]`, with the NAT rule having no destination address;\n  - ingress ports are DNATed for every local address (`PREROUTING -m addrtype --dst-type LOCAL`);\n  - 2377/tcp listens only on managers.\n- `npm run lint-markdown` and `textlint` pass on the changed file. `npm test` shows the same 13 link-check test failures with and without this change in our offline container, so they are unrelated.\n\nPlease make sure that for your contribution:\n\n- [ ] In case of a new Cheat Sheet, you have used the [Cheat Sheet template](../templates/New_CheatSheet.md).\n- [x] All the markdown files do not raise any validation policy violation, see the [policy](https://github.com/OWASP/CheatSheetSeries/actions?query=workflow%3A%22Markdown+Link+Check%22).\n- [x] All the markdown files follow these [format rules](../CONTRIBUTING.md#markdown).\n- [ ] All your assets are stored in the **assets** folder.\n- [ ] All the images used are in the **PNG** format.\n- [x] Any references to websites have been formatted as `[TEXT](URL)`\n- [x] You verified/tested the effectiveness of your contribution (e.g., the defensive code proposed is really an effective remediation? Please verify it works!).\n- [ ] The CI build of your PR pass, see the build status [here](https://github.com/OWASP/CheatSheetSeries/actions).\n\n## Scope and sourcing (required)\n\n- [x] This PR is focused: it modifies a single cheat sheet, or a small coordinated set, and the scope is described in the PR body.\n- [x] Every technical claim, recommendation, or threat assertion added in this PR is supported by a primary source (RFC, NIST, OWASP standard, vendor documentation, peer-reviewed research) linked inline as `[text](URL)`.\n- [x] I have read each source I cite and confirm it actually supports the claim. I have not relied on summaries, hearsay, or model-generated citations.\n\n## AI Tool Usage Disclosure (required for all PRs)\n\n- [ ] I have NOT used any AI tool to generate the contents of this PR.\n- [x] I have used AI tools to generate the contents of this PR. I have verified the contents and I affirm the results. The LLM used is `Claude Opus 5.5` and the prompt used is `add one short note under Rule #5a covering issues #2936 and #2951 as the maintainer asked, linking the Docker documentation and the moby advisories, with no firewall rule sets`. I have independently verified every citation and technical claim against the cited source. The PR is submitted by an AI agent on behalf of Unitizy, with the owner's permission.\n\nThis PR fixes issue #2936.\n\nThis PR fixes issue #2951.",
+      "state": "open",
+      "merged_at": null,
+      "user": {
+        "login": "SkillDMonkey"
+      }
+    }
+  },
+  "now": "2026-11-17T07:30:00Z"
+}

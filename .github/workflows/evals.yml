@@ -42,6 +42,12 @@ on:
       - 'packages/llm/src/clef.ts'
       - 'packages/llm/src/models.ts'
       - 'packages/llm/src/untrusted.ts'
+      # backlog-review (#132): its agent.md and context, the runtime and the dispatcher.
+      - 'workers/agents/src/agents/backlog-review/**'
+      - 'workers/agents/scripts/eval-backlog-runtime.ts'
+      - 'packages/llm/src/runtime.ts'
+      - 'packages/llm/src/runtime-host.ts'
+      - 'packages/core/src/runtime/dispatcher.ts'
 permissions: read-all
 jobs:
   promptfoo:
@@ -107,6 +113,8 @@ jobs:
           CF_WORKERS_AI_EVAL_TOKEN: ${{ secrets.CF_WORKERS_AI_EVAL_TOKEN }}
           SUITES: ${{ steps.suites.outputs.list }}
         run: |
+          # backlog-review's provider runs the agent runtime itself: bundle it first (#132).
+          case " $SUITES " in *" backlog-review "*) ./build-runtime.sh ;; esac
           # One config per agent that calls a model: evals/agents/<agent>/promptfooconfig.yaml
           for name in $SUITES; do
             pnpm dlx promptfoo@0.123.1 eval -c "agents/$name/promptfooconfig.yaml" --no-cache -o "output/$name.json" || true

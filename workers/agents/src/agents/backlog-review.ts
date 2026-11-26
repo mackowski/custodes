@@ -16,7 +16,10 @@ import { BACKLOG_REVIEW_MANIFEST } from '../manifests.js';
 import type { AgentsEnv } from '../env.js';
 import { instanceOf, noSuchAction, UnknownInstanceError, unknownInstance } from '../instances.js';
 import { backlogAgents, POLICY } from './backlog-review/bundle.js';
+import { raisesToHuman } from './backlog-review/raise.js';
 import { selectIssues } from './backlog-review/selector.js';
+
+export { raisesToHuman };
 import { VerdictStore, type ChildResult } from './backlog-review/store.js';
 import { BrokerGitHubReader, type PublicIssue } from './triage/github.js';
 
@@ -30,14 +33,6 @@ export const SHADOW = true;
 
 /** Pages of 100 open issues and PRs listed per run; OWASP has about 40 open items in all. */
 const MAX_LIST_PAGES = 5;
-
-/**
- * Code raises a verdict to a human (#132 update 2): anything short of high confidence, any reason
- * for doubt, or a state no rule covers. The model can raise too; nothing here lowers.
- */
-export function raisesToHuman(v: BacklogVerdict): boolean {
-  return v.confidence !== 'high' || v.uncertainBecause.length > 0 || v.state === 'unknown';
-}
 
 export interface BacklogRunResult {
   ok: boolean;
@@ -175,7 +170,7 @@ export class BacklogReviewAgent extends CustodesAgent<AgentsEnv> {
         },
       };
       // The task is code-built: issue numbers of this repository only, no text from GitHub.
-      const task = `Review these open issues of ${repo}: ${due.map((n) => `#${String(n)}`).join(', ')}.`;
+      const task = `Today is ${now.toISOString().slice(0, 10)}. Review these open issues of ${repo}: ${due.map((n) => `#${String(n)}`).join(', ')}.`;
       const result = await runAgentTree(port, root, roles, task, {
         shadow: SHADOW,
         child: hook,

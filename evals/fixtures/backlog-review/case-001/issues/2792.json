@@ -1,0 +1,371 @@
+{
+  "repo": "OWASP/CheatSheetSeries",
+  "number": 2792,
+  "issue": {
+    "number": 2792,
+    "title": "Update: XSS_Filter_Evasion_Cheat_Sheet",
+    "body": "## What is missing or needs to be updated?\n\nThe XSS Filter Evasion Cheat Sheet is 1,143 lines. Many of its vectors depend on legacy engines. The sheet refers to IE 16 times (VBScript, HTC files, XML data islands, CSS expressions), and it also has Gecko-only tricks like `-moz-binding` and META `Set-Cookie`, which modern browsers ignore.\n\nSome entries are not XSS filter evasion at all: SSI and PHP are server-side execution, and \"IMG Embedded Commands\" is really CSRF. The BODY event-handler list is about 135 lines and mixes standard events with IE-only ones like `onBounce`.\n\n## How should this be resolved?\n\n- Separate legacy-engine vectors from tests that matter for modern browsers. Edge IE mode still runs Trident for some intranet apps, so IE-only vectors can move into one short legacy section rather than disappear entirely.\n- Remove vectors that only worked in engines nobody tests anymore.\n- Trim the BODY event-handler list to standard events.\n- Drop the entries that aren't XSS filter evasion (SSI, PHP, IMG Embedded Commands).\n- Fix the alert-obfuscation examples that use curly quotes.\n- Each removal or legacy move should say which browser or engine the vector depended on, so reviewers can check it.\n\nSmall PRs, one section at a time, please. They are much easier to review than one big rewrite :)\n",
+    "state": "open",
+    "user": {
+      "login": "jmanico"
+    },
+    "author_association": "MEMBER",
+    "labels": [
+      {
+        "name": "ACK_OBTAINED"
+      },
+      {
+        "name": "UPDATE_CS"
+      },
+      {
+        "name": "HELP_WANTED"
+      }
+    ],
+    "assignees": [
+      {
+        "login": "29rdx"
+      }
+    ],
+    "created_at": "2026-10-16T08:59:26Z",
+    "updated_at": "2026-11-12T08:03:57Z",
+    "comments": 15
+  },
+  "comments": [
+    {
+      "user": {
+        "login": "kwwall"
+      },
+      "author_association": "NONE",
+      "created_at": "2026-10-16T20:23:25Z",
+      "body": "I always figured one of the main uses of this Cheat Sheet was WAF evasion\r\nnot (just) XSS filter evasion, in which case many of these other attacks\r\n(e.g., CSRF) would still be in scope.\r\n--\r\nBlog: https://off-the-wall-security.blogspot.com/    | GitHub: @kwwall\r\n<https://github.com/kwwall>| OWASP ESAPI Project\r\n<https://owasp.org/www-project-enterprise-security-api/>co-lead | OWASP and\r\nACM lifetime member\r\nNSA: All your crypto bit are belong to us.\r\n\r\nOn Fri, Oct 16, 2026, 4:59\u202fAM Jim Manico ***@***.***> wrote:\r\n\r\n> *jmanico* created an issue (OWASP/CheatSheetSeries#2792)\r\n> <https://github.com/OWASP/CheatSheetSeries/issues/2792>\r\n> What is missing or needs to be updated?\r\n>\r\n> The XSS Filter Evasion Cheat Sheet is 1,143 lines. Many of its vectors\r\n> depend on legacy engines. The sheet refers to IE 16 times (VBScript, HTC\r\n> files, XML data islands, CSS expressions), and it also has Gecko-only\r\n> tricks like -moz-binding and META Set-Cookie, which modern browsers\r\n> ignore.\r\n>\r\n> Some entries are not XSS filter evasion at all: SSI and PHP are\r\n> server-side execution, and \"IMG Embedded Commands\" is really CSRF. The BODY\r\n> event-handler list is about 135 lines and mixes standard events with\r\n> IE-only ones like onBounce.\r\n> How should this be resolved?\r\n>\r\n>    - Separate legacy-engine vectors from tests that matter for modern\r\n>    browsers. Edge IE mode still runs Trident for some intranet apps, so\r\n>    IE-only vectors can move into one short legacy section rather than\r\n>    disappear entirely.\r\n>    - Remove vectors that only worked in engines nobody tests anymore.\r\n>    - Trim the BODY event-handler list to standard events.\r\n>    - Drop the entries that aren't XSS filter evasion (SSI, PHP, IMG\r\n>    Embedded Commands).\r\n>    - Fix the alert-obfuscation examples that use curly quotes.\r\n>    - Each removal or legacy move should say which browser or engine the\r\n>    vector depended on, so reviewers can check it.\r\n>\r\n> Small PRs, one section at a time, please. They are much easier to review\r\n> than one big rewrite :)\r\n>\r\n> \u2014\r\n> Reply to this email directly, view it on GitHub\r\n> <https://github.com/OWASP/CheatSheetSeries/issues/2792?email_source=notifications&email_token=AAO6PG3SMBMFFLIGKXUTFAT5UHPQ7A5CNFSL4Z3JMQ5C6L3HNF2C22DVMIXUS43TOVSS6NJYHAYTGMZRG4ZDTJTSMVQXG33OVJZXKYTTMNZGSYTFMSSWK5TFNZ2KYZTPN52GK4S7MNWGSY3L>,\r\n> or unsubscribe\r\n> <https://github.com/notifications/unsubscribe-auth/AAO6PG4G4RJ6BUFOCHWBGSL5UHPQ7AVCNFSNUABFKJSXA33TNF2G64TZHMYTMMRXGIZTCMBUHNEXG43VMU5TKOBYGEZTGMJXGI42C5QC>\r\n> .\r\n> Triage notifications, keep track of coding agent tasks and review pull\r\n> requests on the go with GitHub Mobile for iOS\r\n> <https://github.com/notifications/mobile/ios/AAO6PG3ONGYDECKPEZOST235UHPQ7A5CNFSL4Z3JMQ5C6L3HNF2C22DVMIXUS43TOVSS6NJYHAYTGMZRG4ZDTJTSMVQXG33OVJZXKYTTMNZGSYTFMSSWK5TFNZ2KUZTPN52GK4S7NFXXG>\r\n> and Android\r\n> <https://github.com/notifications/mobile/android/AAO6PG7LLYTUSFNH7LCJVYT5UHPQ7A5CNFSL4Z3JMQ5C6L3HNF2C22DVMIXUS43TOVSS6NJYHAYTGMZRG4ZDTJTSMVQXG33OVJZXKYTTMNZGSYTFMSSWK5TFNZ2K4ZTPN52GK4S7MFXGI4TPNFSA>.\r\n> Download it today!\r\n> You are receiving this because you are subscribed to this thread.Message\r\n> ID: ***@***.***>\r\n>\r\n"
+    },
+    {
+      "user": {
+        "login": "mackowski"
+      },
+      "author_association": "MEMBER",
+      "created_at": "2026-10-19T08:25:17Z",
+      "body": "@jmanico what do you think about @kwwall comment? Maybe we should rename the cheatsheet? "
+    },
+    {
+      "user": {
+        "login": "jmanico"
+      },
+      "author_association": "MEMBER",
+      "created_at": "2026-10-19T09:03:28Z",
+      "body": "With respect, I'd like to keep this cheat sheet the same. It's really important OG one, but we can move the WAF evasion and non xss rules to a different cheatsheet....\n\nYou ok with that?"
+    },
+    {
+      "user": {
+        "login": "mackowski"
+      },
+      "author_association": "MEMBER",
+      "created_at": "2026-10-19T09:05:08Z",
+      "body": "Sounds good for me. @kwwall and @randomstuff do you have opinions? "
+    },
+    {
+      "user": {
+        "login": "kwwall"
+      },
+      "author_association": "NONE",
+      "created_at": "2026-10-19T13:38:54Z",
+      "body": "That works for me.\r\n\r\n--\r\nBlog: https://off-the-wall-security.blogspot.com/    | GitHub: @kwwall\r\n<https://github.com/kwwall>| OWASP ESAPI Project\r\n<https://owasp.org/www-project-enterprise-security-api/>co-lead | OWASP and\r\nACM lifetime member\r\nNSA: All your crypto bit are belong to us.\r\n\r\nOn Mon, Oct 19, 2026, 5:05\u202fAM mackowski ***@***.***> wrote:\r\n\r\n> *mackowski* left a comment (OWASP/CheatSheetSeries#2792)\r\n> <https://github.com/OWASP/CheatSheetSeries/issues/2792#issuecomment-6263630790>\r\n>\r\n> Sounds good for me. @kwwall <https://github.com/kwwall> and @randomstuff\r\n> <https://github.com/randomstuff> do you have opinions?\r\n>\r\n> \u2014\r\n> Reply to this email directly, view it on GitHub\r\n> <https://github.com/OWASP/CheatSheetSeries/issues/2792?email_source=notifications&email_token=AAO6PG7O6JINM5VDQBB7WI35UXKN5A5CNFSNUABFM5UWIORPF5TWS5BNNB2WEL2JONZXKZKDN5WW2ZLOOQXTMMRWGM3DGMBXHEYKM4TFMFZW63VHNVSW45DJN5XKKZLWMVXHJLDGN5XXIZLSL5RWY2LDNM#issuecomment-6263630790>,\r\n> or unsubscribe\r\n> <https://github.com/notifications/unsubscribe-auth/AAO6PG4WOJVKJA2UDZHXQRL5UXKN5AVCNFSNUABFKJSXA33TNF2G64TZHMYTMMRXGIZTCMBUHNEXG43VMU5TKOBYGEZTGMJXGI42C5QC>\r\n> .\r\n> Triage notifications, keep track of coding agent tasks and review pull\r\n> requests on the go with GitHub Mobile for iOS\r\n> <https://github.com/notifications/mobile/ios/AAO6PGZF6EGOC7NVO57XJUD5UXKN5A5CNFSNUABFM5UWIORPF5TWS5BNNB2WEL2JONZXKZKDN5WW2ZLOOQXTMMRWGM3DGMBXHEYKM4TFMFZW63VHNVSW45DJN5XKKZLWMVXHJKTGN5XXIZLSL5UW64Y>\r\n> and Android\r\n> <https://github.com/notifications/mobile/android/AAO6PGZOCCEPSTO274ZIKA35UXKN5A5CNFSNUABFM5UWIORPF5TWS5BNNB2WEL2JONZXKZKDN5WW2ZLOOQXTMMRWGM3DGMBXHEYKM4TFMFZW63VHNVSW45DJN5XKKZLWMVXHJLTGN5XXIZLSL5QW4ZDSN5UWI>.\r\n> Download it today!\r\n> You are receiving this because you were mentioned.Message ID:\r\n> ***@***.***>\r\n>\r\n"
+    },
+    {
+      "user": {
+        "login": "randomstuff"
+      },
+      "author_association": "MEMBER",
+      "created_at": "2026-10-19T16:34:27Z",
+      "body": "I'm not sure about what the scope of this one should be. I think it is not super easy to parse in its current form though. Maybe it would be useful to clarify here what the intended usage/audience is and then decide based on that?"
+    },
+    {
+      "user": {
+        "login": "randomstuff"
+      },
+      "author_association": "MEMBER",
+      "created_at": "2026-10-19T16:34:31Z",
+      "body": "It might be useful to add a reference to https://portswigger.net/web-security/cross-site-scripting/cheat-sheet"
+    },
+    {
+      "user": {
+        "login": "29rdx"
+      },
+      "author_association": "NONE",
+      "created_at": "2026-11-03T11:57:47Z",
+      "body": "Hi @mackowski @jmanico, I would love to contribute the self-contained curly-quote normalization fix for testing consoles on `cheatsheets/XSS_Filter_Evasion_Cheat_Sheet.md`. May I please be assigned to this task? Thank you!"
+    },
+    {
+      "user": {
+        "login": "mackowski"
+      },
+      "author_association": "MEMBER",
+      "created_at": "2026-11-03T12:07:45Z",
+      "body": "Thanks @29rdx, assigned! Please note that #2861 already fixed the Filter Bypass Alert Obfuscation examples. What's left is the payload in \"WAF ByPass Strings for XSS\" (`\"></SCRIPT>\u201d>\u2019><SCRIPT>\u2026`, line 1085) and the apostrophe in \"wouldn\u2019t\" in the Stored XSS section (line 1017). Please keep the PR to just those two lines and reference #2792."
+    },
+    {
+      "user": {
+        "login": "aymanbouanouj"
+      },
+      "author_association": "NONE",
+      "created_at": "2026-11-04T14:23:00Z",
+      "body": "Hi @mackowski,\n\nThank you for reviewing my previous contribution and clarifying the direction.\n\nI understand now that the goal is to create a broader cheat sheet covering WAF-evasion and other non-XSS content, including the IMG, SSI, and PHP-related examples, rather than a separate guide focused only on the IMG examples.\n\nI'd be happy to help with this migration.\n\nBefore starting another PR, could we clarify the intended scope, title, and which sections should be moved? Once we agree on the scope, I'd appreciate being assigned a specific part of the work.\n\nI'll make sure not to overlap with @29rdx's curly-quote cleanup. The technical corrections from #2877 may also be useful for the broader guide.\n\nThanks again for your guidance!"
+    },
+    {
+      "user": {
+        "login": "mackowski"
+      },
+      "author_association": "MEMBER",
+      "created_at": "2026-11-06T10:16:59Z",
+      "body": "@jmanico you had idea to \"move the WAF evasion and non xss rules to a different cheatsheet\", what would be scope and name for this new cheatsheet? "
+    },
+    {
+      "user": {
+        "login": "bhushan4work"
+      },
+      "author_association": "NONE",
+      "created_at": "2026-11-06T10:36:33Z",
+      "body": "dear maintainers , as this issue is still labelled as help wanted if any part of this issue is still available for work , I'd like to pick it and write a fix . thanks "
+    },
+    {
+      "user": {
+        "login": "29rdx"
+      },
+      "author_association": "NONE",
+      "created_at": "2026-11-08T15:36:52Z",
+      "body": "Hi @mackowski, as requested, I have submitted the scoped PR #2918 containing strictly those two line fixes (normalizing the curly quotes in the WAF bypass payload and the apostrophe in the Stored XSS section). Thank you!"
+    },
+    {
+      "user": {
+        "login": "mackowski"
+      },
+      "author_association": "MEMBER",
+      "created_at": "2026-11-09T08:16:43Z",
+      "body": "Thank you for the scoped fix in #2918; it has been merged, and together with #2861 the curly-quote part of this issue is done. The other items are still open: grouping legacy-engine vectors into a short legacy section, trimming the BODY event-handler list to standard events, and moving the non-XSS entries once the scope of the separate cheat sheet is agreed (@jmanico). The issue stays open for that work."
+    },
+    {
+      "user": {
+        "login": "mackowski"
+      },
+      "author_association": "MEMBER",
+      "created_at": "2026-11-12T08:03:55Z",
+      "body": "@jmanico what is left here to be done? How to you want to name a new cheatsheet? "
+    }
+  ],
+  "timeline": [
+    {
+      "event": "labeled",
+      "created_at": "2026-10-16T08:59:27Z",
+      "actor": {
+        "login": "jmanico"
+      },
+      "label": {
+        "name": "ACK_OBTAINED"
+      }
+    },
+    {
+      "event": "labeled",
+      "created_at": "2026-10-16T08:59:27Z",
+      "actor": {
+        "login": "jmanico"
+      },
+      "label": {
+        "name": "UPDATE_CS"
+      }
+    },
+    {
+      "event": "labeled",
+      "created_at": "2026-10-16T08:59:28Z",
+      "actor": {
+        "login": "jmanico"
+      },
+      "label": {
+        "name": "HELP_WANTED"
+      }
+    },
+    {
+      "event": "cross-referenced",
+      "created_at": "2026-10-24T18:59:28Z",
+      "actor": {
+        "login": "ydnmu"
+      },
+      "source": {
+        "type": "issue",
+        "issue": {
+          "number": 2861,
+          "repository": {
+            "full_name": "OWASP/CheatSheetSeries"
+          },
+          "title": "Fix XSS alert-obfuscation quotation marks (#2792)",
+          "state": "closed",
+          "pull_request": {
+            "merged_at": "2026-10-24T19:16:22Z"
+          }
+        }
+      }
+    },
+    {
+      "event": "cross-referenced",
+      "created_at": "2026-10-27T12:19:10Z",
+      "actor": {
+        "login": "aymanbouanouj"
+      },
+      "source": {
+        "type": "issue",
+        "issue": {
+          "number": 2877,
+          "repository": {
+            "full_name": "OWASP/CheatSheetSeries"
+          },
+          "title": "docs: propose migration of IMG CSRF examples out of XSS guide",
+          "state": "closed",
+          "pull_request": {
+            "merged_at": null
+          }
+        }
+      }
+    },
+    {
+      "event": "cross-referenced",
+      "created_at": "2026-10-31T19:30:55Z",
+      "actor": {
+        "login": "orkirson"
+      },
+      "source": {
+        "type": "issue",
+        "issue": {
+          "number": 2886,
+          "repository": {
+            "full_name": "OWASP/CheatSheetSeries"
+          },
+          "title": "docs: add PortSwigger XSS testing reference",
+          "state": "closed",
+          "pull_request": {
+            "merged_at": "2026-11-01T12:34:51Z"
+          }
+        }
+      }
+    },
+    {
+      "event": "cross-referenced",
+      "created_at": "2026-10-31T20:53:22Z",
+      "actor": {
+        "login": "aymanbouanouj"
+      },
+      "source": {
+        "type": "issue",
+        "issue": {
+          "number": 2887,
+          "repository": {
+            "full_name": "OWASP/CheatSheetSeries"
+          }
+        }
+      }
+    },
+    {
+      "event": "cross-referenced",
+      "created_at": "2026-11-02T04:17:49Z",
+      "actor": {
+        "login": "29rdx"
+      },
+      "source": {
+        "type": "issue",
+        "issue": {
+          "number": 2892,
+          "repository": {
+            "full_name": "OWASP/CheatSheetSeries"
+          },
+          "title": "docs(xss): drop server-side execution sections and fix alert quotes (#2792)",
+          "state": "closed",
+          "pull_request": {
+            "merged_at": null
+          }
+        }
+      }
+    },
+    {
+      "event": "assigned",
+      "created_at": "2026-11-03T12:07:37Z",
+      "actor": {
+        "login": "mackowski"
+      },
+      "assignee": {
+        "login": "29rdx"
+      }
+    },
+    {
+      "event": "cross-referenced",
+      "created_at": "2026-11-08T15:36:11Z",
+      "actor": {
+        "login": "29rdx"
+      },
+      "source": {
+        "type": "issue",
+        "issue": {
+          "number": 2918,
+          "repository": {
+            "full_name": "OWASP/CheatSheetSeries"
+          },
+          "title": "docs(xss): normalize quotes and apostrophe in WAF bypass strings (#2792)",
+          "state": "closed",
+          "pull_request": {
+            "merged_at": "2026-11-08T21:22:41Z"
+          }
+        }
+      }
+    }
+  ],
+  "pulls": {
+    "2861": {
+      "number": 2861,
+      "title": "Fix XSS alert-obfuscation quotation marks (#2792)",
+      "body": "Replace curly quotation marks with ASCII string delimiters in three Filter Bypass Alert Obfuscation examples. Preserve escape sequences, payload semantics, formatting, and surrounding content.\n\nValidated with compile-only non-strict classic-script syntax checks, Markdown and terminology lint, the link check, and `git diff --check`.\n\n## Scope and sourcing (required)\n\n- One cheat sheet; exactly three existing lines changed.\n- No technical claims or citations added.\n\n## AI Tool Usage Disclosure (required for all PRs)\n\n- AI used: Codex (GPT-6; exact version unavailable). Changes verified.\\\n  Prompt summary: correct only these three quotation-mark examples, preserve escapes and formatting, validate without executing payloads, run relevant checks, and prepare an uncommitted diff and PR text.\n\nRelated to #2792; addresses only the quotation-mark corrections.",
+      "state": "closed",
+      "merged_at": "2026-10-24T19:16:22Z",
+      "user": {
+        "login": "ydnmu"
+      }
+    },
+    "2877": {
+      "number": 2877,
+      "title": "docs: propose migration of IMG CSRF examples out of XSS guide",
+      "body": "## Summary\r\n\r\nThis PR migrates the two historical `IMG Embedded Commands` examples out of the XSS Filter Evasion Cheat Sheet into a proposed **Browser-Initiated Request Abuse Cheat Sheet**, addressing the maintainer's feedback on #2792.\r\n\r\nThe new document preserves both request patterns while correcting outdated technical claims and explaining the relevant browser and session limitations.\r\n\r\n## Changes\r\n\r\n- Removed the two non-XSS sections from `cheatsheets/XSS_Filter_Evasion_Cheat_Sheet.md`.\r\n- Added `cheatsheets/Browser_Initiated_Request_Abuse_Cheat_Sheet.md`, documenting direct image requests and image requests followed by HTTP redirects.\r\n- Updated `Index.md` to include the new guide.\r\n- Preserved the historical attribution to Timo.\r\n\r\n## Technical Accuracy\r\n\r\n- Clarified that `302 Found` supports redirection, whereas `304 Not Modified` is related to cache validation.\r\n- Explained the role of session credentials, SameSite cookies, authorization, and CSRF protection.\r\n- Used illustrative `.test` URLs rather than operational targets.\r\n- Avoided classifying these patterns as XSS execution or proven WAF bypass.\r\n\r\n## Validation\r\n\r\n- [x] Reviewed the three-file diff.\r\n- [x] Verified the migration of both examples.\r\n- [x] Performed basic Markdown structure and citation checks.\r\n- [ ] Awaiting GitHub Actions approval and successful CI execution.\r\n- [ ] Awaiting maintainer approval of the new cheat sheet's title and scope.\r\n\r\n## References\r\n\r\n- [OWASP CSRF Prevention Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html)\r\n- [RFC 9110 \u2014 HTTP Semantics](https://www.rfc-editor.org/rfc/rfc9110.html)\r\n- [MDN \u2014 Set-Cookie](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Set-Cookie)\r\n\r\n## AI Tool Usage Disclosure\r\n\r\n- [ ] I have NOT used AI tools to generate the contents of this PR.\r\n- [x] I have used AI tools to prepare and review this contribution.\r\n\r\n**Tool:** ChatGPT (GPT-6).\r\n\r\n**Usage:** AI-assisted research, technical analysis, drafting of the new cheat sheet, and review. The contribution remains subject to maintainer verification.\r\n\r\n**Prompt summary:** Review issue #2792, PR #2877, the existing documentation and contribution guidelines; migrate the two examples into a correctly scoped security guide; verify primary HTTP/CSRF references; and update the documentation index.\r\n\r\nThe contribution was reviewed for accuracy, scope, and consistency with the cited sources. No Codex was used.\r\n\r\n## Scope and Approval\r\n\r\nThis contribution addresses the migration requested in #2792 while leaving the remaining cleanup tasks outside the scope of this PR.\r\n\r\nThe proposed new cheat sheet's title, scope, and destination remain subject to maintainer approval under the project's contribution guidelines.\r\n\r\n**New cheat sheet proposal:** #2887\r\n\r\nThe original issue should remain open for the remaining cleanup tasks.",
+      "state": "closed",
+      "merged_at": null,
+      "user": {
+        "login": "aymanbounaouj"
+      }
+    },
+    "2886": {
+      "number": 2886,
+      "title": "docs: add PortSwigger XSS testing reference",
+      "body": "# You're A Rockstar\r\n\r\nThank you for submitting a Pull Request (PR) to the Cheat Sheet Series.\r\n\r\n## Summary\r\n\r\nThis PR adds a reference to PortSwigger's Cross-Site Scripting (XSS) Cheat Sheet in `XSS_Filter_Evasion_Cheat_Sheet.md`.\r\n\r\nThe reference provides an additional resource for XSS testing vectors and filter-evasion techniques.\r\n\r\nThe change is limited to one Markdown link in the References section. No existing content or examples were modified.\r\n\r\n## Verification\r\n\r\n- Confirmed that only one file was modified and one line was added.\r\n- Confirmed that the link points to PortSwigger's XSS Cheat Sheet.\r\n- No application code was changed.\r\n\r\n## Contribution Checklist\r\n\r\n- [ ] In case of a new Cheat Sheet, you have used the Cheat Sheet template. (Not applicable)\r\n- [ ] All the markdown files do not raise any validation policy violation. (Pending CI checks)\r\n- [x] All the markdown files follow the project's Markdown formatting rules.\r\n- [ ] All your assets are stored in the assets folder. (Not applicable)\r\n- [ ] All the images used are in PNG format. (Not applicable)\r\n- [x] Any references to websites have been formatted as `[TEXT](URL)`.\r\n- [x] You verified/tested the effectiveness of your contribution. (Complete personal verification before submission)\r\n- [ ] The CI build of your PR passes. (Pending CI checks)\r\n\r\n## Scope and sourcing (required)\r\n\r\n- [x] This PR is focused: it modifies a single cheat sheet, and the scope is described above.\r\n- [x] The added reference points to a relevant technical resource from PortSwigger.\r\n- [x] I have read the source I cite and confirm it supports the description.\r\n\r\n## AI Tool Usage Disclosure (required for all PRs)\r\n\r\n- [ ] I have NOT used any AI tool to generate the contents of this PR.\r\n- [x] I have used AI tools to generate the contents of this PR. I have verified the contents and I affirm the results.\r\n\r\nThe LLM used is ChatGPT (GPT-6).\r\n\r\nThe prompts included:\r\n- explain step by step.\r\n- check yourself 5 times.\r\n\r\nAI assistance was used to identify the documentation improvement, review contribution requirements, and prepare the Markdown change and PR description.\r\n\r\nI independently verified the PortSwigger reference and its relevance to XSS testing.\r\n\r\nRelated to #2792. This PR adds a reference only and does not resolve the entire issue.",
+      "state": "closed",
+      "merged_at": "2026-11-01T12:34:51Z",
+      "user": {
+        "login": "orkirson"
+      }
+    },
+    "2892": {
+      "number": 2892,
+      "title": "docs(xss): drop server-side execution sections and fix alert quotes (#2792)",
+      "body": "## Summary\n\nThis focused PR addresses part of the cleanup requested in #2792 by @jmanico on the XSS Filter Evasion Cheat Sheet:\n\n1. **Drop non-XSS server-side execution sections:** Removed the `SSI (Server Side Includes)` and `PHP` sections. As noted in the tracking issue, SSI (`<!--#exec cmd=...``) and PHP (`<? echo(...)``) represent server-side command/script execution rather than client-side XSS filter evasion.\n2. **Normalize curly quotes:** Replaced right double quotation mark (`\u201d`) and right single quotation mark (`\u2019`) with standard ASCII quotes (`\"` and `'`) in the `Filter Bypass Alert Obfuscation` payload line and fixed curly apostrophe (`\u2019`) in the Stored XSS section to prevent copy-paste execution failures in testing consoles.\n\n## Scope and sourcing\n\n- [x] This PR is focused: it modifies a single cheat sheet (`cheatsheets/XSS_Filter_Evasion_Cheat_Sheet.md`).\n- [x] Tested locally with `markdownlint` with zero lint errors.\n- [x] Does not add new unverified claims.\n\nThis PR addresses #2792.\n\n## AI Tool Usage Disclosure\n\n- [x] I have NOT used any AI tool to generate the contents of this PR.\n",
+      "state": "closed",
+      "merged_at": null,
+      "user": {
+        "login": "29rdx"
+      }
+    },
+    "2918": {
+      "number": 2918,
+      "title": "docs(xss): normalize quotes and apostrophe in WAF bypass strings (#2792)",
+      "body": "## Summary\n\nFollowing maintainer @mackowski's guidance on #2792:\n- Replaced curly right double quote (`\u201d`) and right single quote (`\u2019`) in the WAF bypass payload (line 1085) with standard ASCII quotes (`\"` and `'`) to prevent syntax/execution failures when testing in consoles.\n- Normalized the curly apostrophe in \"wouldn\u2019t\" to ASCII single quote (`wouldn't`) in the Stored XSS section (line 1017).\n\nAs requested by the maintainer, this PR is strictly scoped to only these two lines.\n\n## Scope and sourcing\n\n- [x] This PR is focused: it modifies a single cheat sheet, or a small coordinated set, and the scope is described in the PR body.\n- [x] Every technical claim, recommendation, or threat assertion added in this PR is supported by a primary source (RFC, NIST, OWASP standard, vendor documentation, peer-reviewed research) linked inline as `[text](URL)`.\n- [x] I have read each source I cite and confirm it actually supports the claim. I have not relied on summaries, hearsay, or model-generated citations.\n\nThis PR fixes issue #2792.\n\n## AI Tool Usage Disclosure\n\n- [x] I have NOT used any AI tool to generate the contents of this PR.\n",
+      "state": "closed",
+      "merged_at": "2026-11-08T21:22:41Z",
+      "user": {
+        "login": "29rdx"
+      }
+    }
+  },
+  "now": "2026-11-17T07:30:00Z"
+}

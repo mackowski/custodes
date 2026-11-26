@@ -1,0 +1,234 @@
+{
+  "repo": "OWASP/CheatSheetSeries",
+  "number": 2856,
+  "issue": {
+    "number": 2856,
+    "title": "New CS proposal: (Systemd) Service hardening",
+    "body": "## What is the proposed Cheat Sheet about?\n\nAdd guidance about service hardening.\n\nTo be define what the scope of this Cheat Sheet should be (and what should be somewhere else):\n\n* service hardening in general?\n* system hardening with systemd only?\n* AppArmor?\n* shall it include things like per-service / user firewall policy?\n\nPossibly related: hardening of containers (see the Kubernetes and Docker CS).\n\n## What security issues are commonly encountered related to this area?\n\nService often run with more privilege than what they actually require.\n\n## What is the objective of the Cheat Sheet?\n\nHelp people harden their service in order to limit the impact when successful attack on the service is triggered.\n\n## What other resources exist in this area?\n\n~~~sh\nsystemd-analyze security\n~~~\n",
+    "state": "open",
+    "user": {
+      "login": "randomstuff"
+    },
+    "author_association": "MEMBER",
+    "labels": [
+      {
+        "name": "NEW_CS"
+      },
+      {
+        "name": "ACK_OBTAINED"
+      }
+    ],
+    "assignees": [
+      {
+        "login": "sujalavnelavai"
+      }
+    ],
+    "created_at": "2026-10-24T07:26:42Z",
+    "updated_at": "2026-11-04T15:50:58Z",
+    "comments": 12
+  },
+  "comments": [
+    {
+      "user": {
+        "login": "sujalavnelavai"
+      },
+      "author_association": "NONE",
+      "created_at": "2026-10-24T16:26:46Z",
+      "body": "I would be interested in contributing to this cheat sheet.\n\nRegarding the scope, I suggest focusing primarily on systemd service hardening, with an emphasis on least privilege and reducing the impact of a compromised service.\n\n"
+    },
+    {
+      "user": {
+        "login": "sujalavnelavai"
+      },
+      "author_association": "NONE",
+      "created_at": "2026-10-24T16:29:35Z",
+      "body": "The Cheat Sheet could cover:\n\nRunning services with restricted identities (User=, DynamicUser=).\n\nFilesystem isolation (ProtectSystem=, ProtectHome=, ReadWritePaths=).\n\nManaging persistent application data securely (StateDirectory=).\n\nRestricting Linux capabilities, system calls, and network access.\n\nUsing systemd-analyze security to identify hardening opportunities.\n\nTesting restrictions and documenting compatibility considerations.\n\nAppArmor, SELinux, and container hardening could be briefly discussed with references to dedicated resources to avoid making the scope too broad."
+    },
+    {
+      "user": {
+        "login": "sujalavnelavai"
+      },
+      "author_association": "NONE",
+      "created_at": "2026-10-24T16:30:57Z",
+      "body": "I have also conducted some initial experiments on Ubuntu 22.04.5 LTS with systemd 249, validating filesystem isolation, writable-path exceptions, unprivileged service identities, and persistent state directories.\n\nOne interesting observation was that adding ReadWritePaths= changed effective filesystem access without changing the overall systemd-analyze security exposure score. This highlights the importance of functional testing alongside automated assessments.\n\nI'd be happy to contribute reproducible examples and help draft the Cheat Sheet.\n\nWould this proposed scope align with what the maintainers have in mind?"
+    },
+    {
+      "user": {
+        "login": "randomstuff"
+      },
+      "author_association": "MEMBER",
+      "created_at": "2026-10-24T17:34:15Z",
+      "body": "@jmanico @mackowski, opinion on that? For me the question that should be settled before starting is the scope. Is this a\n\n* service hardening cheat sheet\n* systemd service hardening cheat sheet\n\nI'd tend for the former with a target structure such as:\n\n* general considerations\n* systemd (sandboxing, socket activation)\n* ApprArmor\n* SELinux,\n* service-level firewalling\n* other sandboxing options\n\nbut that may be too much \ud83d\ude04"
+    },
+    {
+      "user": {
+        "login": "mackowski"
+      },
+      "author_association": "MEMBER",
+      "created_at": "2026-10-25T05:42:22Z",
+      "body": "In general, this is a good idea. We already have a few notes on this topic in the Docker Security Cheat Sheet.\n\n@sujalavnelavai, could you provide a draft table of contents or outline of what you would like to cover?"
+    },
+    {
+      "user": {
+        "login": "sujalavnelavai"
+      },
+      "author_association": "NONE",
+      "created_at": "2026-10-26T03:58:57Z",
+      "body": "Hello @mackowski, after reviewing Docker security cheat sheet, I have planned this scope:\n\nProposed Table of Contents \u2014 Service Hardening Cheat Sheet\n\n1. Introduction and Scope\n\nSecurity objectives and threat model\n\nScope and relationship to container hardening\n\n2. General Service Hardening Principles\n\nRunning services with minimal privileges\n\nIdentifying required filesystem, process, and network access\n\nReducing the attack surface of services\n\n3. Hardening Services with systemd\n\nService identities (User=, Group=, DynamicUser=)\n\nPrivilege restrictions (NoNewPrivileges=, CapabilityBoundingSet=)\n\nFilesystem isolation (ProtectSystem=, ProtectHome=, ReadWritePaths=, PrivateTmp=)\n\nPersistent data management (StateDirectory=, CacheDirectory=, LogsDirectory=)\n\nSystem call filtering (SystemCallFilter=)\n\nNetwork restrictions (PrivateNetwork=, RestrictAddressFamilies=, IPAddressAllow=, IPAddressDeny=)\n\nSocket activation and security considerations\n\n4. Mandatory Access Control\n\nAppArmor and SELinux for service confinement(AppArmor mentioned as a complementary service-confinement mechanism; link to detailed  Docker security documentation) and ( SELinux mentoined as a complementary mechanism; avoid a full SELinux configuration tutorial linked to Docker security cheat sheet)\n\nHow these mechanisms complement systemd sandboxing\n\n5. Service-Level Network Restrictions\n\nLimiting inbound and outbound connections\n\nHost firewall and per-service policy considerations\n\n6. Other Sandboxing Options\n\nLinux namespaces and seccomp\n\nWhen additional isolation or containerization is appropriate\n\n7. Verification and Testing\n\nUsing systemd-analyze security\n\nUnderstanding exposure-score limitations\n\nFunctional testing and troubleshooting\n\n8. Practical Hardening Examples\n\nBefore-and-after systemd service configuration\n\nApplying restrictions incrementally\n\nValidating security boundaries and application functionality\n\n9. Common Pitfalls and Compatibility\n\nService failures caused by overly restrictive settings\n\nFilesystem permissions versus sandbox restrictions\n\nDistribution, kernel, and systemd version differences\n\n10. References\n\nOfficial systemd documentation\n\nRelated OWASP Cheat Sheets\n\nAppArmor and SELinux documentation\n\nPlanning to combining them into one smaller section rather than maintaining both as substantial sections :4.Mandatory Access Control \u2014 AppArmor and SELinux and 6. Other Sandboxing Options - Linux namespaces and seccomp as: If you are OK with this\n\n4. Complementary Security Mechanisms\n- AppArmor and SELinux for host service confinement\n- Relationship between systemd sandboxing, Linux namespaces, and seccomp\n- References to existing OWASP guidance and official documentation\n\nIf you feel this scope fits within the scope of the project, I am happy to proceed with this Cheat Sheet. Thank you."
+    },
+    {
+      "user": {
+        "login": "mackowski"
+      },
+      "author_association": "MEMBER",
+      "created_at": "2026-10-26T11:24:10Z",
+      "body": "@randomstuff @jmanico what do you think? "
+    },
+    {
+      "user": {
+        "login": "jmanico"
+      },
+      "author_association": "MEMBER",
+      "created_at": "2026-10-26T12:19:24Z",
+      "body": "This original poster here is @randomstuff so he gets to make the call here. He is also one of our leads here.\n\nLet's wait for his feedback please!"
+    },
+    {
+      "user": {
+        "login": "randomstuff"
+      },
+      "author_association": "MEMBER",
+      "created_at": "2026-10-26T15:07:59Z",
+      "body": "One thing which I'm not so clear about before starting is whether we are going for a \"service hardening with systemd CS\" or \" service hdardening CS\". Anyone has an opinion on that? (My opinion is target the second option)\n\nI would suggest starting with a shorter scope:\n\n1. Introduction and Scope\n2. General Service Hardening Principles\n3. Hardening Services with systemd\n4. Other options \u2192 short list/reference of other things (AppArmor, SELinux, firejail, firewalling, netns, containers (?), landlock, eBPFetc.) (some of those are natively supported by systemd)\n5. References\n\nand then we can expand from that later on."
+    },
+    {
+      "user": {
+        "login": "mackowski"
+      },
+      "author_association": "MEMBER",
+      "created_at": "2026-10-26T16:05:52Z",
+      "body": "@sujalavnelavai I am assigning this to you"
+    },
+    {
+      "user": {
+        "login": "sujalavnelavai"
+      },
+      "author_association": "NONE",
+      "created_at": "2026-10-29T13:33:55Z",
+      "body": "Thank you @mackowski for assigning this issue to me. "
+    },
+    {
+      "user": {
+        "login": "sujalavnelavai"
+      },
+      "author_association": "NONE",
+      "created_at": "2026-10-29T13:35:15Z",
+      "body": "Thank you @randomstuff for suggesting a shorter scope to start with. "
+    }
+  ],
+  "timeline": [
+    {
+      "event": "labeled",
+      "created_at": "2026-10-24T07:26:43Z",
+      "actor": {
+        "login": "randomstuff"
+      },
+      "label": {
+        "name": "ACK_WAITING"
+      }
+    },
+    {
+      "event": "labeled",
+      "created_at": "2026-10-24T07:26:44Z",
+      "actor": {
+        "login": "randomstuff"
+      },
+      "label": {
+        "name": "NEW_CS"
+      }
+    },
+    {
+      "event": "labeled",
+      "created_at": "2026-10-24T07:26:44Z",
+      "actor": {
+        "login": "randomstuff"
+      },
+      "label": {
+        "name": "HELP_WANTED"
+      }
+    },
+    {
+      "event": "unlabeled",
+      "created_at": "2026-10-26T16:05:58Z",
+      "actor": {
+        "login": "mackowski"
+      },
+      "label": {
+        "name": "ACK_WAITING"
+      }
+    },
+    {
+      "event": "unlabeled",
+      "created_at": "2026-10-26T16:05:58Z",
+      "actor": {
+        "login": "mackowski"
+      },
+      "label": {
+        "name": "HELP_WANTED"
+      }
+    },
+    {
+      "event": "labeled",
+      "created_at": "2026-10-26T16:05:58Z",
+      "actor": {
+        "login": "mackowski"
+      },
+      "label": {
+        "name": "ACK_OBTAINED"
+      }
+    },
+    {
+      "event": "assigned",
+      "created_at": "2026-10-26T16:06:02Z",
+      "actor": {
+        "login": "mackowski"
+      },
+      "assignee": {
+        "login": "sujalavnelavai"
+      }
+    },
+    {
+      "event": "cross-referenced",
+      "created_at": "2026-11-04T15:08:51Z",
+      "actor": {
+        "login": "sujalavnelavai"
+      },
+      "source": {
+        "type": "issue",
+        "issue": {
+          "number": 2901,
+          "repository": {
+            "full_name": "OWASP/CheatSheetSeries"
+          },
+          "title": "Add Service Hardening Cheat Sheet ",
+          "state": "open",
+          "pull_request": {
+            "merged_at": null
+          }
+        }
+      }
+    }
+  ],
+  "pulls": {
+    "2901": {
+      "number": 2901,
+      "title": "Add Service Hardening Cheat Sheet ",
+      "body": "## Summary\r\n\r\nThis PR introduces a new **Service Hardening Cheat Sheet**  addressing OWASP Cheat Sheet Series issue #2856.\r\nThe Cheat Sheet provides general service-hardening guidance, practical systemd examples, and an overview of complementary Linux security mechanisms.\r\n\r\n## Content Added\r\n\r\n- **Introduction and Scope:** Defines the purpose, intended audience, and boundaries of the guidance.\r\n- **General Service Hardening Principles:** Covers software updates, least privilege, attack-surface reduction, secure configurations, network restrictions, credentials and sensitive data, logging and monitoring, resource consumption, and validation.\r\n- **Hardening Services with systemd:** Documents seven hardening directives (`User=`, `NoNewPrivileges=yes`, `CapabilityBoundingSet=`, `ProtectSystem=strict`, `StateDirectory=`, `PrivateTmp=yes`, and `ProtectHome=yes`), an illustrative service unit, and commands for applying and checking configuration changes.\r\n- **Other Options:** Briefly introduces AppArmor, SELinux, firewalls and network namespaces, Firejail, Landlock, eBPF-based security controls, and containers.\r\n- **References:** Includes supporting documentation and relevant OWASP Cheat Sheets, with control-specific references placed alongside applicable recommendations.\r\n\r\n## Testing\r\n\r\nThe systemd examples were tested locally in an **Ubuntu 22.04.5 LTS virtual machine running systemd 249**.\r\n\r\nTesting covered the expected behavior of the seven documented systemd directives. Screenshots were collected as supporting evidence.\r\n\r\nDocker/container-level hardening and the complementary mechanisms described in the **Other Options** section were not tested as part of this PR.\r\n\r\nThis is a documentation-only change; no application code was modified.\r\n\r\n## Related Issue\r\n\r\nRelated to #2856.\r\n\r\n# You're A Rockstar\r\n\r\nThank you for submitting a Pull Request (PR) to the Cheat Sheet Series.\r\n\r\n> :triangular_flag_on_post: If your PR is related to grammar/typo mistakes, please double-check the file for other mistakes in order to fix all the issues in the current cheat sheet.\r\n\r\nPlease make sure that for your contribution:\r\n\r\n- [ ] In case of a new Cheat Sheet, you have used the [Cheat Sheet template](../templates/New_CheatSheet.md).\r\n- [ ] All the markdown files do not raise any validation policy violation, see the [policy](https://github.com/OWASP/CheatSheetSeries/actions?query=workflow%3A%22Markdown+Link+Check%22).\r\n- [ ] All the markdown files follow these [format rules](../CONTRIBUTING.md#markdown).\r\n- [ ] All your assets are stored in the **assets** folder.\r\n- [ ] All the images used are in the **PNG** format.\r\n- [X] Any references to websites have been formatted as `[TEXT](URL)`\r\n- [X] You verified/tested the effectiveness of your contribution (e.g., the defensive code proposed is really an effective remediation? Please verify it works!).\r\n- [ ] The CI build of your PR pass, see the build status [here](https://github.com/OWASP/CheatSheetSeries/actions).\r\n\r\n## Scope and sourcing (required)\r\n\r\n- [X] This PR is focused: it modifies a single cheat sheet, or a small coordinated set, and the scope is described in the PR body.\r\n- [X] Every technical claim, recommendation, or threat assertion added in this PR is supported by a primary source (RFC, NIST, OWASP standard, vendor documentation, peer-reviewed research) linked inline as `[text](URL)`.\r\n- [X] I have read each source I cite and confirm it actually supports the claim. I have not relied on summaries, hearsay, or model-generated citations.\r\n\r\nIf your PR is related to an issue, please finish your PR text with the following line:\r\n\r\nThis PR fixes issue #2856.\r\n\r\n## AI Tool Usage Disclosure (required for all PRs)\r\n\r\nPlease select exactly one of the following options. PRs that leave this section blank will be closed.\r\n\r\n- [ ] I have NOT used any AI tool to generate the contents of this PR.\r\n- [X] I have used AI tools to generate the contents of this PR. I have verified\r\n    the contents and I affirm the results. The LLM used is ChatGPT (OpenAI) GPT-6\r\n    and the prompt used is Convert this document into OWASP Cheat Sheet Series Markdown format\r\nwithout changing the technical meaning, recommendations, references, or URLs`. I have independently verified every citation and technical claim against the cited source. \r\n\r\n\r\nThank you again for your contribution :smiley:\r\n",
+      "state": "open",
+      "merged_at": null,
+      "user": {
+        "login": "sujalavnelavai"
+      }
+    }
+  },
+  "now": "2026-11-17T07:30:00Z"
+}

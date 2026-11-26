@@ -1,0 +1,84 @@
+{
+  "repo": "OWASP/CheatSheetSeries",
+  "number": 2987,
+  "issue": {
+    "number": 2987,
+    "title": "Update: Docker Security Cheat Sheet / add reference to container-in-VM option",
+    "body": "## What is missing or needs to be updated?\n\nContainer-in-a-VM are considered to have stronger isolation than containers executing directly on top of the host kernel:\n\n* [Docker Sandbox](https://docs.docker.com/ai/sandboxes/)\n* [Kata Containers](https://katacontainers.io/)\n\n## How should this be resolved?\n\nAdd some info (reference) about these.\n\nSome additional security considerations for this kind of use case?\n",
+    "state": "open",
+    "user": {
+      "login": "randomstuff"
+    },
+    "author_association": "MEMBER",
+    "labels": [
+      {
+        "name": "UPDATE_CS"
+      },
+      {
+        "name": "HELP_WANTED"
+      },
+      {
+        "name": "ACK_OBTAINED"
+      }
+    ],
+    "assignees": [],
+    "created_at": "2026-11-16T23:22:41Z",
+    "updated_at": "2026-11-17T07:07:34Z",
+    "comments": 0
+  },
+  "comments": [],
+  "timeline": [
+    {
+      "event": "labeled",
+      "created_at": "2026-11-16T23:22:42Z",
+      "actor": {
+        "login": "randomstuff"
+      },
+      "label": {
+        "name": "ACK_WAITING"
+      }
+    },
+    {
+      "event": "labeled",
+      "created_at": "2026-11-16T23:22:43Z",
+      "actor": {
+        "login": "randomstuff"
+      },
+      "label": {
+        "name": "UPDATE_CS"
+      }
+    },
+    {
+      "event": "labeled",
+      "created_at": "2026-11-16T23:22:43Z",
+      "actor": {
+        "login": "randomstuff"
+      },
+      "label": {
+        "name": "HELP_WANTED"
+      }
+    },
+    {
+      "event": "labeled",
+      "created_at": "2026-11-17T07:07:33Z",
+      "actor": {
+        "login": "mackowski"
+      },
+      "label": {
+        "name": "ACK_OBTAINED"
+      }
+    },
+    {
+      "event": "unlabeled",
+      "created_at": "2026-11-17T07:07:34Z",
+      "actor": {
+        "login": "mackowski"
+      },
+      "label": {
+        "name": "ACK_WAITING"
+      }
+    }
+  ],
+  "pulls": {},
+  "now": "2026-11-17T07:30:00Z"
+}

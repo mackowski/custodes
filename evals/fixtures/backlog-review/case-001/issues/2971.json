@@ -1,0 +1,137 @@
+{
+  "repo": "OWASP/CheatSheetSeries",
+  "number": 2971,
+  "issue": {
+    "number": 2971,
+    "title": "Update: Django_Security_Cheat_Sheet",
+    "body": "## What is missing or needs to be updated?\nThe [Django_Security_Cheat_Sheet.md](https://github.com/OWASP/CheatSheetSeries/blob/master/cheatsheets/Django_Security_Cheat_Sheet.md) currently lacks a consolidated, secure-by-default `settings.py` configuration example that shows how to enforce production security settings by default while overriding them safely in a local `.env` environment. It also misses practical settings like `__Host-` cookie prefixes, `SECURE_CROSS_ORIGIN_OPENER_POLICY`, `SECURE_REFERRER_POLICY`, and a complete `SECURE_CSP` (Django 6.0+) dictionary example.\n\n## How should this be resolved?\nAdd an **Application security configuration** section before the Admin panel URL section containing:\n- A fail-safe `settings.py` snippet using `django-environ` and `django.utils.csp` where HTTPS redirects, HSTS, security headers, `__Host-` cookies, and CSP are enabled by default.\n- A corresponding `.env` snippet showing which parameters to override for local development without HTTPS.\n\nI have already prepared and submitted the implementation in PR #2970.",
+    "state": "open",
+    "user": {
+      "login": "xinitd"
+    },
+    "author_association": "NONE",
+    "labels": [
+      {
+        "name": "UPDATE_CS"
+      },
+      {
+        "name": "ACK_OBTAINED"
+      }
+    ],
+    "assignees": [
+      {
+        "login": "xinitd"
+      }
+    ],
+    "created_at": "2026-11-14T19:13:33Z",
+    "updated_at": "2026-11-16T09:29:08Z",
+    "comments": 0
+  },
+  "comments": [],
+  "timeline": [
+    {
+      "event": "labeled",
+      "created_at": "2026-11-14T19:13:34Z",
+      "actor": {
+        "login": "xinitd"
+      },
+      "label": {
+        "name": "ACK_WAITING"
+      }
+    },
+    {
+      "event": "labeled",
+      "created_at": "2026-11-14T19:13:35Z",
+      "actor": {
+        "login": "xinitd"
+      },
+      "label": {
+        "name": "UPDATE_CS"
+      }
+    },
+    {
+      "event": "labeled",
+      "created_at": "2026-11-14T19:13:35Z",
+      "actor": {
+        "login": "xinitd"
+      },
+      "label": {
+        "name": "HELP_WANTED"
+      }
+    },
+    {
+      "event": "cross-referenced",
+      "created_at": "2026-11-14T19:14:53Z",
+      "actor": {
+        "login": "xinitd"
+      },
+      "source": {
+        "type": "issue",
+        "issue": {
+          "number": 2970,
+          "repository": {
+            "full_name": "OWASP/CheatSheetSeries"
+          },
+          "title": "Django Security: secure defaults, __Host- cookies, Referrer-Policy and COOP",
+          "state": "open",
+          "pull_request": {
+            "merged_at": null
+          }
+        }
+      }
+    },
+    {
+      "event": "assigned",
+      "created_at": "2026-11-16T09:29:03Z",
+      "actor": {
+        "login": "mackowski"
+      },
+      "assignee": {
+        "login": "xinitd"
+      }
+    },
+    {
+      "event": "unlabeled",
+      "created_at": "2026-11-16T09:29:08Z",
+      "actor": {
+        "login": "mackowski"
+      },
+      "label": {
+        "name": "ACK_WAITING"
+      }
+    },
+    {
+      "event": "unlabeled",
+      "created_at": "2026-11-16T09:29:08Z",
+      "actor": {
+        "login": "mackowski"
+      },
+      "label": {
+        "name": "HELP_WANTED"
+      }
+    },
+    {
+      "event": "labeled",
+      "created_at": "2026-11-16T09:29:08Z",
+      "actor": {
+        "login": "mackowski"
+      },
+      "label": {
+        "name": "ACK_OBTAINED"
+      }
+    }
+  ],
+  "pulls": {
+    "2970": {
+      "number": 2970,
+      "title": "Django Security: secure defaults, __Host- cookies, Referrer-Policy and COOP",
+      "body": "Adds short, sourced guidance to existing sections of the Django Security Cheat Sheet: production values as the defaults, with required values read from the environment without a fallback (General Recommendations), `__Host-` cookie names (Cookies), and keeping Django's `same-origin` Referrer-Policy and COOP defaults (Headers).\r\n\r\nPlease make sure that for your contribution:\r\n\r\n- [ ] In case of a new Cheat Sheet, you have used the [Cheat Sheet template](../templates/New_CheatSheet.md).\r\n- [x] All the markdown files do not raise any validation policy violation, see the [policy](https://github.com/OWASP/CheatSheetSeries/actions?query=workflow%3A%22Markdown+Link+Check%22).\r\n- [x] All the markdown files follow these [format rules](../CONTRIBUTING.md#markdown).\r\n- [ ] All your assets are stored in the **assets** folder.\r\n- [ ] All the images used are in the **PNG** format.\r\n- [x] Any references to websites have been formatted as `[TEXT](URL)`\r\n- [x] You verified/tested the effectiveness of your contribution (e.g., the defensive code proposed is really an effective remediation? Please verify it works!).\r\n- [ ] The CI build of your PR pass, see the build status [here](https://github.com/OWASP/CheatSheetSeries/actions).\r\n\r\n## Scope and sourcing (required)\r\n\r\n- [x] This PR is focused: it modifies a single cheat sheet, or a small coordinated set, and the scope is described in the PR body.\r\n- [x] Every technical claim, recommendation, or threat assertion added in this PR is supported by a primary source (RFC, NIST, OWASP standard, vendor documentation, peer-reviewed research) linked inline as `[text](URL)`.\r\n- [x] I have read each source I cite and confirm it actually supports the claim. I have not relied on summaries, hearsay, or model-generated citations.\r\n\r\nThis PR fixes issue #2971.\r\n\r\n## AI Tool Usage Disclosure (required for all PRs)\r\n\r\nPlease select exactly one of the following options. PRs that leave this section blank will be closed.\r\n\r\n- [ ] I have NOT used any AI tool to generate the contents of this PR.\r\n- [x] I have used AI tools to generate the contents of this PR. I have verified\r\n    the contents and I affirm the results. The LLM used is `Gemini Argon`\r\n    and the prompt used is `Reviewed my existing production settings.py snippet for fail-safe defaults; prose written manually`. I have independently verified every citation and technical claim against the cited source. Rework after review: the LLM used is `Claude Opus 5.5 (Anthropic)` and the prompt used is `Read PR #2970 and the review comment, and fix what the review asks to change.` Claude checked the diff against the repository's review checklist, rewrote the bullets and checked them against the Django 5.2 and 6.1 docs. I reviewed the result and read every cited source myself.",
+      "state": "open",
+      "merged_at": null,
+      "user": {
+        "login": "xinitd"
+      }
+    }
+  },
+  "now": "2026-11-17T07:30:00Z"
+}

@@ -1,0 +1,122 @@
+{
+  "repo": "OWASP/CheatSheetSeries",
+  "number": 2930,
+  "issue": {
+    "number": 2930,
+    "title": "Update: [Bot Management and Anti-Automation Cheat Sheet]",
+    "body": "## What is missing or needs to be updated?\n\nThe Device and Network Fingerprinting section of the Bot Management and Anti-Automation Cheat Sheet covers privacy-aware fingerprint collection, but it could better explain the limitations of using fingerprints for bot detection.\n\nThere are three areas that I think would benefit from clarification:\n\n- **Spoofing:** Fingerprint attributes reported by browsers and clients can be manipulated or overridden. This means fingerprints cannot reliably distinguish bots from legitimate users on their own.\n- **Collisions:** Different devices or browser environments can produce identical or similar fingerprints. Treating a match as proof of the same device can lead to false positives.\n- **Fingerprint drift:** Fingerprints can change over time due to browser updates, operating system changes, hardware changes, and privacy settings. This can make previously stored fingerprints unreliable.\n\nWithout mentioning these limitations, developers may place too much trust in fingerprinting results when making bot detection decisions.\n\n## How should this be resolved?\n\nI propose adding a short subsection to the existing Device and Network Fingerprinting section covering these three limitations.\n\nThe addition would briefly explain how spoofing, collisions, and fingerprint drift affect fingerprint-based detection, along with practical recommendations:\n\n- Treat fingerprints as one signal among several rather than as definitive evidence of bot activity.\n- Avoid blocking users based solely on fingerprint matches.\n- Account for partial matches and changes in fingerprints over time.\n- Apply appropriate expiration periods to stored fingerprints.\n\nThe update would remain brief and follow the existing style of the Cheat Sheet. I would also cross-reference the Authentication Cheat Sheet's guidance on using device fingerprints as risk signals rather than as substitutes for authentication, instead of repeating that guidance.\n\nRelated discussion: #2919 ",
+    "state": "open",
+    "user": {
+      "login": "MadEyE355"
+    },
+    "author_association": "NONE",
+    "labels": [
+      {
+        "name": "UPDATE_CS"
+      },
+      {
+        "name": "ACK_OBTAINED"
+      }
+    ],
+    "assignees": [
+      {
+        "login": "MadEyE355"
+      }
+    ],
+    "created_at": "2026-11-09T17:24:08Z",
+    "updated_at": "2026-11-12T08:01:56Z",
+    "comments": 2
+  },
+  "comments": [
+    {
+      "user": {
+        "login": "MadEyE355"
+      },
+      "author_association": "NONE",
+      "created_at": "2026-11-09T23:59:20Z",
+      "body": "Interesting approach to demonstrating the need for better bot detection. Thanks for the live example! \ud83e\udd40"
+    },
+    {
+      "user": {
+        "login": "mackowski"
+      },
+      "author_association": "MEMBER",
+      "created_at": "2026-11-12T08:01:48Z",
+      "body": "Thanks for opening this follow-up. It matches the scope discussed in the earlier issue, so we're happy to accept it, and it's assigned to you. Please keep the subsection short. Where the sheet already covers related points, such as short retention windows and not blocking hardened browsers, cross-reference them rather than repeating them, just as you plan to do for the Authentication Cheat Sheet."
+    }
+  ],
+  "timeline": [
+    {
+      "event": "labeled",
+      "created_at": "2026-11-09T17:24:09Z",
+      "actor": {
+        "login": "MadEyE355"
+      },
+      "label": {
+        "name": "ACK_WAITING"
+      }
+    },
+    {
+      "event": "labeled",
+      "created_at": "2026-11-09T17:24:09Z",
+      "actor": {
+        "login": "MadEyE355"
+      },
+      "label": {
+        "name": "UPDATE_CS"
+      }
+    },
+    {
+      "event": "labeled",
+      "created_at": "2026-11-09T17:24:10Z",
+      "actor": {
+        "login": "MadEyE355"
+      },
+      "label": {
+        "name": "HELP_WANTED"
+      }
+    },
+    {
+      "event": "unlabeled",
+      "created_at": "2026-11-12T08:01:53Z",
+      "actor": {
+        "login": "mackowski"
+      },
+      "label": {
+        "name": "ACK_WAITING"
+      }
+    },
+    {
+      "event": "unlabeled",
+      "created_at": "2026-11-12T08:01:53Z",
+      "actor": {
+        "login": "mackowski"
+      },
+      "label": {
+        "name": "HELP_WANTED"
+      }
+    },
+    {
+      "event": "labeled",
+      "created_at": "2026-11-12T08:01:53Z",
+      "actor": {
+        "login": "mackowski"
+      },
+      "label": {
+        "name": "ACK_OBTAINED"
+      }
+    },
+    {
+      "event": "assigned",
+      "created_at": "2026-11-12T08:01:56Z",
+      "actor": {
+        "login": "mackowski"
+      },
+      "assignee": {
+        "login": "MadEyE355"
+      }
+    }
+  ],
+  "pulls": {},
+  "now": "2026-11-17T07:30:00Z"
+}

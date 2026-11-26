@@ -1,0 +1,131 @@
+{
+  "repo": "OWASP/CheatSheetSeries",
+  "number": 2948,
+  "issue": {
+    "number": 2948,
+    "title": "Proposal: Add subsection on deny-by-default tool permissions (agent security sheet)",
+    "body": "## Summary\n\nI would like to propose a short addition to `cheatsheets/AI_Agent_Security_Cheat_Sheet.md` (one subsection, ~15\u201325 lines).\n\n## Proposed content (outline)\n\n- Content/output filters are not enough at tool-call time.\n- Deny-by-default tool allow-lists per agent role (YAML or equivalent).\n- Delegation: child agent permissions should be narrower than parent (no privilege expansion).\n- Cite existing OWASP agentic / ASI material where appropriate (no new product links).\n\n## Scope\n\n- Markdown only in CheatSheetSeries (no change to other OWASP repos).\n- I will open a single PR after project lead ACK on this issue.\n\nPlease ACK if this fits, or suggest a different sheet/section. Thanks.",
+    "state": "open",
+    "user": {
+      "login": "nizba06"
+    },
+    "author_association": "NONE",
+    "labels": [
+      {
+        "name": "UPDATE_CS"
+      },
+      {
+        "name": "HELP_WANTED"
+      },
+      {
+        "name": "ACK_OBTAINED"
+      }
+    ],
+    "assignees": [
+      {
+        "login": "nizba06"
+      }
+    ],
+    "created_at": "2026-11-11T23:03:58Z",
+    "updated_at": "2026-11-16T10:38:08Z",
+    "comments": 4
+  },
+  "comments": [
+    {
+      "user": {
+        "login": "cvas22"
+      },
+      "author_association": "NONE",
+      "created_at": "2026-11-12T00:19:31Z",
+      "body": "Section 1 already covers allowlists and least privilege, and section 7 has \"prevent privilege escalation through agent chains\", so it might be worth folding this into those rather than adding a new subsection. One gap I'd add is where the allowlist itself comes from: if a project or workspace file can widen it, a cloned repo or an injected prompt just rewrites the policy. That's what happened in [CVE-2025-53773](https://www.cve.org/CVERecord?id=CVE-2025-53773) (Copilot was led to write `chat.tools.autoApprove` into the workspace settings) and [CVE-2026-33068](https://www.cve.org/CVERecord?id=CVE-2026-33068) (a committed settings file set the agent to bypass permissions and skipped the trust prompt), so \"only user- or admin-controlled config can grant tools\" would be a useful line.\n"
+    },
+    {
+      "user": {
+        "login": "mackowski"
+      },
+      "author_association": "MEMBER",
+      "created_at": "2026-11-12T11:08:56Z",
+      "body": "Thanks @nizba06. We agree with @cvas22: sections 1 and 7 already cover allowlists, least privilege and privilege escalation through agent chains, so the proposal is approved only in the narrower scope suggested above. Tool permissions should come only from user- or administrator-controlled configuration, and project or workspace files, or the agent itself, must not be able to widen them. That means two or three bullets in section 1, each with a verified primary source.\n\nWould you like to open the PR for this?"
+    },
+    {
+      "user": {
+        "login": "nizba06"
+      },
+      "author_association": "NONE",
+      "created_at": "2026-11-12T21:55:24Z",
+      "body": "Thanks @cvas22 @mackowski. Agreed, sections 1 and 7 already cover allowlists, least privilege, and agent chains, so I will not add a new subsection.\n\nI will open a PR that adds a few bullets to **section 1** only: tool permissions must come only from user- or administrator-controlled configuration, and project or workspace files or the agent must not be able to widen them. Each bullet will cite a verified primary source, including the cases you referenced (CVE-2025-53773 and CVE-2026-33068).\n\nI will link the PR here when it is up."
+    },
+    {
+      "user": {
+        "login": "mackowski"
+      },
+      "author_association": "MEMBER",
+      "created_at": "2026-11-16T10:38:06Z",
+      "body": "Thanks @nizba06, I've assigned this issue to you. The agreed scope is two or three bullets in section 1 of the AI Agent Security Cheat Sheet: tool permissions come only from user- or administrator-controlled configuration, and project or workspace files, or the agent itself, must not be able to widen them. Each bullet needs a verified primary source. Looking forward to the PR!\n"
+    }
+  ],
+  "timeline": [
+    {
+      "event": "labeled",
+      "created_at": "2026-11-11T23:04:00Z",
+      "actor": {
+        "login": "nizba06"
+      },
+      "label": {
+        "name": "ACK_WAITING"
+      }
+    },
+    {
+      "event": "labeled",
+      "created_at": "2026-11-11T23:04:00Z",
+      "actor": {
+        "login": "nizba06"
+      },
+      "label": {
+        "name": "UPDATE_CS"
+      }
+    },
+    {
+      "event": "labeled",
+      "created_at": "2026-11-11T23:04:00Z",
+      "actor": {
+        "login": "nizba06"
+      },
+      "label": {
+        "name": "HELP_WANTED"
+      }
+    },
+    {
+      "event": "labeled",
+      "created_at": "2026-11-12T11:08:58Z",
+      "actor": {
+        "login": "mackowski"
+      },
+      "label": {
+        "name": "ACK_OBTAINED"
+      }
+    },
+    {
+      "event": "unlabeled",
+      "created_at": "2026-11-12T11:08:58Z",
+      "actor": {
+        "login": "mackowski"
+      },
+      "label": {
+        "name": "ACK_WAITING"
+      }
+    },
+    {
+      "event": "assigned",
+      "created_at": "2026-11-16T10:38:05Z",
+      "actor": {
+        "login": "mackowski"
+      },
+      "assignee": {
+        "login": "nizba06"
+      }
+    }
+  ],
+  "pulls": {},
+  "now": "2026-11-17T07:30:00Z"
+}

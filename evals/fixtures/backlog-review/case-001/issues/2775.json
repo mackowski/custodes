@@ -1,0 +1,328 @@
+{
+  "repo": "OWASP/CheatSheetSeries",
+  "number": 2775,
+  "issue": {
+    "number": 2775,
+    "title": "Update: Node.js brute-force protection guidance",
+    "body": "## What is missing or needs to be updated?\n\nThe Node.js Security Cheat Sheet's brute-force section currently recommends Express-bouncer, express-brute, and rate-limiter. These examples are outdated and do not provide a good current reference for developers implementing rate limiting in Express applications.\n\nThe section also needs clearer guidance that rate limits should be applied to sensitive authentication endpoints and that distributed deployments may require shared rate-limit state.\n\n## How should this be resolved?\n\n- Replace the outdated package examples with a maintained, widely used open-source Express rate-limiting middleware.\n- Add a short illustrative example for protecting a login endpoint.\n- Explain that limits should be selected according to the protected endpoint and authentication flow.\n- Mention the need for coordinated/shared state when rate limiting across multiple application instances.\n- Keep the change focused to the existing brute-force guidance in `Nodejs_Security_Cheat_Sheet.md`.\n\nThis is intended as a focused update to existing guidance rather than a new cheat sheet.",
+    "state": "open",
+    "user": {
+      "login": "aaa-aashna"
+    },
+    "author_association": "NONE",
+    "labels": [
+      {
+        "name": "UPDATE_CS"
+      },
+      {
+        "name": "ACK_OBTAINED"
+      }
+    ],
+    "assignees": [
+      {
+        "login": "aaa-aashna"
+      }
+    ],
+    "created_at": "2026-10-08T09:07:13Z",
+    "updated_at": "2026-11-09T20:10:36Z",
+    "comments": 14
+  },
+  "comments": [
+    {
+      "user": {
+        "login": "aaa-aashna"
+      },
+      "author_association": "NONE",
+      "created_at": "2026-10-08T09:07:50Z",
+      "body": "/assign \n"
+    },
+    {
+      "user": {
+        "login": "randomstuff"
+      },
+      "author_association": "MEMBER",
+      "created_at": "2026-10-10T06:30:16Z",
+      "body": "(I am wondering if it would make sense to move this topic into a brute force prevention cheat sheet though.)"
+    },
+    {
+      "user": {
+        "login": "aaa-aashna"
+      },
+      "author_association": "NONE",
+      "created_at": "2026-10-10T06:43:47Z",
+      "body": "@randomstuff \nWould you recommend proposing that separately or keeping this issue focused on Node.js for now?"
+    },
+    {
+      "user": {
+        "login": "randomstuff"
+      },
+      "author_association": "MEMBER",
+      "created_at": "2026-10-10T10:11:45Z",
+      "body": "@mackowski @jmanico ? Any idea on that?\n\nThe rationale is that most of these things are going to be generically applicable so I would have it in a dedicated brute force cheat sheet. But this certainly means more work."
+    },
+    {
+      "user": {
+        "login": "jmanico"
+      },
+      "author_association": "MEMBER",
+      "created_at": "2026-10-12T08:55:31Z",
+      "body": "Agreed. We want to keep away from detailed code samples that we cannot maintain well, and focus on architectural guidance. I think a new cheatsheet is prudent!"
+    },
+    {
+      "user": {
+        "login": "V-2007-P"
+      },
+      "author_association": "NONE",
+      "created_at": "2026-10-15T07:24:40Z",
+      "body": "Hey, I'd be interested in contributing to this.\n\nI went through the discussion and noticed that the current Node.js guidance mentions packages like `express-bouncer`, `express-brute`, and `rate-limiter`, while the proposal also raises the issue of shared rate-limit state in distributed deployments.\n\nI saw the suggestion to move this into a separate Brute Force Cheat Sheet, and I think that makes sense if the goal is to keep the guidance useful across different stacks rather than tied to Node.js or specific middleware.\n\nI'd be happy to help with this. Would you be open to assigning me the work once the scope is agreed, or would you prefer that I first open a separate issue for the new cheat sheet?"
+    },
+    {
+      "user": {
+        "login": "mackowski"
+      },
+      "author_association": "MEMBER",
+      "created_at": "2026-10-15T07:47:20Z",
+      "body": "Ok so I will approve contributing to refreshing this cheatsheet by REMOVING code samples, it should focus on architectural guidance + can link to good a industry standard libraries but without code samples. Architectural guidance from cheatsheet and documentation of the library should be enough to implement this securely. By doing that we will also not duplicate official documentations (which does nit make sense) "
+    },
+    {
+      "user": {
+        "login": "aaa-aashna"
+      },
+      "author_association": "NONE",
+      "created_at": "2026-10-15T08:37:49Z",
+      "body": "Thanks for clarifying! I\u2019ll keep this focused on architectural guidance, remove outdated examples, and link to relevant libraries without code samples."
+    },
+    {
+      "user": {
+        "login": "V-2007-P"
+      },
+      "author_association": "NONE",
+      "created_at": "2026-10-15T10:31:59Z",
+      "body": "Hey @mackowski, just wanted to clarify something about your comment. Since aaa-aashna is already working on the update, I wasn't sure whether there might also be room for others to contribute or if the changes are being handled by the author for now. Just wanted to check before taking any further steps."
+    },
+    {
+      "user": {
+        "login": "mackowski"
+      },
+      "author_association": "MEMBER",
+      "created_at": "2026-10-15T11:38:48Z",
+      "body": "@V-2007-P please review PR from @aaa-aashna when it will be ready, that would be a huge help!"
+    },
+    {
+      "user": {
+        "login": "mackowski"
+      },
+      "author_association": "MEMBER",
+      "created_at": "2026-11-03T10:55:56Z",
+      "body": "Hi @aaa-aashna, just checking in: are you still working on this? As agreed above, the scope is to remove the outdated package examples and code samples and focus on architectural guidance, with links to maintained libraries.\n\nIf we don't hear back by November 10, we'll unassign the issue so someone else can pick it up. No problem at all if you no longer have time, just let us know.\n"
+    },
+    {
+      "user": {
+        "login": "V-2007-P"
+      },
+      "author_association": "NONE",
+      "created_at": "2026-11-07T19:24:07Z",
+      "body": "Hey @mackowski  @jmanico , Can I take this issue ? \n"
+    },
+    {
+      "user": {
+        "login": "jmanico"
+      },
+      "author_association": "MEMBER",
+      "created_at": "2026-11-08T19:46:44Z",
+      "body": "Thanks @V-2007-P. @mackowski gave @aaa-aashna until November 10 to reply, so let's honor that. If we don't hear back by then, it's yours. :)\n"
+    },
+    {
+      "user": {
+        "login": "aaa-aashna"
+      },
+      "author_association": "NONE",
+      "created_at": "2026-11-09T20:06:26Z",
+      "body": "ill work on it , and raise the pr soon\nthank you so much "
+    }
+  ],
+  "timeline": [
+    {
+      "event": "labeled",
+      "created_at": "2026-10-08T09:07:15Z",
+      "actor": {
+        "login": "aaa-aashna"
+      },
+      "label": {
+        "name": "ACK_WAITING"
+      }
+    },
+    {
+      "event": "labeled",
+      "created_at": "2026-10-08T09:07:16Z",
+      "actor": {
+        "login": "aaa-aashna"
+      },
+      "label": {
+        "name": "UPDATE_CS"
+      }
+    },
+    {
+      "event": "labeled",
+      "created_at": "2026-10-08T09:07:16Z",
+      "actor": {
+        "login": "aaa-aashna"
+      },
+      "label": {
+        "name": "HELP_WANTED"
+      }
+    },
+    {
+      "event": "assigned",
+      "created_at": "2026-10-15T11:38:54Z",
+      "actor": {
+        "login": "mackowski"
+      },
+      "assignee": {
+        "login": "aaa-aashna"
+      }
+    },
+    {
+      "event": "unlabeled",
+      "created_at": "2026-10-15T11:38:58Z",
+      "actor": {
+        "login": "mackowski"
+      },
+      "label": {
+        "name": "ACK_WAITING"
+      }
+    },
+    {
+      "event": "unlabeled",
+      "created_at": "2026-10-15T11:38:58Z",
+      "actor": {
+        "login": "mackowski"
+      },
+      "label": {
+        "name": "HELP_WANTED"
+      }
+    },
+    {
+      "event": "labeled",
+      "created_at": "2026-10-15T11:38:58Z",
+      "actor": {
+        "login": "mackowski"
+      },
+      "label": {
+        "name": "ACK_OBTAINED"
+      }
+    },
+    {
+      "event": "cross-referenced",
+      "created_at": "2026-10-16T09:02:06Z",
+      "actor": {
+        "login": "jmanico"
+      },
+      "source": {
+        "type": "issue",
+        "issue": {
+          "number": 2797,
+          "repository": {
+            "full_name": "OWASP/CheatSheetSeries"
+          }
+        }
+      }
+    },
+    {
+      "event": "cross-referenced",
+      "created_at": "2026-10-18T18:52:12Z",
+      "actor": {
+        "login": "V-2007-P"
+      },
+      "source": {
+        "type": "issue",
+        "issue": {
+          "number": 2809,
+          "repository": {
+            "full_name": "OWASP/CheatSheetSeries"
+          },
+          "title": "docs: remove flat Promise chains section (#2797)",
+          "state": "closed",
+          "pull_request": {
+            "merged_at": "2026-10-19T07:28:50Z"
+          }
+        }
+      }
+    },
+    {
+      "event": "cross-referenced",
+      "created_at": "2026-11-01T15:16:11Z",
+      "actor": {
+        "login": "V-2007-P"
+      },
+      "source": {
+        "type": "issue",
+        "issue": {
+          "number": 2890,
+          "repository": {
+            "full_name": "OWASP/CheatSheetSeries"
+          },
+          "title": "docs: update Node.js CSRF protection guidance (#2797)",
+          "state": "closed",
+          "pull_request": {
+            "merged_at": "2026-11-05T16:36:32Z"
+          }
+        }
+      }
+    },
+    {
+      "event": "cross-referenced",
+      "created_at": "2026-11-09T20:10:36Z",
+      "actor": {
+        "login": "aaa-aashna"
+      },
+      "source": {
+        "type": "issue",
+        "issue": {
+          "number": 2934,
+          "repository": {
+            "full_name": "OWASP/CheatSheetSeries"
+          },
+          "title": "docs(nodejs): refresh brute-force protection guidance",
+          "state": "open",
+          "pull_request": {
+            "merged_at": null
+          }
+        }
+      }
+    }
+  ],
+  "pulls": {
+    "2809": {
+      "number": 2809,
+      "title": "docs: remove flat Promise chains section (#2797)",
+      "body": "### Description\r\n\r\nRemoves the `Use flat Promise chains` section from the Node.js Security Cheat Sheet as a focused cleanup of general JavaScript asynchronous programming guidance.\r\n\r\nThe change is limited to this section. All surrounding guidance remains unchanged, including the brute-force section being handled separately under issue [[#2775](https://github.com/OWASP/CheatSheetSeries/issues/2775)]\r\n\r\n### Validation\r\n\r\n- [x] Markdown lint passed (`npm run lint-markdown`).\r\n- [x] `git diff --check` passed.\r\n- [ ] The CI build of this PR passes.\r\n\r\n### Scope and sourcing (required)\r\n\r\n- [x] This PR is focused: it modifies a single cheat sheet, and the scope is described above.\r\n- [x] No new technical claims, recommendations, or threat assertions are introduced by this deletion.\r\n- [x] No new citations were added, and no existing technical claims were added or rewritten.\r\n\r\n### AI Tool Usage Disclosure (required for all PRs)\r\n\r\n- [ ] I have NOT used any AI tool to generate the contents of this PR.\r\n- [x] I have used AI tools to generate the contents of this PR. I have verified the contents and I affirm the results.\r\n\r\n**LLMs/tools used:** ChatGPT (GPT-6) and Google Antigravity (Gemini 3.8 Flash).\r\n\r\n**Prompts/instructions used:** Investigate issue [[#2797](https://github.com/OWASP/CheatSheetSeries/issues/2797)]\r\n and the Node.js Security Cheat Sheet; assess the scope of removing the \u201cUse flat Promise chains\u201d section; keep the change minimal and leave the brute-force guidance untouched; validate the Markdown and review the final diff.\r\n\r\nI reviewed the resulting diff and verified that it contains only the intended deletion. No new technical recommendations or citations were introduced.\r\n\r\nThis PR fixes issue [[#2797](https://github.com/OWASP/CheatSheetSeries/issues/2797)]",
+      "state": "closed",
+      "merged_at": "2026-10-19T07:28:50Z",
+      "user": {
+        "login": "V-2007-P"
+      }
+    },
+    "2890": {
+      "number": 2890,
+      "title": "docs: update Node.js CSRF protection guidance (#2797)",
+      "body": "### Description\r\n\r\nUpdates the `Use Anti-CSRF tokens` subsection in the Node.js Security Cheat Sheet with focused, Node.js-specific CSRF protection guidance.\r\n\r\nThe change recommends using framework-provided CSRF protection where available, clarifies token validation for state-changing requests, and explains that `SameSite` cookies provide defense-in-depth rather than standalone protection. It also removes outdated guidance around the deprecated `csurf` package and links to the dedicated OWASP CSRF Prevention Cheat Sheet.\r\n\r\nThe change is limited to this subsection. All surrounding guidance remains unchanged, including the brute-force section being handled separately under issue [[#2775](https://github.com/OWASP/CheatSheetSeries/issues/2775)](https://github.com/OWASP/CheatSheetSeries/issues/2775).\r\n\r\n### Validation\r\n\r\n- [x] Markdown lint passed (`npm run lint-markdown`).\r\n- [x] `git diff --check` passed.\r\n- [x] Local Markdown link check passed.\r\n- [x] External Markdown link check passed.\r\n- [x] Fork Build Website and Markdown Lint workflows passed.\r\n- [ ] The upstream CI workflows are awaiting maintainer approval.\r\n\r\n### Scope and sourcing (required)\r\n\r\n- [x] This PR is focused: it modifies a single subsection in the Node.js Security Cheat Sheet, and the scope is described above.\r\n- [x] The CSRF recommendations are based on the dedicated OWASP CSRF Prevention Cheat Sheet.\r\n- [x] The deprecated status of `csurf` was verified against its upstream repository.\r\n- [x] No unrelated sections, headings, or code examples were modified.\r\n\r\n### AI Tool Usage Disclosure (required for all PRs)\r\n\r\n- [ ] I have NOT used any AI tool to generate the contents of this PR.\r\n- [x] I have used AI tools to generate the contents of this PR. I have verified the contents and I affirm the results.\r\n\r\n**LLMs/tools used:** ChatGPT (GPT-6) and Google Antigravity (Gemini 3.8 Flash).\r\n\r\n**Prompts/instructions used:** Investigate issue [[#2797](https://github.com/OWASP/CheatSheetSeries/issues/2797)](https://github.com/OWASP/CheatSheetSeries/issues/2797) and the Node.js Security Cheat Sheet; review the existing CSRF guidance; keep the change limited to the CSRF subsection; retain Node.js-specific recommendations; avoid deprecated `csurf` guidance; link to the dedicated OWASP CSRF Prevention Cheat Sheet; validate the Markdown and review the final diff.\r\n\r\nI reviewed the resulting diff and verified that it contains only the intended CSRF subsection changes. I also reviewed the technical recommendations and references against the relevant sources.\r\n\r\nThis PR contributes to issue [[#2797](https://github.com/OWASP/CheatSheetSeries/issues/2797)](https://github.com/OWASP/CheatSheetSeries/issues/2797).",
+      "state": "closed",
+      "merged_at": "2026-11-05T16:36:32Z",
+      "user": {
+        "login": "V-2007-P"
+      }
+    },
+    "2934": {
+      "number": 2934,
+      "title": "docs(nodejs): refresh brute-force protection guidance",
+      "body": "Closes #2775\r\n\r\n## Summary\r\n- Remove outdated brute-force middleware references and implementation examples.\r\n- Add architectural guidance for rate limiting sensitive authentication endpoints.\r\n- Document layered rate-limiting strategies and endpoint-specific thresholds.\r\n- Recommend maintained Express middleware (`express-rate-limit`).\r\n- Explain shared rate-limit state requirements in distributed deployments.\r\n- Include guidance on monitoring and complementary authentication controls.\r\n\r\n## Scope and sourcing\r\n- [x] This PR is focused on the Node.js Security Cheat Sheet.\r\n- [x] Technical claims and recommendations are supported by linked primary sources.\r\n\r\n## AI Tool Usage Disclosure (required for all PRs)\r\n\r\n- [ ] I have NOT used any AI tool to generate the contents of this PR.\r\n- [x] I have used AI tools to generate the contents of this PR.\r\n\r\n",
+      "state": "open",
+      "merged_at": null,
+      "user": {
+        "login": "aaa-aashna"
+      }
+    }
+  },
+  "now": "2026-11-17T07:30:00Z"
+}

@@ -1,0 +1,368 @@
+{
+  "repo": "OWASP/CheatSheetSeries",
+  "number": 2789,
+  "issue": {
+    "number": 2789,
+    "title": "Update: Multi_Tenant_Security_Cheat_Sheet",
+    "body": "## What is missing or needs to be updated?\n\nThe Multi-Tenant Security Cheat Sheet is 1,063 lines, and 771 of them are code. The design guidance is good, but the sheet carries full implementations we can't maintain. The biggest blocks are lifecycle (about 154 code lines), logging (143), file storage (107), rate limiting (106) and SQLAlchemy (75).\n\nThe sheet also never links the IDOR or Logging cheat sheets, and the Do's and Don'ts list restates every section.\n\n## How should this be resolved?\n\n- Keep each of the 8 sections focused on the design decision and its tradeoffs. The RLS guidance (`SET LOCAL`, `BYPASSRLS`, connection reuse) and the backup-restore guidance are the strongest parts, so keep them.\n- Cut the long examples down to the smallest snippet that makes the point, or remove them and link to vendor or framework docs.\n- Some requirements live only in code today (for example, revoking sessions and API keys at offboarding). Move those into the prose before cutting the code, and fix any prose that explains a removed example.\n- Add links to the [IDOR](https://cheatsheetseries.owasp.org/cheatsheets/Insecure_Direct_Object_Reference_Prevention_Cheat_Sheet.html) and [Logging](https://cheatsheetseries.owasp.org/cheatsheets/Logging_Cheat_Sheet.html) cheat sheets.\n- Shorten the Do's and Don'ts so it doesn't restate every section.\n\nSmall PRs, one section at a time, please. They are much easier to review than one big rewrite :)\n",
+    "state": "open",
+    "user": {
+      "login": "jmanico"
+    },
+    "author_association": "MEMBER",
+    "labels": [
+      {
+        "name": "ACK_OBTAINED"
+      },
+      {
+        "name": "UPDATE_CS"
+      }
+    ],
+    "assignees": [
+      {
+        "login": "bhushan4work"
+      }
+    ],
+    "created_at": "2026-10-16T08:59:19Z",
+    "updated_at": "2026-11-16T12:24:51Z",
+    "comments": 8
+  },
+  "comments": [
+    {
+      "user": {
+        "login": "bhushan4work"
+      },
+      "author_association": "NONE",
+      "created_at": "2026-10-17T12:34:59Z",
+      "body": "I would like to work on this issue, waiting for assignment. thanks "
+    },
+    {
+      "user": {
+        "login": "mackowski"
+      },
+      "author_association": "MEMBER",
+      "created_at": "2026-10-19T09:35:50Z",
+      "body": "@bhushan4work assigned!"
+    },
+    {
+      "user": {
+        "login": "shiragemalashri-shri"
+      },
+      "author_association": "NONE",
+      "created_at": "2026-10-21T06:58:38Z",
+      "body": "Hi! I'm a third-year AI & Data Science engineering student, and I want to become a regular, long-term contributor to OWASP.\n\nBefore choosing a repository, I'd like to understand how new contributors can get started and learn from experienced members of the community.\n\nCould you please guide me on how to begin contributing, and whether there is an official community channel, mailing list, or group where I can connect with project maintainers and get guidance?\n\nI'd like to find a project where I can learn, contribute consistently, and grow with the community over time.\n\nThank you!"
+    },
+    {
+      "user": {
+        "login": "jmanico"
+      },
+      "author_association": "MEMBER",
+      "created_at": "2026-10-21T07:49:20Z",
+      "body": "@shiragemalashri-shri Thank you for your interest in contributing. Please begin by carefully studying the [OWASP Cheat Sheet Series](https://cheatsheetseries.owasp.org/), along with our [Contributing Guide](https://github.com/OWASP/CheatSheetSeries/blob/master/CONTRIBUTING.md) and [Cheat Sheet Writing Guide](https://github.com/OWASP/CheatSheetSeries/blob/master/GUIDELINE.md). Take the time to read the material, follow its references, and work through the guidance yourself.\n\nThat groundwork needs to come first, before asking maintainers for onboarding or proposing contributions. Understanding the existing body of work is necessary both to contribute usefully and to give us enough context to help you.\n\nAfter that preparation, please bring specific questions: identify the sheet and section you read, explain what you understand, and describe precisely what remains unclear or what improvement you propose. Maintainer time is limited, so we expect you to make that independent effort first.\n\nPlease also keep this issue focused on the Multi-Tenant Security Cheat Sheet update. For general community questions after doing that preparation, use the `#cheatsheets` channel on [OWASP Slack](https://owasp.org/slack/invite).\n"
+    },
+    {
+      "user": {
+        "login": "mackowski"
+      },
+      "author_association": "MEMBER",
+      "created_at": "2026-11-03T10:55:59Z",
+      "body": "Hi @bhushan4work, thanks again for #2828. Are you planning to continue with the remaining sections (the other long code examples, links to the IDOR and Logging cheat sheets, a shorter Do's and Don'ts)? If we don't hear back by November 10, we'll unassign the issue so someone else can pick up the rest.\n"
+    },
+    {
+      "user": {
+        "login": "bhushan4work"
+      },
+      "author_association": "NONE",
+      "created_at": "2026-11-03T11:05:33Z",
+      "body": "@mackowski yes, i'd like to continue working on the remaining sections. thanks for checking!\n\n#2828 covered the tenant onboarding/offboarding section, including moving the session and API-key revocation requirements into prose and removing the lengthy lifecycle implementation.\n\ni'm planning to continue with separate, focused PRs for the remaining sections, starting with logging, followed by file storage, rate limiting, SQLAlchemy, IDOR, tenant identification, and cache isolation. i'll also add the IDOR and Logging cheat sheet references in their respective sections and finish with a shorter Do's and Don'ts list. so this will be a total of 8 more prs so do u want it this way or should I squash them to less no of prs ?? lemme know before I start working on it \n\ni'll preserve the existing RLS and backup-restore guidance, and make sure any important security requirements currently expressed only in code are retained in the prose before reducing the examples."
+    },
+    {
+      "user": {
+        "login": "mackowski"
+      },
+      "author_association": "MEMBER",
+      "created_at": "2026-11-03T12:23:57Z",
+      "body": "Thanks @bhushan4work, the plan looks good! Please keep them as separate, focused PRs, as the issue asks: one section per PR is much easier to review. Two small requests:\n\n- Since all of them touch the same file, please open them one at a time and start the next one after the previous one is merged, to avoid conflicts.\n- If a change turns out to be tiny (for example, only adding a cross-link), feel free to fold it into the PR for a neighbouring section. Leaving the Do's and Don'ts for last makes sense, since it depends on what the sections end up saying.\n\nLooking forward to the logging PR!"
+    },
+    {
+      "user": {
+        "login": "bhushan4work"
+      },
+      "author_association": "NONE",
+      "created_at": "2026-11-03T12:32:07Z",
+      "body": "I ll follow ur instructions. thanks for the heads up. "
+    }
+  ],
+  "timeline": [
+    {
+      "event": "labeled",
+      "created_at": "2026-10-16T08:59:20Z",
+      "actor": {
+        "login": "jmanico"
+      },
+      "label": {
+        "name": "ACK_OBTAINED"
+      }
+    },
+    {
+      "event": "labeled",
+      "created_at": "2026-10-16T08:59:21Z",
+      "actor": {
+        "login": "jmanico"
+      },
+      "label": {
+        "name": "UPDATE_CS"
+      }
+    },
+    {
+      "event": "labeled",
+      "created_at": "2026-10-16T08:59:21Z",
+      "actor": {
+        "login": "jmanico"
+      },
+      "label": {
+        "name": "HELP_WANTED"
+      }
+    },
+    {
+      "event": "assigned",
+      "created_at": "2026-10-19T09:35:54Z",
+      "actor": {
+        "login": "mackowski"
+      },
+      "assignee": {
+        "login": "bhushan4work"
+      }
+    },
+    {
+      "event": "unlabeled",
+      "created_at": "2026-10-19T09:35:58Z",
+      "actor": {
+        "login": "mackowski"
+      },
+      "label": {
+        "name": "HELP_WANTED"
+      }
+    },
+    {
+      "event": "cross-referenced",
+      "created_at": "2026-10-19T13:45:01Z",
+      "actor": {
+        "login": "bhushan4work"
+      },
+      "source": {
+        "type": "issue",
+        "issue": {
+          "number": 2828,
+          "repository": {
+            "full_name": "OWASP/CheatSheetSeries"
+          },
+          "title": "Reduce tenant lifecycle implementation in Multi-Tenant cheat sheet",
+          "state": "closed",
+          "pull_request": {
+            "merged_at": "2026-10-22T12:22:59Z"
+          }
+        }
+      }
+    },
+    {
+      "event": "cross-referenced",
+      "created_at": "2026-11-03T12:43:35Z",
+      "actor": {
+        "login": "bhushan4work"
+      },
+      "source": {
+        "type": "issue",
+        "issue": {
+          "number": 2897,
+          "repository": {
+            "full_name": "OWASP/CheatSheetSeries"
+          },
+          "title": "Reduce tenant-aware logging implementation in Multi-Tenant cheat sheet",
+          "state": "closed",
+          "pull_request": {
+            "merged_at": "2026-11-05T16:36:23Z"
+          }
+        }
+      }
+    },
+    {
+      "event": "cross-referenced",
+      "created_at": "2026-11-09T01:41:56Z",
+      "actor": {
+        "login": "bhushan4work"
+      },
+      "source": {
+        "type": "issue",
+        "issue": {
+          "number": 2902,
+          "repository": {
+            "full_name": "OWASP/CheatSheetSeries"
+          },
+          "title": "Reduce file storage implementation in Multi-Tenant cheat sheet",
+          "state": "closed",
+          "pull_request": {
+            "merged_at": "2026-11-08T19:50:34Z"
+          }
+        }
+      }
+    },
+    {
+      "event": "cross-referenced",
+      "created_at": "2026-11-09T02:18:58Z",
+      "actor": {
+        "login": "bhushan4work"
+      },
+      "source": {
+        "type": "issue",
+        "issue": {
+          "number": 2925,
+          "repository": {
+            "full_name": "OWASP/CheatSheetSeries"
+          },
+          "title": "reduce tenant-aware rate-limiting implementation in multi-tenant cheat sheet",
+          "state": "closed",
+          "pull_request": {
+            "merged_at": "2026-11-09T08:38:03Z"
+          }
+        }
+      }
+    },
+    {
+      "event": "cross-referenced",
+      "created_at": "2026-11-09T09:44:40Z",
+      "actor": {
+        "login": "bhushan4work"
+      },
+      "source": {
+        "type": "issue",
+        "issue": {
+          "number": 2927,
+          "repository": {
+            "full_name": "OWASP/CheatSheetSeries"
+          },
+          "title": "Reduce SQLAlchemy implementation in Multi-Tenant cheat sheet",
+          "state": "closed",
+          "pull_request": {
+            "merged_at": "2026-11-15T22:08:09Z"
+          }
+        }
+      }
+    },
+    {
+      "event": "cross-referenced",
+      "created_at": "2026-11-09T14:14:47Z",
+      "actor": {
+        "login": "bhushan4work"
+      },
+      "source": {
+        "type": "issue",
+        "issue": {
+          "number": 2907,
+          "repository": {
+            "full_name": "OWASP/CheatSheetSeries"
+          },
+          "title": "docs: condense malformed XML document and jumbo payload guidance",
+          "state": "closed",
+          "pull_request": {
+            "merged_at": null
+          }
+        }
+      }
+    },
+    {
+      "event": "cross-referenced",
+      "created_at": "2026-11-16T12:24:51Z",
+      "actor": {
+        "login": "bhushan4work"
+      },
+      "source": {
+        "type": "issue",
+        "issue": {
+          "number": 2981,
+          "repository": {
+            "full_name": "OWASP/CheatSheetSeries"
+          },
+          "title": "docs: simplify IDOR guidance in Multi-Tenant Security Cheat Sheet",
+          "state": "open",
+          "pull_request": {
+            "merged_at": null
+          }
+        }
+      }
+    }
+  ],
+  "pulls": {
+    "2828": {
+      "number": 2828,
+      "title": "Reduce tenant lifecycle implementation in Multi-Tenant cheat sheet",
+      "body": "# You're A Rockstar\r\n\r\nThank you for submitting a Pull Request (PR) to the Cheat Sheet Series.\r\n\r\nPlease make sure that for your contribution:\r\n\r\n- [ ] In case of a new Cheat Sheet, you have used the [[Cheat Sheet template](https://github.com/OWASP/CheatSheetSeries/templates/New_CheatSheet.md)](../templates/New_CheatSheet.md).\r\n- [ ] All the markdown files do not raise any validation [policy](https://github.com/OWASP/CheatSheetSeries/actions?query=workflow%3A%22Markdown+Link+Check%22) violation, see the [policy](https://github.com/OWASP/CheatSheetSeries/actions?query=workflow%3A%22Markdown+Link+Check%22).\r\n- [x] All the markdown files follow these [[format rules](https://github.com/OWASP/CheatSheetSeries/CONTRIBUTING.md#markdown)](../CONTRIBUTING.md#markdown).\r\n- [x] All your assets are stored in the **assets** folder.\r\n- [x] All the images used are in the **PNG** format.\r\n- [x] Any references to websites have been formatted as `[TEXT](URL)`.\r\n- [x] You verified/tested the effectiveness of your contribution (e.g., the defensive code proposed is really an effective remediation? Please verify it works!).\r\n- [ ] The CI build of your PR pass, see the build status [[here](https://github.com/OWASP/CheatSheetSeries/actions)](https://github.com/OWASP/CheatSheetSeries/actions).\r\n\r\n## Scope and sourcing (required)\r\n\r\n- [x] This PR is focused: it modifies a single cheat sheet, or a small coordinated set, and the scope is described in the PR body.\r\n- [ ] Every technical claim, recommendation, or threat assertion added in this PR is supported by a primary source (RFC, NIST, OWASP standard, vendor documentation, peer-reviewed research) linked inline as `[text](URL)`.\r\n- [ ] I have read each source I cite and confirm it actually supports the claim. I have not relied on summaries, hearsay, or model-generated citations.\r\n\r\nIf your PR is related to an issue, please finish your PR text with the following line:\r\n\r\nThis PR fixes part of issue #2789.\r\n\r\n## AI Tool Usage Disclosure (required for all PRs)\r\n\r\nPlease select exactly one of the following options. PRs that leave this section blank will be closed.\r\n\r\n- [ ] I have NOT used any AI tool to generate the contents of this PR.\r\n- [x] I have used AI tools to generate the contents of this PR. I have verified the contents and I affirm the results. The LLM used is `opencode deepseek flash free` and the prompt used is `Refactor the tenant onboarding/offboarding section into concise security guidance, preserve all security requirements and unrelated RLS and backup-restore guidance, remove lengthy implementation examples, and validate the focused diff.` I have independently verified every citation and technical claim against the cited source. [Feel free to add more details if needed]\r\n\r\nThank you again for your contribution :smiley:",
+      "state": "closed",
+      "merged_at": "2026-10-22T12:22:59Z",
+      "user": {
+        "login": "bhushan4work"
+      }
+    },
+    "2897": {
+      "number": 2897,
+      "title": "Reduce tenant-aware logging implementation in Multi-Tenant cheat sheet",
+      "body": "refactored the tenant-aware logging and monitoring section by removing the oversized python implementation and moving its essential security requirements into concise prose. preserved tenant and platform audit permissions, explicit cross-tenant authorization, tamper-resistant audit storage, suspicious-access monitoring, and audit retention guidance. added the owasp logging cheat sheet reference. modified only the target cheat sheet.\r\n\r\n# you're a rockstar\r\n\r\nthank you for submitting a pull request (pr) to the cheat sheet series.\r\n\r\nplease make sure that for your contribution:\r\n\r\n- [ ] in case of a new cheat sheet, you have used the [[[cheat sheet template](https://github.com/OWASP/CheatSheetSeries/templates/New_CheatSheet.md)](https://github.com/OWASP/CheatSheetSeries/templates/New_CheatSheet.md)]\\(../templates/New_CheatSheet.md).\r\n\r\n- [ ] all the markdown files do not raise any validation [[policy](https://github.com/OWASP/CheatSheetSeries/actions?query=workflow%3A%22Markdown+Link+Check%22)](https://github.com/OWASP/CheatSheetSeries/actions?query=workflow%3A%22Markdown+Link+Check%22) violation, see the [[policy](https://github.com/OWASP/CheatSheetSeries/actions?query=workflow%3A%22Markdown+Link+Check%22)](https://github.com/OWASP/CheatSheetSeries/actions?query=workflow%3A%22Markdown+Link+Check%22).\r\n\r\n- [x] all the markdown files follow these [[[format rules](https://github.com/OWASP/CheatSheetSeries/CONTRIBUTING.md#markdown)](https://github.com/OWASP/CheatSheetSeries/CONTRIBUTING.md#markdown)]\\(../CONTRIBUTING.md#markdown).\r\n\r\n- [x] all your assets are stored in the **assets** folder.\r\n\r\n- [x] all the images used are in the **png** format.\r\n\r\n- [x] any references to websites have been formatted as `[text](url)`.\r\n\r\n- [x] you verified/tested the effectiveness of your contribution (e.g., the defensive code proposed is really an effective remediation? please verify it works!).\r\n\r\n- [ ] the ci build of your pr pass, see the build status [[[here](https://github.com/OWASP/CheatSheetSeries/actions)](https://github.com/OWASP/CheatSheetSeries/actions)]\\([https://github.com/OWASP/CheatSheetSeries/actions](https://github.com/OWASP/CheatSheetSeries/actions)).\r\n\r\n## scope and sourcing (required)\r\n\r\n- [x] this pr is focused: it modifies a single cheat sheet, or a small coordinated set, and the scope is described in the pr body.\r\n- [ ] every technical claim, recommendation, or threat assertion added in this pr is supported by a primary source (rfc, nist, owasp standard, vendor documentation, peer-reviewed research) linked inline as `[text](url)`.\r\n- [x] i have read each source i cite and confirm it actually supports the claim. i have not relied on summaries, hearsay, or model-generated citations.\r\n\r\nif your pr is related to an issue, please finish your pr text with the following line:\r\n\r\nthis pr fixes part of issue #2789.\r\n\r\n## ai tool usage disclosure (required for all prs)\r\n\r\nplease select exactly one of the following options. prs that leave this section blank will be closed.\r\n\r\n- [x] i have NOT used any ai tool to generate the contents of this pr.\r\n- [ ] i have used ai tools to generate the contents of this pr. i have verified the contents and i affirm the results.&#x20;\r\n\r\nthank you again for your contribution \\:smiley:",
+      "state": "closed",
+      "merged_at": "2026-11-05T16:36:23Z",
+      "user": {
+        "login": "bhushan4work"
+      }
+    },
+    "2902": {
+      "number": 2902,
+      "title": "Reduce file storage implementation in Multi-Tenant cheat sheet",
+      "body": "\r\n- remove illustrative file storage python implementation and details wrapper\r\n- document object classification and tenant isolation boundaries in prose\r\n- require validation of canonical tenant ids and object paths against traversal\r\n- clarify authorization of tenant, object, and operation for all actions and signed urls\r\n- document ownership verification and exact tenant-prefix deletion boundaries\r\n- note object versions, replicas, backups, and encryption requirements\r\n\r\n# you're a rockstar\r\n\r\nthank you for submitting a pull request (pr) to the cheat sheet series.\r\n\r\n> :triangular_flag_on_post: if your pr is related to grammar/typo mistakes, please double-check the file for other mistakes in order to fix all the issues in the current cheat sheet.\r\n\r\nplease make sure that for your contribution:\r\n\r\n- [ ] in case of a new cheat sheet, you have used the [[cheat sheet template](https://github.com/OWASP/CheatSheetSeries/templates/new_cheatsheet.md)](../templates/new_cheatsheet.md).\r\n- [x] all the markdown files do not raise any validation [policy](https://github.com/owasp/cheatsheetseries/actions?query=workflow%3a%22markdown+link+check%22) violation, see the [policy](https://github.com/owasp/cheatsheetseries/actions?query=workflow%3a%22markdown+link+check%22).\r\n- [x] all the markdown files follow these [[format rules](https://github.com/OWASP/CheatSheetSeries/contributing.md#markdown)](../contributing.md#markdown).\r\n- [x] all your assets are stored in the **assets** folder.\r\n- [x] all the images used are in the **png** format.\r\n- [x] any references to websites have been formatted as `[text](url)`\r\n- [x] you verified/tested the effectiveness of your contribution (e.g., the defensive code proposed is really an effective remediation? please verify it works!).\r\n- [x] the ci build of your pr pass, see the build status [[here](https://github.com/owasp/cheatsheetseries/actions)](https://github.com/owasp/cheatsheetseries/actions).\r\n\r\n## scope and sourcing (required)\r\n\r\n- [x] this pr is focused: it modifies a single cheat sheet, or a small coordinated set, and the scope is described in the pr body.\r\n- [x] every technical claim, recommendation, or threat assertion added in this pr is supported by a primary source (rfc, nist, owasp standard, vendor documentation, peer-reviewed research) linked inline as `[text](url)`.\r\n- [x] i have read each source i cite and confirm it actually supports the claim. i have not relied on summaries, hearsay, or model-generated citations.\r\n\r\nthis pr fixes part of issue https://github.com/OWASP/CheatSheetSeries/issues/2789\r\n\r\n## ai tool usage disclosure (required for all prs)\r\n\r\nplease select exactly one of the following options. prs that leave this section blank will be closed.\r\n\r\n- [x] i have not used any ai tool to generate the contents of this pr.\r\n- [ ] i have used ai tools to generate the contents of this pr. i have verified\r\n    the contents and i affirm the results. the llm used is `[llm name and version]`\r\n    and the prompt used is `[your prompt here]`. i have independently verified every citation and technical claim against the cited source. [feel free to add more details if needed]\r\n\r\nthank you again for your contribution :smiley:",
+      "state": "closed",
+      "merged_at": "2026-11-08T19:50:34Z",
+      "user": {
+        "login": "bhushan4work"
+      }
+    },
+    "2925": {
+      "number": 2925,
+      "title": "reduce tenant-aware rate-limiting implementation in multi-tenant cheat sheet",
+      "body": "# you're a rockstar\r\n\r\nthank you for submitting a pull request (pr) to the cheat sheet series.\r\n\r\nplease make sure that for your contribution:\r\n\r\n- [x] in case of a new cheat sheet, you have used the [cheat sheet template](../templates/new_cheatsheet.md).\r\n- [x] all the markdown files do not raise any validation policy violation, see the [policy](https://github.com/owasp/cheatsheetseries/actions?query=workflow%3a%22markdown+link+check%22).\r\n- [x] all the markdown files follow these [format rules](../contributing.md#markdown).\r\n- [x] all your assets are stored in the **assets** folder.\r\n- [x] all the images used are in the **png** format.\r\n- [x] any references to websites have been formatted as `[text](url)`\r\n- [x] you verified/tested the effectiveness of your contribution (e.g., the defensive code proposed is really an effective remediation? please verify it works!).\r\n- [x] the ci build of your pr pass, see the build status [here](https://github.com/owasp/cheatsheetseries/actions).\r\n\r\n## scope and sourcing (required)\r\n\r\n- [x] this pr is focused: it modifies a single cheat sheet, or a small coordinated set, and the scope is described in the pr body.\r\n- [x] every technical claim, recommendation, or threat assertion added in this pr is supported by a primary source (rfc, nist, owasp standard, vendor documentation, peer-reviewed research) linked inline as `[text](url)`.\r\n- [x] i have read each source i cite and confirm it actually supports the claim. i have not relied on summaries, hearsay, or model-generated citations.\r\n\r\nthis pr fixes part of issue #2789.\r\n\r\n## ai tool usage disclosure (required for all prs)\r\n\r\n- [x] i have not used any ai tool to generate the contents of this pr.\r\n- [ ]  i have used ai tools to generate the contents of this pr. i have verified\r\n    the contents and i affirm the results. the llm used is `[llm name and version]`\r\n    and the prompt used is `[your prompt here]`. i have independently verified every citation and technical claim against the cited source. [feel free to add more details if needed]\r\n\r\nthank you again for your contribution :smiley:",
+      "state": "closed",
+      "merged_at": "2026-11-09T08:38:03Z",
+      "user": {
+        "login": "bhushan4work"
+      }
+    },
+    "2927": {
+      "number": 2927,
+      "title": "Reduce SQLAlchemy implementation in Multi-Tenant cheat sheet",
+      "body": "- remove illustrative python/sqlalchemy implementation and details wrapper\n- document orm-level filtering as defense in depth rather than a complete boundary\n- preserve sqlalchemy guidance on do_orm_execute and with_loader_criteria\n- note deprecation of queryevents.before_compile for attribute/relationship loads\n- detail orm limitations regarding raw sql, core connections, and bulk operations\n- emphasize database-level policies and constrained roles as the final boundary\n\n# you're a rockstar\n\nthank you for submitting a pull request (pr) to the cheat sheet series.\n\n> :triangular_flag_on_post: if your pr is related to grammar/typo mistakes, please double-check the file for other mistakes in order to fix all the issues in the current cheat sheet.\n\nplease make sure that for your contribution:\n\n- [x] in case of a new cheat sheet, you have used the [cheat sheet template](../templates/new_cheatsheet.md).\n- [x] all the markdown files do not raise any validation policy violation, see the [policy](https://github.com/owasp/cheatsheetseries/actions?query=workflow%3a%22markdown+link+check%22).\n- [x] all the markdown files follow these [format rules](../contributing.md#markdown).\n- [x] all your assets are stored in the **assets** folder.\n- [x] all the images used are in the **png** format.\n- [x] any references to websites have been formatted as `[text](url)`\n- [x] you verified/tested the effectiveness of your contribution (e.g., the defensive code proposed is really an effective remediation? please verify it works!).\n- [x] the ci build of your pr pass, see the build status [here](https://github.com/owasp/cheatsheetseries/actions).\n\n## scope and sourcing (required)\n\n- [x] this pr is focused: it modifies a single cheat sheet, or a small coordinated set, and the scope is described in the pr body.\n- [x] every technical claim, recommendation, or threat assertion added in this pr is supported by a primary source (rfc, nist, owasp standard, vendor documentation, peer-reviewed research) linked inline as `[text](url)`.\n- [x] i have read each source i cite and confirm it actually supports the claim. i have not relied on summaries, hearsay, or model-generated citations.\n\nrefs #2789 \n\n## ai tool usage disclosure (required for all prs)\n\nplease select exactly one of the following options. prs that leave this section blank will be closed.\n\n- [x] i have not used any ai tool to generate the contents of this pr.\n- [ ] i have used ai tools to generate the contents of this pr. i have verified\n    the contents and i affirm the results. the llm used is `[llm name and version]`\n    and the prompt used is `[your prompt here]`. i have independently verified every citation and technical claim against the cited source. [feel free to add more details if needed]\n\nthank you again for your contribution :smiley:",
+      "state": "closed",
+      "merged_at": "2026-11-15T22:08:09Z",
+      "user": {
+        "login": "bhushan4work"
+      }
+    },
+    "2907": {
+      "number": 2907,
+      "title": "docs: condense malformed XML document and jumbo payload guidance",
+      "body": "Refs #2796\n\n- condense guidance for handling malformed xml documents and fatal errors\n- clarify that parsers must not continue normal processing after a fatal error, consistent with the [[w3c xml specification](https://www.w3.org/TR/xml/#sec-terminology)](https://www.w3.org/TR/xml/#sec-terminology)\n- recommend disabling recovery or lenient parsing modes for untrusted input\n- streamline coercive parsing guidance and add nesting depth and request size mitigations\n- clarify jumbo payload threats as resource exhaustion through memory, cpu, and network bandwidth\n- add mitigations for jumbo payloads, including request body limits, parser resource constraints, and streaming parsers\n- reference [[oracle jaxp security guide](https://docs.oracle.com/en/java/javase/25/security/java-api-xml-processing-jaxp-security-guide.html)](https://docs.oracle.com/en/java/javase/25/security/java-api-xml-processing-jaxp-security-guide.html) for parser limits such as `maxelementdepth` and `entityexpansionlimit`\n- remove redundant examples, truncated snippets, and excessive formatting\n\n# you're a rockstar\n\nthank you for submitting a pull request (pr) to the cheat sheet series.\n\n> :triangular_flag_on_post: if your pr is related to grammar/typo mistakes, please double-check the file for other mistakes in order to fix all the issues in the current cheat sheet.\n\nplease make sure that for your contribution:\n\n- [ ] in case of a new cheat sheet, you have used the [[cheat sheet template](https://github.com/OWASP/CheatSheetSeries/templates/new_cheatsheet.md)](../templates/new_cheatsheet.md).\n- [x] all the markdown files do not raise any validation [policy](https://github.com/owasp/cheatsheetseries/actions?query=workflow%3a%22markdown+link+check%22) violation, see the [policy](https://github.com/owasp/cheatsheetseries/actions?query=workflow%3a%22markdown+link+check%22).\n- [x] all the markdown files follow these [[format rules](https://github.com/OWASP/CheatSheetSeries/contributing.md#markdown)](../contributing.md#markdown).\n- [x] all your assets are stored in the **assets** folder.\n- [x] all the images used are in the **png** format.\n- [x] any references to websites have been formatted as `[text](url)`\n- [x] you verified/tested the effectiveness of your contribution (e.g., the defensive code proposed is really an effective remediation? please verify it works!).\n- [x] the ci build of your pr pass, see the build status [[here](https://github.com/owasp/cheatsheetseries/actions)](https://github.com/owasp/cheatsheetseries/actions).\n\n## scope and sourcing (required)\n\n- [x] this pr is focused: it modifies a single cheat sheet, or a small coordinated set, and the scope is described in the pr body.\n- [x] every technical claim, recommendation, or threat assertion added in this pr is supported by a primary source (rfc, nist, owasp standard, vendor documentation, peer-reviewed research) linked inline as `[text](url)`.\n- [x] i have read each source i cite and confirm it actually supports the claim. i have not relied on summaries, hearsay, or model-generated citations.\n\n## ai tool usage disclosure (required for all prs)\n\nplease select exactly one of the following options. prs that leave this section blank will be closed.\n\n- [x] i have not used any ai tool to generate the contents of this pr.\n- [ ] i have used ai tools to generate the contents of this pr. i have verified\n    the contents and i affirm the results. the llm used is `[llm name and version]`\n    and the prompt used is `[your prompt here]`. i have independently verified every citation and technical claim against the cited source. [feel free to add more details if needed]\n\nthank you again for your contribution :smiley:",
+      "state": "closed",
+      "merged_at": null,
+      "user": {
+        "login": "bhushan4work"
+      }
+    },
+    "2981": {
+      "number": 2981,
+      "title": "docs: simplify IDOR guidance in Multi-Tenant Security Cheat Sheet",
+      "body": "- Replace lengthy illustrative Python repository implementation with a concise tenant-scoped lookup\n- Preserve the four design requirements for tenant authorization, scoping, boundary enforcement, and opaque IDs\n- Note that composite keys are one option alongside database-layer isolation\n- Add reference link to the OWASP Insecure Direct Object Reference Prevention Cheat Sheet\n\nPart of #2789\n\n# You're A Rockstar\n\nThank you for submitting a Pull Request (PR) to the Cheat Sheet Series.\n\n> :triangular_flag_on_post: If your PR is related to grammar/typo mistakes, please double-check the file for other mistakes in order to fix all the issues in the current cheat sheet.\n\nPlease make sure that for your contribution:\n\n- [ ] In case of a new Cheat Sheet, you have used the [Cheat Sheet template](../templates/New_CheatSheet.md).\n- [x] All the markdown files do not raise any validation policy violation, see the [policy](https://github.com/OWASP/CheatSheetSeries/actions?query=workflow%3A%22Markdown+Link+Check%22).\n- [x] All the markdown files follow these [format rules](../CONTRIBUTING.md#markdown).\n- [ ] All your assets are stored in the **assets** folder.\n- [ ] All the images used are in the **PNG** format.\n- [x] Any references to websites have been formatted as `[TEXT](URL)`\n- [x] You verified/tested the effectiveness of your contribution (e.g., the defensive code proposed is really an effective remediation? Please verify it works!).\n- [x] The CI build of your PR pass, see the build status [here](https://github.com/OWASP/CheatSheetSeries/actions).\n\n## Scope and sourcing (required)\n\n- [x] This PR is focused: it modifies a single cheat sheet, or a small coordinated set, and the scope is described in the PR body.\n- [x] Every technical claim, recommendation, or threat assertion added in this PR is supported by a primary source (RFC, NIST, OWASP standard, vendor documentation, peer-reviewed research) linked inline as `[text](URL)`.\n- [x] I have read each source I cite and confirm it actually supports the claim. I have not relied on summaries, hearsay, or model-generated citations.\n\n## AI Tool Usage Disclosure (required for all PRs)\n\nPlease select exactly one of the following options. PRs that leave this section blank will be closed.\n\n- [x] I have NOT used any AI tool to generate the contents of this PR.\n- [ ] I have used AI tools to generate the contents of this PR. I have verified\n    the contents and I affirm the results. The LLM used is `[llm name and version]`\n    and the prompt used is `[your prompt here]`. I have independently verified every citation and technical claim against the cited source. [Feel free to add more details if needed]\n\nThank you again for your contribution :smiley:\n",
+      "state": "open",
+      "merged_at": null,
+      "user": {
+        "login": "bhushan4work"
+      }
+    }
+  },
+  "now": "2026-11-17T07:30:00Z"
+}

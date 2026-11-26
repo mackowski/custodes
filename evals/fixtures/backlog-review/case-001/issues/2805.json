@@ -1,0 +1,227 @@
+{
+  "repo": "OWASP/CheatSheetSeries",
+  "number": 2805,
+  "issue": {
+    "number": 2805,
+    "title": "New CS proposal: Secure_Application.md (named to be refined)",
+    "body": "## What is the proposed Cheat Sheet about?\n\nA general \"how to make an application secure\" which would serve:\n\n1) as an entry point to other CheatSheet\n2) provide an overview of important topics\n3) avoid duplicated generic content\n\n## What security issues are commonly encountered related to this area?\n\n## What is the objective of the Cheat Sheet?\n\n* Introduce major topics\n* point to other CheatSheet\n* explain which Chet Sheets I should care about for my application (eg. \"You are using a database? Check out the SQLi Cheat Sheet.\") without repeating it in each \"language\" Cheat Sheet\n\n## What other resources exist in this area?\n\nOWASP Top 10\n",
+    "state": "open",
+    "user": {
+      "login": "randomstuff"
+    },
+    "author_association": "MEMBER",
+    "labels": [
+      {
+        "name": "NEW_CS"
+      },
+      {
+        "name": "HELP_WANTED"
+      },
+      {
+        "name": "ACK_OBTAINED"
+      }
+    ],
+    "assignees": [
+      {
+        "login": "V-2007-P"
+      }
+    ],
+    "created_at": "2026-10-18T14:31:00Z",
+    "updated_at": "2026-11-16T15:26:32Z",
+    "comments": 12
+  },
+  "comments": [
+    {
+      "user": {
+        "login": "randomstuff"
+      },
+      "author_association": "MEMBER",
+      "created_at": "2026-10-18T21:50:49Z",
+      "body": "Feedback welcome about:\n\n* name of the Cheat Sheet;\n* general structure."
+    },
+    {
+      "user": {
+        "login": "V-2007-P"
+      },
+      "author_association": "NONE",
+      "created_at": "2026-10-19T08:26:54Z",
+      "body": "Hi @randomstuff @mackowski ,\n\nI think this is a useful idea. It would be helpful to have one place where developers can quickly find the relevant Cheat Sheets based on what they're building, without repeating the same security guidance across multiple sheets.\n\n**On the name:** I'd suggest `Application_Security_Architecture_Cheat_Sheet.md`. I think it fits the idea well and follows the repository's existing naming convention.\n\n**On the structure:** Instead of organizing everything by vulnerability type, it might be more useful to group the content around common application features, for example:\n\n1. **Authentication and Sessions** \u2014 authentication, session management, and authorization.\n2. **Databases and Data Storage** \u2014 database security, query parameterization, and secrets management.\n3. **APIs and Communication** \u2014 REST, GraphQL, HTTP headers, and transport security.\n4. **User Input and File Uploads** \u2014 input validation, XSS prevention, and file handling.\n5. **Dependencies and Operations** \u2014 dependency management, logging, and error handling.\n\nEach section could briefly explain when a particular security topic matters and point developers to the relevant Cheat Sheets, rather than repeating the detailed guidance already covered there. This would also help keep the new sheet distinct from the existing indexes.\n\nWhat do you think about this approach?\n\n"
+    },
+    {
+      "user": {
+        "login": "randomstuff"
+      },
+      "author_association": "MEMBER",
+      "created_at": "2026-10-19T08:45:24Z",
+      "body": "The structure looks good. I was thinking about:\n\n* Having a dedicated \"injection\" section (which overlaps slightly with your proposed \"database and data storage\" and \"User Input and File Upload\". I would keep \"query parameterization\" in \"injection section\" as it is more a \"coding\" consideration than an deployment/architectural consideration.\n* Wondering whether it would make sense to have a \"crypto\" section with transport layer security, end-to-end security and at-rest security. This overlaps with your \"APIs and Communication\" section.\n* \"User Input and File Uploads\", I would generalize this slightly as this is not only a matter of \"user input\" but any input (eg. from external services as well).\n\nI'll try to propose some structure so we can discuss this.\n\nMaybe a weak alignment of the structure with OWASP Top 10 would make sense."
+    },
+    {
+      "user": {
+        "login": "V-2007-P"
+      },
+      "author_association": "NONE",
+      "created_at": "2026-10-19T08:52:27Z",
+      "body": "That makes sense, especially keeping injection separate and covering input from external sources as well. A separate crypto section could also make sense, and some alignment with the OWASP Top 10 could help with navigation.\n\nI'd be happy to work on this. Would you be comfortable assigning the issue to me once we've agreed on the structure? I'll wait for your proposed outline before starting any implementation."
+    },
+    {
+      "user": {
+        "login": "V-2007-P"
+      },
+      "author_association": "NONE",
+      "created_at": "2026-10-22T04:35:43Z",
+      "body": "Hi @randomstuff and @mackowski,\n\nThanks for assigning this issue to me. I've put together a possible outline based on our discussion and the Cheat Sheet Writing Guide. I wanted to get your feedback on the structure before starting the implementation.\n\nProposed filename:** `Application_Security_Architecture_Cheat_Sheet.md`\nProposed structure:-\n\n1.  Identity, Authentication, and Access Control** \u2014 user and service identities, authentication, sessions, authorization, and trust boundaries.\n2.  Input Handling and Injection Prevention** \u2014 untrusted input from users, files, APIs, webhooks, and external services, including validation, query parameterization, injection prevention, and output encoding.\n3.  Cryptography and Sensitive Data Protection** \u2014 transport security, data at rest, end-to-end security where applicable, secrets management, and key management.\n4.  Application Architecture and Communication Boundaries** \u2014 API and service-to-service security, secure defaults, error handling, and outbound request risks such as SSRF.\n5.  Dependencies, Deployment, and Security Operations** \u2014 dependency and supply-chain security, infrastructure hardening, logging, monitoring, and alerting.\n\nThe introduction would explain how to use the guide as an entry point to the relevant Cheat Sheets. Each section would briefly explain when a security topic matters and link to the existing guidance rather than duplicating it. I'd also keep the alignment with the OWASP Top 10 light, using the current version where relevant.\n\nDoes this structure fit the intended scope? I'm happy to adjust it based on your feedback before drafting the Cheat Sheet.\nThanks!"
+    },
+    {
+      "user": {
+        "login": "V-2007-P"
+      },
+      "author_association": "NONE",
+      "created_at": "2026-10-29T14:10:31Z",
+      "body": "hey! @mackowski @randomstuff ,Does this above structure fit the intended scope? , waiting for your feedbacks , thanks!"
+    },
+    {
+      "user": {
+        "login": "mackowski"
+      },
+      "author_association": "MEMBER",
+      "created_at": "2026-11-03T10:55:55Z",
+      "body": "Sorry for the slow reply, @V-2007-P, and thanks for the patience. The structure looks good to me. It already covers the points @randomstuff raised: a separate injection section, input from any external source (not only users) and a dedicated crypto section.\n\nA few notes before you start:\n\n- **Name:** the sheet is meant as an entry point that routes readers to other cheat sheets, so \"Architecture\" may suggest deeper design guidance than it will contain. Something like `Secure_Application_Development_Cheat_Sheet.md` might fit better. @randomstuff, what do you think?\n- **Keep it short:** each section should say when the topic matters and link out, with no code samples and no restated guidance from other cheat sheets.\n- **Top 10:** a light mapping (for example, a reference per section) is enough.\n\nOnce @randomstuff is OK with the name, feel free to open a PR. A first PR with just the introduction and the section skeleton with links would be easy to review.\n"
+    },
+    {
+      "user": {
+        "login": "randomstuff"
+      },
+      "author_association": "MEMBER",
+      "created_at": "2026-11-04T08:35:08Z",
+      "body": "Sorry, for the delay. I'll look at this today. \ud83d\ude47 "
+    },
+    {
+      "user": {
+        "login": "V-2007-P"
+      },
+      "author_association": "NONE",
+      "created_at": "2026-11-04T12:45:43Z",
+      "body": "Thanks @mackowski  for the feedback, glad the structure works for you! I\u2019ll keep the sections concise, with links to the relevant Cheat Sheets and just a light OWASP Top 10 mapping.\n\nI\u2019ll hold off until @randomstuff confirms the filename, and then I\u2019ll put together the initial PR with the introduction and section skeleton."
+    },
+    {
+      "user": {
+        "login": "randomstuff"
+      },
+      "author_association": "MEMBER",
+      "created_at": "2026-11-04T14:32:32Z",
+      "body": "Secure_Application_Development_Cheat_Sheet.md is OK for me. "
+    },
+    {
+      "user": {
+        "login": "mackowski"
+      },
+      "author_association": "MEMBER",
+      "created_at": "2026-11-16T10:38:07Z",
+      "body": "Hi @V-2007-P, just checking in on this one. @randomstuff confirmed `Secure_Application_Development_Cheat_Sheet.md` as the filename on Nov 4. Are you still planning to open the initial PR with the introduction and section skeleton? If you don't have time right now, that's fine too: just let us know and we can open it up for someone else.\n"
+    },
+    {
+      "user": {
+        "login": "V-2007-P"
+      },
+      "author_association": "NONE",
+      "created_at": "2026-11-16T10:59:50Z",
+      "body": "Hi @mackowski , sorry for the delay. I got caught up with some other work, so I couldn't make progress on this yet. I'm still planning to work on it and will try to raise the initial PR by tomorrow. Thanks for checking in!"
+    }
+  ],
+  "timeline": [
+    {
+      "event": "labeled",
+      "created_at": "2026-10-18T14:31:01Z",
+      "actor": {
+        "login": "randomstuff"
+      },
+      "label": {
+        "name": "ACK_WAITING"
+      }
+    },
+    {
+      "event": "labeled",
+      "created_at": "2026-10-18T14:31:01Z",
+      "actor": {
+        "login": "randomstuff"
+      },
+      "label": {
+        "name": "NEW_CS"
+      }
+    },
+    {
+      "event": "labeled",
+      "created_at": "2026-10-18T14:31:01Z",
+      "actor": {
+        "login": "randomstuff"
+      },
+      "label": {
+        "name": "HELP_WANTED"
+      }
+    },
+    {
+      "event": "unlabeled",
+      "created_at": "2026-10-19T07:32:48Z",
+      "actor": {
+        "login": "mackowski"
+      },
+      "label": {
+        "name": "ACK_WAITING"
+      }
+    },
+    {
+      "event": "labeled",
+      "created_at": "2026-10-19T07:32:48Z",
+      "actor": {
+        "login": "mackowski"
+      },
+      "label": {
+        "name": "ACK_OBTAINED"
+      }
+    },
+    {
+      "event": "assigned",
+      "created_at": "2026-10-21T14:29:01Z",
+      "actor": {
+        "login": "mackowski"
+      },
+      "assignee": {
+        "login": "V-2007-P"
+      }
+    },
+    {
+      "event": "cross-referenced",
+      "created_at": "2026-11-16T15:26:32Z",
+      "actor": {
+        "login": "V-2007-P"
+      },
+      "source": {
+        "type": "issue",
+        "issue": {
+          "number": 2982,
+          "repository": {
+            "full_name": "OWASP/CheatSheetSeries"
+          },
+          "title": "Add Secure Application Development Cheat Sheet (#2805)",
+          "state": "open",
+          "pull_request": {
+            "merged_at": null
+          }
+        }
+      }
+    }
+  ],
+  "pulls": {
+    "2982": {
+      "number": 2982,
+      "title": "Add Secure Application Development Cheat Sheet (#2805)",
+      "body": "## Description\r\n\r\nAdds a new `Secure Application Development Cheat Sheet` as a concise navigation hub for developers seeking security guidance throughout the application development lifecycle.\r\n\r\nThe Cheat Sheet organizes relevant OWASP guidance into five mentor-approved areas:\r\n\r\n1. Identity, Authentication, and Access Control\r\n2. Input Handling and Injection Prevention\r\n3. Cryptography and Sensitive Data Protection\r\n4. Application Architecture and Communication Boundaries\r\n5. Dependencies, Deployment, and Security Operations\r\n\r\nEach section briefly introduces key security considerations and links to relevant existing OWASP Cheat Sheets and authoritative external references. It also includes a light mapping to the OWASP Top 10:2025.\r\n\r\nThe document is intended as an entry point to existing OWASP guidance, not an exhaustive application security tutorial. It avoids duplicating detailed recommendations already covered by other Cheat Sheets.\r\n\r\nThis PR addresses issue [[#2805](https://github.com/OWASP/CheatSheetSeries/issues/2805)](https://github.com/OWASP/CheatSheetSeries/issues/2805).\r\n\r\n## Validation\r\n\r\n- [x] Markdown lint passed.\r\n- [x] Textlint passed.\r\n- [x] `git diff --no-index --check /dev/null cheatsheets/Secure_Application_Development_Cheat_Sheet.md` passed.\r\n- [x] Local Markdown link validation passed with 0 blocking and 0 unverified links.\r\n- [x] All 45 internal Cheat Sheet links were verified against existing files.\r\n- [x] All seven H2 sections passed the external citation requirement.\r\n- [x] OWASP Top 10:2025 category names and references were verified.\r\n\r\n## Scope and sourcing (required)\r\n\r\n- [x] This PR adds one new Cheat Sheet: `Secure_Application_Development_Cheat_Sheet.md`.\r\n- [x] The document follows the five-section structure approved by the mentors.\r\n- [x] Existing OWASP Cheat Sheets are linked rather than duplicating their detailed guidance.\r\n- [x] External references include authoritative sources such as OWASP Top 10:2025, OWASP ASVS, and NIST SP 800-218 (SSDF).\r\n- [x] No unrelated Cheat Sheets, sections, or existing files were modified.\r\n\r\n## AI Tool Usage Disclosure (required for all PRs)\r\n\r\n- [ ] I have NOT used any AI tool to generate the contents of this PR.\r\n- [x] I have used AI tools to generate the contents of this PR. I have verified the contents and I affirm the results.\r\n\r\n**LLMs/tools used:** ChatGPT (GPT-6) and Google Antigravity (Gemini 3.8 Flash).\r\n\r\n**Prompts/instructions used:** Analyze issue [[#2805](https://github.com/OWASP/CheatSheetSeries/issues/2805)](https://github.com/OWASP/CheatSheetSeries/issues/2805), review the existing OWASP Cheat Sheets, develop the mentor-approved five-section structure, create a concise application security navigation hub, link relevant existing Cheat Sheets and authoritative references, map relevant OWASP Top 10:2025 categories, and validate the final Markdown document.\r\n\r\nI reviewed the resulting document, verified its structure and references, checked the internal links, and ran the available Markdown, terminology, citation, and whitespace validations.",
+      "state": "open",
+      "merged_at": null,
+      "user": {
+        "login": "V-2007-P"
+      }
+    }
+  },
+  "now": "2026-11-17T07:30:00Z"
+}

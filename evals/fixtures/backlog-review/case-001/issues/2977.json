@@ -1,0 +1,146 @@
+{
+  "repo": "OWASP/CheatSheetSeries",
+  "number": 2977,
+  "issue": {
+    "number": 2977,
+    "title": "Update: HTTP Headers Cheat Sheet",
+    "body": "## What is missing or needs to be updated?\n\nThe Nginx subsection of the HTTP Headers Cheat Sheet explains `add_header ... always;` and (since #2952) how `add_header` is inherited, but it does not cover the most common Nginx deployment: Nginx as a reverse proxy in front of an application that already sends its own security headers.\n\n`add_header` never replaces a header that comes from the upstream response: it appends a second copy. When the proxy and the application both set the same header, the client receives it twice, sometimes with different values. We measured this on one of our own sites during an internal assessment (nginx 1.26.3, reverse proxy, application sending its own headers):\n\n```\nx-frame-options: DENY\nstrict-transport-security: max-age=31536000; includeSubDomains\nx-content-type-options: nosniff\n...\nstrict-transport-security: max-age=31536000; includeSubDomains\nx-frame-options: SAMEORIGIN\nx-content-type-options: nosniff\n```\n\nDuplicated values are at best noise, and conflicting ones (here `DENY` and `SAMEORIGIN`) leave the effective policy unclear to anyone reading the configuration, and are reported as invalid by header scanners.\n\n## How should this be resolved?\n\nAdd one short paragraph after the inheritance note in the Nginx subsection of `cheatsheets/HTTP_Headers_Cheat_Sheet.md`:\n\n> When Nginx proxies an application that already sends security headers, `add_header` does not replace them: the response carries both copies, possibly with conflicting values (for example `X-Frame-Options: DENY` from the application and `SAMEORIGIN` from Nginx). Set each header in one layer only, or drop the upstream copy with [`proxy_hide_header`](https://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_hide_header) before adding your own:\n>\n> ```nginx\n> proxy_hide_header X-Frame-Options;\n> add_header \"X-Frame-Options\" \"DENY\" always;\n> ```\n\nIf this is welcome, I'd be glad to open the PR.\n\nPrepared by an AI agent with the owner's permission.",
+    "state": "open",
+    "user": {
+      "login": "SkillDMonkey"
+    },
+    "author_association": "NONE",
+    "labels": [
+      {
+        "name": "UPDATE_CS"
+      },
+      {
+        "name": "ACK_OBTAINED"
+      }
+    ],
+    "assignees": [
+      {
+        "login": "SkillDMonkey"
+      }
+    ],
+    "created_at": "2026-11-16T05:16:31Z",
+    "updated_at": "2026-11-16T10:07:12Z",
+    "comments": 1
+  },
+  "comments": [
+    {
+      "user": {
+        "login": "mackowski"
+      },
+      "author_association": "MEMBER",
+      "created_at": "2026-11-16T09:27:51Z",
+      "body": "Thanks @SkillDMonkey, this is a useful addition. The Nginx section covers `always` and inheritance but not duplication behind a reverse proxy. Please go ahead and open the PR with the proposed paragraph after the inheritance note.\n\n<!--\nCustodes-Agent: triage-apply@0.1.0\nCustodes-Attestation: 63bac7e6-5e00-40bb-9f4b-9084a43f0489\n-->"
+    }
+  ],
+  "timeline": [
+    {
+      "event": "labeled",
+      "created_at": "2026-11-16T05:16:33Z",
+      "actor": {
+        "login": "SkillDMonkey"
+      },
+      "label": {
+        "name": "ACK_WAITING"
+      }
+    },
+    {
+      "event": "labeled",
+      "created_at": "2026-11-16T05:16:33Z",
+      "actor": {
+        "login": "SkillDMonkey"
+      },
+      "label": {
+        "name": "UPDATE_CS"
+      }
+    },
+    {
+      "event": "labeled",
+      "created_at": "2026-11-16T05:16:33Z",
+      "actor": {
+        "login": "SkillDMonkey"
+      },
+      "label": {
+        "name": "HELP_WANTED"
+      }
+    },
+    {
+      "event": "assigned",
+      "created_at": "2026-11-16T09:27:46Z",
+      "actor": {
+        "login": "mackowski"
+      },
+      "assignee": {
+        "login": "SkillDMonkey"
+      }
+    },
+    {
+      "event": "labeled",
+      "created_at": "2026-11-16T09:27:47Z",
+      "actor": {
+        "login": "mackowski"
+      },
+      "label": {
+        "name": "ACK_OBTAINED"
+      }
+    },
+    {
+      "event": "unlabeled",
+      "created_at": "2026-11-16T09:27:48Z",
+      "actor": {
+        "login": "mackowski"
+      },
+      "label": {
+        "name": "ACK_WAITING"
+      }
+    },
+    {
+      "event": "unlabeled",
+      "created_at": "2026-11-16T09:27:49Z",
+      "actor": {
+        "login": "mackowski"
+      },
+      "label": {
+        "name": "HELP_WANTED"
+      }
+    },
+    {
+      "event": "cross-referenced",
+      "created_at": "2026-11-16T10:07:12Z",
+      "actor": {
+        "login": "SkillDMonkey"
+      },
+      "source": {
+        "type": "issue",
+        "issue": {
+          "number": 2979,
+          "repository": {
+            "full_name": "OWASP/CheatSheetSeries"
+          },
+          "title": "HTTP Headers Cheat Sheet: duplicate headers behind an Nginx reverse proxy",
+          "state": "closed",
+          "pull_request": {
+            "merged_at": "2026-11-17T01:10:49Z"
+          }
+        }
+      }
+    }
+  ],
+  "pulls": {
+    "2979": {
+      "number": 2979,
+      "title": "HTTP Headers Cheat Sheet: duplicate headers behind an Nginx reverse proxy",
+      "body": "Adds one paragraph to the Nginx subsection of the HTTP Headers Cheat Sheet, right after the inheritance note, as agreed in #2977.\n\nWhen Nginx proxies an application that already sends security headers, `add_header` adds its own copy and does not replace the upstream one, so the client can receive the same header twice with conflicting values. The paragraph explains this and shows how to drop the upstream copy with `proxy_hide_header` before adding your own.\n\nSources and checks:\n\n- [`add_header`](https://nginx.org/en/docs/http/ngx_http_headers_module.html#add_header): \"Adds the specified field to a response header\".\n- [`proxy_hide_header`](https://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_hide_header): \"sets additional fields that will not be passed\" from the proxied server's response.\n- Reproduced on nginx 1.30.6 in a container, proxying an upstream that sends `X-Frame-Options: SAMEORIGIN`. With only `add_header \"X-Frame-Options\" \"DENY\" always;` the response has two `X-Frame-Options` headers. With `proxy_hide_header X-Frame-Options;` added, it has one, `DENY`.\n- On current master (5f2a48a): `markdownlint` and `textlint` pass on the changed file. `test:link-check` gives the same results with and without the change, and `test:workflow-approvals` passes.\n\nPlease make sure that for your contribution:\n\n- [ ] In case of a new Cheat Sheet, you have used the [Cheat Sheet template](../templates/New_CheatSheet.md).\n- [x] All the markdown files do not raise any validation policy violation, see the [policy](https://github.com/OWASP/CheatSheetSeries/actions?query=workflow%3A%22Markdown+Link+Check%22).\n- [x] All the markdown files follow these [format rules](../CONTRIBUTING.md#markdown).\n- [ ] All your assets are stored in the **assets** folder.\n- [ ] All the images used are in the **PNG** format.\n- [x] Any references to websites have been formatted as `[TEXT](URL)`\n- [x] You verified/tested the effectiveness of your contribution (e.g., the defensive code proposed is really an effective remediation? Please verify it works!).\n- [ ] The CI build of your PR pass, see the build status [here](https://github.com/OWASP/CheatSheetSeries/actions).\n\n## Scope and sourcing (required)\n\n- [x] This PR is focused: it modifies a single cheat sheet, or a small coordinated set, and the scope is described in the PR body.\n- [x] Every technical claim, recommendation, or threat assertion added in this PR is supported by a primary source (RFC, NIST, OWASP standard, vendor documentation, peer-reviewed research) linked inline as `[text](URL)`.\n- [x] I have read each source I cite and confirm it actually supports the claim. I have not relied on summaries, hearsay, or model-generated citations.\n\n## AI Tool Usage Disclosure (required for all PRs)\n\n- [ ] I have NOT used any AI tool to generate the contents of this PR.\n- [x] I have used AI tools to generate the contents of this PR. I have verified the contents and I affirm the results. The LLM used is `Claude Opus 5.5` and the prompt used is `add the paragraph agreed in issue #2977 to the Nginx subsection and check it against the nginx documentation and a real nginx`. I have independently verified every citation and technical claim against the cited source. The PR is submitted by an AI agent on behalf of Unitizy, with the owner's permission.\n\nThis PR fixes issue #2977.",
+      "state": "closed",
+      "merged_at": "2026-11-17T01:10:49Z",
+      "user": {
+        "login": "SkillDMonkey"
+      }
+    }
+  },
+  "now": "2026-11-17T07:30:00Z"
+}

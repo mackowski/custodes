@@ -640,7 +640,8 @@ export async function runAgentTree(
             if (!child) return { ok: false, stop: 'undeclared_tool' };
             const childId = store.start(agentId, rootRunId);
             // The child's task is built by code from the role and the target: no parent text.
-            const childTask = `Assess ${target.kind} #${String(target.number)} in ${target.repo} as ${role}. Read it first, then answer with one proposal.`;
+            // Today's date too: rules such as "7 days without activity" need it (#132).
+            const childTask = `Today is ${now().toISOString().slice(0, 10)}. Assess ${target.kind} #${String(target.number)} in ${target.repo} as ${role}. Read it first, then answer with one proposal.`;
             const hook = opts.child;
             const r = await run(
               childId,

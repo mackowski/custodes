@@ -1,0 +1,356 @@
+{
+  "repo": "OWASP/CheatSheetSeries",
+  "number": 2796,
+  "issue": {
+    "number": 2796,
+    "title": "Update: XML_Security_Cheat_Sheet",
+    "body": "## What is missing or needs to be updated?\n\nThe XML Security Cheat Sheet is about 5,600 words with 408 lines of code.\n\n- \"Dealing with invalid XML documents\" is about 3,800 words in one section, much of it schema data-type detail (NaN, divide by zero, prefixed values, ranges).\n- The XXE and entity expansion part is about 1,600 words, including four full vulnerable Java parser samples (DOM, DOM4J, SAX, StAX). The [XML External Entity Prevention](https://cheatsheetseries.owasp.org/cheatsheets/XML_External_Entity_Prevention_Cheat_Sheet.html) cheat sheet already covers safe parser setup per language, and this sheet never links it.\n\n## How should this be resolved?\n\n- Replace the XXE and entity expansion samples with a short summary of the attacks and a link to the XXE Prevention cheat sheet.\n- Condense schema validation to the principles: use a strict local schema, restrict types and lengths, and limit sizes and nesting. Keep one short example at most.\n- Keep the malformed document and jumbo payload guidance, but shorter.\n\nSmall PRs, one section at a time, please. They are much easier to review than one big rewrite :)\n",
+    "state": "open",
+    "user": {
+      "login": "jmanico"
+    },
+    "author_association": "MEMBER",
+    "labels": [
+      {
+        "name": "ACK_OBTAINED"
+      },
+      {
+        "name": "UPDATE_CS"
+      }
+    ],
+    "assignees": [
+      {
+        "login": "Richa-techhub"
+      },
+      {
+        "login": "Skeletor-Pirate"
+      }
+    ],
+    "created_at": "2026-10-16T09:02:02Z",
+    "updated_at": "2026-11-17T01:32:18Z",
+    "comments": 14
+  },
+  "comments": [
+    {
+      "user": {
+        "login": "V-2007-P"
+      },
+      "author_association": "NONE",
+      "created_at": "2026-10-17T11:13:30Z",
+      "body": "Hi @jmanico @mackowski  , I'd like to help with this update.\n\nAfter reviewing the XML Security Cheat Sheet alongside the dedicated XML External Entity Prevention Cheat Sheet, I think a good first step would be to simplify the XXE section.\n\nI'd propose replacing the four lengthy vulnerable Java parser examples (DOM, DOM4J, SAX, and StAX) with a concise explanation and a direct link to the dedicated cheat sheet for secure parser configurations. I'd retain the minimal XML/DTD example and the entity-expansion DoS guidance, since those provide useful context specific to this sheet.\n\nI'll keep the change focused, as requested, and leave the schema-validation cleanup for a separate PR.\nWould you be happy for me to take this first slice, and could you assign the issue to me if appropriate? Thanks!"
+    },
+    {
+      "user": {
+        "login": "Richa-techhub"
+      },
+      "author_association": "NONE",
+      "created_at": "2026-10-19T05:26:19Z",
+      "body": "Hi! I'd like to contribute to this issue as well.\n\nI saw the proposal to simplify the XXE and entity expansion section. To avoid duplicating that work, I'd be interested in taking the separate schema-validation section instead.\n\nMy plan is to condense the guidance to the key principles: use a strict local schema, restrict data types and lengths, and limit document size and nesting, while retaining at most one concise example. I'd also keep the malformed XML and oversized payload guidance intact unless the maintainers suggest otherwise.\n\nWould this separate section be suitable for me to work on? If so, could you please confirm before I start?\n\nThank you!"
+    },
+    {
+      "user": {
+        "login": "mackowski"
+      },
+      "author_association": "MEMBER",
+      "created_at": "2026-10-19T08:21:41Z",
+      "body": "@Richa-techhub cool lets do this! \n@V-2007-P I assigned different issue to you!"
+    },
+    {
+      "user": {
+        "login": "saxamkeshvani123456-maker"
+      },
+      "author_association": "NONE",
+      "created_at": "2026-10-21T14:59:34Z",
+      "body": "I\u2019d like to work on the XML Entity Expansion section first. I\u2019ll replace the lengthy vulnerable Java parser and attack payload examples with a concise summary of XXE, SSRF, and entity-expansion DoS, and link to the XML External Entity Prevention Cheat Sheet for parser-specific guidance. I\u2019ll keep this PR limited to that section and leave schema validation and malformed XML for separate PRs."
+    },
+    {
+      "user": {
+        "login": "mackowski"
+      },
+      "author_association": "MEMBER",
+      "created_at": "2026-11-03T10:55:58Z",
+      "body": "Hi @Richa-techhub, just checking in on the schema-validation section: are you still working on it? If we don't hear back by November 10, we'll unassign the issue so others who offered help can pick it up. No problem if your plans changed, just let us know.\n"
+    },
+    {
+      "user": {
+        "login": "Skeletor-Pirate"
+      },
+      "author_association": "NONE",
+      "created_at": "2026-11-06T04:16:06Z",
+      "body": "The entity-expansion half is still unclaimed (assignment so far covers the schema-validation half only), so I'll take that piece: condense the XXE/entity-expansion part of `XML_Security_Cheat_Sheet.md` (`### XML Entity Expansion` \\u00a0through ```#### Brute Forcing```) to a short conceptual summary of the shared root cause with verified CWE links, cross-linking the [XML External Entity Prevention cheat sheet](https://cheatsheetseries.owasp.org/cheatsheets/XML_External_Entity_Prevention_Cheat_Sheet.html), exactly as the issue plan describes. @saxamkeshvani123456-maker: no approval has been recorded for your Oct-21 offer, so if you're already underway say so and I'll stand down. Content prepared with AI assistance; full disclosure in the PR body."
+    },
+    {
+      "user": {
+        "login": "bhushan4work"
+      },
+      "author_association": "NONE",
+      "created_at": "2026-11-06T04:22:49Z",
+      "body": "if we dont hear from @Richa-techhub till nov 10, then I would like to pick the remaining parts to be fixed and would like to get assigned if its available. thanks"
+    },
+    {
+      "user": {
+        "login": "Skeletor-Pirate"
+      },
+      "author_association": "NONE",
+      "created_at": "2026-11-06T05:48:37Z",
+      "body": "Heads-up to whoever is reading this thread and to @bhushan4work: my entity-expansion claim from 04:16 UTC is followed by an open PR (OWASP/CheatSheetSeries#2904) that implements exactly that half \u2014 pr-gate auto-closed it because it pattern-matches $issue-assigned-to-Richa$, so I posted the timeline for @mackowski on the PR. Not trying to run a race here: if mackowski prefers you for the remaining parts or if anyone is already underway, you'll take it \u2014 no hard feelings either way."
+    },
+    {
+      "user": {
+        "login": "mackowski"
+      },
+      "author_association": "MEMBER",
+      "created_at": "2026-11-06T10:01:48Z",
+      "body": "@Skeletor-Pirate it\u2019s not about what I prefer. This is an OWASP community project, and all contributors need to follow our [Contributing Guide](https://github.com/OWASP/CheatSheetSeries/blob/master/CONTRIBUTING.md). We don\u2019t accept PRs unless the issue is assigned to you, except for typo fixes, broken links, or minor adjustments to existing cheat sheets.\n\nI\u2019ve assigned this issue to @bhushan4work and @Skeletor-Pirate and reopened #2904. To avoid overlap:\n\n@Skeletor-Pirate: XXE / entity expansion section (#2904)\n@bhushan4work: malformed document and jumbo payload guidance\nSchema validation stays with @Richa-techhub until Nov 10, as mentioned above.\n\nPlease keep PRs small (one section each) and review each other\u2019s PRs.\n\n@saxamkeshvani123456-maker sorry we missed your offer. There are other issues labeled HELP_WANTED if you\u2019d like to pick one up."
+    },
+    {
+      "user": {
+        "login": "Skeletor-Pirate"
+      },
+      "author_association": "NONE",
+      "created_at": "2026-11-06T13:06:43Z",
+      "body": "Thanks @mackowski for clearing the split and for reopening #2904 \u2014 and understood on the contributing guide; with the assignment in place this follows it now.\n\nScope confirmation: the branch touches only the XML Security sheet's entity-expansion section, plus one regenerated line in Index.md (the Java language badge disappears along with the removed Java samples, which is what the earlier check run flagged). Markdownlint, textlint, citations, link-check and scope all passed in that run; the Index.md fix is pushed as 0bd44f4 and just needs the usual fork-run approval.\n\n@bhushan4work whenever your malformed-document / jumbo-payload PR is up, ping me and I'll review it \u2014 per the above, one small section each, so those reviews should be quick for both of us."
+    },
+    {
+      "user": {
+        "login": "bhushan4work"
+      },
+      "author_association": "NONE",
+      "created_at": "2026-11-06T17:05:23Z",
+      "body": "pr is up if u are looking to review one "
+    },
+    {
+      "user": {
+        "login": "Skeletor-Pirate"
+      },
+      "author_association": "NONE",
+      "created_at": "2026-11-10T11:17:45Z",
+      "body": "Per the Nov 10 arrangement for the schema-validation slot: if it's released today, I'm ready to take that section right away. A condensed version of the `Dealing with invalid XML documents` region (strict local schema, facet-level value restrictions, schema-location-hint hardening) is already drafted in the same style as the merged #2904 condensation, with every citation fetched and verified. Not touching the section unless the assignment actually changes."
+    },
+    {
+      "user": {
+        "login": "mackowski"
+      },
+      "author_association": "MEMBER",
+      "created_at": "2026-11-12T08:05:15Z",
+      "body": "Sure @Skeletor-Pirate go ahead and create PRs for the remaining issues  "
+    },
+    {
+      "user": {
+        "login": "Skeletor-Pirate"
+      },
+      "author_association": "NONE",
+      "created_at": "2026-11-12T09:19:51Z",
+      "body": "Both remaining sections are up, one PR each:\n\n- **Schema validation:** #2953 \u2014 the `Document without Schema` / `Unrestrictive Schema` / `Improper Data Validation` walkthrough (~270 lines) is replaced by the five principles from the plan (strict local schema, reject-don't-repair, facet-level restrictions, type-by-meaning, size/nesting limits) plus one XSD facet example. `Jumbo Payloads` and `Schema Poisoning` are untouched there.\n- **Malformed documents + jumbo payloads:** #2954 \u2014 the four malformed-document sub-sections collapse to two paragraphs with one example each, and the jumbo-payload prose is tightened with both payload forms retained. This replaces the scope of the closed #2907.\n\nSchema poisoning (`Local Schema Poisoning` / `Remote Schema Poisoning`) is still as-is; say the word if you want that condensed too, otherwise that's all three bullets of the plan covered."
+    }
+  ],
+  "timeline": [
+    {
+      "event": "labeled",
+      "created_at": "2026-10-16T09:02:03Z",
+      "actor": {
+        "login": "jmanico"
+      },
+      "label": {
+        "name": "ACK_OBTAINED"
+      }
+    },
+    {
+      "event": "labeled",
+      "created_at": "2026-10-16T09:02:04Z",
+      "actor": {
+        "login": "jmanico"
+      },
+      "label": {
+        "name": "UPDATE_CS"
+      }
+    },
+    {
+      "event": "labeled",
+      "created_at": "2026-10-16T09:02:04Z",
+      "actor": {
+        "login": "jmanico"
+      },
+      "label": {
+        "name": "HELP_WANTED"
+      }
+    },
+    {
+      "event": "unlabeled",
+      "created_at": "2026-10-19T08:21:46Z",
+      "actor": {
+        "login": "mackowski"
+      },
+      "label": {
+        "name": "HELP_WANTED"
+      }
+    },
+    {
+      "event": "assigned",
+      "created_at": "2026-10-19T08:21:50Z",
+      "actor": {
+        "login": "mackowski"
+      },
+      "assignee": {
+        "login": "Richa-techhub"
+      }
+    },
+    {
+      "event": "cross-referenced",
+      "created_at": "2026-11-06T04:16:36Z",
+      "actor": {
+        "login": "Skeletor-Pirate"
+      },
+      "source": {
+        "type": "issue",
+        "issue": {
+          "number": 2904,
+          "repository": {
+            "full_name": "OWASP/CheatSheetSeries"
+          },
+          "title": "XML Security: condense XXE/entity-expansion section, link the XXE Prevention cheat sheet",
+          "state": "closed",
+          "pull_request": {
+            "merged_at": "2026-11-08T21:10:39Z"
+          }
+        }
+      }
+    },
+    {
+      "event": "assigned",
+      "created_at": "2026-11-06T09:56:13Z",
+      "actor": {
+        "login": "mackowski"
+      },
+      "assignee": {
+        "login": "bhushan4work"
+      }
+    },
+    {
+      "event": "assigned",
+      "created_at": "2026-11-06T09:56:13Z",
+      "actor": {
+        "login": "mackowski"
+      },
+      "assignee": {
+        "login": "Skeletor-Pirate"
+      }
+    },
+    {
+      "event": "cross-referenced",
+      "created_at": "2026-11-06T16:05:18Z",
+      "actor": {
+        "login": "bhushan4work"
+      },
+      "source": {
+        "type": "issue",
+        "issue": {
+          "number": 2907,
+          "repository": {
+            "full_name": "OWASP/CheatSheetSeries"
+          },
+          "title": "docs: condense malformed XML document and jumbo payload guidance",
+          "state": "closed",
+          "pull_request": {
+            "merged_at": null
+          }
+        }
+      }
+    },
+    {
+      "event": "unassigned",
+      "created_at": "2026-11-09T14:02:48Z",
+      "actor": {
+        "login": "mackowski"
+      },
+      "assignee": {
+        "login": "bhushan4work"
+      }
+    },
+    {
+      "event": "cross-referenced",
+      "created_at": "2026-11-12T08:58:00Z",
+      "actor": {
+        "login": "Skeletor-Pirate"
+      },
+      "source": {
+        "type": "issue",
+        "issue": {
+          "number": 2953,
+          "repository": {
+            "full_name": "OWASP/CheatSheetSeries"
+          },
+          "title": "XML Security: condense the schema-validation section to its principles (#2796)",
+          "state": "closed",
+          "pull_request": {
+            "merged_at": "2026-11-16T10:32:18Z"
+          }
+        }
+      }
+    },
+    {
+      "event": "cross-referenced",
+      "created_at": "2026-11-12T09:17:12Z",
+      "actor": {
+        "login": "Skeletor-Pirate"
+      },
+      "source": {
+        "type": "issue",
+        "issue": {
+          "number": 2954,
+          "repository": {
+            "full_name": "OWASP/CheatSheetSeries"
+          },
+          "title": "XML Security: condense the malformed-document and jumbo-payload guidance (#2796)",
+          "state": "closed",
+          "pull_request": {
+            "merged_at": "2026-11-17T01:32:16Z"
+          }
+        }
+      }
+    }
+  ],
+  "pulls": {
+    "2904": {
+      "number": 2904,
+      "title": "XML Security: condense XXE/entity-expansion section, link the XXE Prevention cheat sheet",
+      "body": "# You're A Rockstar\n\nThank you for submitting a Pull Request (PR) to the Cheat Sheet Series.\n\n> :triangular_flag_on_post: If your PR is related to grammar/typo mistakes, please double-check the file for other mistakes in order to fix all the issues in the current cheat sheet.\n\nPlease make sure that for your contribution:\n\n- [x] In case of a new Cheat Sheet, you have used the [Cheat Sheet template](../templates/New_CheatSheet.md). \u2014 N/A, no new sheet.\n- [x] All the markdown files do not raise any validation policy violation, see the [policy](https://github.com/OWASP/CheatSheetSeries/actions?query=workflow%3A%22Markdown+Link+Check%22).\n- [x] All the markdown files follow these [format rules](../CONTRIBUTING.md#markdown).\n- [x] All your assets are stored in the **assets** folder. \u2014 N/A, no assets in this PR.\n- [x] All the images used are in the **PNG** format. \u2014 N/A, no images in this PR.\n- [x] Any references to websites have been formatted as `[TEXT](URL)`\n- [x] You verified/tested the effectiveness of your contribution (e.g., the defensive code proposed is really an effective remediation? Please verify it works!). \u2014 N/A in the narrow sense: this PR proposes no new remediation code. The four vulnerable Java samples and the attack walkthroughs are replaced by a summary that points to the [XML External Entity Prevention cheat sheet](https://cheatsheetseries.owasp.org/cheatsheets/XML_External_Entity_Prevention_Cheat_Sheet.html), whose per-parser configurations are already the validated remediation for this sheet's audience.\n- [x] The CI build of your PR pass, see the build status [here](https://github.com/OWASP/CheatSheetSeries/actions). \u2014 will confirm once CI runs on this PR.\n\n## Scope and sourcing (required)\n\n- [x] This PR is focused: it modifies a single cheat sheet, or a small coordinated set, and the scope is described in the PR body.\n- [x] Every technical claim, recommendation, or threat assertion added in this PR is supported by a primary source (RFC, NIST, OWASP standard, vendor documentation, peer-reviewed research) linked inline as `[text](URL)`.\n- [x] I have read each source I cite and confirm it actually supports the claim. I have not relied on summaries, hearsay, or model-generated citations.\n\n## What this PR does\n\nImplements the **entity-expansion half** of #2796 (the schema-validation half is separately assigned and intentionally untouched):\n\n- Replaces the four vulnerable Java parser samples (DOM, DOM4J, SAX, StAX), the Billion laughs / quadratic blowup payloads, and the SSRF/port-scanning walkthroughs (~370 lines) with a short conceptual section: one minimal illustrative document, the three consequence classes with CWE links, and the out-of-band/parameter-entity variant with a source.\n- States the single countermeasure that all these attacks share (do not process DTDs or resolve external entities in application-facing parsers) and cross-links the [XML External Entity Prevention cheat sheet](https://cheatsheetseries.owasp.org/cheatsheets/XML_External_Entity_Prevention_Cheat_Sheet.html) for per-language configuration, per the \"don't duplicate \u2014 link instead\" rule.\n- Every removed w3schools DTD link was inside the deleted content; no other files touched.\n\n## Local checks\n\n- `npm run lint-markdown`: passes.\n- `npm run lint-terminology`: passes.\n- `npm run link-check`: the checker's built-in Python extractor cannot spawn in this container-less environment (EPIPE), so each link I added was verified manually with HTTP GET and read: CWE-611 (\"Improper Restriction of XML External Entity Reference\"), CWE-776 (\"Improper Restriction of Recursive Entity References in DTDs\"), CWE-918 (\"Server-Side Request Forgery\"), the W3C XML 1.0 `#dt-entdecl` anchor (the entity-declaration definition in the spec body), the OWASP XXE Prevention sheet (its introduction names exactly these consequences), and the PortSwigger blind-XXE page (its \"Exploiting blind XXE to exfiltrate data out-of-band\" section covers the parameter-entity variant). Note: CWE-40 was deliberately not cited \u2014 verification showed it is a Windows UNC path-traversal weakness, not XXE.\n\n## AI Tool Usage Disclosure (required for all PRs)\n\n- [ ] I have NOT used any AI tool to generate the contents of this PR.\n- [x] I have used AI tools to generate the contents of this PR. I have verified\n    the contents and I affirm the results. The LLM used is `GLM (glm-5.3-flash-free), driving an OpenCode agent session on the contributor's device, 2026-11-06`\n    and the prompt used is `the resolution plan in #2796 (\"Replace the XXE and entity expansion samples with a short summary of the attacks and a link to the XXE Prevention cheat sheet\"), applied under this repo's AGENTS.md rules (sources must be fetched and read, no fabricated URLs, keep it conceptual, disclose AI usage)`. I have independently verified every citation and technical claim against the cited source.\n\nThis PR fixes issue #2796 (entity-expansion part).\n",
+      "state": "closed",
+      "merged_at": "2026-11-08T21:10:39Z",
+      "user": {
+        "login": "Skeletor-Pirate"
+      }
+    },
+    "2907": {
+      "number": 2907,
+      "title": "docs: condense malformed XML document and jumbo payload guidance",
+      "body": "Refs #2796\n\n- condense guidance for handling malformed xml documents and fatal errors\n- clarify that parsers must not continue normal processing after a fatal error, consistent with the [[w3c xml specification](https://www.w3.org/TR/xml/#sec-terminology)](https://www.w3.org/TR/xml/#sec-terminology)\n- recommend disabling recovery or lenient parsing modes for untrusted input\n- streamline coercive parsing guidance and add nesting depth and request size mitigations\n- clarify jumbo payload threats as resource exhaustion through memory, cpu, and network bandwidth\n- add mitigations for jumbo payloads, including request body limits, parser resource constraints, and streaming parsers\n- reference [[oracle jaxp security guide](https://docs.oracle.com/en/java/javase/25/security/java-api-xml-processing-jaxp-security-guide.html)](https://docs.oracle.com/en/java/javase/25/security/java-api-xml-processing-jaxp-security-guide.html) for parser limits such as `maxelementdepth` and `entityexpansionlimit`\n- remove redundant examples, truncated snippets, and excessive formatting\n\n# you're a rockstar\n\nthank you for submitting a pull request (pr) to the cheat sheet series.\n\n> :triangular_flag_on_post: if your pr is related to grammar/typo mistakes, please double-check the file for other mistakes in order to fix all the issues in the current cheat sheet.\n\nplease make sure that for your contribution:\n\n- [ ] in case of a new cheat sheet, you have used the [[cheat sheet template](https://github.com/OWASP/CheatSheetSeries/templates/new_cheatsheet.md)](../templates/new_cheatsheet.md).\n- [x] all the markdown files do not raise any validation [policy](https://github.com/owasp/cheatsheetseries/actions?query=workflow%3a%22markdown+link+check%22) violation, see the [policy](https://github.com/owasp/cheatsheetseries/actions?query=workflow%3a%22markdown+link+check%22).\n- [x] all the markdown files follow these [[format rules](https://github.com/OWASP/CheatSheetSeries/contributing.md#markdown)](../contributing.md#markdown).\n- [x] all your assets are stored in the **assets** folder.\n- [x] all the images used are in the **png** format.\n- [x] any references to websites have been formatted as `[text](url)`\n- [x] you verified/tested the effectiveness of your contribution (e.g., the defensive code proposed is really an effective remediation? please verify it works!).\n- [x] the ci build of your pr pass, see the build status [[here](https://github.com/owasp/cheatsheetseries/actions)](https://github.com/owasp/cheatsheetseries/actions).\n\n## scope and sourcing (required)\n\n- [x] this pr is focused: it modifies a single cheat sheet, or a small coordinated set, and the scope is described in the pr body.\n- [x] every technical claim, recommendation, or threat assertion added in this pr is supported by a primary source (rfc, nist, owasp standard, vendor documentation, peer-reviewed research) linked inline as `[text](url)`.\n- [x] i have read each source i cite and confirm it actually supports the claim. i have not relied on summaries, hearsay, or model-generated citations.\n\n## ai tool usage disclosure (required for all prs)\n\nplease select exactly one of the following options. prs that leave this section blank will be closed.\n\n- [x] i have not used any ai tool to generate the contents of this pr.\n- [ ] i have used ai tools to generate the contents of this pr. i have verified\n    the contents and i affirm the results. the llm used is `[llm name and version]`\n    and the prompt used is `[your prompt here]`. i have independently verified every citation and technical claim against the cited source. [feel free to add more details if needed]\n\nthank you again for your contribution :smiley:",
+      "state": "closed",
+      "merged_at": null,
+      "user": {
+        "login": "bhushan4work"
+      }
+    },
+    "2953": {
+      "number": 2953,
+      "title": "XML Security: condense the schema-validation section to its principles (#2796)",
+      "body": "# You're A Rockstar\n\nThank you for submitting a Pull Request (PR) to the Cheat Sheet Series.\n\n> :triangular_flag_on_post: If your PR is related to grammar/typo mistakes, please double-check the file for other mistakes in order to fix all the issues in the current cheat sheet.\n\nPlease make sure that for your contribution:\n\n- [x] In case of a new Cheat Sheet, you have used the [Cheat Sheet template](../templates/New_CheatSheet.md). \u2014 N/A, no new sheet.\n- [x] All the markdown files do not raise any validation policy violation, see the [policy](https://github.com/OWASP/CheatSheetSeries/actions?query=workflow%3A%22Markdown+Link+Check%22).\n- [x] All the markdown files follow these [format rules](../CONTRIBUTING.md#markdown).\n- [x] All your assets are stored in the **assets** folder. \u2014 N/A, no assets in this PR.\n- [x] All the images used are in the **PNG** format. \u2014 N/A, no images in this PR.\n- [x] Any references to websites have been formatted as `[TEXT](URL)`\n- [x] You verified/tested the effectiveness of your contribution (e.g., the defensive code proposed is really an effective remediation? Please verify it works!). \u2014 The recommendations are drawn from the JDK's own `SchemaFactory` documentation and the W3C XSD datatypes specification (both cited inline), and the retained XSD example was checked to be valid schema syntax.\n- [x] The CI build of your PR pass, see the build status [here](https://github.com/OWASP/CheatSheetSeries/actions). \u2014 Will confirm once CI runs; `markdownlint` and `textlint` pass locally.\n\n## Scope and sourcing (required)\n\n- [x] This PR is focused: it modifies a single cheat sheet, or a small coordinated set, and the scope is described in the PR body.\n- [x] Every technical claim, recommendation, or threat assertion added in this PR is supported by a primary source (RFC, NIST, OWASP standard, vendor documentation, peer-reviewed research) linked inline as `[text](URL)`.\n- [x] I have read each source I cite and confirm it actually supports the claim. I have not relied on summaries, hearsay, or model-generated citations.\n\n## What this PR does\n\nImplements the **schema-validation half** of #2796, as assigned (per @mackowski's split in the thread; @Richa-techhub's slot lapsed on Nov 10):\n\n- Replaces the `Document without Schema` / `Unrestrictive Schema` / `Improper Data Validation` region (String and Numeric Data Types, Negative and Positive Restrictions, Prefixed Values, and the rest of the data-type walkthrough \u2014 ~270 lines) with the principles the issue asks for: **strict versioned local schema**, **reject rather than repair**, **facet-level value restrictions**, **type by meaning**, and **size/nesting limits delegated to parser configuration** with a cross-link to the [XXE Prevention cheat sheet](https://cheatsheetseries.owasp.org/cheatsheets/XML_External_Entity_Prevention_Cheat_Sheet.html).\n- Keeps **one** concise example at most: a single XSD `country` element restricted with `xs:length` and `xs:pattern`. The XML page language badge is unchanged because other sections still contain XML samples.\n- Says in one sentence what the removed walkthrough implied: schema validity is not authorization.\n\nUntouched on purpose: `Jumbo Payloads` and `Schema Poisoning` are separate sections (the malformed-document / jumbo-payload condensation will be a separate PR, per the one-section-per-PR rule).\n\n## Sourcing notes\n\n- The quoted JDK sentence (\"the use of schema location hints introduces a vulnerability to denial-of-service attacks\") was fetched from the linked `SchemaFactory` page and compared verbatim, not recalled from memory.\n- The `facets` anchor was checked on the live W3C page (`id=\"facets\"` on the faceted-constraints section); the facet names used (`length`, `minLength`, `maxLength`, `pattern`, `enumeration`, `minInclusive`, `maxInclusive`, `totalDigits`, `fractionDigits`) all appear there.\n- No local anchors changed: the only in-repo links into this sheet use `#xml-entity-expansion` and the page-internal `#remote-schema-poisoning`, both still present.\n\n## Local checks\n\n- `npm run lint-markdown` on the file: passes.\n- `npm run lint-terminology` on the file: passes.\n- `npm run link-check` cannot spawn the Markdown renderer in this environment (same limitation noted on #2904), so every added/changed URL was fetched manually and read: `https://docs.oracle.com/javase/8/docs/api/javax/xml/validation/SchemaFactory.html` (200, quote verified), `https://www.w3.org/TR/xmlschema-2/` and its `#facets` anchor (200), the OWASP XXE Prevention sheet (200).\n\n## AI Tool Usage Disclosure (required for all PRs)\n\n- [ ] I have NOT used any AI tool to generate the contents of this PR.\n- [x] I have used AI tools to generate the contents of this PR. I have verified\n    the contents and I affirm the results. The LLM used is `GLM (glm-5.3-flash-free), driving an OpenCode agent session on the contributor's device, 2026-11-12`\n    and the prompt used is `the resolution plan in #2796 (\"Condense schema validation to the principles: use a strict local schema, restrict types and lengths, and limit sizes and nesting. Keep one short example at most.\"), applied under this repo's CONTRIBUTING.md rules (fetch and read every source, no fabricated URLs, disclose AI usage)`. I have independently verified every citation and technical claim against the cited source.\n\nThis PR fixes issue #2796 (schema-validation part).\n",
+      "state": "closed",
+      "merged_at": "2026-11-16T10:32:18Z",
+      "user": {
+        "login": "Skeletor-Pirate"
+      }
+    },
+    "2954": {
+      "number": 2954,
+      "title": "XML Security: condense the malformed-document and jumbo-payload guidance (#2796)",
+      "body": "# You're A Rockstar\n\nThank you for submitting a Pull Request (PR) to the Cheat Sheet Series.\n\n> :triangular_flag_on_post: If your PR is related to grammar/typo mistakes, please double-check the file for other mistakes in order to fix all the issues in the current cheat sheet.\n\nPlease make sure that for your contribution:\n\n- [x] In case of a new Cheat Sheet, you have used the [Cheat Sheet template](../templates/New_CheatSheet.md). \u2014 N/A, no new sheet.\n- [x] All the markdown files do not raise any validation policy violation, see the [policy](https://github.com/OWASP/CheatSheetSeries/actions?query=workflow%3A%22Markdown+Link+Check%22).\n- [x] All the markdown files follow these [format rules](../CONTRIBUTING.md#markdown).\n- [x] All your assets are stored in the **assets** folder. \u2014 N/A, no assets in this PR.\n- [x] All the images used are in the **PNG** format. \u2014 N/A, no images in this PR.\n- [x] Any references to websites have been formatted as `[TEXT](URL)`\n- [x] You verified/tested the effectiveness of your contribution (e.g., the defensive code proposed is really an effective remediation? Please verify it works!). \u2014 This PR tightens existing guidance rather than adding remediation code; the one new citation (CWE-400) was fetched and read.\n- [x] The CI build of your PR pass, see the build status [here](https://github.com/OWASP/CheatSheetSeries/actions). \u2014 Will confirm once CI runs; `markdownlint` and `textlint` pass locally.\n\n## Scope and sourcing (required)\n\n- [x] This PR is focused: it modifies a single cheat sheet, or a small coordinated set, and the scope is described in the PR body.\n- [x] Every technical claim, recommendation, or threat assertion added in this PR is supported by a primary source (RFC, NIST, OWASP standard, vendor documentation, peer-reviewed research) linked inline as `[text](URL)`.\n- [x] I have read each source I cite and confirm it actually supports the claim. I have not relied on summaries, hearsay, or model-generated citations.\n\n## What this PR does\n\nThe third bullet of the #2796 resolution plan: **keep the malformed document and jumbo payload guidance, but shorter.** It replaces the section that was previously attempted in the now-closed #2907, following @mackowski's Nov 12 go-ahead in the issue thread.\n\n- `## Dealing with malformed XML documents`: the four sub-sections (`Malformed XML documents require extra time`, `Applications Processing Malformed Data`, `Malformed Document to Malformed Document`, `Well-Formed Document to Well-Formed Document Normalized`, plus `Handling coercive parsing`) collapse into two paragraphs \u2014 asymmetric resource consumption, and recovery mode plus coercive parsing \u2014 keeping the nested-comment recovery example and the 30,000-element coercive-parsing snippet. The two CDATA-normalisation examples go: the paragraph now states the same point in one sentence.\n- `### Jumbo Payloads`: the prose is tightened, the depth/width distinction becomes a two-item list, both existing examples are kept, and one sentence adds the CWE-400 classification plus a cross-link to the parser settings in the [XXE Prevention cheat sheet](https://cheatsheetseries.owasp.org/cheatsheets/XML_External_Entity_Prevention_Cheat_Sheet.html) for the entity-driven variant.\n- Net effect: ~100 lines of prose and examples down to ~70, no technical claims dropped, no new examples added.\n\nUntouched on purpose: `## Violation of XML Specification Rules`, `Schema Poisoning`, `XML Entity Expansion` (already condensed in #2904). The schema-validation condensation is PR #2953.\n\n## Sourcing notes\n\n- New citation: [CWE-400: Uncontrolled Resource Consumption](https://cwe.mitre.org/data/definitions/400.html) \u2014 fetched (HTTP 200) and read; the title and description match what the sentence claims about disproportionate resource use.\n- The XXE Prevention cross-link points at parser settings the target sheet actually documents (DTD/entity disabling); this PR does not claim it documents size limits.\n- No local anchors changed: no in-repo link targets a heading removed here (the only links into this sheet from other pages are `#xml-entity-expansion` and the page-internal `#remote-schema-poisoning`, both untouched).\n\n## Local checks\n\n- `npm run lint-markdown` on the file: passes.\n- `npm run lint-terminology` on the file: passes.\n- `npm run link-check` cannot spawn the Markdown renderer in this environment (same limitation noted on #2904), so the added URL was fetched manually and read.\n\n## AI Tool Usage Disclosure (required for all PRs)\n\n- [ ] I have NOT used any AI tool to generate the contents of this PR.\n- [x] I have used AI tools to generate the contents of this PR. I have verified\n    the contents and I affirm the results. The LLM used is `GLM (glm-5.3-flash-free), driving an OpenCode agent session on the contributor's device, 2026-11-12`\n    and the prompt used is `the third bullet of the #2796 resolution plan (\"Keep the malformed document and jumbo payload guidance, but shorter.\"), applied under this repo's CONTRIBUTING.md rules (fetch and read every source, no fabricated URLs, disclose AI usage)`. I have independently verified every citation and technical claim against the cited source.\n\nThis PR fixes issue #2796 (malformed-document and jumbo-payload part).\n",
+      "state": "closed",
+      "merged_at": "2026-11-17T01:32:16Z",
+      "user": {
+        "login": "Skeletor-Pirate"
+      }
+    }
+  },
+  "now": "2026-11-17T07:30:00Z"
+}

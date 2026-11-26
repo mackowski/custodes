@@ -1,0 +1,138 @@
+{
+  "repo": "OWASP/CheatSheetSeries",
+  "number": 2980,
+  "issue": {
+    "number": 2980,
+    "title": "Update: CORS Security Cheat Sheet",
+    "body": "<!--- Please complete the sections below -->\n\n## What is missing or needs to be updated?\ncurrently the sheet says \n>Don't treat a preflight as authorization. A preflight OPTIONS request never includes credentials ([Fetch Standard: >CORS protocol and credentials](https://fetch.spec.whatwg.org/#cors-protocol-and-credentials)), so answer it >without requiring a session, never perform an action on it, and authorize the actual request.\n\nHowever, some browsers deviate from this requirement for TLS client certificates:\n- Chromium-based browsers send TLS client certificates in CORS preflight requests\n- Firefox allows this behavior when the network.cors_preflight.allow_client_cert preference is enabled\n\nThe issue was also discussed in a previous pr #2946 \n\n## How should this be resolved?\nI'd replace the existing second bullet with this:\n\n- Don't treat a preflight as authorization. According to the Fetch Standard, a preflight `OPTIONS` request must not include credentials. However, some browsers deviate from this requirement for TLS client certificates:\n  - Chromium-based browsers send TLS client certificates in CORS preflight requests [Chromium issue #775438](https://crbug.com/775438)\n  - Firefox allows this behavior when the `network.cors_preflight.allow_client_cert` preference is enabled [Firefox bug #1511151](https://bugzil.la/1511151)\n\n\n\n<!-- Thank you again for your contribution -->\n",
+    "state": "open",
+    "user": {
+      "login": "MadEyE355"
+    },
+    "author_association": "NONE",
+    "labels": [
+      {
+        "name": "UPDATE_CS"
+      },
+      {
+        "name": "ACK_OBTAINED"
+      }
+    ],
+    "assignees": [
+      {
+        "login": "MadEyE355"
+      }
+    ],
+    "created_at": "2026-11-16T11:32:10Z",
+    "updated_at": "2026-11-17T07:24:36Z",
+    "comments": 4
+  },
+  "comments": [
+    {
+      "user": {
+        "login": "MadEyE355"
+      },
+      "author_association": "NONE",
+      "created_at": "2026-11-16T11:32:32Z",
+      "body": "I'll be happy to write it if it gets ack."
+    },
+    {
+      "user": {
+        "login": "Skeletor-Pirate"
+      },
+      "author_association": "NONE",
+      "created_at": "2026-11-16T17:08:52Z",
+      "body": "This is my sentence from #2969, and you're right that it overstates the guarantee: the Fetch definition of credentials includes TLS client certificates, and Chrome still violates the preflight rule (crbug 775438 / issue 40089326, open, P3) while Firefox gated its behaviour behind `network.cors_preflight.allow_client_cert` (bug 1511151, fixed).\n\nI'll implement it once the issue is ACK'd, keeping your wording."
+    },
+    {
+      "user": {
+        "login": "MadEyE355"
+      },
+      "author_association": "NONE",
+      "created_at": "2026-11-16T17:12:36Z",
+      "body": "Let others' have some fun man \ud83e\udd40"
+    },
+    {
+      "user": {
+        "login": "mackowski"
+      },
+      "author_association": "MEMBER",
+      "created_at": "2026-11-17T07:24:34Z",
+      "body": "Thanks @MadEyE355 yes please go ahead with PR! "
+    }
+  ],
+  "timeline": [
+    {
+      "event": "labeled",
+      "created_at": "2026-11-16T11:32:11Z",
+      "actor": {
+        "login": "MadEyE355"
+      },
+      "label": {
+        "name": "ACK_WAITING"
+      }
+    },
+    {
+      "event": "labeled",
+      "created_at": "2026-11-16T11:32:11Z",
+      "actor": {
+        "login": "MadEyE355"
+      },
+      "label": {
+        "name": "UPDATE_CS"
+      }
+    },
+    {
+      "event": "labeled",
+      "created_at": "2026-11-16T11:32:11Z",
+      "actor": {
+        "login": "MadEyE355"
+      },
+      "label": {
+        "name": "HELP_WANTED"
+      }
+    },
+    {
+      "event": "assigned",
+      "created_at": "2026-11-17T07:23:31Z",
+      "actor": {
+        "login": "mackowski"
+      },
+      "assignee": {
+        "login": "MadEyE355"
+      }
+    },
+    {
+      "event": "unlabeled",
+      "created_at": "2026-11-17T07:23:37Z",
+      "actor": {
+        "login": "mackowski"
+      },
+      "label": {
+        "name": "ACK_WAITING"
+      }
+    },
+    {
+      "event": "unlabeled",
+      "created_at": "2026-11-17T07:23:37Z",
+      "actor": {
+        "login": "mackowski"
+      },
+      "label": {
+        "name": "HELP_WANTED"
+      }
+    },
+    {
+      "event": "labeled",
+      "created_at": "2026-11-17T07:23:37Z",
+      "actor": {
+        "login": "mackowski"
+      },
+      "label": {
+        "name": "ACK_OBTAINED"
+      }
+    }
+  ],
+  "pulls": {},
+  "now": "2026-11-17T07:30:00Z"
+}
