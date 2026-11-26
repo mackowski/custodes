@@ -45,6 +45,9 @@ export const SHADOW = true;
  */
 export const FALLBACK_MODEL = 'openai/gpt-6.2-sol';
 
+/** `delegate` calls per orchestrator response: below the runtime's MAX_CALLS_PER_ROUND (8). */
+export const DELEGATE_BATCH = 4;
+
 /** Lists every open item: earlier than any issue on GitHub, but not the epoch (see openIssues). */
 export const LIST_FROM = '2000-01-01T00:00:00Z';
 
@@ -228,7 +231,9 @@ export class BacklogReviewAgent extends CustodesAgent<AgentsEnv> {
         },
       };
       // The task is code-built: issue numbers of this repository only, no text from GitHub.
-      const task = `Today is ${now.toISOString().slice(0, 10)}. Review these open issues of ${repo}: ${due.map((n) => `#${String(n)}`).join(', ')}.`;
+      // The batch size is code-stated too: more than MAX_CALLS_PER_ROUND tool calls in one response
+      // stop the whole run (invalid_args), as the first OWASP run did with 20 at once.
+      const task = `Today is ${now.toISOString().slice(0, 10)}. Review these open issues of ${repo}: ${due.map((n) => `#${String(n)}`).join(', ')}. Delegate them at most ${String(DELEGATE_BATCH)} per response.`;
       const result = await runAgentTree(port, root, roles, task, {
         shadow: SHADOW,
         child: hook,
